@@ -15,7 +15,7 @@ import path from 'node:path';
 import { runCommand, type RunOptions, type RunOutcome, type WorkspaceLayout } from '@canary-rn/support';
 import { normalize, type Normalizer } from '@canary-rn/normalizers';
 import { sha256hex } from '@canary-rn/hashing';
-import { parseSummaryCounts } from '@canary-rn/comparator';
+import { extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
 import type { RoundFact } from '@canary-rn/classification';
 
 export interface ExecutorDeps {
@@ -144,13 +144,18 @@ export class Recorder {
     arm: 'baseline' | 'candidate', index: number, argv: string[], timeoutSecs = 600,
   ): Promise<ExecResult & { fact: RoundFact }> {
     const res = await this.step(`${arm}-${index}`, argv, timeoutSecs);
+    const counts = parseSummaryCounts(res.combined);
     const fact: RoundFact = {
       arm,
       round: index,
       exitCode: res.run.exitCode,
       hasRunnerSummary: hasRunnerSummary(res.combined),
       infraSignal: res.run.exitCode !== 0 && isInfraOutput(res.combined),
-      reportedFailing: parseSummaryCounts(res.combined).failing,
+      reportedFailing: counts.failing,
+      // Audit F13: failing-test identities are FIRST-CLASS evidence. Sorted
+      // so that profile comparison is order-independent; classification uses
+      // them (audit F2), the bundle persists them, the report renders them.
+      failingTestNames: extractFailingTestNames(res.combined).sort(),
     };
     this.facts.push(fact);
     return { ...res, fact };
@@ -163,6 +168,9 @@ export interface RoundEvidenceOut {
   exitCode: number;
   killedByTimeout: boolean;
   hasRunnerSummary: boolean;
+  infraSignal?: boolean | undefined;
+  reportedFailing?: number | undefined;
+  failingTestNames?: string[] | undefined;
   startedAt: string;
   durationMs: number;
   rawStdoutSha256: string;
@@ -181,6 +189,9 @@ export function roundEvidence(res: ExecResult, fact: RoundFact): RoundEvidenceOu
     exitCode: fact.exitCode,
     killedByTimeout: res.run.killedByTimeout,
     hasRunnerSummary: fact.hasRunnerSummary,
+    infraSignal: fact.infraSignal,
+    reportedFailing: fact.reportedFailing,
+    ...(fact.failingTestNames ? { failingTestNames: [...fact.failingTestNames] } : {}),
     startedAt: new Date().toISOString(),
     durationMs: res.run.durationMs,
     rawStdoutSha256: sha256hex(res.run.stdout),

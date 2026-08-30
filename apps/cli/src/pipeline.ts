@@ -13,7 +13,7 @@ import { validateSpec, type ExperimentSpec } from '@canary-rn/planner';
 import { auditFixtureDir, expectedExtractedDir } from '@canary-rn/workspace';
 import { downloadTarball } from '@canary-rn/github';
 import { staticFingerprint, withNpmVersion } from '@canary-rn/environment';
-import { Recorder, type ExecResult } from '@canary-rn/executor';
+import { Recorder, roundEvidence as execRoundEvidence, type ExecResult } from '@canary-rn/executor';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
 import { diffTrees, escapePkgKey, extractFailingTestNames, parseSummaryCounts, type DepTree } from '@canary-rn/comparator';
 import { classify, type RoundFact } from '@canary-rn/classification';
@@ -132,7 +132,7 @@ export async function runExperiment(specRaw: unknown, repoRoot: string, quiet = 
   const baseEv: RoundEvidence[] = [];
   for (let i = 1; i <= spec.repeats.baseline; i++) {
     const r = await rec.round('baseline', i, execArgv(spec.commands.test), spec.timeoutSecs?.test ?? 600);
-    baseEv.push(roundEvidence(r));
+    baseEv.push(execRoundEvidence(r, r.fact));
   }
 
   // [6] swap candidate
@@ -156,7 +156,7 @@ export async function runExperiment(specRaw: unknown, repoRoot: string, quiet = 
   let firstCand: (ExecResult & { fact: RoundFact }) | undefined;
   for (let i = 1; i <= spec.repeats.candidate; i++) {
     const r = await rec.round('candidate', i, execArgv(spec.commands.test), spec.timeoutSecs?.test ?? 600);
-    candEv.push(roundEvidence(r));
+    candEv.push(execRoundEvidence(r, r.fact));
     firstCand ??= r;
   }
 
@@ -230,24 +230,6 @@ export async function runExperiment(specRaw: unknown, repoRoot: string, quiet = 
   const summaryCounts = parseSummaryCounts(firstCand?.combined ?? '');
   log(`\nEXPERIMENT ${spec.id}: ${cls.classification} (rule ${cls.rule}) — ${cls.reason}`);
   return { bundle, workspace: WS, artifactsDir: ART, failingTestNames, summaryCounts, bundleIssues };
-
-  function roundEvidence(r: ExecResult & { fact: RoundFact }): RoundEvidence {
-    const f = r.fact;
-    return {
-      arm: f.arm, round: f.round, exitCode: f.exitCode,
-      killedByTimeout: r.run.killedByTimeout,
-      hasRunnerSummary: f.hasRunnerSummary,
-      startedAt: new Date().toISOString(),
-      durationMs: r.run.durationMs,
-      rawStdoutSha256: sha256hex(r.run.stdout),
-      rawStderrSha256: sha256hex(r.run.stderr),
-      normalizedStdoutSha256: sha256hex(r.normOut),
-      normalizedStderrSha256: sha256hex(r.normErr),
-      logPath: `${r.label}.stdout.log`,
-      argv: [...r.run.argv],
-      envKeys: [...r.run.envKeys],
-    };
-  }
 }
 
 export class InfraAbort extends Error {

@@ -151,6 +151,27 @@ describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', (
     } finally { cleanup(); }
   });
 
+  it('audit F13: failing-test identities from REAL subprocess output land in fact and evidence', async () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const r = await rec.round('candidate', 1, [NODE, '-e', [
+        'console.log("  125 passing (119ms)");',
+        'console.log("  2 failing");',
+        'console.log("  1) Suite B");',
+        'console.log("     beta works:");',
+        'console.log("  2) Suite A");',
+        'console.log("     alpha works:");',
+      ].join('')], 30);
+      assert.equal(r.fact.reportedFailing, 2);
+      // sorted — order-independent profile comparison (audit F2)
+      assert.deepEqual(r.fact.failingTestNames, ['alpha works', 'beta works']);
+      const ev = roundEvidence(r, r.fact);
+      assert.equal(ev.reportedFailing, 2);
+      assert.deepEqual(ev.failingTestNames, ['alpha works', 'beta works']);
+      assert.equal(ev.infraSignal, false);
+    } finally { cleanup(); }
+  });
+
   it('timeout kills produce exit -1 (and tree-kill runs without throwing)', async () => {
     const { rec, cleanup } = freshRecorder();
     try {

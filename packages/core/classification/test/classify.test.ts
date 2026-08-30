@@ -3,13 +3,18 @@ import { describe, it } from 'node:test';
 
 import { classify, type RoundFact } from '../src/index.js';
 
-/** Build a healthy test round (runner summary present, no infra noise). */
+/** Build a healthy test round (runner summary present, no infra noise).
+ *  Failing rounds carry a parseable failing count: post-audit-F1 semantics
+ *  treat summary+exit!=0 WITHOUT a failing line as infra, so a healthy
+ *  TEST-failure round must show one (real mocha always prints "N failing"
+ *  when N > 0). */
 function arm(kind: 'baseline' | 'candidate', round: number, pass = true): RoundFact {
   return {
     arm: kind, round,
     exitCode: pass ? 0 : 1,
     hasRunnerSummary: true,
     infraSignal: false,
+    ...(pass ? {} : { reportedFailing: 1, failingTestNames: ['placeholder test'] }),
   };
 }
 
@@ -105,6 +110,92 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
     };
     const r = classify([arm('baseline', 1), arm('baseline', 2), masked, { ...masked, round: 2 }]);
     assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+  });
+
+  it('audit F1 (mocha-realistic): passing summary WITHOUT a failing line + nonzero exit -> INFRA, never CONFIRMED_REGRESSION', () => {
+    // The exact false-green the independent audit flagged: real mocha omits
+    // the "N failing" line when zero tests failed, so reportedFailing is
+    // UNPARSEABLE (undefined) — not unknown-failures, but reported-zero.
+    // Baseline clean; ALL three candidate rounds crash post-summary at exit 1.
+    const postSummaryCrash = (round: number): RoundFact => ({
+      arm: 'candidate', round, exitCode: 1,
+      hasRunnerSummary: true, infraSignal: false,
+      // log was "128 passing" only — parseSummaryCounts().failing === undefined
+      reportedFailing: undefined, failingTestNames: [],
+    });
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      postSummaryCrash(1), postSummaryCrash(2), postSummaryCrash(3),
+    ]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(r.rule, 1);
+  });
+
+  it('audit F2: candidate rounds failing DIFFERENT counts -> FLAKY rule 8, not CONFIRMED_REGRESSION', () => {
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      { ...arm('candidate', 1, false), reportedFailing: 3, failingTestNames: ['a', 'b', 'c'] },
+      { ...arm('candidate', 2, false), reportedFailing: 5, failingTestNames: ['a', 'b', 'c', 'd', 'e'] },
+    ]);
+    assert.equal(r.classification, 'FLAKY');
+    assert.equal(r.rule, 8);
+  });
+
+  it('audit F2: same count but DIFFERENT failing-test identities -> FLAKY rule 8', () => {
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      { ...arm('candidate', 1, false), reportedFailing: 2, failingTestNames: ['alpha', 'beta'] },
+      { ...arm('candidate', 2, false), reportedFailing: 2, failingTestNames: ['alpha', 'gamma'] },
+    ]);
+    assert.equal(r.classification, 'FLAKY');
+    assert.equal(r.rule, 8);
+  });
+
+  it('audit F2: identical failure profiles (golden shape) -> still CONFIRMED_REGRESSION rule 5', () => {
+    const golden = (round: number): RoundFact => ({
+      arm: 'candidate', round, exitCode: 3,
+      hasRunnerSummary: true, infraSignal: false,
+      reportedFailing: 3,
+      failingTestNames: ['can pass headers to match to a handler', 'handles baseURL correctly'],
+    });
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2), golden(1), golden(2), golden(3),
+    ]);
+    assert.equal(r.classification, 'CONFIRMED_REGRESSION');
+    assert.equal(r.rule, 5);
+  });
+
+  it('audit F2: profile comparison is order-independent (sorted identities)', () => {
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      { ...arm('candidate', 1, false), reportedFailing: 2, failingTestNames: ['beta', 'alpha'] },
+      { ...arm('candidate', 2, false), reportedFailing: 2, failingTestNames: ['alpha', 'beta'] },
+    ]);
+    assert.equal(r.classification, 'CONFIRMED_REGRESSION');
+  });
+
+  it('audit F2: unstable baseline failure identities block PRE_EXISTING_FAILURE -> FLAKY', () => {
+    const r = classify([
+      { ...arm('baseline', 1, false), reportedFailing: 1, failingTestNames: ['x'] },
+      { ...arm('baseline', 2, false), reportedFailing: 1, failingTestNames: ['y'] },
+      { ...arm('candidate', 1, false), reportedFailing: 1, failingTestNames: ['y'] },
+    ]);
+    assert.equal(r.classification, 'FLAKY');
+    assert.equal(r.rule, 8);
+  });
+
+  it('audit F1 contract: summary-present failing round WITHOUT any failing count is INFRA, not regression', () => {
+    // Post-fix semantics: "unknown failing count on a matched summary" reads
+    // as reported-zero (mocha omits the line at zero). A bundle that only
+    // knows exit codes can never produce a confirmed regression.
+    const bareFail = (round: number): RoundFact => ({
+      arm: 'candidate', round, exitCode: 1, hasRunnerSummary: true, infraSignal: false,
+    });
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2), bareFail(1), bareFail(2),
+    ]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(r.rule, 1);
   });
 
   it('is pure: same facts always yield the same verdict', () => {

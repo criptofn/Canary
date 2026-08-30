@@ -8,5 +8,8 @@
   "types": "./dist/src/index.d.ts",
   "exports": {
     ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" }
+  },
+  "dependencies": {
+    "@canary-rn/classification": "*"
   }
 }

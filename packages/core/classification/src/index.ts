@@ -36,6 +36,11 @@ export interface RoundFact {
    *  a zero exit whose log reports failing tests is a masked failure
    *  (red-team findings F1/F5). */
   reportedFailing?: number | undefined;
+  /** Sorted failing-test identities parsed from the log, when parseable.
+   *  Audit F2: exit-code unanimity alone can label a run CONFIRMED while the
+   *  rounds failed DIFFERENT tests (or different numbers of tests) — a
+   *  non-reproducible failure is FLAKY, never a confirmed regression. */
+  failingTestNames?: readonly string[] | undefined;
 }
 
 export interface ClassificationResult {
@@ -55,17 +60,24 @@ export interface ClassificationResult {
 
 /**
  * A failing round is only a TEST failure if its log actually reports failing
- * tests. Guards encoded here (red-team F1/F5 + prototype lesson F7-degenerate):
- *  - exit ≠ 0 with no structured summary or an infra pattern -> infra
- *  - exit ≠ 0 while the summary reports 0 failing -> the process died for a
- *    non-test reason (port collision, teardown crash...) -> infra
- *  - exit = 0 while the summary reports ≥1 failing -> masked failure via a
+ * tests. Guards encoded here (red-team F1/F5 + audit F1 + prototype lesson
+ * F7-degenerate):
+ *  - exit != 0 with no structured summary or an infra pattern -> infra
+ *  - exit != 0 whose summary reports zero failing tests -> the process died
+ *    for a non-test reason (port collision, teardown crash...) -> infra.
+ *    CRITICAL (audit F1): mocha/ava OMIT the failing line entirely when zero
+ *    tests failed, so a passing-style summary with NO parseable failing
+ *    count means "reported zero failures" — never "unknown failures that
+ *    might be a regression". Reading undefined as unknown here is what made
+ *    "prints a passing summary, then exits nonzero" a false
+ *    CONFIRMED_REGRESSION; the conservative reading (infra) is contractual.
+ *  - exit = 0 while the summary reports >=1 failing -> masked failure via a
  *    bad test command -> infra (never silently PASS)
  */
 function isInfraRound(r: RoundFact): boolean {
   if (r.exitCode === -1) return true;
   if (r.exitCode !== 0 && (r.infraSignal || !r.hasRunnerSummary)) return true;
-  if (r.exitCode !== 0 && r.hasRunnerSummary && r.reportedFailing === 0) return true;
+  if (r.exitCode !== 0 && r.hasRunnerSummary && (r.reportedFailing ?? 0) === 0) return true;
   if (r.exitCode === 0 && (r.reportedFailing ?? 0) > 0) return true;
   return false;
 }
@@ -73,6 +85,32 @@ function isInfraRound(r: RoundFact): boolean {
 const pass = (r: RoundFact): boolean => r.exitCode === 0;
 const unanimous = (rs: readonly RoundFact[]): boolean =>
   rs.length > 0 && rs.every((r) => pass(r) === pass(rs[0]!));
+
+/**
+ * Identity of a round's failure: how many tests the summary said failed, and
+ * WHICH ones. '?' distinguishes "not observed" from "observed as zero/empty",
+ * so a runner whose summary parses on some rounds but not others counts as
+ * non-uniform (defensible: the failure record itself varies run-to-run).
+ */
+function failureProfile(r: RoundFact): string {
+  const count = r.reportedFailing === undefined ? '?' : String(r.reportedFailing);
+  const names = Array.isArray(r.failingTestNames)
+    ? [...r.failingTestNames].sort().join('\n')
+    : '?';
+  return `${count}|${names}`;
+}
+
+/**
+ * True iff every FAILING round within the arm failed identically (same count,
+ * same test identities). Passing rounds are irrelevant — their agreement is
+ * already covered by exit-code unanimity. Audit F2.
+ */
+function failingProfileStable(rs: readonly RoundFact[]): boolean {
+  const failing = rs.filter((r) => !pass(r));
+  if (failing.length <= 1) return true;
+  const first = failureProfile(failing[0]!);
+  return failing.every((r) => failureProfile(r) === first);
+}
 
 export function classify(rounds: readonly RoundFact[]): ClassificationResult {
   const baseline = rounds.filter((r) => r.arm === 'baseline');
@@ -124,6 +162,18 @@ export function classify(rounds: readonly RoundFact[]): ClassificationResult {
     return mk('FLAKY', 2, 'baseline rounds disagree — environment cannot support a proof', {
       baselinePass: bPass, baselineUnanimous: false, candidateUnanimous: false,
     });
+  }
+
+  // Rule 8 (audit F2): exit-code unanimity is necessary but NOT sufficient.
+  // Within an arm, all FAILING rounds must have failed identically — same
+  // failing-test count, same failing-test identities — otherwise the failure
+  // is not reproducible and must never be labeled CONFIRMED_REGRESSION /
+  // PRE_EXISTING_FAILURE.
+  if (!failingProfileStable(baseline) || !failingProfileStable(candidate)) {
+    const unstableArm = failingProfileStable(baseline) ? 'candidate' : 'baseline';
+    return mk('FLAKY', 8,
+      `${unstableArm} failing rounds differ in count/identity across repeats — failure not reproducible`,
+      { baselinePass: bPass, baselineUnanimous: bUnanim, candidateUnanimous: false });
   }
 
   const cAllPass = candidate.every(pass);

@@ -6,9 +6,17 @@
  *  - classification lives ONLY under `classification` and is one of the six
  *    deterministic labels;
  *  - every round carries raw AND normalized stream hashes;
+ *  - SEMANTIC integrity (audit F3): the label is RE-DERIVED from the round
+ *    facts by the very decision table that produced it, and internal
+ *    contradictions (timeout/exit, reproductionCount, unconfined drift with a
+ *    trustful verdict) are rejected. A hand-authored bundle whose story does
+ *    not follow from its own facts is invalid, not just a weird-looking one.
  *  - optional `ai` data is namespaced and has no path to classification —
  *    the type system literally cannot express an AI-authored verdict.
  */
+
+import { classify, type RoundFact } from '@canary-rn/classification';
+
 
 export const EVIDENCE_SCHEMA_VERSION = 1;
 
@@ -28,6 +36,13 @@ export interface RoundEvidence {
   exitCode: number;
   killedByTimeout: boolean;
   hasRunnerSummary: boolean;
+  /** Deterministic infra pattern matched in this round's output (audit F3:
+   *  required for the validator to re-derive the classification faithfully). */
+  infraSignal?: boolean | undefined;
+  /** Failing-test count as parsed from the runner summary, if machine-readable. */
+  reportedFailing?: number | undefined;
+  /** Sorted failing-test identities parsed from this round's log (audit F13). */
+  failingTestNames?: string[] | undefined;
   startedAt: string;
   durationMs: number;
   rawStdoutSha256: string;
@@ -181,7 +196,91 @@ export function validateBundle(b: unknown): Issue[] {
   const dc = tc?.dependencyCopies as Record<string, unknown> | undefined;
   if (!dc || typeof dc.baseline !== 'number' || typeof dc.candidate !== 'number') issues.push('treeComparison.dependencyCopies missing');
 
+  if (Array.isArray(rounds) && rounds.length > 0) {
+    semanticChecks(
+      rounds as Record<string, unknown>[],
+      cls ?? {}, tc ?? {},
+      issues,
+    );
+  }
+
   return issues;
+}
+
+/**
+ * Audit F3: structural well-formedness is necessary but nowhere near
+ * sufficient — the earlier validator accepted ANY well-shaped bundle,
+ * including contradictory fabrications (label at odds with its own rounds).
+ * These checks make the bundle refute itself if it lies.
+ */
+function semanticChecks(
+  rounds: Record<string, unknown>[],
+  cls: Record<string, unknown>,
+  tc: Record<string, unknown>,
+  issues: Issue[],
+): void {
+  // 1. Per-round internal contradictions.
+  for (const r of rounds) {
+    const at = `round ${String(r.arm)}#${String(r.round)}`;
+    if (r.killedByTimeout === true && r.exitCode !== -1) {
+      issues.push(`${at}: killedByTimeout but exitCode=${String(r.exitCode)} (a killed round exits -1)`);
+    }
+    if (r.reportedFailing !== undefined && (typeof r.reportedFailing !== 'number' || !Number.isInteger(r.reportedFailing) || r.reportedFailing < 0)) {
+      issues.push(`${at}: reportedFailing must be a non-negative integer when present`);
+    }
+    if (r.failingTestNames !== undefined &&
+      !(Array.isArray(r.failingTestNames) && (r.failingTestNames as unknown[]).every((x) => typeof x === 'string'))) {
+      issues.push(`${at}: failingTestNames must be an array of strings when present`);
+    }
+  }
+
+  const candCount = rounds.filter((r) => r.arm === 'candidate').length;
+  // 2. reproductionCount must be the candidate-arm round count (as the
+  //    pipeline emits); a fabricated "100x reproduced" must die here.
+  if (typeof cls.reproductionCount === 'number' && cls.reproductionCount !== candCount) {
+    issues.push(`classification.reproductionCount=${cls.reproductionCount} but bundle has ${candCount} candidate round(s)`);
+  }
+
+  // 3. A verdict that asks the reader to TRUST arm comparability cannot ship
+  //    with unconfined drift — the pipeline's rule-9 guard is verifiable here.
+  const label = cls.label as ClassificationLabel;
+  if (tc.driftConfinedToDependency === false &&
+    (label === 'CONFIRMED_REGRESSION' || label === 'PRE_EXISTING_FAILURE' || label === 'PASS')) {
+    issues.push(`classification ${label} is impossible with driftConfinedToDependency=false (rule-9 guard bypassed?)`);
+  }
+
+  // 4. Re-derive the classification from the round facts using the SAME
+  //    decision table that produced it. This only runs when the bundle
+  //    carries every input the classifier consumed (infraSignal present on
+  //    all rounds — bundles predating audit F13 cannot be semantically
+  //    verified and are flagged as such when claiming a trustful verdict).
+  const fullFacts = rounds.every((r) => typeof r.hasRunnerSummary === 'boolean' && typeof r.infraSignal === 'boolean');
+  if (!fullFacts) {
+    if (label === 'CONFIRMED_REGRESSION' || label === 'PRE_EXISTING_FAILURE') {
+      issues.push('trustful verdict in a bundle without per-round infraSignal — classification cannot be independently re-derived');
+    }
+    return;
+  }
+  const facts: RoundFact[] = rounds.map((r) => ({
+    arm: r.arm as 'baseline' | 'candidate',
+    round: r.round as number,
+    exitCode: r.exitCode as number,
+    hasRunnerSummary: r.hasRunnerSummary as boolean,
+    infraSignal: r.infraSignal as boolean,
+    ...(r.reportedFailing !== undefined ? { reportedFailing: r.reportedFailing as number } : {}),
+    ...(r.failingTestNames !== undefined ? { failingTestNames: r.failingTestNames as string[] } : {}),
+  }));
+  const derived = classify(facts);
+  const isRuleNineOverride =
+    label === 'INCONCLUSIVE' && cls.rule === 9 &&
+    tc.driftConfinedToDependency === false &&
+    derived.classification !== 'INFRASTRUCTURE_FAILURE';
+  if (!isRuleNineOverride && (derived.classification !== label || derived.rule !== cls.rule)) {
+    issues.push(
+      `classification contradicts its own round facts: bundle says ${String(cls.label)} rule ${String(cls.rule)}, ` +
+      `re-derivation from these rounds yields ${derived.classification} rule ${derived.rule}`,
+    );
+  }
 }
 
 /** True iff the bundle is valid AND its classification is trustworthy to print. */

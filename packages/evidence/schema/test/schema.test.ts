@@ -9,7 +9,8 @@ const SHA40 = 'b8804442837556a2c7673caeb2925688991b610c';
 function goodBundle(): Record<string, unknown> {
   const round = (arm: 'baseline' | 'candidate', n: number) => ({
     arm, round: n, exitCode: arm === 'baseline' ? 0 : 3,
-    killedByTimeout: false, hasRunnerSummary: true,
+    killedByTimeout: false, hasRunnerSummary: true, infraSignal: false,
+    ...(arm === 'candidate' ? { reportedFailing: 3, failingTestNames: ['a test', 'b test'] } : {}),
     startedAt: '2026-08-30T00:00:00Z', durationMs: 120,
     rawStdoutSha256: H, rawStderrSha256: H,
     normalizedStdoutSha256: H, normalizedStderrSha256: H,
@@ -68,5 +69,77 @@ describe('validateBundle', () => {
     const b = goodBundle();
     (b.classification as Record<string, unknown>).reproductionCount = 0;
     assert.ok(validateBundle(b).some((e) => /reproductionCount/.test(e)));
+  });
+});
+
+// Audit F3: the validator must REFUTE contradictory evidence, not just
+// pretty-print its shape. Every case below is a fabricated bundle that the
+// structural validator used to accept.
+describe('validateBundle — semantic integrity (audit F3)', () => {
+  const setCls = (b: Record<string, unknown>, patch: Record<string, unknown>) =>
+    Object.assign(b.classification as Record<string, unknown>, patch);
+
+  it('rejects a CONFIRMED_REGRESSION label whose own rounds say PASS', () => {
+    const b = goodBundle();
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      if (r.arm === 'candidate') { r.exitCode = 0; delete r.reportedFailing; delete r.failingTestNames; }
+    }
+    assert.ok(validateBundle(b).some((e) => /re-derivation from these rounds yields PASS/.test(e)),
+      String(validateBundle(b)));
+  });
+
+  it('rejects a CONFIRMED_REGRESSION built from rounds whose failure identities differ (must re-derive FLAKY rule 8)', () => {
+    const b = goodBundle();
+    b.rounds = [
+      ...(b.rounds as object[]),
+      {
+        ...(b.rounds as Record<string, unknown>[])[2]!,
+        round: 2, exitCode: 3, reportedFailing: 3, failingTestNames: ['other test', 'b test'],
+      },
+    ];
+    setCls(b, { reproductionCount: 2 });
+    assert.ok(validateBundle(b).some((e) => /yields FLAKY rule 8/.test(e)), String(validateBundle(b)));
+  });
+
+  it('rejects masked-failure rounds (exit 0 with reported failures) under a PASS label', () => {
+    const b = goodBundle();
+    setCls(b, { label: 'PASS', rule: 3, reproductionCount: 1 });
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      if (r.arm === 'candidate') { r.exitCode = 0; r.reportedFailing = 3; }
+      else { delete r.reportedFailing; delete r.failingTestNames; }
+    }
+    assert.ok(validateBundle(b).some((e) => /re-derivation .* yields INFRASTRUCTURE_FAILURE/.test(e)),
+      String(validateBundle(b)));
+  });
+
+  it('rejects killedByTimeout=true alongside a normal exit code', () => {
+    const b = goodBundle();
+    ((b.rounds as Record<string, unknown>[])[0]!).killedByTimeout = true;
+    assert.ok(validateBundle(b).some((e) => /killed round exits -1/.test(e)));
+  });
+
+  it('rejects an inflated reproductionCount not backed by candidate rounds', () => {
+    const b = goodBundle();
+    setCls(b, { reproductionCount: 100 });
+    assert.ok(validateBundle(b).some((e) => /reproductionCount=100 but bundle has 1 candidate/.test(e)));
+  });
+
+  it('rejects a trustful verdict while drift says NOT confined (rule-9 guard bypassed)', () => {
+    const b = goodBundle();
+    (b.treeComparison as Record<string, unknown>).driftConfinedToDependency = false;
+    assert.ok(validateBundle(b).some((e) => /rule-9 guard bypassed/.test(e)));
+  });
+
+  it('accepts the legitimate rule-9 override: unconfined drift + INCONCLUSIVE rule 9', () => {
+    const b = goodBundle();
+    (b.treeComparison as Record<string, unknown>).driftConfinedToDependency = false;
+    setCls(b, { label: 'INCONCLUSIVE', rule: 9 });
+    assert.deepEqual(validateBundle(b), []);
+  });
+
+  it('refuses to treat a CONFIRMED_REGRESSION as trustworthy when round facts are too sparse to re-derive', () => {
+    const b = goodBundle();
+    for (const r of b.rounds as Record<string, unknown>[]) delete r.infraSignal;
+    assert.ok(validateBundle(b).some((e) => /cannot be independently re-derived/.test(e)));
   });
 });
