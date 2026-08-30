@@ -23,9 +23,36 @@ describe('inDependencySubtree', () => {
     assert.ok(!inDependencySubtree('axios-mock-adapter', 'axios')); // prefix-lookalike
     assert.ok(!inDependencySubtree('lodash', 'axios'));
   });
+  it('audit F10: a SCOPED dependency matches its own escaped keys', () => {
+    // dependency '@scope/pkg' → tree key '@scope%2Fpkg'. The old raw compare
+    // ('@scope%2Fpkg' === '@scope/pkg') made the dep's OWN subtree look
+    // "not confined"; escaping the dep argument fixes it.
+    assert.ok(inDependencySubtree('@scope%2Fpkg', '@scope/pkg'));
+    assert.ok(inDependencySubtree('@scope%2Fpkg/child', '@scope/pkg')); // dep's child
+    assert.ok(inDependencySubtree('host/@scope%2Fpkg', '@scope/pkg'));  // nested copy
+    // and still not a lookalike:
+    assert.ok(!inDependencySubtree('other%2Fpkg', '@scope/pkg'));
+    assert.ok(!inDependencySubtree('@scope/pkg', '@scope/pkg')); // raw key form is the escaped one in trees
+  });
 });
 
 describe('diffTrees — the arms-equality proof', () => {
+  it('audit F10: scoped dependency drift inside its subtree is confined', () => {
+    // treeHash emits ESCAPED keys on BOTH arms — the realistic shape.
+    const before = { '@scope%2Fpkg': '1.0.0', 'lodash': '4.17.21' };
+    const after = { '@scope%2Fpkg': '2.0.0', 'lodash': '4.17.21' };
+    const d = diffTrees(before, after, '@scope/pkg');
+    // The changed key is the scoped dep's own copy → confined (previously the
+    // raw-vs-escaped mismatch pushed it into `other`).
+    assert.ok(d.confined, JSON.stringify(d.other));
+  });
+  it('audit F10: scoped dep PLUS real external drift is still NOT confined', () => {
+    const before = { '@scope%2Fpkg': '1.0.0', 'lodash': '4.17.21' };
+    const after = { '@scope%2Fpkg': '2.0.0', 'lodash': '4.17.20' };
+    const d = diffTrees(before, after, '@scope/pkg');
+    assert.ok(!d.confined);
+    assert.deepEqual(d.other, ['lodash']);
+  });
   it('golden case: only the dependency subtree changed', () => {
     const before = { axios: '0.27.2', 'follow-redirects': '1.15.0', lodash: '4.17.21', chai: '4.3.6' };
     const after = {

@@ -36,9 +36,16 @@ export function diffTrees(before: DepTree, after: DepTree, dependency: string): 
  * scoped package name is encoded as '%2F', so a raw '/' only ever means
  * parent/child nesting. Without escaping, '@types/axios' would masquerade
  * as a nested axios copy and bypass the confinement proof.
+ *
+ * Audit F10: the `dependency` ARGUMENT is the raw spec name (e.g.
+ * '@scope/pkg'), but keys are escaped — comparing raw-vs-escaped meant a
+ * scoped dependency's OWN subtree never matched, so every scoped-drift report
+ * was falsely "not confined". escapePkgKey is idempotent (a '%2F' has no
+ * '/' left to re-escape), so this also tolerates an already-escaped argument.
  */
 export function inDependencySubtree(key: string, dependency: string): boolean {
-  return key === dependency || key.startsWith(dependency + '/') || key.endsWith('/' + dependency);
+  const dep = escapePkgKey(dependency);
+  return key === dep || key.startsWith(dep + '/') || key.endsWith('/' + dep);
 }
 
 /** Escape one npm package name for use inside DepTree paths. */

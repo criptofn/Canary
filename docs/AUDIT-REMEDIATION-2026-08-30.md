@@ -62,8 +62,8 @@ Status legend: OPEN · DONE · PROVIDER_BLOCKED · DISPROVEN(with evidence)
 ### M7 — tree-drift correctness
 | ID | Finding | Root cause located | Status |
 |---|---|---|---|
-| F9 | Confinement removal not caught by the 73-test suite | The rule-9 confinement override lives inline in `runExperiment`; no test exercises it. Fix: pure `applyConfinementGuard` + offline end-to-end pipeline test (M8 seam) so guard removal flips a test. | OPEN |
-| F10 | Scoped/nested dependency drift handling gaps | `diffTrees` passes the **raw** spec package name into `inDependencySubtree` while tree keys are `escapePkgKey`-encoded — for a scoped dep (`@scope/pkg` → key `@scope%2Fpkg`) `key === dependency` never matches → every scoped-drift report is falsely "not confined". `endsWith('/'+dep)` also needs the escaped form. | OPEN |
+| F9 | Confinement removal not caught by the 73-test suite | The rule-9 confinement override lives inline in `runExperiment`; no test exercises it. Fix: pure `applyConfinementGuard` + offline end-to-end pipeline test (M8 seam) so guard removal flips a test. | DONE (M7, unit half): pure `applyConfinementGuard()` exported from classification; pipeline rewired to it; 5 new unit tests (downgrades CONFIRMED/PASS/PRE_EXISTING; never masks INFRA; identity when confined; guard-removal-flip property). The offline e2e half of the fix lands with M8's pipeline test. |
+| F10 | Scoped/nested dependency drift handling gaps | `diffTrees` passes the **raw** spec package name into `inDependencySubtree` while tree keys are `escapePkgKey`-encoded — for a scoped dep (`@scope/pkg` → key `@scope%2Fpkg`) `key === dependency` never matches → every scoped-drift report is falsely "not confined". `endsWith('/'+dep)` also needs the escaped form. | DONE (M7: inDependencySubtree escapes the dependency argument (idempotent); 3 new comparator tests — scoped own-subtree confined, lookalikes still rejected, scoped+external-drift still NOT confined) |
 
 ### M8 — pipeline and CLI integration tests
 | ID | Finding | Scope | Status |
@@ -173,3 +173,18 @@ regression guard that `--loglevel=silent install` still injects. Suite
 103→110; build+typecheck clean; golden Axios proof PASS (16/16 — the real
 `--before=…`/`--no-save`/`--no-package-lock`/`--frozen-lockfile` shapes all
 expand and inject correctly).
+
+### 2026-08-31 — M7 (F9, F10) @ this commit
+F10: `inDependencySubtree` now `escapePkgKey`s the dependency argument before
+matching (keys are escaped by treeHash; comparing raw '@scope/pkg' against
+'@scope%2Fpkg' never matched, so a scoped dependency's OWN subtree was always
+falsely "not confined" → permanent false INCONCLUSIVE). Escaping is
+idempotent, tolerates already-escaped callers, and keeps the red-team F4
+lookalike protections intact. 3 comparator tests.
+F9: rule-9 confinement override extracted from inline pipeline code into
+pure `applyConfinementGuard()` in @canary-rn/classification (pipeline rewired
+— behavior byte-identical). 5 classification tests pin: downgrade of every
+trustful label under unconfined drift, INFRA never masked, identity under
+confined drift, and the guard-removal-flip property. The offline e2e
+pipeline test for the same seam is the M8 gap and lands next.
+Suite 110→118; build+typecheck clean; golden Axios proof PASS (16/16).

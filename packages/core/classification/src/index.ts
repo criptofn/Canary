@@ -216,3 +216,38 @@ export function classify(rounds: readonly RoundFact[]): ClassificationResult {
     `${candidate.filter((r) => !pass(r)).length}/${candidate.length} candidate rounds failed — nondeterministic`,
     { baselinePass: true, baselineUnanimous: true, candidateUnanimous: false });
 }
+
+/** Tree-confinement facts as observed by the pipeline (structural — keeps
+ *  the classification package dependency-free). */
+export interface Confinement {
+  /** True iff every tree-drift key lives inside the studied dependency's subtree. */
+  confined: boolean;
+  /** Drift keys NOT explained by the dependency subtree (escaped form). */
+  other: readonly string[];
+  /** The studied dependency (raw spec name). */
+  dependency: string;
+}
+
+/**
+ * Rule 9 — CONFINEMENT IS ENFORCED, NOT DECORATIVE (audit F9; the guard that
+ * used to live inline in the pipeline was untested, so deleting it changed
+ * nothing in the suite). Arms whose dependency trees differ OUTSIDE the
+ * studied dependency's subtree are not comparable: no verdict may be based
+ * on them, so any trustful classification is downgraded to INCONCLUSIVE
+ * rule 9. INFRASTRUCTURE_FAILURE keeps its own (higher-fidelity) reason.
+ *
+ * Pure and total; the evidence validator independently rejects trustful
+ * labels under driftConfinedToDependency=false, so a bundle that skipped
+ * this guard cannot validate either.
+ */
+export function applyConfinementGuard(
+  cls: ClassificationResult, drift: Confinement,
+): ClassificationResult {
+  if (drift.confined || cls.classification === 'INFRASTRUCTURE_FAILURE') return cls;
+  return {
+    ...cls,
+    classification: 'INCONCLUSIVE',
+    rule: 9,
+    reason: `tree drift outside ${drift.dependency} subtree (${drift.other.slice(0, 6).join(', ')}) — arms not comparable`,
+  };
+}

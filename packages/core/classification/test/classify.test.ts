@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { classify, type RoundFact } from '../src/index.js';
+import { applyConfinementGuard, classify, type RoundFact } from '../src/index.js';
 
 /** Build a healthy test round (runner summary present, no infra noise).
  *  Failing rounds carry a parseable failing count: post-audit-F1 semantics
@@ -205,5 +205,55 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
     const a = classify(facts);
     const b = classify(facts);
     assert.deepEqual(a, b);
+  });
+});
+
+describe('audit F9 — applyConfinementGuard (rule 9, enforced not decorative)', () => {
+  const confirmedFacts: RoundFact[] = [
+    arm('baseline', 1), arm('baseline', 2), arm('candidate', 1, false), arm('candidate', 2, false),
+  ];
+
+  it('downgrades CONFIRMED_REGRESSION to INCONCLUSIVE rule 9 when drift is unconfined', () => {
+    const cls = classify(confirmedFacts);
+    assert.equal(cls.classification, 'CONFIRMED_REGRESSION'); // guard absent, rule 5
+    const g = applyConfinementGuard(cls, { confined: false, other: ['left-pad'], dependency: 'axios' });
+    assert.equal(g.classification, 'INCONCLUSIVE');
+    assert.equal(g.rule, 9);
+    assert.match(g.reason, /left-pad/);
+    assert.match(g.reason, /axios subtree/);
+  });
+
+  it('is identity when drift IS confined (a legit CONFIRMED survives)', () => {
+    const cls = classify(confirmedFacts);
+    const g = applyConfinementGuard(cls, { confined: true, other: [], dependency: 'axios' });
+    assert.deepEqual(g, cls);
+  });
+
+  it('never masks an INFRASTRUCTURE_FAILURE (higher-fidelity reason kept)', () => {
+    const infra = classify([
+      arm('baseline', 1), { ...arm('candidate', 1, false), hasRunnerSummary: false }, // rule-1 infra
+    ]);
+    assert.equal(infra.classification, 'INFRASTRUCTURE_FAILURE');
+    const g = applyConfinementGuard(infra, { confined: false, other: ['evil'], dependency: 'axios' });
+    assert.equal(g.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(g.rule, 1);
+  });
+
+  it('downgrades PASS and PRE_EXISTING_FAILURE too (any trustful verdict needs comparable arms)', () => {
+    const passCls = classify([arm('baseline', 1), arm('candidate', 1), arm('candidate', 2)]);
+    assert.equal(passCls.classification, 'PASS');
+    assert.equal(applyConfinementGuard(passCls, { confined: false, other: ['x'], dependency: 'axios' }).rule, 9);
+
+    const preCls = classify([arm('baseline', 1, false), arm('candidate', 1, false)]);
+    assert.equal(preCls.classification, 'PRE_EXISTING_FAILURE');
+    assert.equal(applyConfinementGuard(preCls, { confined: false, other: ['x'], dependency: 'axios' }).rule, 9);
+  });
+
+  it('guard removal would flip the outcome: identical facts, opposite confinement', () => {
+    const cls = classify(confirmedFacts);
+    const confined = applyConfinementGuard(cls, { confined: true, other: [], dependency: 'axios' });
+    const unconfined = applyConfinementGuard(cls, { confined: false, other: ['evil-pkg'], dependency: 'axios' });
+    assert.equal(confined.classification, 'CONFIRMED_REGRESSION');
+    assert.equal(unconfined.classification, 'INCONCLUSIVE');
   });
 });

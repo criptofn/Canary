@@ -16,7 +16,7 @@ import { staticFingerprint, withNpmVersion } from '@canary-rn/environment';
 import { Recorder, roundEvidence as execRoundEvidence, type ExecResult } from '@canary-rn/executor';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
 import { diffTrees, escapePkgKey, extractFailingTestNames, parseSummaryCounts, type DepTree } from '@canary-rn/comparator';
-import { classify, type RoundFact } from '@canary-rn/classification';
+import { classify, applyConfinementGuard, type RoundFact } from '@canary-rn/classification';
 import { EVIDENCE_SCHEMA_VERSION, validateBundle, type EvidenceBundle, type RoundEvidence } from '@canary-rn/evidence-schema';
 import { sha256hex } from '@canary-rn/hashing';
 
@@ -163,15 +163,12 @@ export async function runExperiment(specRaw: unknown, repoRoot: string, quiet = 
   // [8] classify + bundle
   let cls = classify(rec.facts);
   // F4: confinement is ENFORCED, not decorative — incomparable arms cannot
-  // yield a verdict (rule 9 = pipeline-level guard outside the decision table).
-  if (!drift.confined && cls.classification !== 'INFRASTRUCTURE_FAILURE') {
-    cls = {
-      ...cls,
-      classification: 'INCONCLUSIVE',
-      rule: 9,
-      reason: `tree drift outside ${spec.dependency.package} subtree (${drift.other.slice(0, 6).join(', ')}) — arms not comparable`,
-    };
-  }
+  // yield a verdict (rule 9 = pipeline-level guard outside the decision
+  // table). Audit F9: extracted to pure applyConfinementGuard so the guard
+  // removal flips dedicated unit + pipeline tests.
+  cls = applyConfinementGuard(cls, {
+    confined: drift.confined, other: drift.other, dependency: spec.dependency.package,
+  });
   const envFp = withNpmVersion(staticFingerprint(spec.environmentNotes?.toolchainOverrides ?? {}), await npmVersion());
   const bundle: EvidenceBundle = {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,
