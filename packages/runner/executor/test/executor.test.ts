@@ -87,6 +87,82 @@ describe('Recorder.expandArgv — token expansion + enforced isolation', () => {
     } finally { cleanup(); }
   });
 
+  // ---- audit F8: value-taking options before the subcommand used to shift
+  // detection and SILENTLY skip all isolation flags. Now: hard rejection. ----
+  it('F8: $npm -u evil.npmrc install x is REJECTED (was silent injection-skip)', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      assert.throws(
+        () => rec.expandArgv(['$npm', '-u', 'evil.npmrc', 'install', 'x'],
+          { dep: 'x', baseline: 'b', candidate: 'c' }, () => 'unused'),
+        /short option/,
+      );
+    } finally { cleanup(); }
+  });
+
+  it('F8: conflicting config flags rejected BEFORE and AFTER the subcommand', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      for (const cmd of [
+        ['$npm', '--userconfig', 'evil.npmrc', 'install', 'x'],
+        ['$npm', '--userconfig=evil.npmrc', 'install', 'x'],
+        ['$npm', 'install', '--prefix=/tmp/evil', 'x'],
+        ['$npm', 'install', 'x', '--registry=http://evil.example'],
+        ['$npm', 'install', 'x', '--cache=/tmp/evil'],
+        ['$npm', 'install', '--script-shell', 'bash', 'x'],
+      ]) {
+        assert.throws(
+          () => rec.expandArgv(cmd, { dep: 'x', baseline: 'b', candidate: 'c' }, () => 'unused'),
+          /isolation-conflicting/,
+          `must reject: ${cmd.join(' ')}`,
+        );
+      }
+    } finally { cleanup(); }
+  });
+
+  it('F8: unknown bare option before subcommand rejected; --key=value passes', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      assert.throws(
+        () => rec.expandArgv(['$npm', '--whatever', 'install', 'x'],
+          { dep: 'x', baseline: 'b', candidate: 'c' }, () => 'unused'),
+        /cannot be verified valueless/,
+      );
+      // the exact shape the F6 test used (self-describing form) must still work
+      const out = rec.expandArgv(['$npm', '--loglevel=silent', 'install', 'x@1'],
+        { dep: 'x', baseline: 'b', candidate: 'c' }, () => 'unused');
+      assert.ok(out.includes('--ignore-scripts'));
+    } finally { cleanup(); }
+  });
+
+  it('F8: exec/dlx/shell-style subcommands rejected; run of a local script is not', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      for (const sub of ['exec', 'x', 'dlx', 'shell', 'explore']) {
+        assert.throws(
+          () => rec.expandArgv(['$npm', sub, 'evil-pkg'],
+            { dep: 'x', baseline: 'b', candidate: 'c' }, () => 'unused'),
+          /not allowed/,
+          `must forbid: npm ${sub}`,
+        );
+      }
+      const out = rec.expandArgv(['$npm', 'run', 'test'],
+        { dep: 'x', baseline: 'b', candidate: 'c' }, () => 'unused');
+      assert.ok(!out.includes('--ignore-scripts'), 'run-script is not install-family');
+    } finally { cleanup(); }
+  });
+
+  it('F8: install-family options with = or after the subcommand still expand normally', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const out = rec.expandArgv(['$npm', 'install', '--before=2022-10-04T00:00:00Z'],
+        { dep: 'x', baseline: 'b', candidate: 'c' }, () => 'unused');
+      assert.ok(out.includes('--before=2022-10-04T00:00:00Z'));
+      assert.ok(out.includes('--ignore-scripts'));
+      assert.ok(out.includes('--userconfig'));
+    } finally { cleanup(); }
+  });
+
   it('non-install commands get no injected flags', () => {
     const { rec, cleanup } = freshRecorder();
     try {

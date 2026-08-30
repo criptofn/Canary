@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runCommand, type RunOptions, type RunOutcome, type WorkspaceLayout } from '@canary-rn/support';
+import { runCommand, CanaryError, type RunOptions, type RunOutcome, type WorkspaceLayout } from '@canary-rn/support';
 import { normalize, type Normalizer } from '@canary-rn/normalizers';
 import { sha256hex } from '@canary-rn/hashing';
 import { extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
@@ -57,6 +57,96 @@ export function isInfraOutput(out: string): boolean {
   return INFRA_PATTERNS.some((re) => re.test(out));
 }
 
+/**
+ * Audit F8 — isolation-flag injection must be impossible to dodge by npm's
+ * own argv grammar. The old detector (`first token not starting with '-'`)
+ * was shifted by VALUE-TAKING options: `$npm -u evil.npmrc install x`
+ * "detected" `evil.npmrc` as the subcommand, silently skipping ALL isolation
+ * flags. The contract now:
+ *
+ *  1. subcommand = first non-option token, where every preceding option must
+ *     be self-describing (`--key=value`) or a known valueless boolean — an
+ *     unknown bare option THROWS instead of being guessed at (guessing in
+ *     either direction is the bypass);
+ *  2. isolation-conflicting npm/yarn config flags are rejected ANYWHERE
+ *     before `--` (npm honors `--prefix`, `--userconfig`, `--registry`, ...
+ *     in both positions, and Canary's trailing injection does not override
+ *     keys it never injects, e.g. prefix);
+ *  3. short options (`-u`, clusters) are rejected outright: every legitimate
+ *     Canary spec form is long-form, so there is nothing to parse-loose;
+ *  4. `exec|x|dlx|shell|explore` are rejected: they fetch and run THIRD-PARTY
+ *     packages, where trailing injected flags would land after any `--`
+ *     separator as dead weight and script isolation would evaporate.
+ */
+export const INSTALL_FAMILY: readonly string[] = ['install', 'i', 'ci', 'add'];
+export const FORBIDDEN_PM_SUBS: readonly string[] = ['exec', 'x', 'dlx', 'shell', 'explore', 'edit', 'link'];
+
+const NPM_CONFLICT_LONG = new Set([
+  '--userconfig', '--globalconfig', '--cache', '--prefix', '--chdir', '--global',
+  '--workspace', '--workspaces', '--ignore-scripts', '--foreground-scripts',
+  '--script-shell', '--config', '--registry', '--dist-tag', '--tag', '--omit',
+  '--include', '--proxy', '--https-proxy', '--noproxy', '--strict-ssl', '--ca',
+  '--cert', '--key', '--editor', '--node-version',
+]);
+/** Bare-OK long options BEFORE the subcommand (provably valueless booleans). */
+const NPM_BARE_OK = new Set([
+  '--json', '--silent', '--quiet', '--verbose', '--no-color', '--version', '--help',
+  '--no-update-notifier', '--no-audit', '--no-fund', '--audit', '--fund',
+  '--no-save', '--save', '--save-dev', '--save-prod', '--save-optional',
+  '--save-exact', '--no-package-lock', '--package-lock', '--dry-run',
+  '--legacy-peer-deps',
+]);
+const YARN_CONFLICT_LONG = new Set([
+  '--cwd', '--use-yarnrc', '--ignore-scripts', '--ignore-path', '--registry',
+  '--cache-folder', '--config',
+]);
+const YARN_BARE_OK = new Set(['--silent', '--verbose', '--non-interactive', '--offline', '--version', '--help']);
+
+/** Throws CanaryError on any $npm/$yarn argv shape that could dodge isolation. */
+export function pmArgvGuard(cmd: readonly string[]): string | undefined {
+  const npm = cmd[0] === '$npm';
+  const conflict = npm ? NPM_CONFLICT_LONG : YARN_CONFLICT_LONG;
+  const bareOk = npm ? NPM_BARE_OK : YARN_BARE_OK;
+  let sub: string | undefined;
+  for (let k = 1; k < cmd.length; k++) {
+    const tok = cmd[k]!;
+    if (tok === '--') break; // everything after is positional/script args
+    if (!tok.startsWith('-')) {
+      if (sub === undefined) {
+        sub = tok;
+        if (FORBIDDEN_PM_SUBS.includes(tok)) {
+          throw new CanaryError(
+            `spec command '${cmd[0]} ${tok}' is not allowed: it fetches/runs outside the install-family isolation injection (v0.1 contract)`,
+            'spec-forbidden-subcommand',
+          );
+        }
+      }
+      continue;
+    }
+    if (!tok.startsWith('--')) {
+      throw new CanaryError(
+        `spec command contains short option '${tok}': Canary specs must use long-form flags (short value-taking options like -u shift subcommand detection past the install and silently skip isolation-flag injection)`,
+        'spec-short-option',
+      );
+    }
+    const eq = tok.indexOf('=');
+    const name = eq === -1 ? tok : tok.slice(0, eq);
+    if (conflict.has(name)) {
+      throw new CanaryError(
+        `spec command contains isolation-conflicting flag '${name}': Canary pins userconfig/cache/scripts policy and registry/prefix/workspace resolution itself`,
+        'spec-config-conflict',
+      );
+    }
+    if (eq === -1 && sub === undefined && !bareOk.has(name)) {
+      throw new CanaryError(
+        `bare option '${name}' before the subcommand cannot be verified valueless — value-taking options before the subcommand skip isolation-flag injection; use '--flag=value' form or move options after the subcommand`,
+        'spec-ambiguous-option',
+      );
+    }
+  }
+  return sub;
+}
+
 export class Recorder {
   private counts = new Map<string, number>();
   readonly facts: RoundFact[] = [];
@@ -69,9 +159,8 @@ export class Recorder {
   /**
    * Expand spec tokens to concrete argv and ENFORCE isolation flags on any
    * package-manager invocation whose subcommand is install-family
-   * (install|i|ci|add) — detected by scanning spec tokens, not fixed
-   * positions (red-team F6: `--loglevel` before `install`, or `ci`, used to
-   * silently skip all guards).
+   * (install|i|ci|add) — with the audit-F8 argv guard (pmArgvGuard) making
+   * silent detection-shift impossible and rejecting conflicting flags.
    */
   expandArgv(
     cmd: readonly string[],
@@ -100,9 +189,11 @@ export class Recorder {
 
     const tool = cmd[0];
     if (tool === '$npm' || tool === '$yarn') {
-      // first meaningful (non-option) spec token after the tool token
-      const sub = cmd.slice(1).find((x) => !x.startsWith('-'));
-      if (sub && ['install', 'i', 'ci', 'add'].includes(sub)) {
+      // Audit F8: unambiguous subcommand detection + conflict/forbidden argv
+      // rejection (the old find(!startsWith('-')) could be shifted by a
+      // value-taking option and silently skip ALL isolation flags).
+      const sub = pmArgvGuard(cmd);
+      if (sub && INSTALL_FAMILY.includes(sub)) {
         if (tool === '$npm') {
           out.push(
             '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps',
@@ -119,8 +210,7 @@ export class Recorder {
   }
 
   /** Execute one labeled step, write artifacts, return streams. Not a test round. */
-  async step(label: string, argv: string[], timeoutSecs = 600): Promise<ExecResult> {
-    const n = (this.counts.get(label) ?? 0) + 1;
+  async step(label: string, argv: string[], timeoutSecs = 600): Promise<ExecResult> {    const n = (this.counts.get(label) ?? 0) + 1;
     this.counts.set(label, n);
     const uniq = n === 1 ? label : `${label}-${n}`;
     const run = await (this.deps.run ?? runCommand)({

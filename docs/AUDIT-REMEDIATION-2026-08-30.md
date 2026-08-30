@@ -56,8 +56,8 @@ Status legend: OPEN · DONE · PROVIDER_BLOCKED · DISPROVEN(with evidence)
 ### M6 — package-manager/config handling
 | ID | Finding | Root cause located | Status |
 |---|---|---|---|
-| F7 | Uppercase `.NPMRC` bypasses config audit on Windows | `findRcFiles` compares `e.name` case-sensitively against `RISKY_RC_FILES`; on case-insensitive filesystems `.NPMRC` is loaded by npm as project config. | OPEN |
-| F8 | npm global options before the install subcommand bypass `--ignore-scripts` injection | `expandArgv` finds the subcommand as the first token not starting with `-` — a **value-taking** option (`$npm -u evil.npmrc install x`) shifts detection to `evil.npmrc`, silently skipping ALL isolation flags. Also no rejection of spec-provided conflicting config flags. | OPEN |
+| F7 | Uppercase `.NPMRC` bypasses config audit on Windows | `findRcFiles` compares `e.name` case-sensitively against `RISKY_RC_FILES`; on case-insensitive filesystems `.NPMRC` is loaded by npm as project config. | DONE (M6: case-INSENSITIVE match everywhere — fail-closed even on Linux; 2 new audit tests incl. mixed-case nested `.YarnRc.yml`) |
+| F8 | npm global options before the install subcommand bypass `--ignore-scripts` injection | `expandArgv` finds the subcommand as the first token not starting with `-` — a **value-taking** option (`$npm -u evil.npmrc install x`) shifts detection to `evil.npmrc`, silently skipping ALL isolation flags. Also no rejection of spec-provided conflicting config flags. | DONE (M6: `pmArgvGuard` — short options rejected outright; isolation-conflicting long flags rejected BEFORE and AFTER subcommand (`--userconfig/--prefix/--registry/--cache/--script-shell/...`); unknown bare option before subcommand rejected instead of guessed; `exec/x/dlx/shell/explore` subcommands forbidden (trailing injection dead after `--`). 5 new tests; golden argv shapes all still expand + inject) |
 
 ### M7 — tree-drift correctness
 | ID | Finding | Root cause located | Status |
@@ -134,7 +134,7 @@ for production runs generally. Suite 95→100; build+typecheck clean; golden
 Axios proof PASS (16/16). POSIX branch awaits ubuntu execution (CI leg — no
 push tonight); F15 documents the same.
 
-### 2026-08-31 — M5 (F6) @ this commit
+### 2026-08-31 — M5 (F6) @ 5702019
 Executed child-env observation probe FIRST, as the ledger required. Vector
 CONFIRMED and worse than stated: Windows appends the logon session's identity
 vars to every child environment even when the block is fully replaced
@@ -152,3 +152,24 @@ Executor test de-duplicated its hard-coded key list to derive from
 sanitizedEnv. Suite 100→103; build+typecheck clean; golden Axios proof PASS
 (16/16 — npm output unaffected by the neutralized vars). POSIX observed==
 declared awaits ubuntu CI (no WSL here; F15).
+
+### 2026-08-31 — M6 (F7, F8) @ this commit
+F7: `findRcFiles` now matches rc names case-INSENSITIVELY (`RISKY_RC_FILES_-
+LOWER`), so `.NPMRC` / `.YarnRc.yml` trip the injection gate on Windows/macOS
+case-insensitive filesystems — fail-closed on Linux too. 2 new audit tests
+(uppercase root `.NPMRC`, mixed-case nested `.YarnRc.yml`).
+F8: `pmArgvGuard()` replaces the shift-able `find(!startsWith('-'))` detector.
+It throws CanaryError on: any short option (`-u` etc.), any isolation-
+conflicting long flag (`--userconfig/--prefix/--cache/--registry/--global/
+--script-shell/--workspace/--omit/...`) in EITHER position (before or after
+the subcommand — npm honors both), an unknown bare option before the
+subcommand (cannot be proven valueless ⇒ could shift detection), and the
+`exec/x/dlx/shell/explore` subcommands (fetch+run third-party code where the
+trailing injection would land after `--` and evaporate). Legitimate self-
+describing (`--key=value`) and known-boolean options pass; injection is
+unchanged when the subcommand is install-family. 5 new executor tests incl.
+the exact `$npm -u evil.npmrc install x` bypass (now rejected) and a
+regression guard that `--loglevel=silent install` still injects. Suite
+103→110; build+typecheck clean; golden Axios proof PASS (16/16 — the real
+`--before=…`/`--no-save`/`--no-package-lock`/`--frozen-lockfile` shapes all
+expand and inject correctly).

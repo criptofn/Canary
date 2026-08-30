@@ -62,6 +62,38 @@ describe('auditFixtureDir — rc-file injection gate', () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+  it('F7: refuses an UPPERCASE .NPMRC (Windows/macOS load it as project config)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-audit-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1', scripts: {} }));
+      assert.ok(auditFixtureDir(dir, 'axios').ok);
+      // On a case-insensitive filesystem npm reads .NPMRC exactly like .npmrc;
+      // the gate rejects the case-insensitive match on ALL platforms (the
+      // uppercase name is meaningless-but-suspicious on Linux, fatal on Windows).
+      fs.writeFileSync(path.join(dir, '.NPMRC'), 'ignore-scripts=false\n');
+      const r = auditFixtureDir(dir, 'axios');
+      assert.ok(!r.ok, 'uppercase .NPMRC must trip the rc gate');
+      assert.ok(r.violations.some((v) => v.code === 'config-file-injection-risk' && v.detail.includes('.NPMRC')),
+        JSON.stringify(r.violations));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('F7: also catches mixed-case nested .YarnRc.yml', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-audit-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1', scripts: {} }));
+      fs.mkdirSync(path.join(dir, 'pkg', 'sub'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'pkg', 'sub', '.YarnRc.yml'), 'enableScripts: false');
+      const r = auditFixtureDir(dir, 'axios');
+      assert.ok(!r.ok, 'mixed-case nested .YarnRc.yml must be found');
+      assert.ok(r.violations.some((v) => v.detail.includes('pkg/sub/.YarnRc.yml')),
+        JSON.stringify(r.violations));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('expectedExtractedDir', () => {

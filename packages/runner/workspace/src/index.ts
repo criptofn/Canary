@@ -24,6 +24,12 @@ export interface AuditResult {
 
 const LIFECYCLE_HOOKS = ['preinstall', 'install', 'postinstall', 'prepare'] as const;
 const RISKY_RC_FILES = ['.npmrc', '.yarnrc', '.yarnrc.yml'] as const;
+// Audit F7: on case-insensitive filesystems (Windows default, macOS default)
+// npm/yarn load `.NPMRC` / `.YarnRc` exactly like the lowercase names — the
+// gate must match case-INSENSITIVELY everywhere (fail-closed even on Linux,
+// where the uppercase file simply does nothing: rejecting is safe, missing
+// one is not).
+const RISKY_RC_FILES_LOWER = new Set<string>(RISKY_RC_FILES.map((f) => f.toLowerCase()));
 const RC_SCAN_SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
 
 export function auditPackageManifestText(text: string, dependency: string): AuditResult {
@@ -93,7 +99,7 @@ export function findRcFiles(dir: string, maxDepth = 6, rel = ''): string[] {
     return hits;
   }
   for (const e of entries) {
-    if (e.isFile() && (RISKY_RC_FILES as readonly string[]).includes(e.name)) {
+    if (e.isFile() && RISKY_RC_FILES_LOWER.has(e.name.toLowerCase())) {
       hits.push(path.posix.join(rel, e.name).replace(/\\/g, '/'));
     } else if (e.isDirectory() && !RC_SCAN_SKIP.has(e.name) && !e.name.startsWith('.')) {
       hits.push(...findRcFiles(path.join(dir, e.name), maxDepth, rel ? `${rel}/${e.name}` : e.name));
