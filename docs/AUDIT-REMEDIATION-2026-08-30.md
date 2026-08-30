@@ -271,3 +271,36 @@ Suite 133/133; typecheck clean; golden Axios proof PASS (16/16 all
 host-exact). ALL 15 audit findings now processed: none PROVIDER_BLOCKED;
 the only open honest gap is Linux execution of POSIX paths, deferred to CI
 by the no-push constraint (documented, not hidden).
+
+### 2026-08-31 — red-team follow-up (F8 case-fold) @ 7158676
+Second adversarial pass over the new gates. Found and fixed: the F8
+conflict/bare-ok sets were matched case-SENSITIVELY, so `--Userconfig=…`
+relied on npm's parser being case-sensitive to be caught. Option names are
+now case-folded before every membership test (regression test with 3 case
+variants). Re-examined and confirmed sound: the `--` break (post-`--` tokens
+are positional to npm, not config), short-option rejection, `exec/dlx/shell`
+forbiddance, and the sweep's PID-reuse floor + setsid residual (documented
+Tier B, not a claim of kernel containment). Suite 133→134.
+
+### 2026-08-31 — CLEAN-ROOM VALIDATION (from Git) @ 7158676
+Fresh local clone (`git clone file://`), empty tree at HEAD, no shared state
+with the working directory:
+- `npm install` (17 pkgs) → `npm run build` → `npm run typecheck`: clean.
+- `node --test packages/** apps/**`: **134/134 pass** (26 suites) in the clone.
+- `npm run prove` (live network, real axios 0.27.2→1.0.0, fresh fetch→era
+  install→baseline×2→swap→candidate×3): **PASS — 16/16 assertions, incl.
+  host-exact normalized-hash equality** — the golden proof reproduces byte-for-
+  byte from a pristine checkout, not just the dev tree.
+Verified cwd before AND after (a first attempt had silently reverted to the
+main tree; re-run confirmed genuine clean-room execution).
+
+## Final status: READY FOR INDEPENDENT RE-AUDIT
+
+All 15 Codex-audit findings + the apps/cli test gap are DONE. Zero
+PROVIDER_BLOCKED, zero DISPROVEN-without-evidence (F6 was probed and
+CONFIRMED before fixing). The one honest, non-blocking residual is that
+POSIX-side code (env observation equality, process sweep, tar extraction) is
+WRITTEN AND TESTED-BY-CONSTRUCTION but has NOT been executed on Linux this
+session (no Linux host; CI legs run on push) — documented in SECURITY.md
+"Platform status", not hidden. This is a v0.1 verification core, not
+"Canary complete": no v0.2 features, no integrations, per operating rules.
