@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
+import { sha256File } from '@canary-rn/hashing';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
 
 export interface SummaryExpectation { passing: number; failing?: number | undefined }
@@ -93,4 +94,48 @@ export function readLatestEvidence(repoRoot: string, experimentId: string): { bu
   const bundle = JSON.parse(fs.readFileSync(pointer.evidence, 'utf8')) as EvidenceBundle;
   const issues = validateBundle(bundle);
   return { bundle, artifactsDir: path.dirname(pointer.evidence), issues };
+}
+
+/**
+ * Audit F4: prove/check must verify the bundle against the REAL artifacts on
+ * disk. Without this, every recorded hash could as easily describe files that
+ * never existed — tampered (or deleted) logs sail through because the old
+ * assertions only compared bundle fields to each other. For each round we
+ * re-hash the four artifact files (raw stdout/stderr + normalized
+ * stdout/stderr, per the Recorder's filename convention) and require exact
+ * equality with the recorded digests. Returns issues; empty = untampered.
+ */
+export function verifyArtifacts(artifactsDir: string, bundle: EvidenceBundle): string[] {
+  const issues: string[] = [];
+  for (const r of bundle.rounds) {
+    if (!r.logPath.endsWith('.stdout.log')) {
+      issues.push(`round ${r.arm}#${r.round}: unexpected logPath ${r.logPath} (cannot derive artifact names)`);
+      continue;
+    }
+    const label = r.logPath.slice(0, -'.stdout.log'.length);
+    const want: Array<[string, string]> = [
+      [`${label}.stdout.log`, r.rawStdoutSha256],
+      [`${label}.stderr.log`, r.rawStderrSha256],
+      [`${label}.stdout.norm`, r.normalizedStdoutSha256],
+      [`${label}.stderr.norm`, r.normalizedStderrSha256],
+    ];
+    for (const [file, hash] of want) {
+      const p = path.join(artifactsDir, file);
+      if (!fs.existsSync(p)) {
+        issues.push(`round ${r.arm}#${r.round}: artifact missing: ${file}`);
+        continue;
+      }
+      let actual: string;
+      try {
+        actual = sha256File(p);
+      } catch (e) {
+        issues.push(`round ${r.arm}#${r.round}: cannot hash ${file}: ${e}`);
+        continue;
+      }
+      if (actual !== hash) {
+        issues.push(`round ${r.arm}#${r.round}: TAMPERED artifact ${file}: recorded ${hash.slice(0, 16)}…, on disk ${actual.slice(0, 16)}…`);
+      }
+    }
+  }
+  return issues;
 }

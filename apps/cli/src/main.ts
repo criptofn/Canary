@@ -19,7 +19,7 @@ import path from 'node:path';
 import { renderHtml } from '@canary-rn/report';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
 import { runExperiment, InfraAbort, CANARY_VERSION } from './pipeline.js';
-import { assertProof, readLatestEvidence, type ProofExpectation } from './prove.js';
+import { assertProof, readLatestEvidence, verifyArtifacts, type ProofExpectation } from './prove.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -79,6 +79,14 @@ async function cmdProve(specPath: string, proofPath: string, rerun: boolean): Pr
     : readLatestEvidence(REPO_ROOT_DEFAULT, id);
   if (ev.issues.length) {
     console.error('refusing to prove against an invalid bundle:', ev.issues);
+    return 3;
+  }
+  // Audit F4: the bundle is worthless unless the artifacts on disk still hash
+  // to what it records. Verify BEFORE asserting against expectations.
+  const tamper = verifyArtifacts(ev.artifactsDir, ev.bundle);
+  if (tamper.length) {
+    console.error('refusing to prove: evidence hashes do not match the artifacts on disk');
+    for (const t of tamper) console.error('  ' + t);
     return 3;
   }
   const readLog = (round: 'baseline' | 'candidate'): string => {

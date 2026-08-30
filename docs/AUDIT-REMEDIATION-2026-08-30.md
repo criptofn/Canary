@@ -30,18 +30,18 @@ Status legend: OPEN · DONE · PROVIDER_BLOCKED · DISPROVEN(with evidence)
 ### M1 — regression-classification correctness
 | ID | Finding | Root cause located | Status |
 |---|---|---|---|
-| F1 | False CONFIRMED_REGRESSION when candidate prints a passing summary then exits nonzero | `executor.round()` sets `reportedFailing = parseSummaryCounts(...).failing` — mocha/ava omit the "N failing" line when zero fail → `undefined`, and `isInfraRound`'s guard needs `=== 0`. Guard exists but is unreachable for real runner output. | OPEN |
-| F2 | Differing candidate failure counts/identities still treated as deterministic | `classify()` compares only exit-code parity (`unanimous`/`every(pass)`); identical exit 3 with 2-vs-5 failing tests or different failing test identities still yields CONFIRMED_REGRESSION. | OPEN |
+| F1 | False CONFIRMED_REGRESSION when candidate prints a passing summary then exits nonzero | `executor.round()` sets `reportedFailing = parseSummaryCounts(...).failing` — mocha/ava omit the "N failing" line when zero fail → `undefined`, and `isInfraRound`'s guard needs `=== 0`. Guard exists but is unreachable for real runner output. | DONE (c8be6aa: matched-summary-without-count ⇒ reported-zero; conservative INFRASTRUCTURE_FAILURE) |
+| F2 | Differing candidate failure counts/identities still treated as deterministic | `classify()` compares only exit-code parity (`unanimous`/`every(pass)`); identical exit 3 with 2-vs-5 failing tests or different failing test identities still yields CONFIRMED_REGRESSION. | DONE (c8be6aa: rule 8 — within-arm failure-profile equality (count + sorted identities); divergence ⇒ FLAKY) |
 
 ### M2 — evidence semantic integrity
 | ID | Finding | Root cause located | Status |
 |---|---|---|---|
-| F3 | Evidence validator accepts contradictory fabricated evidence | `validateBundle` is purely structural: any hand-authored bundle with well-shaped fields passes (label need not follow from rounds; `reproductionCount` unchecked vs candidate rounds; timeout/exit contradictions unchecked; unconfined drift + CONFIRMED label accepted). Fix: persist `infraSignal`/`reportedFailing`/`failingTestNames` per round (M1) and **re-derive** the classification inside the validator. | OPEN |
+| F3 | Evidence validator accepts contradictory fabricated evidence | `validateBundle` is purely structural: any hand-authored bundle with well-shaped fields passes (label need not follow from rounds; `reproductionCount` unchecked vs candidate rounds; timeout/exit contradictions unchecked; unconfined drift + CONFIRMED label accepted). Fix: persist `infraSignal`/`reportedFailing`/`failingTestNames` per round (M1) and **re-derive** the classification inside the validator. | DONE (c8be6aa: validator re-derives classification, enforces reproductionCount, timeout/exit consistency, drift confinement vs trustful verdicts, sparsity refusal) |
 
 ### M3 — proof verification against real artifacts
 | ID | Finding | Root cause located | Status |
 |---|---|---|---|
-| F4 | Proof accepts tampered hashes because it does not fully rehash artifacts | `cmdProve`/`assertProof` compare bundle fields to expectations but never re-hash the on-disk `.stdout.log`/`.norm` files against the recorded `raw*/normalized*Sha256`. Tampering artifacts (and log-derived assertions) is invisible. | OPEN |
+| F4 | Proof accepts tampered hashes because it does not fully rehash artifacts | `cmdProve`/`assertProof` compare bundle fields to expectations but never re-hash the on-disk `.stdout.log`/`.norm` files against the recorded `raw*/normalized*Sha256`. Tampering artifacts (and log-derived assertions) is invisible. | DONE (M3: `verifyArtifacts` re-hashes all 4 files/round inside `cmdProve` — covers both `prove` and `check` — before any assertion; runs on the post-rerun dir, not just the pointer. Execution evidence: golden proof 16/16 PASS + live tamper test — appended byte to `baseline-1.stdout.log` → `check` exit 3 naming `TAMPERED artifact baseline-1.stdout.log` with both digests; restored → exit 0) |
 
 ### M4 — process lifecycle containment
 | ID | Finding | Root cause located | Status |
@@ -68,8 +68,8 @@ Status legend: OPEN · DONE · PROVIDER_BLOCKED · DISPROVEN(with evidence)
 ### M8 — pipeline and CLI integration tests
 | ID | Finding | Scope | Status |
 |---|---|---|---|
-| F13 | Failing-test identities not persisted in the Evidence Bundle | No `failingTestNames` in `RoundEvidence`/schema. Fix lands with M1 (classification consumes identities), persisted here. | OPEN |
-| — | (gap) No `apps/cli` tests exist at all; `npm test` glob doesn't cover `apps/**` | Fix: offline e2e experiment (local stub fixture, no network) exercising pipeline → classification → evidence → prove/check, including confinement guard, fabricated-tamper rejection, CLI exit codes. | OPEN |
+| F13 | Failing-test identities not persisted in the Evidence Bundle | No `failingTestNames` in `RoundEvidence`/schema. Fix lands with M1 (classification consumes identities), persisted here. | DONE (c8be6aa: `infraSignal`/`reportedFailing`/`failingTestNames` flow executor → bundle → published JSON schema) |
+| — | (gap) No `apps/cli` tests exist at all; `npm test` glob doesn't cover `apps/**` | Fix: offline e2e experiment (local stub fixture, no network) exercising pipeline → classification → evidence → prove/check, including confinement guard, fabricated-tamper rejection, CLI exit codes. | PARTIAL (M3 commit adds `apps/**` to test+CI globs and `apps/cli/test/prove.test.ts`; full offline pipeline e2e still OPEN) |
 
 ### M9 — CLI/report consistency
 | ID | Finding | Root cause located | Status |
@@ -95,3 +95,24 @@ No v0.2 features. No RepoWise/Semgrep/CodSpeed/Playwright/cloud/distributed/AI-d
 ## Milestone log
 
 (append one dated entry per milestone: what changed, test results, commit hash)
+
+### 2026-08-30 — M1 + M2 (F1, F2, F13, F3) @ c8be6aa
+Classification fixes (F1 zero-failing-line ⇒ reported-zero; F2 rule-8 within-arm
+failure-profile equality), per-round identity plumbing (F13), and the semantic
+`validateBundle` re-derivation (F3). Suite 73→89 green; build+typecheck clean;
+golden Axios proof PASS (16/16, identical normalized hashes) post-M1. Honest
+note: M1+M2 landed as one commit and the ledger status cells were not flipped
+at commit time — corrected here at M3. The post-M2 golden-proof rerun was
+folded into the M3 rerun below (M2 changed only validation, which the prove
+path exercises before assertions — so the M3 PASS covers it).
+
+### 2026-08-30 — M3 (F4) @ this commit
+`verifyArtifacts()` re-hashes all four per-round artifacts against recorded
+digests; `cmdProve` (both `prove` and `check`) refuses on any mismatch before
+assertions, and re-checks the post-rerun dir. New `apps/cli/test/prove.test.ts`
+(6 tests: clean, raw-tamper, norm-tamper, missing, all-four, logPath-contract);
+test+CI globs now cover `apps/**` (first slice of the M8 gap). Suite 89→95
+green; build+typecheck clean; golden Axios proof PASS (16/16). Live negative
+test on real proof artifacts: byte-append to `baseline-1.stdout.log` →
+`check` exit 3, `TAMPERED artifact baseline-1.stdout.log` (recorded vs on-disk
+digests printed); restore → `check` exit 0.
