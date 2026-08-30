@@ -17,8 +17,10 @@ Memory and GitHub lore are hypotheses, never evidence.
 
 1. Fetch repo content by pinned commit SHA (codeload tarball, no branch refs).
 2. Static pre-execution audit: lifecycle install hooks must be absent.
-3. Install the era tree from the repo's committed lockfile
-   (`--frozen-lockfile --ignore-scripts` — no dependency lifecycle code).
+3. Install the era-consistent dependency tree from the repo's committed
+   `package.json` with a time pin (`npm install --before=2022-10-04 …
+   --ignore-scripts` — no dependency lifecycle code; the repo's own
+   `package-lock.json` is not used, the date pin stands in for era parity).
 4. Build/compile once against the BASELINE type/runtime contracts.
 5. Run the identical artifacts ×2 → baseline arm.
 6. Replace ONLY the axios subtree (`npm install --no-save --ignore-scripts

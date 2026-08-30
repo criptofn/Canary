@@ -3,10 +3,11 @@
 > *"Cool diff. Prove that it actually made the project better."*
 
 Canary takes a **baseline** state and a **candidate** change, runs relevant
-deterministic checks against both in isolated, security-boundary-enforced
-workspaces, reproduces any divergence, and emits a **machine-readable
-Evidence Bundle** with a **deterministic classification**. Only after that
-may an LLM explain the evidence — the LLM can never render the verdict.
+deterministic checks against both in disposable, sanitized (process/env-boundary
+enforced) workspaces, reproduces any divergence, and emits a
+**machine-readable Evidence Bundle** with a **deterministic classification**.
+Only after that may an LLM explain the evidence — the LLM can never render the
+verdict.
 
 ```
 Classification ∈ PASS | CONFIRMED_REGRESSION | PRE_EXISTING_FAILURE
@@ -43,7 +44,7 @@ Reproduce it:
 ```bash
 npm install
 npm run build
-npm test          # 73 tests across 13 packages
+npm test          # 133 tests across 13 packages (offline)
 npm run prove     # fresh end-to-end run, asserts against committed expectations
 ```
 
@@ -58,28 +59,36 @@ came back PASS — honestly reported, ledger in
 node apps/cli/dist/src/main.js run    <spec.json>   # execute, write evidence
 node apps/cli/dist/src/main.js prove  <spec.json>   # re-run + assert expectations
 node apps/cli/dist/src/main.js check  <spec.json>   # assert last run's evidence
-node apps/cli/dist/src/main.js report <evidence.json> [out.html]
+node apps/cli/dist/src/main.js report [evidence.json] [out.html]  # defaults: latest run
 ```
 
 Exit codes: `0` proof holds / regression confirmed · `1` PASS / proof failed ·
 `2` other classification or infra · `3` misuse.
 
-## Security contract (non-negotiable, enforced in code)
+## Security contract — enforced at the process/env boundary, tiered elsewhere
 
 Every downstream repository is **untrusted**. Enforced by
 `@canary-rn/support` + `@canary-rn/workspace` on every run
-([`docs/SECURITY.md`](docs/SECURITY.md)):
+([`docs/SECURITY.md`](docs/SECURITY.md), which tiers every claim):
 
 - content fetched **by pinned 40-hex commit SHA** only (tarballs, no git auth)
 - **pre-execution audit gate**: refuses repos with install lifecycle hooks
-  or shipped `.npmrc`/`.yarnrc` (registry-injection vectors)
+  or shipped `.npmrc`/`.yarnrc` (case-insensitively, recursively) —
+  registry-injection vectors
 - **allowlisted child environment** — Anthropic/GitHub/cloud credentials,
   `NODE_OPTIONS`, SSH agents, user npm auth are *structurally invisible*
-  to external processes (deny-by-omission, not a redact-list)
+  to external processes (deny-by-omission); Windows session-identity vars the
+  OS loader injects are *neutralized* so observed == declared (proven by test)
 - `--ignore-scripts` on every install; disposable workspace under
   `.canary-runs/`; caches and HOME redirected inside it
 - no publish, no push, no external auth, ever
-- if the boundary can't hold: `INFRASTRUCTURE_FAILURE`, before executing
+- if a *Tier-A (code-enforced)* bound can't hold: `INFRASTRUCTURE_FAILURE`,
+  before executing
+
+**What v0.1 does NOT claim** (read the tiered section): there is no filesystem
+jail and no network egress allowlist — a fixture's own test code runs with the
+operator's OS permissions. Isolation is real at the process/environment
+boundary and a deliberate best-effort convention beyond it.
 
 ## Layout
 

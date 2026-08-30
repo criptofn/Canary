@@ -84,8 +84,8 @@ Status legend: OPEN · DONE · PROVIDER_BLOCKED · DISPROVEN(with evidence)
 ### M11 — documentation truth pass
 | ID | Finding | Root cause located | Status |
 |---|---|---|---|
-| F14 | No filesystem sandbox or network allowlist exists; docs must not claim it | README/SECURITY claims checked against code: env allowlist + audit gate + no-shell + pinned SHA are real; fs jail / network egress control are not. Rewrite claims to enforced-guarantee vs best-effort vs absent, and record M4/M5/M6 outcomes honestly (incl. residual gaps like post-exit orphan spawn). | OPEN |
-| F15 | Linux/cross-platform support not proven | CI core job is ubuntu but golden proof is windows-only and never runs on Linux. Fix scope for v0.1: honestly document platform status; add ubuntu CI leg for the offline suite (already ubuntu); do NOT claim the golden proof is Linux-proven without an executed Linux run. | OPEN |
+| F14 | No filesystem sandbox or network allowlist exists; docs must not claim it | README/SECURITY claims checked against code: env allowlist + audit gate + no-shell + pinned SHA are real; fs jail / network egress control are not. Rewrite claims to enforced-guarantee vs best-effort vs absent, and record M4/M5/M6 outcomes honestly (incl. residual gaps like post-exit orphan spawn). | DONE (M11): SECURITY.md restructured into Tier A (code-enforced: no-shell, env observed==declared, audit gate, undodgeable injection, SHA pinning, deterministic classification + rule-9, tree-kill + exit-sweep), Tier B (convention: disposable workspace, sweep residual for setsid daemons), Tier C (ABSENT: network egress allowlist, fs jail — stated verbatim, "do not claim these"). README lead + security section retitled and honest about limits; PLAN §9.1 items 3/5/6/9 corrected (neutralized vars; not-a-jail; not-a-firewall; sanitizer lives in support); stale `--portable` plan replaced by what F11 actually shipped; fixture README era-install step corrected to what the spec really runs; red-team F-numbers disambiguated (RT-F#) from audit F1–F15. |
+| F15 | Linux/cross-platform support not proven | CI core job is ubuntu but golden proof is windows-only and never runs on Linux. Fix scope for v0.1: honestly document platform status; add ubuntu CI leg for the offline suite (already ubuntu); do NOT claim the golden proof is Linux-proven without an executed Linux run. | DONE (M11, within v0.1 scope): SECURITY.md gains a "Platform status" section: Windows = fully executed (133 tests incl. real-subprocess + golden proof host); Linux = written-for but NOT executed (POSIX sweep/env/tar paths await ubuntu CI on push; golden proof stays windows-only). Also fixed a REAL Windows-only bug found during the pass: production extraction hard-coded `System32\tar.exe` — now platform-branched (still UNVERIFIED on Linux until CI runs; the offline suite injects extract and does not exercise it). |
 
 ## Deferred / out of scope (v0.1)
 
@@ -245,3 +245,29 @@ golden-proof job runs `canary run` then `canary check`. main.ts prints a
 skipped)"). 4 assertProof gating tests. Suite 129→133; build+typecheck clean;
 golden Axios proof PASS on THIS host with all 16 (host matches, "all, incl.
 host-exact hashes"). CI's own ubuntu/windows legs run on push (not tonight).
+
+### 2026-08-31 — M11 (F14, F15) @ this commit
+Documentation truth pass. SECURITY.md: new lead-in warning; environment
+section rewritten around the EXECUTED F6 finding (loader appends; six vars
+neutralized; observed==declared by permanent test); "Filesystem and network
+boundaries" replaced by an explicit Tier A (code-enforced) / Tier B
+(convention; setsid-escape + PID-reuse residuals named) / Tier C (ABSENT: no
+fs jail, no network allowlist — "do not claim these") breakdown; red-team
+findings renumbered RT-F# to end the F-number collision with the audit; new
+section summarizing F1–F15 outcomes with ledger pointer; new "Platform status"
+section (F15): Windows executed / Linux written-for-not-executed, golden
+proof windows-host-designated. README: lead + security heading honest about
+enforcement scope, "what v0.1 does NOT claim" block, report[] usage, test
+count 73→133. PLAN.md §9.1: items 3/5/6/9 corrected (neutralizations; "no
+writes" and "network limited" explicitly labeled unenforced convention/
+intent; sanitizer located in packages/support); §10 limits updated — stale
+`--portable` plan replaced by the shipped proofHost design; M5 milestone row
+closed with pointer to this ledger. fixture README: era-install step now
+describes what the spec actually runs (`--before` date pin, not
+--frozen-lockfile). Code found by the pass: production tar extraction
+hard-coded `System32\tar.exe` (Linux could never run `canary run`) —
+platform-branched, honestly marked UNVERIFIED-on-Linux.
+Suite 133/133; typecheck clean; golden Axios proof PASS (16/16 all
+host-exact). ALL 15 audit findings now processed: none PROVIDER_BLOCKED;
+the only open honest gap is Linux execution of POSIX paths, deferred to CI
+by the no-push constraint (documented, not hidden).

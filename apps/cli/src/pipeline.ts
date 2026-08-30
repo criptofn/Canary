@@ -104,7 +104,13 @@ export async function runExperiment(
   if (deps.extract) {
     deps.extract(tgz, WS, repo, commit);
   } else {
-    const tr = spawnSync(path.join(SYSTEMROOT, 'System32', 'tar.exe'), ['-xzf', tgz, '-C', WS],
+    // Audit F15: tar lives at System32\tar.exe on Windows (bsdtar); POSIX
+    // hosts provide GNU tar on PATH. Behavior on non-Windows hosts remains
+    // UNVERIFIED until CI executes it (docs/SECURITY.md Platform status).
+    const tarExe = process.platform === 'win32'
+      ? path.join(SYSTEMROOT, 'System32', 'tar.exe')
+      : 'tar';
+    const tr = spawnSync(tarExe, ['-xzf', tgz, '-C', WS],
       { env: sanitizedEnv({ ws, nodeDir: NODE_DIR }), shell: false, timeout: 180_000 });
     if (tr.status !== 0) throw new Error('tar extraction failed');
   }

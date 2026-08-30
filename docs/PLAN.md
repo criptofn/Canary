@@ -233,22 +233,29 @@ one-off dry-run ceremony):
    otherwise), scripts, and config files. Verified 2026-08-30: no install hooks.
 3. **Environment allowlisting** for every external process: fixture code sees
    only `PATH, PATHEXT, SystemRoot, windir, ComSpec, TEMP, TMP, HOME, USERPROFILE`
-   (sandbox-redirected). Deny-by-omission kills `ANTHROPIC_*`, `*_TOKEN`,
-   `*_KEY`, cloud credentials, SSH agent vars, `NODE_OPTIONS` — no secret can
-   leak because non-listed variables are structurally invisible. Values of
+   (+ audit-F6 NEUTRALIZATIONS `USERNAME/USERDOMAIN/LOGONSERVER/HOMEDRIVE/
+   HOMEPATH/SYSTEMDRIVE` — the Windows loader appends those to any child
+   regardless of replacement, so they are declared with fixed non-identity
+   values). Deny-by-omission kills `ANTHROPIC_*`, `*_TOKEN`,
+   `*_KEY`, cloud credentials, SSH agent vars, `NODE_OPTIONS` — those are
+   structurally invisible (proven by the permanent child-observation test,
+   packages/support/test/env.test.ts). Values of
    allowlisted vars are recorded by *name only* in evidence.
 4. Execution only inside a disposable workspace under the repo
    (`.canary-runs/…`, gitignored) or OS temp; caches (npm, yarn) redirected
    inside it; isolated `HOME`/`USERPROFILE`; empty explicit `--userconfig`.
-5. No writes outside the workspace.
-6. Network limited to: approved repo content (codeload) + declared dependency
+5. No writes outside the workspace — **intended discipline, NOT an OS-enforced
+   jail** (see docs/SECURITY.md Tier B: v0.1 has no filesystem sandbox).
+6. Network limited (by Canary's own behavior, NOT an egress allowlist —
+   SECURITY.md Tier C): approved repo content (codeload) + declared dependency
    installs (npm registry). `--ignore-scripts` on every install command so no
-   transitive lifecycle code runs.
+   transitive lifecycle code runs. A fixture's own test code is not firewalled.
 7. No publish, push, remote modification, purchases, or external authentication.
 8. All downstream repository code is treated as untrusted input.
-9. The sanitizer is implemented once in `packages/runner/environment` and
-   applied to every arm of every experiment — the same protection then holds
-   for all future downstream repos automatically.
+9. The sanitizer is implemented once in `packages/support` (`sanitizedEnv` /
+   `runCommand`; `packages/runner/environment` handles toolchain fingerprinting)
+   and applied to every arm of every experiment — the same protection then
+   holds for all future downstream repos automatically.
 10. If a required capability cannot be provided without violating 3–7, the
     runner stops and reports INFRASTRUCTURE_FAILURE (with reason) before
     executing anything external.
@@ -272,21 +279,24 @@ and `run-experiment.mjs` (the M0 ladder harnesses), promoted into
 
 ## 10. Milestones
 
-| M | Deliverable | Status (2026-08-30) |
+| M | Deliverable | Status (updated 2026-08-31) |
 |---|---|---|
 | **M0** | Manual dry-runs of candidate fixtures under the security contract | ✅ done — cookiejar PASS (honest), contentful refused by audit gate, mock-adapter CONFIRMED_REGRESSION |
 | **M1** | Monorepo scaffold: workspaces, strict TS refs, LICENSE (Apache-2.0), CI workflow, archive move | ✅ done |
 | **M2** | executor + normalizers + hashing, unit + real-subprocess tests | ✅ done (61 tests green) |
 | **M3** | github + workspace-audit + environment + planner with spec validation | ✅ done |
 | **M4** | comparator + classification + evidence schema + HTML report + CLI run/prove/check/report; golden proof reproduces | ✅ done — 4 independent CONFIRMED_REGRESSION runs, 14/14 proof assertions incl. byte-exact cross-run normalized-hash equality via the CLI (refactor parity gate) |
-| **M5** | Adversarial validation (red-team of pipeline + boundary), docs pass | 🔄 in progress — red-team agent running; docs current |
+| **M5** | Adversarial validation (red-team of pipeline + boundary), docs pass | ✅ done — red-team 13 findings fixed; superseded/extended by the independent Codex audit (F1–F15) remediated in `audit-hardening` M1–M11, ledger docs/AUDIT-REMEDIATION-2026-08-30.md |
 
 Known deliberate limits (v0.1):
-- Hash-exact proof is machine-local (path separators in stack traces); CI
-  asserts portably via `run` — a `--portable` flag for prove is scheduled
-  post-M5.
-- Normalizer user/host rules disabled in pipeline wiring (child env is
-  sandboxed; identity tokens rarely appear in fixture logs — re-enable per
-  domain if needed).
+- Hash-exact proof is machine-local (path separators in stack traces). Resolved
+  by audit-F11: the two normalized-hash assertions are gated on a structured
+  `proofHost` fingerprint; off-host they report SKIPPED while all 14 portable
+  assertions run in CI (`run` + `check`). No `--portable` flag was needed.
+- Normalizer user/host rules disabled in pipeline wiring — the child env is
+  sanitized with identity vars NEUTRALIZED (audit F6) so real usernames/hosts
+  should not appear in fixture logs; re-enable per domain if needed.
 - `registry-npm` intentionally empty (see its README).
+- No filesystem jail, no network egress allowlist (see docs/SECURITY.md Tier
+  C) — kernel-level containment is post-v0.1.
 
