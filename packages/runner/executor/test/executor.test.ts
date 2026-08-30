@@ -152,6 +152,22 @@ describe('Recorder.expandArgv — token expansion + enforced isolation', () => {
     } finally { cleanup(); }
   });
 
+  it('F8: conflicting flags rejected in CASE VARIANTS too (red-team)', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      for (const cmd of [
+        ['$npm', '--Userconfig=evil.npmrc', 'install', 'x'],
+        ['$npm', 'install', '--PREFIX=/tmp/evil', 'x'],
+        ['$npm', '--RegiSTry=http://evil', 'install', 'x'],
+      ]) {
+        assert.throws(
+          () => rec.expandArgv(cmd, { dep: 'x', baseline: 'b', candidate: 'c' }, () => 'unused'),
+          /isolation-conflicting/, `case variant slipped: ${cmd.join(' ')}`,
+        );
+      }
+    } finally { cleanup(); }
+  });
+
   it('F8: install-family options with = or after the subcommand still expand normally', () => {
     const { rec, cleanup } = freshRecorder();
     try {

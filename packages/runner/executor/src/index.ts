@@ -130,7 +130,11 @@ export function pmArgvGuard(cmd: readonly string[]): string | undefined {
       );
     }
     const eq = tok.indexOf('=');
-    const name = eq === -1 ? tok : tok.slice(0, eq);
+    // Case-fold the option name for ALL set membership: the conflict/bare-ok
+    // sets are lowercase, and we refuse to bet the isolation guarantee on
+    // whether npm's option parser happens to be case-sensitive (red-team
+    // post-F8: `--Userconfig=evil` must not sneak through exact matching).
+    const name = (eq === -1 ? tok : tok.slice(0, eq)).toLowerCase();
     if (conflict.has(name)) {
       throw new CanaryError(
         `spec command contains isolation-conflicting flag '${name}': Canary pins userconfig/cache/scripts policy and registry/prefix/workspace resolution itself`,
