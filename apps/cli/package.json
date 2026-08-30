@@ -1,0 +1,24 @@
+{
+  "name": "@canary-rn/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "canary — independent verification layer CLI: run / prove / report.",
+  "type": "module",
+  "main": "./dist/src/main.js",
+  "bin": { "canary": "./dist/src/main.js" },
+  "dependencies": {
+    "@canary-rn/support": "*",
+    "@canary-rn/planner": "*",
+    "@canary-rn/comparator": "*",
+    "@canary-rn/classification": "*",
+    "@canary-rn/executor": "*",
+    "@canary-rn/workspace": "*",
+    "@canary-rn/environment": "*",
+    "@canary-rn/github": "*",
+    "@canary-rn/normalizers": "*",
+    "@canary-rn/hashing": "*",
+    "@canary-rn/evidence-schema": "*",
+    "@canary-rn/report": "*",
+    "@canary-rn/ai": "*"
+  }
+}

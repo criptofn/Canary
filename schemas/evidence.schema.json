@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://canary-reliability-network.local/schemas/evidence.schema.json",
+  "title": "Canary Evidence Bundle",
+  "description": "Machine-readable output of one Canary experiment. The classification field is produced exclusively by the deterministic decision table (docs/PLAN.md section 6); no field in this schema can be authored by an AI provider.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "runId", "createdAt", "canaryVersion", "experimentId",
+    "dependency", "downstream", "environment", "commands", "rounds",
+    "treeComparison", "classification"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string" },
+    "canaryVersion": { "type": "string" },
+    "experimentId": { "type": "string", "minLength": 1 },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "baselineVersion", "candidateVersion"],
+      "properties": {
+        "package": { "type": "string" },
+        "baselineVersion": { "type": "string" },
+        "candidateVersion": { "type": "string" }
+      }
+    },
+    "downstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryUrl", "commitSha", "fetchMethod", "tarballSha256"],
+      "properties": {
+        "repositoryUrl": { "type": "string" },
+        "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "fetchMethod": { "const": "tarball-by-sha" },
+        "tarballSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeVersion", "npmVersion", "packageManagerUsed", "platform", "arch", "toolchainOverrides"],
+      "properties": {
+        "nodeVersion": { "type": "string" },
+        "npmVersion": { "type": "string" },
+        "packageManagerUsed": { "type": "string" },
+        "platform": { "type": "string" },
+        "arch": { "type": "string" },
+        "toolchainOverrides": { "type": "object" }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prepare", "build", "swap", "test"],
+      "properties": {
+        "prepare": { "$ref": "#/$defs/argvList" },
+        "build": { "$ref": "#/$defs/argvList" },
+        "swap": { "$ref": "#/$defs/argv" },
+        "test": { "$ref": "#/$defs/argv" }
+      }
+    },
+    "rounds": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "arm", "round", "exitCode", "killedByTimeout", "hasRunnerSummary",
+          "startedAt", "durationMs", "rawStdoutSha256", "rawStderrSha256",
+          "normalizedStdoutSha256", "normalizedStderrSha256", "logPath", "argv", "envKeys"
+        ],
+        "properties": {
+          "arm": { "enum": ["baseline", "candidate"] },
+          "round": { "type": "integer", "minimum": 1 },
+          "exitCode": { "type": "integer", "minimum": -1 },
+          "killedByTimeout": { "type": "boolean" },
+          "hasRunnerSummary": { "type": "boolean" },
+          "startedAt": { "type": "string" },
+          "durationMs": { "type": "integer", "minimum": 0 },
+          "rawStdoutSha256": { "$ref": "#/$defs/sha256" },
+          "rawStderrSha256": { "$ref": "#/$defs/sha256" },
+          "normalizedStdoutSha256": { "$ref": "#/$defs/sha256" },
+          "normalizedStderrSha256": { "$ref": "#/$defs/sha256" },
+          "logPath": { "type": "string" },
+          "argv": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "envKeys": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "treeComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baselineTreeSha256", "candidateTreeSha256", "driftConfinedToDependency", "resolvedVersions", "dependencyCopies"],
+      "properties": {
+        "baselineTreeSha256": { "$ref": "#/$defs/sha256" },
+        "candidateTreeSha256": { "$ref": "#/$defs/sha256" },
+        "driftConfinedToDependency": { "type": "boolean" },
+        "resolvedVersions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["baseline", "candidate"],
+          "properties": { "baseline": { "type": "string" }, "candidate": { "type": "string" } }
+        },
+        "dependencyCopies": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["baseline", "candidate"],
+          "properties": { "baseline": { "type": "integer", "minimum": 1 }, "candidate": { "type": "integer", "minimum": 1 } }
+        }
+      }
+    },
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "rule", "reason", "reproductionCount"],
+      "properties": {
+        "label": {
+          "enum": [
+            "PASS", "CONFIRMED_REGRESSION", "PRE_EXISTING_FAILURE",
+            "FLAKY", "INFRASTRUCTURE_FAILURE", "INCONCLUSIVE"
+          ]
+        },
+        "rule": { "type": "number" },
+        "reason": { "type": "string" },
+        "reproductionCount": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Non-authoritative annotation. Deliberately cannot contain or reference classification fields; the classifier never reads this namespace.",
+      "required": ["provider", "summary", "attachedAt"],
+      "properties": {
+        "provider": { "type": "string" },
+        "summary": { "type": "string" },
+        "attachedAt": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "argv": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "argvList": { "type": "array", "items": { "$ref": "#/$defs/argv" } }
+  }
+}

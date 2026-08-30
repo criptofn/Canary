@@ -1,0 +1,10 @@
+{
+  "name": "@canary-rn/comparator",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Pure comparison primitives: dependency-tree drift proof, failing-test extraction, round digests.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } }
+}

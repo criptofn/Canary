@@ -1,0 +1,11 @@
+{
+  "name": "@canary-rn/report",
+  "version": "0.0.1",
+  "private": true,
+  "description": "HTML human-readable report rendered from an Evidence Bundle.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
+  "dependencies": { "@canary-rn/evidence-schema": "*" }
+}

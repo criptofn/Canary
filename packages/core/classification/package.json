@@ -1,0 +1,16 @@
+{
+  "name": "@canary-rn/classification",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Deterministic dependency-regression classification. The LLM is structurally unable to reach this function's inputs.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist"]
+}

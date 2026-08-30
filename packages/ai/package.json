@@ -1,0 +1,11 @@
+{
+  "name": "@canary-rn/ai",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Optional explanation layer. Structurally unable to influence classification: its output type has no path to any verdict field.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
+  "dependencies": { "@canary-rn/evidence-schema": "*" }
+}

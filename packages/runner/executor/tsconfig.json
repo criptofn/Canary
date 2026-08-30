@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "dist", "rootDir": "." },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "references": [
+    { "path": "../../support" },
+    { "path": "../../evidence/normalizers" },
+    { "path": "../../evidence/hashing" },
+    { "path": "../../core/classification" },
+    { "path": "../../core/comparator" }
+  ]
+}

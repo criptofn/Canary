@@ -1,0 +1,24 @@
+{
+  "schema": 2,
+  "id": "axios-mock-adapter-1.21.1",
+  "dependency": { "package": "axios", "baseline": "0.27.2", "candidate": "1.0.0" },
+  "downstream": {
+    "repo": "ctimmerm/axios-mock-adapter",
+    "commit": "b8804442837556a2c7673caeb2925688991b610c"
+  },
+  "commands": {
+    "prepare": [["$npm", "install", "--before=2022-10-04T00:00:00Z"]],
+    "toolchainOverrides": [["$npm", "i", "--no-save", "--no-package-lock", "yargs@16.2.2"]],
+    "build": null,
+    "swap": ["$npm", "install", "--no-save", "--no-package-lock", "{dep}@{candidate}"],
+    "test": ["$bin:mocha"]
+  },
+  "repeats": { "baseline": 2, "candidate": 3 },
+  "timeoutSecs": { "install": 900, "test": 600 },
+  "environmentNotes": {
+    "toolchainOverrides": {
+      "yargs": "16.2.2 — era-consistent patch (May 2022) of mocha@10's CLI dependency; 16.2.0's exports map misclassifies its ESM-scoped fallback file under Node 20+ require(esm). Identical in both arms; recorded in evidence.environment."
+    },
+    "testCommandNote": "mocha is the core of the repo's own `test` script; the bundlesize packaging step is excluded."
+  }
+}

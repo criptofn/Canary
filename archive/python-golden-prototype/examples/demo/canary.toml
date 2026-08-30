@@ -1,0 +1,22 @@
+# Canary's own regression proof for demoapp.
+# Run from this directory:  python -m canary record   &&   python -m canary verify
+
+[[check]]
+name = "canary-online"
+argv = ["{python}", "-m", "demoapp", "ping"]
+
+[[check]]
+name = "greet-alice"
+argv = ["{python}", "-m", "demoapp", "greet", "--name", "Alice"]
+
+[[check]]
+name = "version"
+argv = ["{python}", "-m", "demoapp", "version"]
+
+[[check]]
+name = "boom-exits-3"
+argv = ["{python}", "-m", "demoapp", "boom"]
+
+[[check]]
+name = "noisy-stable"
+argv = ["{python}", "-m", "demoapp", "noisy"]

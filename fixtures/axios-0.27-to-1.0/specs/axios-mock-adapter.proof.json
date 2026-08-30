@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "experimentId": "axios-mock-adapter-1.21.1",
+  "dependency": { "package": "axios", "baseline": "0.27.2", "candidate": "1.0.0" },
+  "downstream": {
+    "repo": "ctimmerm/axios-mock-adapter",
+    "commit": "b8804442837556a2c7673caeb2925688991b610c"
+  },
+  "expected": {
+    "classification": "CONFIRMED_REGRESSION",
+    "rule": 5,
+    "driftConfinedToDependency": true,
+    "baseline": {
+      "rounds": 2,
+      "exitCodes": [0, 0],
+      "normalizedStdoutSha256AcrossRounds": ["f37a8fb00241edbb", "f37a8fb00241edbb"],
+      "summary": { "passing": 128 }
+    },
+    "candidate": {
+      "rounds": 3,
+      "exitCodes": [3, 3, 3],
+      "normalizedStdoutSha256AcrossRounds": ["5e538c0b36ed83bc", "5e538c0b36ed83bc", "5e538c0b36ed83bc"],
+      "summary": { "passing": 125, "failing": 3 }
+    },
+    "failingTestNames": [
+      "can pass headers to match to a handler",
+      "handles baseURL correctly"
+    ]
+  },
+  "provenance": {
+    "firstProofRuns": [
+      "exp-axios-mock-adapter-1.21.1-2026-08-30T16-27-16-583Z",
+      "exp-axios-mock-adapter-1.21.1-2026-08-30T16-29-37-400Z",
+      "exp-axios-mock-adapter-1.21.1-2026-08-30T16-56-30-953Z"
+    ],
+    "date": "2026-08-30",
+    "host": "Windows 11 / Node v26.3.0 / npm 11.16.0"
+  },
+  "notes": "Normalized stdout hashes are machine-local (path separators appear in stack traces). The hash-comparison subset of prove is the designated proof host's contract; CI asserts classification/exit-codes/summaries/failing-names portably."
+}

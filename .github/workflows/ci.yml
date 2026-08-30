@@ -1,0 +1,47 @@
+name: canary-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1'   # weekly: the golden proof must keep holding
+
+jobs:
+  core:
+    name: build + unit/integration tests (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: node --test "packages/**/dist/test/*.test.js"
+
+  golden-proof:
+    name: golden regression proof (axios 0.27.2 -> 1.0.0)
+    needs: core
+    runs-on: windows-latest   # fixture proven on Windows; ubuntu parity TBD
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      # Portable assertions only: normalized-stream hashes are MACHINE-LOCAL
+      # (stack traces carry path separators), so cross-machine CI asserts
+      # classification + exit-code pattern + failing-test identity via `run`
+      # (which itself only exits 0 on CONFIRMED_REGRESSION + valid bundle).
+      # Full hash-exact `canary prove` runs on the designated proof host.
+      - name: canary run (regression must reproduce)
+        run: node apps/cli/dist/src/main.js run fixtures/axios-0.27-to-1.0/specs/axios-mock-adapter.json
+        shell: bash
+      - name: upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-bundle
+          path: .canary-runs/**/artifacts/

@@ -1,0 +1,11 @@
+{
+  "name": "@canary-rn/workspace",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Disposable workspace lifecycle: pinned fetch, pre-execution security audit, extraction.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
+  "dependencies": { "@canary-rn/support": "*" }
+}

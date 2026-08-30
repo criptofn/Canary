@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "dist", "rootDir": "." },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "references": [
+    { "path": "../../packages/support" },
+    { "path": "../../packages/core/planner" },
+    { "path": "../../packages/core/comparator" },
+    { "path": "../../packages/core/classification" },
+    { "path": "../../packages/runner/executor" },
+    { "path": "../../packages/runner/workspace" },
+    { "path": "../../packages/runner/environment" },
+    { "path": "../../packages/github" },
+    { "path": "../../packages/evidence/normalizers" },
+    { "path": "../../packages/evidence/hashing" },
+    { "path": "../../packages/evidence/schema" },
+    { "path": "../../packages/evidence/report" },
+    { "path": "../../packages/ai" }
+  ]
+}

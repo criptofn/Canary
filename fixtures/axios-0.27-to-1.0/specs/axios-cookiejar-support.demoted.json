@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "id": "axios-0.27-to-1.0--axios-cookiejar-support",
+  "dependency": {
+    "package": "axios",
+    "baseline": "0.27.2",
+    "candidate": "1.0.0"
+  },
+  "downstream": {
+    "repository": "https://github.com/3846masa/axios-cookiejar-support",
+    "commit": "f1e045d4787b4f4e427a502867e47c1e52cb7aa6",
+    "fetch": "tarball-by-sha"
+  },
+  "install": {
+    "prepareCommand": ["yarn", "install", "--frozen-lockfile", "--non-interactive", "--ignore-scripts"],
+    "prepareTool": "yarn@1.22.22 (pinned, via npm exec)",
+    "candidateSwapCommand": ["npm", "install", "--no-save", "--legacy-peer-deps", "--ignore-scripts", "axios@{candidate}"]
+  },
+  "test": {
+    "buildOnceCommand": ["node", "node_modules/typescript/bin/tsc"],
+    "command": ["node", "node_modules/ava/entry.js"],
+    "timeoutSecs": 300
+  },
+  "repetitions": { "baseline": 2, "candidateFailureReruns": 3 },
+  "passSignal": { "authoritative": "exitCode", "expected": 0 }
+}

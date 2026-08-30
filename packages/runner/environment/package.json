@@ -1,0 +1,10 @@
+{
+  "name": "@canary-rn/environment",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Toolchain fingerprinting: what the world looked like when an experiment ran.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } }
+}

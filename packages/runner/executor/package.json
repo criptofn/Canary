@@ -1,0 +1,17 @@
+{
+  "name": "@canary-rn/executor",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Records executed rounds: sanitized spawn, artifact logging, normalized stream hashing, classification facts.",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": { ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" } },
+  "dependencies": {
+    "@canary-rn/support": "*",
+    "@canary-rn/normalizers": "*",
+    "@canary-rn/hashing": "*",
+    "@canary-rn/classification": "*",
+    "@canary-rn/comparator": "*"
+  }
+}
