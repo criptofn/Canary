@@ -99,15 +99,18 @@ async function cmdProve(specPath: string, proofPath: string, rerun: boolean): Pr
     baselineStdout: readLog('baseline'),
   });
   const failed = checks.filter((c) => !c.ok);
+  const skipped = checks.filter((c) => c.skipped);
 
   console.log('\n=== PROOF ASSERTIONS ===');
   for (const c of checks) {
-    console.log(`${c.ok ? '  ok  ' : '  FAIL'} ${c.name}` +
+    const tag = c.skipped ? ' skip ' : c.ok ? '  ok  ' : '  FAIL';
+    console.log(`${tag} ${c.name}` +
       (c.ok ? '' : `\n         expected: ${JSON.stringify(c.expected)}\n         actual:   ${JSON.stringify(c.actual)}`));
   }
   console.log('='.repeat(60));
   console.log(failed.length === 0
-    ? 'CANARY REGRESSION PROOF: PASS — the run reproduced the committed evidence exactly'
+    ? `CANARY REGRESSION PROOF: PASS — ${checks.length - skipped.length} assertion(s) held` +
+      (skipped.length ? ` (${skipped.length} host-exact skipped: this is not the proof host)` : ' (all, incl. host-exact hashes)')
     : `CANARY REGRESSION PROOF: FAIL — ${failed.length}/${checks.length} assertions diverged`);
   console.log('='.repeat(60));
   return failed.length === 0 ? 0 : 1;

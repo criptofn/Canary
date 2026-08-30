@@ -31,13 +31,18 @@ jobs:
           node-version: 26
       - run: npm install --no-audit --no-fund
       - run: npm run build
-      # Portable assertions only: normalized-stream hashes are MACHINE-LOCAL
-      # (stack traces carry path separators), so cross-machine CI asserts
-      # classification + exit-code pattern + failing-test identity via `run`
-      # (which itself only exits 0 on CONFIRMED_REGRESSION + valid bundle).
-      # Full hash-exact `canary prove` runs on the designated proof host.
-      - name: canary run (regression must reproduce)
+      # Audit F11: CI must run the REAL proof assertions, not just `run`'s exit
+      # code. `check` re-asserts the committed expectation against the just-run
+      # evidence WITHOUT a second full run. Only the two normalized-hash
+      # assertions are host-gated (proofHost fingerprint match, audit F11); on a
+      # CI runner they report SKIPPED while classification/rule/drift/
+      # attestation/pinning/exit-codes/within-arm-determinism/summaries/
+      # failing-identities are all asserted and a divergence fails the job.
+      - name: canary run (execute the axios 0.27.2 -> 1.0.0 experiment)
         run: node apps/cli/dist/src/main.js run fixtures/axios-0.27-to-1.0/specs/axios-mock-adapter.json
+        shell: bash
+      - name: canary check (assert the committed proof, not just the exit code)
+        run: node apps/cli/dist/src/main.js check fixtures/axios-0.27-to-1.0/specs/axios-mock-adapter.json
         shell: bash
       - name: upload evidence
         if: always()

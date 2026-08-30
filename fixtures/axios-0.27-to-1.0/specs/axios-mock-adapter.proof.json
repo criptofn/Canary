@@ -1,6 +1,7 @@
 {
   "schema": 1,
   "experimentId": "axios-mock-adapter-1.21.1",
+  "proofHost": { "platform": "win32", "arch": "x64", "nodeVersion": "v26.3.0", "npmVersion": "11.16.0" },
   "dependency": { "package": "axios", "baseline": "0.27.2", "candidate": "1.0.0" },
   "downstream": {
     "repo": "ctimmerm/axios-mock-adapter",
@@ -36,5 +37,5 @@
     "date": "2026-08-30",
     "host": "Windows 11 / Node v26.3.0 / npm 11.16.0"
   },
-  "notes": "Normalized stdout hashes are machine-local (path separators appear in stack traces). The hash-comparison subset of prove is the designated proof host's contract; CI asserts classification/exit-codes/summaries/failing-names portably."
+  "notes": "Normalized stdout hashes are machine-local (path separators appear in stack traces), so the two 'normalized stdout hashes' assertions are gated on proofHost matching the evidence environment (audit F11). On any other host they report SKIPPED while all portable assertions — classification/rule/drift/attestation/pinning/exit-codes/within-arm determinism/summaries/failing-identities — are still asserted. The designated proof host runs all of them."
 }

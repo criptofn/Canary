@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
-import { verifyArtifacts } from '../src/prove.js';
+import { verifyArtifacts, assertProof, type ProofExpectation } from '../src/prove.js';
 import { sha256hex } from '@canary-rn/hashing';
 import type { EvidenceBundle, RoundEvidence } from '@canary-rn/evidence-schema';
 
@@ -97,6 +97,90 @@ describe('verifyArtifacts — audit F4 (proof must rehash the real artifacts)', 
       const issues = verifyArtifacts(dir, bundle);
       assert.equal(issues.length, 1);
       assert.match(issues[0]!, /unexpected logPath/);
+    } finally { cleanup(); }
+  });
+});
+
+const CAND_LOG = [
+  '  suite', '    √ ok one', '', '  1 passing (1ms)', '  1 failing', '',
+  '  1) suite', '       candidate breaks widget:', '     Error: nope', '',
+].join('\n');
+const BASE_LOG = '  2 passing (1ms)\n';
+
+describe('assertProof — audit F11 (portable vs host-exact assertions)', () => {
+  function proofFor(bundle: EvidenceBundle, withHost: boolean): ProofExpectation {
+    const hashes = (arm: 'baseline' | 'candidate') =>
+      bundle.rounds.filter((r) => r.arm === arm).map((r) => r.normalizedStdoutSha256);
+    return {
+      schema: 1, experimentId: 'e',
+      dependency: { package: 'p', baseline: '1', candidate: '2' },
+      downstream: { repo: 'u', commit: 'b'.repeat(40) },
+      ...(withHost
+        ? { proofHost: { platform: bundle.environment.platform, arch: bundle.environment.arch, nodeVersion: bundle.environment.nodeVersion, npmVersion: bundle.environment.npmVersion } }
+        : {}),
+      expected: {
+        classification: 'CONFIRMED_REGRESSION', rule: 5, driftConfinedToDependency: true,
+        baseline: { rounds: 1, exitCodes: [0], normalizedStdoutSha256AcrossRounds: hashes('baseline'), summary: { passing: 2 } },
+        candidate: { rounds: 1, exitCodes: [3], normalizedStdoutSha256AcrossRounds: hashes('candidate'), summary: { passing: 1, failing: 1 } },
+        failingTestNames: ['candidate breaks widget'],
+      },
+    };
+  }
+  const run = (bundle: EvidenceBundle, proof: ProofExpectation) =>
+    assertProof(bundle, proof, { candidateStdout: CAND_LOG, baselineStdout: BASE_LOG });
+
+  it('no proofHost (legacy proof file): hash assertions run unconditionally (strict)', () => {
+    const { dir, bundle, cleanup } = harness();
+    try {
+      const checks = run(bundle, proofFor(bundle, false));
+      const hash = checks.find((c) => c.name === 'candidate normalized stdout hashes')!;
+      assert.equal(hash.ok, true);
+      assert.equal(hash.skipped, undefined);
+    } finally { cleanup(); }
+  });
+
+  it('matching proofHost: every assertion including hashes evaluates', () => {
+    const { dir, bundle, cleanup } = harness();
+    try {
+      const checks = run(bundle, proofFor(bundle, true));
+      assert.equal(checks.some((c) => c.skipped), false);
+      assert.equal(checks.every((c) => c.ok), true);
+    } finally { cleanup(); }
+  });
+
+  it('off-proof-host: ONLY the two hash comparisons skip (flagged, not silent); every portable assertion still evaluates', () => {
+    const { dir, bundle, cleanup } = harness();
+    try {
+      const proof = proofFor(bundle, true);
+      proof.proofHost = { ...proof.proofHost!, nodeVersion: 'v99.0.0' }; // a host that is NOT this one
+      const checks = run(bundle, proof);
+      const skipped = checks.filter((c) => c.skipped);
+      assert.deepEqual(skipped.map((c) => c.name).sort(), [
+        'baseline normalized stdout hashes [SKIPPED: not proof host x/y/node v99.0.0]',
+        'candidate normalized stdout hashes [SKIPPED: not proof host x/y/node v99.0.0]',
+      ]);
+      // determinism-within-arm is host-INDEPENDENT and must NOT skip:
+      assert.ok(checks.some((c) => c.name === 'candidate arm internally deterministic' && !c.skipped));
+      // a real portable violation is still FAIL even while hashes skip:
+      proof.expected.rule = 7;
+      const diverged = run(bundle, proof);
+      const bad = diverged.find((c) => c.name === 'rule')!;
+      assert.equal(bad.ok, false);
+      assert.equal(bad.skipped, undefined);
+    } finally { cleanup(); }
+  });
+
+  it('off-proof-host with tampered committed hashes still passes portable checks (and this is exactly why verifyArtifacts exists)', () => {
+    // Documents the F11/F4 complementarity: when hashes skip, proof integrity
+    // comes from re-hashing the on-disk artifacts, not from the proof file.
+    const { dir, bundle, cleanup } = harness();
+    try {
+      const proof = proofFor(bundle, true);
+      proof.proofHost = { ...proof.proofHost!, npmVersion: '99' };
+      proof.expected.candidate.normalizedStdoutSha256AcrossRounds = ['0'.repeat(64)]; // wrong on purpose
+      const checks = run(bundle, proof);
+      assert.equal(checks.filter((c) => !c.ok).length, 0); // skipped, not failed
+      assert.equal(verifyArtifacts(dir, bundle).length, 0); // artifacts still self-consistent
     } finally { cleanup(); }
   });
 });

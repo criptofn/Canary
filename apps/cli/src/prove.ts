@@ -13,11 +13,31 @@ import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema'
 
 export interface SummaryExpectation { passing: number; failing?: number | undefined }
 
+/**
+ * Audit F11: structured identity of the host that captured the hash-exact
+ * expectations. Normalized stream hashes are machine-local (path separators
+ * and runner formatting survive normalization), so they are the ONLY
+ * assertions that cannot be evaluated cross-host. Everything else —
+ * classification, rule, drift confinement, version attestation, pinning,
+ * exit codes, WITHIN-ARM determinism, summaries, failing-test identities —
+ * is portable and MUST be asserted on every host, including CI.
+ */
+export interface HostFingerprint {
+  platform: string;
+  arch: string;
+  nodeVersion: string;
+  npmVersion: string;
+}
+
 export interface ProofExpectation {
   schema: number;
   experimentId: string;
   dependency?: { package: string; baseline: string; candidate: string };
   downstream?: { repo: string; commit: string };
+  /** When present, hash-exact assertions run only if the evidence's recorded
+   *  environment matches field-for-field; elsewhere they are reported SKIPPED
+   *  (honestly — not silently dropped, not silently failed). */
+  proofHost?: HostFingerprint | undefined;
   expected: {
     classification: string;
     rule: number;
@@ -33,6 +53,8 @@ export interface AssertionResult {
   ok: boolean;
   actual?: unknown;
   expected?: unknown;
+  /** True when a host-exact assertion was not evaluated on this host (F11). */
+  skipped?: boolean | undefined;
 }
 
 export function assertProof(
@@ -65,12 +87,31 @@ export function assertProof(
   const cand = ev.rounds.filter((x) => x.arm === 'candidate');
   eq('baseline exit codes', base.map((x) => x.exitCode), e.baseline.exitCodes);
   eq('candidate exit codes', cand.map((x) => x.exitCode), e.candidate.exitCodes);
-  eq('baseline normalized stdout hashes',
+
+  // Audit F11: the ONLY host-local assertions. Normalized-stream hashes embed
+  // machine-specific formatting, so they are exact only on the proof host.
+  // A structured fingerprint comparison (NOT substring/prose matching) decides
+  // whether to assert them or to report them SKIPPED (honest, never silent).
+  const hf = proof.proofHost;
+  const onProofHost = !hf || (
+    ev.environment.platform === hf.platform &&
+    ev.environment.arch === hf.arch &&
+    ev.environment.nodeVersion === hf.nodeVersion &&
+    ev.environment.npmVersion === hf.npmVersion);
+  const hostExact = (
+    name: string, actual: unknown, expected: unknown,
+  ): void => {
+    if (onProofHost) eq(name, actual, expected);
+    else checks.push({ name: `${name} [SKIPPED: not proof host ${hf!.platform}/${hf!.arch}/node ${hf!.nodeVersion}]`, ok: true, skipped: true, expected, actual });
+  };
+  hostExact('baseline normalized stdout hashes',
     base.map((x) => x.normalizedStdoutSha256.slice(0, 16)),
     e.baseline.normalizedStdoutSha256AcrossRounds.map((h) => h.slice(0, 16)));
-  eq('candidate normalized stdout hashes',
+  hostExact('candidate normalized stdout hashes',
     cand.map((x) => x.normalizedStdoutSha256.slice(0, 16)),
     e.candidate.normalizedStdoutSha256AcrossRounds.map((h) => h.slice(0, 16)));
+  // Within-arm determinism is host-INDEPENDENT (compares rounds to each other
+  // in one run) and stays unconditional on every host.
   eq('baseline arm internally deterministic', new Set(base.map((x) => x.normalizedStdoutSha256)).size, 1);
   eq('candidate arm internally deterministic', new Set(cand.map((x) => x.normalizedStdoutSha256)).size, 1);
 

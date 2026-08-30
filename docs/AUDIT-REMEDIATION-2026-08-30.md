@@ -79,7 +79,7 @@ Status legend: OPEN · DONE · PROVIDER_BLOCKED · DISPROVEN(with evidence)
 ### M10 — CI running the real proof
 | ID | Finding | Root cause located | Status |
 |---|---|---|---|
-| F11 | CI runs `canary run` instead of real proof assertions | `ci.yml` golden-proof step only checks `run`'s exit code. Fix: `run` + `check` in CI; split proof expectations into portable assertions (classification/rule/exit codes/summaries/failing identities/internal determinism) vs machine-local hash assertions skipped off-proof-host (structured `hostFingerprint` comparison, not string vibes). | OPEN |
+| F11 | CI runs `canary run` instead of real proof assertions | `ci.yml` golden-proof step only checks `run`'s exit code. Fix: `run` + `check` in CI; split proof expectations into portable assertions (classification/rule/exit codes/summaries/failing identities/internal determinism) vs machine-local hash assertions skipped off-proof-host (structured `hostFingerprint` comparison, not string vibes). | DONE (M10): `assertProof` now takes an optional structured `proofHost {platform,arch,nodeVersion,npmVersion}`; only the two cross-host normalized-hash comparisons are gated (SKIP reported explicitly in the assertion list, never silent) — the other 14 assertions incl. within-arm determinism evaluate on EVERY host. Golden proof.json carries proofHost=win32/x64/v26.3.0/11.16.0; `ci.yml` now runs `canary run` AND `canary check` (job fails on any portable divergence). 4 assertProof gating tests. |
 
 ### M11 — documentation truth pass
 | ID | Finding | Root cause located | Status |
@@ -227,3 +227,21 @@ generated report.html for the Axios golden run contains
 passed extras; that HTML is the artifact-level F12+F13 proof. New tests:
 report-suite bundle-derivation + section-omission, CLI subprocess no-arg
 report e2e. Suite 126→129; typecheck clean; golden Axios proof PASS (16/16).
+
+### 2026-08-31 — M10 (F11) @ this commit
+CI now runs the REAL proof, not just `canary run`'s exit code. `assertProof`
+gains a structured `proofHost` fingerprint {platform,arch,nodeVersion,
+npmVersion}: the two cross-host normalized-stdout-hash comparisons evaluate
+only when the evidence environment matches it field-for-field, and otherwise
+report as explicit `… [SKIPPED: not proof host …]` assertions (ok=true,
+skipped=true) rather than failing. All 14 portable assertions —
+classification, rule, drift-confined, resolved-version attestation, dependency
++ commit pinning, per-arm exit codes, WITHIN-ARM determinism (host-independent),
+numeric summaries, extracted failing-test identities — are asserted on every
+host, so `canary check` in CI fails the job on any real regression-of-truth.
+Golden proof.json carries proofHost win32/x64/v26.3.0/11.16.0; ci.yml
+golden-proof job runs `canary run` then `canary check`. main.ts prints a
+`skip` tag and an honest PASS line ("N assertions held (M host-exact
+skipped)"). 4 assertProof gating tests. Suite 129→133; build+typecheck clean;
+golden Axios proof PASS on THIS host with all 16 (host matches, "all, incl.
+host-exact hashes"). CI's own ubuntu/windows legs run on push (not tonight).
