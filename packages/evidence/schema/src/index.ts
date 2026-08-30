@@ -117,10 +117,17 @@ const SHA40 = /^[0-9a-f]{40}$/;
  * The exact variable names @canary-rn/support grants to children (both
  * platforms). Every round's envKeys must be a subset — the sanitized
  * boundary is thus auditable from the bundle alone (red-team F9).
+ *
+ * The last six are the audit-F6 NEUTRALIZATIONS: the Windows loader appends
+ * these session-identity vars to every child environment no matter what, so
+ * support declares them with fixed non-identity values instead of pretending
+ * they are absent (packages/support/test/env.test.ts proves the child's
+ * OBSERVED set equals this declaration on the executing host).
  */
 export const SANITIZE_ALLOWLIST: ReadonlySet<string> = new Set([
   'PATH', 'PATHEXT', 'SystemRoot', 'windir', 'ComSpec', 'TEMP', 'TMP', 'HOME', 'USERPROFILE',
   'TMPDIR', 'LANG',
+  'USERNAME', 'USERDOMAIN', 'LOGONSERVER', 'HOMEDRIVE', 'HOMEPATH', 'SYSTEMDRIVE',
 ]);
 
 type Issue = string;

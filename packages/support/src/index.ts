@@ -5,7 +5,11 @@
  * Allowlist by construction: anything not listed is invisible to untrusted
  * fixture code — Anthropic / GitHub / cloud credentials, SSH agents,
  * NODE_OPTIONS, user npm auth — everything not in the list simply does not
- * exist for the child process.
+ * exist for the child process. Exception found by audit F6: the Windows
+ * loader appends logon-session identity vars on top of any replaced block;
+ * sanitizedEnv NEUTRALIZES those too (fixed values), so the child's observed
+ * environment equals the declared allowlist on both platforms — verified by
+ * the permanent observation test (test/env.test.ts), not by prose.
  */
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -33,6 +37,19 @@ export function sanitizedEnv({ ws, nodeDir }: EnvOptions): NodeJS.ProcessEnv {
   fs.mkdirSync(tmp, { recursive: true });
 
   if (process.platform === 'win32') {
+    // Audit F6 (executed probe, 2026-08-30): the Windows process loader
+    // APPENDS logon-session identity vars (USERNAME, USERDOMAIN, LOGONSERVER,
+    // HOMEDRIVE, HOMEPATH, SYSTEMDRIVE, ...) to every child environment even
+    // when `env` is fully replaced — env:{} still yielded the real ones.
+    // They are not in the parent block; they come from the logon session.
+    // Containment therefore requires NEUTRALIZING them explicitly: a var
+    // present in the given block is NOT overwritten by the loader (proven by
+    // the same probe), so declaring them with fixed non-identity values makes
+    // the child's OBSERVED environment equal to the DECLARED allowlist.
+    // The permanent observation test in test/env.test.ts pins this contract.
+    const homeParsed = path.parse(home); // { root: 'C:\\', ... }
+    const homeDrive = homeParsed.root.slice(0, 2); // 'C:'
+    const homeRelative = home.slice(homeParsed.root.length - 1); // '\\Users\\...'
     return {
       PATH: `${nodeDir};${path.join(systemRoot, 'System32')};${systemRoot}`,
       PATHEXT: '.EXE;.CMD',
@@ -43,9 +60,18 @@ export function sanitizedEnv({ ws, nodeDir }: EnvOptions): NodeJS.ProcessEnv {
       TMP: tmp,
       HOME: home,
       USERPROFILE: home,
+      // Neutralized session identity (loader would otherwise inject the real
+      // account identity into every fixture-visible environment):
+      USERNAME: 'canary',
+      USERDOMAIN: 'CANARY',
+      LOGONSERVER: '\\\\CANARY',
+      HOMEDRIVE: homeDrive,
+      HOMEPATH: homeRelative,
+      SYSTEMDRIVE: homeDrive,
     };
   }
-  // POSIX analogues
+  // POSIX analogues — the loader appends nothing here (child envp is exactly
+  // what is passed); the observation test asserts equality on Linux CI.
   return {
     PATH: `${nodeDir}:/usr/bin:/bin`,
     HOME: home,

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 
 import { Recorder, roundEvidence, hasRunnerSummary, isInfraOutput } from '../src/index.js';
+import { sanitizedEnv, sanitizedEnvKeys } from '@canary-rn/support';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
 
 const NODE = process.execPath;
@@ -122,9 +123,10 @@ describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', (
       assert.ok(fs.existsSync(path.join(art, 'baseline-1.stdout.log')));
       const ev = roundEvidence(r1, r1.fact);
       assert.match(ev.rawStdoutSha256, /^[0-9a-f]{64}$/);
-      const expectedKeys = (process.platform === 'win32'
-        ? ['ComSpec', 'HOME', 'PATH', 'PATHEXT', 'SystemRoot', 'TEMP', 'TMP', 'USERPROFILE', 'windir']
-        : ['HOME', 'LANG', 'PATH', 'TMPDIR']).sort();
+      // Single source of truth (audit F6): the keys runCommand reports must be
+      // exactly the ones sanitizedEnv declares on THIS platform — the child-env
+      // observation test in packages/support proves observed == declared.
+      const expectedKeys = sanitizedEnvKeys(sanitizedEnv({ ws, nodeDir: NODE_DIR }));
       assert.deepEqual([...r1.run.envKeys].sort(), expectedKeys);
       void ws;
     } finally { cleanup(); }

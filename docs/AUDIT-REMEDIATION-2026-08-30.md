@@ -51,7 +51,7 @@ Status legend: OPEN · DONE · PROVIDER_BLOCKED · DISPROVEN(with evidence)
 ### M5 — environment consistency
 | ID | Finding | Root cause located | Status |
 |---|---|---|---|
-| F6 | Child environment exposes undeclared Windows variables incl. HOMEDRIVE/HOMEPATH | `sanitizedEnv` returns a literal allowlist block, but `envKeys` in evidence records **declared** keys, never the child's **observed** keys. Vector unverified — M5 starts with an executed child-env observation probe; fix or DISPROVEN per result, then keep observation as a permanent assertion test. | OPEN |
+| F6 | Child environment exposes undeclared Windows variables incl. HOMEDRIVE/HOMEPATH | `sanitizedEnv` returns a literal allowlist block, but `envKeys` in evidence records **declared** keys, never the child's **observed** keys. Vector unverified — M5 starts with an executed child-env observation probe; fix or DISPROVEN per result, then keep observation as a permanent assertion test. | DONE (M5, this host) — executed probe CONFIRMED the vector and found it worse than reported: real `HOMEPATH=\Users\…`, `USERNAME`, `USERDOMAIN`, `LOGONSERVER`, `HOMEDRIVE`, `SYSTEMDRIVE` appear even for `env:{}` — the WINDOWS LOADER appends session vars regardless of block replacement (so "allowlist ⇒ invisible" was false). Fix: sanitizedEnv NEUTRALIZES all six with fixed non-identity values (explicit vars win over loader injection — probe-verified); `SANITIZE_ALLOWLIST` extended to cover the full cross-platform declaration (15 win32 keys); PERMANENT observation test (`packages/support/test/env.test.ts`) asserts child-observed keys == declared and identity vars hold neutral values. Bundle `envKeys` is now truthful by verification. POSIX equality awaits ubuntu CI. |
 
 ### M6 — package-manager/config handling
 | ID | Finding | Root cause located | Status |
@@ -133,3 +133,22 @@ containment regardless of winning layer; that environment fact does NOT hold
 for production runs generally. Suite 95→100; build+typecheck clean; golden
 Axios proof PASS (16/16). POSIX branch awaits ubuntu execution (CI leg — no
 push tonight); F15 documents the same.
+
+### 2026-08-31 — M5 (F6) @ this commit
+Executed child-env observation probe FIRST, as the ledger required. Vector
+CONFIRMED and worse than stated: Windows appends the logon session's identity
+vars to every child environment even when the block is fully replaced
+(`env:{}` still yielded the real `USERNAME`/`HOMEPATH`/`LOGONSERVER`/
+`USERDOMAIN`/`HOMEDRIVE`/`SYSTEMDRIVE`), while evidence recorded only the
+declared 9. A second probe proved explicitly-declared vars win over loader
+injection, so `sanitizedEnv` now neutralizes all six with fixed non-identity
+values (USERNAME=canary, USERDOMAIN=CANARY, LOGONSERVER=\\\\CANARY, HOME-
+drive/path/SYSTEMDRIVE derived from the disposable workspace). SANITIZE_-
+ALLOWLIST (evidence schema) extended accordingly. New PERMANENT observation
+test `packages/support/test/env.test.ts` (3 tests): observed keys == declared
+keys (incl. what the bundle records), neutralized values proven in the child,
+no credential/behavior-injection vars visible, real account identity absent.
+Executor test de-duplicated its hard-coded key list to derive from
+sanitizedEnv. Suite 100→103; build+typecheck clean; golden Axios proof PASS
+(16/16 — npm output unaffected by the neutralized vars). POSIX observed==
+declared awaits ubuntu CI (no WSL here; F15).
