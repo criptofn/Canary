@@ -69,7 +69,7 @@ Status legend: OPEN · DONE · PROVIDER_BLOCKED · DISPROVEN(with evidence)
 | ID | Finding | Scope | Status |
 |---|---|---|---|
 | F13 | Failing-test identities not persisted in the Evidence Bundle | No `failingTestNames` in `RoundEvidence`/schema. Fix lands with M1 (classification consumes identities), persisted here. | DONE (c8be6aa: `infraSignal`/`reportedFailing`/`failingTestNames` flow executor → bundle → published JSON schema) |
-| — | (gap) No `apps/cli` tests exist at all; `npm test` glob doesn't cover `apps/**` | Fix: offline e2e experiment (local stub fixture, no network) exercising pipeline → classification → evidence → prove/check, including confinement guard, fabricated-tamper rejection, CLI exit codes. | PARTIAL (M3 commit adds `apps/**` to test+CI globs and `apps/cli/test/prove.test.ts`; full offline pipeline e2e still OPEN) |
+| — | (gap) No `apps/cli` tests exist at all; `npm test` glob doesn't cover `apps/**` | Fix: offline e2e experiment (local stub fixture, no network) exercising pipeline → classification → evidence → prove/check, including confinement guard, fabricated-tamper rejection, CLI exit codes. | DONE (M8, this commit): `apps/**` in test+CI globs (M3), `prove.test.ts` (M3), `pipeline-e2e.test.ts` (4 offline REAL-pipeline e2e runs: confirm/rehash, rule-9 flip, tamper, fabricated-refusal) and `cli.test.ts` (built CLI subprocess: check 0/3, report 3/0, version 0, usage 3). |
 
 ### M9 — CLI/report consistency
 | ID | Finding | Root cause located | Status |
@@ -188,3 +188,28 @@ trustful label under unconfined drift, INFRA never masked, identity under
 confined drift, and the guard-removal-flip property. The offline e2e
 pipeline test for the same seam is the M8 gap and lands next.
 Suite 110→118; build+typecheck clean; golden Axios proof PASS (16/16).
+
+### 2026-08-31 — M8 (gap) @ this commit
+First-ever apps/cli integration tests beyond prove.test.ts. `runExperiment`
+gains an optional `deps` seam ({fetch, extract}, same idiom as the existing
+ExecutorDeps.run / downloadTarball.fetchFn) — production default path
+byte-identical (real downloadTarball + tar.exe). New
+`apps/cli/test/pipeline-e2e.test.ts`: 4 OFFLINE end-to-end runs of the REAL
+pipeline (local stub repo; every step a local `node` script; npm ls offline
+against the stub's node_modules; real artifacts on disk):
+ 1. confined widget 1→2 regression → CONFIRMED_REGRESSION rule 5, bundle
+    self-validates, verifyArtifacts clean, candidate persists
+    failingTestNames+reportedFailing (F13 e2e), faithful proof passes;
+ 2. swap that also bumps an unrelated dep → drift NOT confined → INCONCLUSIVE
+    rule 9 with the offending package in the reason (F9 e2e — guard removal
+    now flips a suite test);
+ 3. byte-append to a real candidate artifact → verifyArtifacts names the
+    TAMPERED file (F4 e2e);
+ 4. real confirmed bundle re-labeled PASS rule 3 → validateBundle refuses via
+    re-derivation (F3 e2e).
+Plus `apps/cli/test/cli.test.ts`: the BUILT CLI spawned as a subprocess
+against an offline-staged repo — check exit 0 (proof PASS) / exit 3 with the
+TAMPERED artifact named, report exit 3 on a fabricated bundle + exit 0
+rendering a valid one, version 0, no-args usage 3 (the documented exit-code
+contract). Suite 118→126; typecheck clean; golden Axios proof PASS (16/16 —
+production default path verified unchanged by the seam).

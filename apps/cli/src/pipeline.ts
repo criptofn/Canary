@@ -35,7 +35,25 @@ export interface PipelineResult {
   bundleIssues: string[];
 }
 
-export async function runExperiment(specRaw: unknown, repoRoot: string, quiet = false): Promise<PipelineResult> {
+export interface PipelineDeps {
+  /**
+   * Test seam mirroring downloadTarball's own deps.fetchFn and the recorder's
+   * deps.run: replaces the network fetch. Default = real codeload download.
+   * Only the offline pipeline integration test (audit M8) injects this; the
+   * production golden-proof path is untouched.
+   */
+  fetch?: (repo: string, sha: string) => Promise<{ bytes: Buffer; sha256: string }>;
+  /**
+   * Test seam for the tarball EXTRACT step (production shells out to the OS
+   * tar.exe, which is platform-specific — see F15). Receives the workspace
+   * root and must populate WS/<repo-proj>-<sha>/ as real tar extraction does.
+   */
+  extract?: (tgzPath: string, wsRoot: string, repo: string, sha: string) => void;
+}
+
+export async function runExperiment(
+  specRaw: unknown, repoRoot: string, quiet = false, deps: PipelineDeps = {},
+): Promise<PipelineResult> {
   const log = quiet ? () => undefined : (m: string): void => { console.log(m); };
   const validation = validateSpec(specRaw);
   if (!validation.ok || !validation.spec) {
@@ -77,13 +95,19 @@ export async function runExperiment(specRaw: unknown, repoRoot: string, quiet = 
   // [1] fetch pinned content
   const { repo, commit } = spec.downstream;
   log(`[1] fetch ${repo} @ ${commit.slice(0, 10)} (tarball by SHA)`);
-  const blob = await downloadTarball(repo, commit);
+  const blob = deps.fetch
+    ? await deps.fetch(repo, commit)
+    : await downloadTarball(repo, commit);
   const tgz = path.join(WS, 'fixture.tgz');
   fs.writeFileSync(tgz, blob.bytes);
   log(`  ${Math.round(blob.bytes.length / 1024)} KiB sha256=${blob.sha256.slice(0, 16)}...`);
-  const tr = spawnSync(path.join(SYSTEMROOT, 'System32', 'tar.exe'), ['-xzf', tgz, '-C', WS],
-    { env: sanitizedEnv({ ws, nodeDir: NODE_DIR }), shell: false, timeout: 180_000 });
-  if (tr.status !== 0) throw new Error('tar extraction failed');
+  if (deps.extract) {
+    deps.extract(tgz, WS, repo, commit);
+  } else {
+    const tr = spawnSync(path.join(SYSTEMROOT, 'System32', 'tar.exe'), ['-xzf', tgz, '-C', WS],
+      { env: sanitizedEnv({ ws, nodeDir: NODE_DIR }), shell: false, timeout: 180_000 });
+    if (tr.status !== 0) throw new Error('tar extraction failed');
+  }
   const want = expectedExtractedDir(repo, commit);
   const root = fs.readdirSync(WS).find((d) => d === want || (d.startsWith(`${repo.split('/')[1] ?? ''}-`) && d.includes(commit.slice(0, 7))));
   if (!root) throw new Error(`extracted dir not found (wanted ${want})`);
