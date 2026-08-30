@@ -5,7 +5,8 @@
  *   canary run   <spec.json>                 execute an experiment, write evidence
  *   canary prove <spec.json> [proof.json]    re-run and assert committed expectations
  *   canary check <spec.json> [proof.json]    prove without re-running (last evidence)
- *   canary report <evidence.json> [out.html] render the human-readable report
+ *   canary report [evidence.json] [out.html] render the human-readable report
+ *                                          (no args: the latest run's evidence)
  *
  * Exit codes: 0 success (proof holds / CONFIRMED_REGRESSION as expected)
  *             1 proof failed / PASS
@@ -19,7 +20,7 @@ import path from 'node:path';
 import { renderHtml } from '@canary-rn/report';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
 import { runExperiment, InfraAbort, CANARY_VERSION } from './pipeline.js';
-import { assertProof, readLatestEvidence, verifyArtifacts, type ProofExpectation } from './prove.js';
+import { assertProof, readLatestEvidence, verifyArtifacts, findLatestEvidencePath, type ProofExpectation } from './prove.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -30,7 +31,7 @@ usage:
   canary run   <spec.json>
   canary prove <spec.json> [proof.json]
   canary check <spec.json> [proof.json]     assert last run's evidence (no re-run)
-  canary report <evidence.json> [out.html]
+  canary report [evidence.json] [out.html]  (defaults: latest run's evidence; sibling report.html)
   canary version`);
   process.exit(3);
 }
@@ -116,15 +117,27 @@ function validateBundleFile(p: string): string[] {
   return validateBundle(JSON.parse(fs.readFileSync(p, 'utf8')) as unknown);
 }
 
-function cmdReport(evidencePath: string, outPath?: string): number {
-  const bundle = JSON.parse(fs.readFileSync(evidencePath, 'utf8')) as EvidenceBundle;
+function cmdReport(evidencePath: string | undefined, outPath?: string): number {
+  let resolved = evidencePath;
+  if (!resolved) {
+    // Audit F12: `npm run report` (no argument) must work — default to the
+    // most recent recorded run's evidence bundle.
+    const latest = findLatestEvidencePath(REPO_ROOT_DEFAULT);
+    if (!latest) {
+      console.error('no runs recorded under .canary-runs — run an experiment first, or pass an explicit evidence.json');
+      return 3;
+    }
+    resolved = latest.evidencePath;
+    console.log(`using latest evidence (${latest.experimentId}): ${resolved}`);
+  }
+  const bundle = JSON.parse(fs.readFileSync(resolved, 'utf8')) as EvidenceBundle;
   const issues = validateBundle(bundle);
   if (issues.length) {
     console.error('refusing to render an invalid bundle:', issues);
     return 3;
   }
   const html = renderHtml(bundle);
-  const target = outPath ?? path.join(path.dirname(evidencePath), 'report.html');
+  const target = outPath ?? path.join(path.dirname(resolved), 'report.html');
   fs.writeFileSync(target, html, 'utf8');
   console.log(`report: ${target}`);
   return 0;
@@ -136,7 +149,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'run' && rest[0]) return cmdRun(rest[0]);
   if (cmd === 'prove' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), true);
   if (cmd === 'check' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), false);
-  if (cmd === 'report' && rest[0]) return cmdReport(rest[0], rest[1]);
+  if (cmd === 'report') return cmdReport(rest[0], rest[1]);
   return usage();
 }
 

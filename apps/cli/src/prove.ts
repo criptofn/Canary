@@ -97,6 +97,40 @@ export function readLatestEvidence(repoRoot: string, experimentId: string): { bu
 }
 
 /**
+ * Audit F12: `canary report` / `npm run report` with no argument resolves
+ * the MOST RECENT pointer across all experiments (by file mtime), so the
+ * documented one-word command actually works after any run.
+ */
+export function findLatestEvidencePath(repoRoot: string): { experimentId: string; evidencePath: string } | undefined {
+  const dir = path.join(repoRoot, '.canary-runs');
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir).filter((n) => n.startsWith('latest-') && n.endsWith('.json'));
+  } catch {
+    return undefined;
+  }
+  const dated = names
+    .map((n) => {
+      try {
+        return { n, mtime: fs.statSync(path.join(dir, n)).mtimeMs };
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((x): x is { n: string; mtime: number } => x !== undefined)
+    .sort((a, b) => b.mtime - a.mtime);
+  for (const { n } of dated) {
+    try {
+      const pointer = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')) as { evidence?: string };
+      if (typeof pointer.evidence === 'string' && fs.existsSync(pointer.evidence)) {
+        return { experimentId: n.slice('latest-'.length, -'.json'.length), evidencePath: pointer.evidence };
+      }
+    } catch { /* stale/unreadable pointer — try the next-newest */ }
+  }
+  return undefined;
+}
+
+/**
  * Audit F4: prove/check must verify the bundle against the REAL artifacts on
  * disk. Without this, every recorded hash could as easily describe files that
  * never existed — tampered (or deleted) logs sail through because the old

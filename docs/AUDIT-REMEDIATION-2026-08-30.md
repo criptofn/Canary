@@ -74,7 +74,7 @@ Status legend: OPEN · DONE · PROVIDER_BLOCKED · DISPROVEN(with evidence)
 ### M9 — CLI/report consistency
 | ID | Finding | Root cause located | Status |
 |---|---|---|---|
-| F12 | `npm run report` unusable without explicit evidence argument | `cmdReport` requires argv[1]; root script passes none → usage/exit 3. Fix: default to latest run's evidence; report must render failing-test identities from the bundle itself (currently only via unused `extras`). | OPEN |
+| F12 | `npm run report` unusable without explicit evidence argument | `cmdReport` requires argv[1]; root script passes none → usage/exit 3. Fix: default to latest run's evidence; report must render failing-test identities from the bundle itself (currently only via unused `extras`). | DONE (M9): `findLatestEvidencePath()` resolves the newest `.canary-runs/latest-*.json` by mtime; `report` with no arg uses it (verified live: `npm run report` → exit 0). `renderHtml` now derives failing identities from the bundle's candidate rounds (F13) with `extras` demoted to an optional override; real axios report renders "handles baseURL correctly"/"can pass headers to match to a handler" with no caller passing extras. 3 new tests + live proof. |
 
 ### M10 — CI running the real proof
 | ID | Finding | Root cause located | Status |
@@ -213,3 +213,17 @@ TAMPERED artifact named, report exit 3 on a fabricated bundle + exit 0
 rendering a valid one, version 0, no-args usage 3 (the documented exit-code
 contract). Suite 118→126; typecheck clean; golden Axios proof PASS (16/16 —
 production default path verified unchanged by the seam).
+
+### 2026-08-31 — M9 (F12) @ this commit
+`npm run report` (the literally-unusable command) now works: `cmdReport`
+defaults to `findLatestEvidencePath()` — newest `.canary-runs/latest-*.json`
+by mtime, skipping stale/unreadable pointers — with an explicit
+evidence.json still honored; usage text documents the optionality.
+`renderHtml` derives failing-test identities from the bundle's own candidate
+rounds (F13 persistence); `extras` demoted to explicit-override-only. Live
+verification on THIS repo's real state: `npm run report` → exit 0 and the
+generated report.html for the Axios golden run contains
+"handles baseURL correctly" and "can pass headers to match" — no caller ever
+passed extras; that HTML is the artifact-level F12+F13 proof. New tests:
+report-suite bundle-derivation + section-omission, CLI subprocess no-arg
+report e2e. Suite 126→129; typecheck clean; golden Axios proof PASS (16/16).

@@ -125,6 +125,17 @@ describe('audit M8 — CLI subprocess exit-code contract', () => {
     assert.match(html, /CONFIRMED_REGRESSION/);
   });
 
+  it('audit F12: report with NO argument defaults to the latest run and renders bundle-persisted failing identities', async () => {
+    const { repoRoot, artifactsDir } = await stage();
+    const r = cli(repoRoot, ['report']);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /using latest evidence \(stub-cli\)/);
+    const html = fs.readFileSync(path.join(artifactsDir, 'report.html'), 'utf8');
+    // identities come from the bundle's candidate rounds (F13), not extras:
+    assert.match(html, /Failing downstream tests \(candidate\)/);
+    assert.match(html, /candidate breaks widget/);
+  });
+
   it('version exits 0; no command prints usage and exits 3 (misuse)', () => {
     const repoRoot = fs.mkdtempSync(path.join(TMP, 'bare-'));
     const v = cli(repoRoot, ['version']);

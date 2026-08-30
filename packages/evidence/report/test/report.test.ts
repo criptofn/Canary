@@ -48,4 +48,22 @@ describe('renderHtml', () => {
     assert.ok(!evil.includes('<script>alert'));
     assert.ok(evil.includes('&lt;script&gt;'));
   });
+
+  it('audit F12: renders failing-test identities derived from the BUNDLE (no extras)', () => {
+    const withNames = {
+      ...bundle,
+      rounds: [{ ...bundle.rounds[0], failingTestNames: ['handles baseURL correctly', 'can pass headers'] }],
+    } as unknown as EvidenceBundle;
+    const h = renderHtml(withNames); // NO extras argument — must derive from rounds
+    assert.match(h, /Failing downstream tests \(candidate\)/);
+    assert.match(h, /handles baseURL correctly/);
+    assert.match(h, /can pass headers/);
+  });
+
+  it('audit F12: a bundle with no failing identities omits the section', () => {
+    // The base `bundle` round has no failingTestNames; renderHtml without
+    // extras must not fabricate an empty section.
+    const h = renderHtml(bundle);
+    assert.ok(!/Failing downstream tests/.test(h));
+  });
 });

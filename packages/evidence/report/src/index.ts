@@ -34,7 +34,14 @@ export function renderHtml(bundle: EvidenceBundle, extras?: { failingTestNames?:
     </tr>`).join('');
 
   const drift = bundle.treeComparison;
-  const failing = (extras?.failingTestNames ?? []).map((t) => `<li><code>${esc(t)}</code></li>`).join('');
+  // Audit F12: failing-test identities come from the BUNDLE ITSELF (F13
+  // persisted them per candidate round) — not from an `extras` argument no
+  // caller ever passed. extras remains only as an explicit override.
+  const derivedFailing = bundle.rounds
+    .filter((r) => r.arm === 'candidate')
+    .flatMap((r) => r.failingTestNames ?? []);
+  const failing = [...new Set(extras?.failingTestNames ?? derivedFailing)].sort()
+    .map((t) => `<li><code>${esc(t)}</code></li>`).join('');
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
