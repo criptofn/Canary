@@ -46,7 +46,7 @@ Status legend: OPEN · DONE · PROVIDER_BLOCKED · DISPROVEN(with evidence)
 ### M4 — process lifecycle containment
 | ID | Finding | Root cause located | Status |
 |---|---|---|---|
-| F5 | Detached descendants can survive a normal successful execution | `killTree` runs only on timeout. On normal `close`, descendants (same group on POSIX, children on Windows) are never swept. | OPEN |
+| F5 | Detached descendants can survive a normal successful execution | `killTree` runs only on timeout. On normal `close`, descendants (same group on POSIX, children on Windows) are never swept. | DONE (M4, this host) — post-close `sweepDescendants()` on EVERY exit (Windows: live-orphan PPID lineage via CIM + CreationDate floor vs PID-reuse; POSIX: /proc pgrp scan + group-kill backstop). Residual, documented in code: POSIX `setsid()` double-fork daemon escapes both sweep and (here) proof-of-absence — v0.1 claims best-effort containment sweep, NOT a kernel jail. **POSIX branch not yet executed** (no WSL on this host; no push so ubuntu CI not run tonight) — mechanism-proven test + containment e2e both green on Windows. |
 
 ### M5 — environment consistency
 | ID | Finding | Root cause located | Status |
@@ -106,7 +106,7 @@ at commit time — corrected here at M3. The post-M2 golden-proof rerun was
 folded into the M3 rerun below (M2 changed only validation, which the prove
 path exercises before assertions — so the M3 PASS covers it).
 
-### 2026-08-30 — M3 (F4) @ this commit
+### 2026-08-30 — M3 (F4) @ 9364538
 `verifyArtifacts()` re-hashes all four per-round artifacts against recorded
 digests; `cmdProve` (both `prove` and `check`) refuses on any mismatch before
 assertions, and re-checks the post-rerun dir. New `apps/cli/test/prove.test.ts`
@@ -116,3 +116,20 @@ green; build+typecheck clean; golden Axios proof PASS (16/16). Live negative
 test on real proof artifacts: byte-append to `baseline-1.stdout.log` →
 `check` exit 3, `TAMPERED artifact baseline-1.stdout.log` (recorded vs on-disk
 digests printed); restore → `check` exit 0.
+
+### 2026-08-30 — M4 (F5) @ this commit
+`runCommand` now sweeps descendants after EVERY child close (normal exit and
+timeout alike): `sweepDescendants()` — win32 BFS over `Win32_Process.ParentProcessId`
+(live orphans retain their creator's PPID) with a CreationDate≥spawn−60s floor
+against PID-reuse collateral, POSIX /proc `pgrp==childPid` scan (ps fallback)
+plus negative-pgid SIGKILL backstop. `RunOutcome` gains `childPid`/`sweptPids`/
+`sweepFailed`. 5 new tests in `packages/support/test/lifecycle.test.ts`
+(mechanism proof against a LIVE parent + containment e2e normal-exit/timeout/
+no-descendants/no-self-kill). Execution note: the dev session runs inside a
+Windows Job Object that kills orphans on parent exit — the e2e survivor could
+not be left alive for the sweep here, so the sweep mechanism is proven
+directly against a live parent (found + killed the child) while e2e asserts
+containment regardless of winning layer; that environment fact does NOT hold
+for production runs generally. Suite 95→100; build+typecheck clean; golden
+Axios proof PASS (16/16). POSIX branch awaits ubuntu execution (CI leg — no
+push tonight); F15 documents the same.

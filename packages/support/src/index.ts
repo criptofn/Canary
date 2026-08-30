@@ -76,6 +76,16 @@ export interface RunOutcome {
   durationMs: number;
   argv: readonly string[];
   envKeys: readonly string[];
+  /** PID Canary spawned (absent on spawn-error paths). */
+  childPid?: number | undefined;
+  /**
+   * Audit F5: descendant PIDs still alive when the child exited, swept after
+   * close. Empty means the sweep ran cleanly and found no survivors; see
+   * `sweepFailed` for the difference between "nothing survived" and
+   * "could not look".
+   */
+  sweptPids?: number[] | undefined;
+  sweepFailed?: boolean | undefined;
 }
 
 /**
@@ -86,7 +96,9 @@ export interface RunOutcome {
  *
  * Timeout performs a PROCESS-TREE kill (F2): a killed test runner must not
  * leave orphaned grandchildren holding ports/files that would poison later
- * rounds asymmetrically into a false CONFIRMED_REGRESSION.
+ * rounds asymmetrically into a false CONFIRMED_REGRESSION. And per audit F5,
+ * containment is also enforced on NORMAL exit: after every child close a
+ * descendant sweep runs (see sweepDescendants).
  */
 export async function runCommand(o: RunOptions): Promise<RunOutcome> {
   const env = sanitizedEnv(o);
@@ -111,6 +123,8 @@ export async function runCommand(o: RunOptions): Promise<RunOutcome> {
       });
       return;
     }
+    const childPid = child.pid;
+    const spawnedAtMs = Date.now();
     let stdout = '';
     let stderr = '';
     let killed = false;
@@ -134,12 +148,20 @@ export async function runCommand(o: RunOptions): Promise<RunOutcome> {
     });
     child.on('close', (code, signal) => {
       clearTimeout(timer);
+      // Audit F5: containment must hold on NORMAL exit too, not just timeout.
+      // The child is gone but its descendants may live on (a runner's helper
+      // daemons holding ports/files poison later rounds asymmetrically).
+      // Sweeps AFTER exit are still precise: Windows keeps the numeric PPID of
+      // a dead parent in its process records, and on POSIX the child was
+      // spawned detached into its own process group which outlives it.
+      const sweep = sweepDescendants(childPid, spawnedAtMs);
       resolve({
         exitCode: killed ? -1 : (code ?? (signal ? -1 : -1)),
         killedByTimeout: killed,
         stdout, stderr,
         durationMs: Date.now() - start,
         argv: [...o.argv], envKeys,
+        childPid, sweptPids: sweep.killed, sweepFailed: sweep.failed,
       });
     });
   });
@@ -163,6 +185,105 @@ export function killTree(pid: number | undefined): void {
   } catch {
     try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
   }
+}
+
+/** Result of the audit-F5 post-exit containment sweep. */
+export interface SweepResult {
+  killed: number[];
+  /** True when the sweep could not run/complete — "no survivors" is then unknown. */
+  failed: boolean;
+}
+
+const SWEEP_MAX_PROCESSES = 200;
+
+/**
+ * Audit F5: after the spawned child has EXITED (normal or killed), sweep any
+ * descendants that outlived it. Precise on both platforms post-exit:
+ *  - Windows: `Win32_Process.ParentProcessId` keeps the numeric PPID of a dead
+ *    parent, so a BFS over stale-PPID lineage finds grandchildren even when
+ *    intermediate ancestors are gone. A CreationDate >= spawn-time filter
+ *    guards against PID-reuse collateral (a recycled PPID belongs to a newer
+ *    unrelated tree).
+ *  - POSIX: the child was spawned `detached` => it led its own process group;
+ *    the group outlives the leader, so group members still alive after close
+ *    are found via /proc (or `ps`) and SIGKILLed, then the whole pgid is
+ *    signalled as a race backstop.
+ *
+ * Residual gap, documented honestly (SECURITY.md): a POSIX descendant that
+ * `setsid()`s itself (double-fork daemonization) leaves the group before the
+ * parent dies and is then indistinguishable — that is out of sweep reach on
+ * both platforms absent a kernel containment primitive (Job Objects / cgroups),
+ * which v0.1 does not claim.
+ */
+export function sweepDescendants(pid: number | undefined, spawnedAtMs: number): SweepResult {
+  if (!pid || pid <= 0) return { killed: [], failed: false };
+  try {
+    return process.platform === 'win32'
+      ? sweepWin32(pid, spawnedAtMs)
+      : sweepPosix(pid);
+  } catch {
+    return { killed: [], failed: true };
+  }
+}
+
+function sweepPosix(pid: number): SweepResult {
+  const killed: number[] = [];
+  const members = new Set<number>();
+  if (fs.existsSync('/proc')) {
+    for (const entry of fs.readdirSync('/proc')) {
+      if (!/^\d+$/.test(entry)) continue;
+      const other = Number(entry);
+      if (other === pid || other === process.pid) continue;
+      let stat = '';
+      try { stat = fs.readFileSync(`/proc/${entry}/stat`, 'utf8'); } catch { continue; }
+      // fields after the parenthesized comm: state ppid pgrp session ...
+      const rest = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      const ppid = Number(rest[1]); const pgrp = Number(rest[2]);
+      if (ppid === pid || pgrp === pid) members.add(other);
+    }
+  } else {
+    const ps = spawnSync('ps', ['-o', 'pid=,ppid=,pgid='], { timeout: 10_000, encoding: 'utf8' });
+    if (ps.status !== 0) return { killed, failed: true };
+    for (const line of ps.stdout.split('\n')) {
+      const [p, pp, pg] = line.trim().split(/\s+/).map(Number);
+      if (p === undefined || !Number.isFinite(p) || p === pid || p === process.pid) continue;
+      if (pp === pid || pg === pid) members.add(p);
+    }
+  }
+  for (const m of members) {
+    if (killed.length >= SWEEP_MAX_PROCESSES) break;
+    try { process.kill(m, 'SIGKILL'); killed.push(m); } catch { /* already dead */ }
+  }
+  try { process.kill(-pid, 'SIGKILL'); } catch { /* group already empty */ }
+  return { killed, failed: false };
+}
+
+function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
+  const systemRoot = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
+  const psExe = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  // 60s clock slack: CIM CreationDate truncates to seconds.
+  const cut = new Date(spawnedAtMs - 60_000).toISOString();
+  const script =
+    `$cut=[DateTime]::Parse('${cut}').ToUniversalTime();` +
+    `$q=New-Object System.Collections.Generic.Queue[int]; $q.Enqueue(${pid});` +
+    `$done=New-Object System.Collections.Generic.HashSet[int]; $k=@();` +
+    `while($q.Count -and $done.Count -lt ${SWEEP_MAX_PROCESSES}){` +
+    `$p=$q.Dequeue(); if(-not $done.Add($p)){continue};` +
+    `Get-CimInstance -ClassName Win32_Process -Filter "ParentProcessId=$p" -ErrorAction SilentlyContinue | ForEach-Object{` +
+    `if($_.CreationDate -and $_.CreationDate.ToUniversalTime() -ge $cut){` +
+    `$q.Enqueue($_.ProcessId);` +
+    `try{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; $k+=$_.ProcessId }catch{} ` +
+    `} } };` +
+    `$k -join ','`;
+  const r = spawnSync(fs.existsSync(psExe) ? psExe : 'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    { timeout: 30_000, windowsHide: true, encoding: 'utf8', shell: false });
+  if (r.error || r.status !== 0) return { killed: [], failed: true };
+  const text = (r.stdout ?? '').trim();
+  const killed = text
+    ? text.split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+  return { killed, failed: false };
 }
 
 export const ExitCode = {
