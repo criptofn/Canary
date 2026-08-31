@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
 
-import { Recorder, roundEvidence, hasRunnerSummary, isInfraOutput, hasCrashSignature, pmArgvPolicy, assertCanonicalPmForm, assertSupportedSpecExecutable, NPM_REGISTRY_PIN, SPEC_LITERAL_EXECUTABLES } from '../src/index.js';
+import { Recorder, roundEvidence, hasRunnerSummary, isInfraOutput, hasCrashSignature, pmArgvPolicy, assertCanonicalPmForm, assertSupportedSpecExecutable, NPM_REGISTRY_PIN, SPEC_LITERAL_EXECUTABLES, NPM_PROTECTED_CONFIG_KEYS, NPM_INSTALL_OPTION_ALLOW, YARN_PROTECTED_CONFIG_KEYS, YARN_INSTALL_OPTION_ALLOW, resolveOptionToken } from '../src/index.js';
 import { sanitizedEnv, sanitizedEnvKeys } from '@canary-rn/support';
 import { classify, type RoundFact } from '@canary-rn/classification';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
@@ -131,8 +132,16 @@ describe('Recorder.expandArgv — token expansion + enforced isolation', () => {
   it('F8: unknown bare option before subcommand rejected; --key=value passes', () => {
     const { rec, cleanup } = freshRecorder();
     try {
+      // post-sol RB-1: install-family options are closed-allowlisted, so an
+      // unknown pre-subcommand option dies on the allowlist (non-install
+      // families keep the valueless-ambiguity rule below):
       assert.throws(
         () => rec.expandArgv(['$npm', '--whatever', 'install', 'x'],
+          { dep: 'x', baseline: 'b', candidate: 'c' }, () => 'unused'),
+        /allowlist|not on Canary's closed option allowlist/,
+      );
+      assert.throws(
+        () => rec.expandArgv(['$npm', '--whatever', 'run', 'x'],
           { dep: 'x', baseline: 'b', candidate: 'c' }, () => 'unused'),
         /cannot be verified valueless/,
       );
@@ -355,7 +364,11 @@ describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', (
     const { rec, cleanup } = freshRecorder();
     try {
       const failLog = [
-        'console.log("  10 passing (1ms)");',
+        // 4 passing + 1 failing keeps the candidate EXECUTED total (5)
+        // comparable with the baseline arm's 5 (post-sol RB-2 rule 13
+        // refuses strong verdicts over incomparable coverage — an earlier
+        // "10 passing" stub here encoded exactly that non-comparability).
+        'console.log("  4 passing (1ms)");',
         'console.log("  1 failing");',
         'console.log("  1) passThrough tests (requires Node)");',
         'console.log("       handles baseURL correctly:");',
@@ -702,10 +715,222 @@ describe('round-3 secondary — crash & sweep signals reach the classification',
     } finally { cleanup(); }
   });
 
+  it('post-sol secondary: CR-only line endings are matched like LF/CRLF (summary + anchored crash banner)', () => {
+    const cr = '  suite\r    √ ok one\r  128 passing (3s)\r  3 failing\r';
+    assert.ok(hasRunnerSummary(cr), 'a lone-CR summary line was invisible to the /m matcher pre-fix');
+    assert.ok(hasRunnerSummary(cr.replace(/\r/g, '\n')));
+    assert.ok(hasCrashSignature('# Fatal error in, line 0: Reach heap limit\rmore\r'));
+    assert.ok(!hasRunnerSummary('no numbers here\rat all\r'));
+  });
+
   it('assertSupportedSpecExecutable: the allowlist is small and explicit', () => {
     assert.deepEqual([...SPEC_LITERAL_EXECUTABLES].sort(), ['node', 'node.exe']);
     assert.doesNotThrow(() => assertSupportedSpecExecutable(['node', 'x.js']));
     assert.doesNotThrow(() => assertSupportedSpecExecutable(['$npm', 'install']), 'token forms bypass the literal check');
     assert.throws(() => assertSupportedSpecExecutable(['cmd', '/c', 'npm', 'i']), /wrapper|interpreter/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST-SOL RB-1 — PACKAGE-MANAGER ISOLATION MUST BE SEMANTIC, NOT TEXTUAL.
+// Sol demonstrated that npm (11.16 AND 11.19) applies configuration options
+// that are spelled differently from the denylist: negations (--no-ignore-
+// scripts), unique-prefix abbreviations (--userc, --reg), and post-injection
+// ordering (npm's CLI layer is LAST-WINS, verified empirically below). The
+// exact-string denylist was bypassable BY CONSTRUCTION. The remediated
+// invariant is:
+//   (1) every install-family option token must be an EXACT spelling from a
+//       closed allowlist that is prefix-disjoint from the protected key
+//       universe (property-tested over ALL prefixes/negations/case/= forms);
+//   (2) Canary's protected flags are appended AFTER every user token, so
+//       npm's own last-wins makes the effective protected configuration
+//       structurally Canary's regardless of accepted spellings or order;
+//   (3) `--` and short options remain impossible in install-family commands;
+//   (4) non-install families reject any token whose resolved key (exact,
+//       abbreviation, negation, case) touches a protected key, and the
+//       per-package config family (--@scope:registry, //…:auth).
+// ---------------------------------------------------------------------------
+describe('post-sol RB-1 — semantic package-manager policy (equivalence classes)', () => {
+  const subs = { dep: 'x', baseline: '1', candidate: '2' };
+
+  // ---- 1. Sol's demonstrated forms: each must be REFUSED (old: accepted). ----
+  it("Sol's accepted forms are now rejected in install-family commands", () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      for (const cmd of [
+        ['$npm', 'install', 'pkg', '--no-ignore-scripts'],           // negation of a protected bool
+        ['$npm', 'install', 'pkg', '--userc=evil.npmrc'],            // abbreviation of --userconfig
+        ['$npm', 'install', 'pkg', '--reg=https://evil.example/'],   // abbreviation of --registry
+        ['$npm', 'install', '--location=global', 'pkg'],             // install-target escape key
+      ]) {
+        assert.throws(
+          () => rec.expandArgv(cmd, subs, () => 'unused'),
+          /isolation-conflicting|not allowed|allowlist/i,
+          `RB-1 must reject: ${cmd.join(' ')}`,
+        );
+      }
+    } finally { cleanup(); }
+  });
+
+  // ---- 2. The whole equivalence class, generalized over every protected key. ----
+  it('property: for EVERY protected key, every abbreviation/negation/case/= spelling is refused (install family)', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const formsOf = (k: string): string[] => {
+        const out: string[] = [];
+        for (let i = 1; i <= k.length; i++) {
+          const p = k.slice(0, i);
+          out.push(`--${p}`, `--${p}=zzz`, `--no-${p}`, `--no-${p}=zzz`);
+          out.push(`--${p[0]!.toUpperCase()}${p.slice(1)}`, `--${p.toUpperCase()}`);
+        }
+        return out;
+      };
+      for (const k of NPM_PROTECTED_CONFIG_KEYS) {
+        for (const tok of formsOf(k)) {
+          assert.throws(
+            () => rec.expandArgv(['$npm', 'install', 'pkg', tok], subs, () => 'unused'),
+            /isolation-conflicting|allowlist|not allowed/i,
+            `protected key '${k}' leaked through form '${tok}' (install family)`,
+          );
+          // npm applies config at any position — the pre-subcommand slot too:
+          assert.throws(
+            () => rec.expandArgv(['$npm', tok, 'install', 'pkg'], subs, () => 'unused'),
+            /isolation-conflicting|allowlist|not allowed/i,
+            `protected key '${k}' leaked through pre-subcommand form '${tok}'`,
+          );
+        }
+      }
+    } finally { cleanup(); }
+  });
+
+  it('property: the per-package config family (@scope:registry, //…:auth) is refused everywhere', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      for (const cmd of [
+        ['$npm', 'install', 'pkg', '--@evil:registry=https://evil.example/'],
+        ['$npm', 'install', 'pkg', '--//evil.example/:_authToken=abc'],
+        ['$npm', '--@evil:registry=https://evil.example/', 'install', 'pkg'],
+        ['$npm', 'run', 'test', '--@evil:registry=https://evil.example/'],   // non-install too
+        ['$npm', 'ls', '--@evil:registry=x'],
+        ['$yarn', 'install', '--@evil:registry=https://evil.example/'],
+      ]) {
+        assert.throws(
+          () => rec.expandArgv(cmd, subs, () => 'unused'),
+          /isolation-conflicting|allowlist/i,
+          `must reject per-package config form: ${cmd.join(' ')}`,
+        );
+      }
+    } finally { cleanup(); }
+  });
+
+  // ---- 3. Placement: the protected block must be the SUFFIX of argv. ----
+  it('property: accepted install argv ends with Canary protected flags after every user token', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const shapes: string[][] = [
+        ['$npm', 'install', 'pkg'],
+        ['$npm', 'i', '--no-save', 'pkg'],
+        ['$npm', 'install', '--before=2022-10-04T00:00:00Z'],
+        ['$npm', '--loglevel=silent', 'ci'],
+        ['$npm', 'add', 'pkg@{candidate}'],
+        ['$npm', 'update'],
+      ];
+      for (const cmd of shapes) {
+        const out = rec.expandArgv(cmd, subs, () => 'unused');
+        const blockStart = out.indexOf('--ignore-scripts');
+        assert.ok(blockStart > 0, `flags missing from ${out.join(' ')}`);
+        // The protected block is a SUFFIX: nothing user-controlled follows it.
+        // Tail shape: --ignore-scripts --no-audit --no-fund --legacy-peer-deps
+        //             --userconfig <p> --cache <p> --registry <pin>
+        assert.equal(out[out.length - 1], NPM_REGISTRY_PIN, `registry must be the final value: ${out.join(' ')}`);
+        assert.equal(out[out.length - 2], '--registry', out.join(' '));
+        assert.equal(out[out.length - 4], '--cache', out.join(' '));
+        assert.equal(out[out.length - 6], '--userconfig', out.join(' '));
+        assert.equal(out[out.length - 10], '--ignore-scripts', out.join(' '));
+        // Every protected key appears EXACTLY ONCE (user spellings cannot
+        // duplicate it: they are refused, so last-wins has no contender).
+        for (const f of ['--ignore-scripts', '--userconfig', '--cache', '--registry', '--legacy-peer-deps']) {
+          const idxs = out.reduce<number[]>((acc, tk, i) => { if (tk === f) acc.push(i); return acc; }, []);
+          assert.equal(idxs.length, 1, `${f} occurs ${idxs.length}x in ${out.join(' ')}`);
+        }
+      }
+    } finally { cleanup(); }
+  });
+
+  // ---- 4. The allowlist itself can never name/abbreviate/negate into one. ----
+  it('invariant: no allowed install spelling resolves to a protected key (prefix-disjoint)', () => {
+    for (const [pm, allow, protectedKeys] of [
+      ['npm', NPM_INSTALL_OPTION_ALLOW, NPM_PROTECTED_CONFIG_KEYS],
+      ['yarn', YARN_INSTALL_OPTION_ALLOW, YARN_PROTECTED_CONFIG_KEYS],
+    ] as const) {
+      for (const opt of allow) {
+        const name = opt.startsWith('--') ? opt.slice(2) : opt;
+        const bare = name.includes('=') ? name.slice(0, name.indexOf('=')) : name;
+        const base = bare.startsWith('no-') ? bare.slice(3) : bare;
+        assert.ok(base.length >= 2, `${pm}: degenerate allow entry '${opt}'`);
+        for (const p of protectedKeys) {
+          assert.ok(!p.startsWith(base),
+            `${pm}: allowlist entry '${opt}' resolves toward protected '${p}' (base '${base}')`);
+        }
+      }
+    }
+  });
+
+  // ---- 5. Legitimate passthrough survives (fixture shapes + script family). ----
+  it('legitimate script-family passthrough and fixture install shapes still expand', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      // the golden fixture's real prepare/swap/override commands:
+      const prep = rec.expandArgv(['$npm', 'install', '--before=2022-10-04T00:00:00Z'], subs, () => 'unused');
+      assert.ok(prep.includes('--before=2022-10-04T00:00:00Z'), prep.join(' '));
+      const swap = rec.expandArgv(['$npm', 'install', '--no-save', '--no-package-lock', '{dep}@{candidate}'], subs, () => 'unused');
+      assert.ok(swap.includes('x@2') && swap.includes('--ignore-scripts'), swap.join(' '));
+      const ov = rec.expandArgv(['$npm', 'i', '--no-save', '--no-package-lock', 'yargs@16.2.2'], subs, () => 'unused');
+      assert.ok(ov.includes('yargs@16.2.2'), ov.join(' '));
+      // value-taking allowlist keys still require the = form (a bare one
+      // could swallow a following token — ours or the user's):
+      assert.throws(
+        () => rec.expandArgv(['$npm', 'install', '--before', '2022-01-01', 'pkg'], subs, () => 'unused'),
+        /=|value|allowlist|not allowed/i,
+      );
+      // script family keeps its own pinned-script behavior (no injection):
+      const run = rec.expandArgv(['$npm', 'run', 'test', '--', '--some-flag'], subs, () => 'unused');
+      assert.ok(!run.includes('--ignore-scripts'), run.join(' '));
+    } finally { cleanup(); }
+  });
+
+  // ---- 6. resolveOptionToken: the shared normalization under both layers. ----
+  it('resolveOptionToken normalizes case, =-values, and one leading no-', () => {
+    assert.deepEqual(resolveOptionToken('--UserConfig=x'), { name: 'userconfig', value: 'x', negated: false });
+    assert.deepEqual(resolveOptionToken('--no-ignore-scripts'), { name: 'ignore-scripts', value: undefined, negated: true });
+    assert.deepEqual(resolveOptionToken('--no-save'), { name: 'save', value: undefined, negated: true });
+    assert.deepEqual(resolveOptionToken('--noproxy'), { name: 'noproxy', value: undefined, negated: false });
+    assert.deepEqual(resolveOptionToken('--@x:registry=u'), { name: '@x:registry', value: 'u', negated: false });
+  });
+
+  // ---- 7. The empirical premises (executed against the host npm; skipped
+  // when no local npm-cli). These pin WHY the textual denylist failed: npm
+  // itself applies abbreviations, negations, and last-wins ordering. ----
+  const hostNpmCli = path.join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-rb1-'));
+  const spawnProbe = (args: string[]): string => {
+    const r = spawnSync(process.execPath, [hostNpmCli, ...args], {
+      encoding: 'utf8', timeout: 90_000, windowsHide: true, cwd: probeRoot,
+      env: sanitizedEnv({ ws: { root: probeRoot, fixture: probeRoot }, nodeDir: NODE_DIR }),
+    });
+    return String(r.stdout ?? '').trim();
+  };
+  it('empirical: npm applies abbreviation + negation + LAST-WINS ordering (the semantic premises)', (t) => {
+    if (!fs.existsSync(hostNpmCli)) { t.skip('no local npm-cli.js'); return; }
+    // premise 1: abbreviation is real (the denylist hole):
+    assert.match(spawnProbe(['--ig', 'config', 'get', 'ignore-scripts']), /true/);
+    // premise 2: ordering is last-wins (the append fix works):
+    assert.equal(spawnProbe(['--no-ignore-scripts', '--ignore-scripts', 'config', 'get', 'ignore-scripts']), 'true');
+    assert.equal(spawnProbe(['--ignore-scripts', '--no-ignore-scripts', 'config', 'get', 'ignore-scripts']), 'false');
+    // premise 3: an abbreviated override loses to a later canonical pin:
+    assert.equal(
+      spawnProbe(['--reg=https://evil.example/', '--registry=https://official.example/', 'config', 'get', 'registry']),
+      'https://official.example/',
+    );
   });
 });

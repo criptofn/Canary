@@ -155,7 +155,10 @@ export function extractFailingTestNames(log: string): string[] {
     if (t && !seen.has(t)) { seen.add(t); out.push(t); }
   };
 
-  const lines = log.split(/\r?\n/);
+  // post-sol secondary: CR/CRLF normalize at entry (see executor's toLf
+  // rationale) — a lone-CR stream must not defeat the line parser.
+  const norm = log.replace(/\r\n?/g, '\n');
+  const lines = norm.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const m = /^\s*\d+\)\s+(.+?)\s*$/.exec(lines[i]!);
     if (!m) continue;
@@ -182,7 +185,7 @@ export function extractFailingTestNames(log: string): string[] {
   // ava-style failing lines: "✖ suite › nested › test"
   const ava = /^\s*[✖×]\s+(.+?)\s*$/gm;
   let a: RegExpExecArray | null;
-  while ((a = ava.exec(log)) !== null) add(a[1]!.replace(/\s*›\s*/g, ' > ').trim());
+  while ((a = ava.exec(norm)) !== null) add(a[1]!.replace(/\s*›\s*/g, ' > ').trim());
 
   return out;
 }
@@ -195,8 +198,11 @@ export interface SummaryCounts {
 }
 
 export function parseSummaryCounts(log: string): SummaryCounts {
+  // post-sol secondary: CR/CRLF normalize at entry, consistent with the
+  // executor matchers — summary lines separated only by lone CR still parse.
+  const norm = log.replace(/\r\n?/g, '\n');
   const g = (re: RegExp): number | undefined => {
-    const m = re.exec(log);
+    const m = re.exec(norm);
     return m ? Number(m[1]) : undefined;
   };
   return {

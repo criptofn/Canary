@@ -41,9 +41,19 @@ export interface ExecResult {
  * regex accepted prose like "Assertion failed: 2 failed checks").
  * Only runner summary LINES count.
  */
+/**
+ * Post-sol secondary: ALL line-oriented matchers/parsers normalize CR/CRLF
+ * to LF at entry. Before this, a lone-CR stream (old-Mac style, some
+ * progress reporters) was scanned as ONE line, so a real summary could hide
+ * from the /m-anchored matchers — an asymmetry against the normalizers
+ * (whose 'line-endings' rule has always collapsed them for the hashes).
+ * Artifacts stay byte-exact; only the DERIVED facts see the normalized
+ * view, and prove.ts re-derives through these same functions (parity).
+ */
+const toLf = (out: string): string => out.replace(/\r\n?/g, '\n');
 const SUMMARY_LINE = /^\s*(?:\d+ (?:tests? )?(?:passed|failed)|\d+ (?:passing|failing)|Tests:\s*\d+ passed)\b/m;
 export function hasRunnerSummary(out: string): boolean {
-  return SUMMARY_LINE.test(out);
+  return SUMMARY_LINE.test(toLf(out));
 }
 
 /**
@@ -88,7 +98,7 @@ export function isInfraOutput(out: string): boolean {
   // find module") conservatively false-INFRA'd the entire round. They are now
   // line-scoped and skip pass-glyph lines; genuine error/stack lines never
   // start with a pass glyph.
-  const lines = out.split(/\r?\n/);
+  const lines = toLf(out).split('\n');
   if (INFRA_PATTERNS.some((re) => lines.some((line) => !PASS_GLYPH.test(line) && re.test(line)))) return true;
   return lines.some((line) =>
     !PROGRESS_GLYPH.test(line) && SOFT_CODE.test(line) && SOFT_SHAPE.test(line));
@@ -118,7 +128,7 @@ export function isInfraOutput(out: string): boolean {
 const CRASH_LINE =
   /FATAL ERROR:.*\bheap\b|JavaScript heap out of memory|Segmentation fault|core dumped|abort\(\) called|\bSIGSEGV\b|\bSIGABRT\b|^\s*#\s*Fatal error in[ ,]/i;
 export function hasCrashSignature(out: string): boolean {
-  return out.split(/\r?\n/).some((line) => !PASS_GLYPH.test(line) && CRASH_LINE.test(line));
+  return toLf(out).split('\n').some((line) => !PASS_GLYPH.test(line) && CRASH_LINE.test(line));
 }
 
 /**
@@ -136,10 +146,11 @@ export function hasCrashSignature(out: string): boolean {
  *     (including vetted-looking but unlisted aliases, `exec`, `publish`,
  *     `link`, `rebuild`) is REJECTED as unsupported rather than run without
  *     policy;
- *  3. install/update family → Canary's isolation controls are SPLICED IN
- *     IMMEDIATELY AFTER the subcommand (effective position — the old
- *     end-append became dead weight the moment a user wrote `--`), and a `--`
- *     separator is rejected in these families;
+ *  3. install/update family → Canary's isolation controls are APPENDED AS
+ *     THE ARGV SUFFIX (post-sol RB-1: npm's CLI config layer is last-wins,
+ *     so the final canonical occurrence is the EFFECTIVE one), and a `--`
+ *     separator is rejected in these families so nothing can follow the
+ *     suffix (which would otherwise turn it into dead weight);
  *  4. script/info families run without injection (own pinned scripts /
  *     read-only queries); `--` passthrough only exists after such a
  *     subcommand, where the subcommand is already positionally pinned;
@@ -150,11 +161,49 @@ export function hasCrashSignature(out: string): boolean {
  *     start a non-token command — wrappers (cmd/powershell/env/sh/xargs/…),
  *     package-manager frontends (pnpm/bun/corepack/volta/…) and every other
  *     unenumerated executable are refused fail-closed, because their first
- *     token is not what they execute.
+ *     token is not what they execute;
+ *  7. (post-sol RB-1) OPTION SPELLINGS ARE POLICIED SEMANTICALLY, not
+ *     textually. Empirically derived on npm 11.16/11.19 (pinned by an
+ *     executed probe in executor.test.ts): npm's CLI layer applies
+ *     unique-prefix ABBREVIATIONS (--ig → --ignore-scripts, --userc →
+ *     --userconfig, --reg → --registry), `--no-` NEGATIONS, and
+ *     LAST-WINS ordering within the CLI config layer — while ambiguous
+ *     abbreviations, case variants and unknown flags are ignored with a
+ *     warning. An exact-string denylist therefore cannot protect: every
+ *     spelling-equivalent of a denied name is an open door. The fix closes
+ *     the whole equivalence class from BOTH ends:
  *
- * Invariant (property-tested): IF an install-family command is accepted, the
- * executed argv demonstrably carries --ignore-scripts, --userconfig, --cache,
- * --registry in effective position right after the subcommand.
+ *     (a) INSTALL-FAMILY OPTION SURFACE IS A CLOSED ALLOWLIST of exact
+ *         vetted spellings (NPM/YARN_INSTALL_OPTION_ALLOW). A token is
+ *         accepted only if its case-folded name (before '=') matches an
+ *         allow entry literally — abbreviations, camelCase, negations of
+ *         unlisted keys and every unknown config (including the per-package
+ *         family --@scope:registry / //…:_auth) are REJECTED, not parsed.
+ *         Value-taking entries require the `=` form, so no user token can
+ *         swallow a following argv slot. The allowlist is property-tested
+ *         prefix-DISJOINT from the protected key universe: no accepted
+ *         spelling can abbreviate or negate INTO a protected key.
+ *
+ *     (b) CANARY'S PROTECTED FLAGS ARE APPENDED LAST (argv suffix). npm's
+ *         CLI layer is last-wins (probe-verified), so even a hypothetical
+ *         future leak of a same-key spelling cannot change the EFFECTIVE
+ *         configuration: Canary's canonical occurrence is the final one.
+ *         `--` and short options remain rejected in this family, so nothing
+ *         user-supplied can follow the block.
+ *
+ *     (c) NON-INSTALL FAMILIES (script/info, no injected config) keep the
+ *         open-option posture (specs pass their own flags / `--` payloads),
+ *         but the conflict check now RESOLVES spellings: any token whose
+ *         case-folded, one-`no-`-stripped name is a PREFIX of a protected
+ *         key (exact spellings included) is rejected, as is the whole
+ *         per-package config family. `--userc` cannot retarget a run
+ *         script's npmrc anymore either.
+ *
+ * Invariant (property-tested): IF an install-family command is accepted,
+ * the executed argv ENDS with exactly one canonical occurrence of each of
+ * --ignore-scripts, --userconfig, --cache, --registry (and the hygiene
+ * pair), after every user-controlled token — so the EFFECTIVE package-
+ * manager configuration of those keys is Canary's by npm's own semantics.
  */
 const NPM_INSTALL_SUBS = new Set([
   'install', 'i', 'ii', 'ins', 'add', 'ci', 'cit', 'clean-install', 'ic',
@@ -172,14 +221,62 @@ export const NPM_REGISTRY_PIN = 'https://registry.npmjs.org/';
 /** @deprecated kept for API stability; equals the npm install-family set. */
 export const INSTALL_FAMILY: readonly string[] = [...NPM_INSTALL_SUBS];
 
-const NPM_CONFLICT_LONG = new Set([
-  '--userconfig', '--globalconfig', '--cache', '--prefix', '--chdir', '--global',
-  '--workspace', '--workspaces', '--ignore-scripts', '--foreground-scripts',
-  '--script-shell', '--config', '--registry', '--dist-tag', '--tag', '--omit',
-  '--include', '--proxy', '--https-proxy', '--noproxy', '--strict-ssl', '--ca',
-  '--cert', '--key', '--editor', '--node-version', '--yes',
+/**
+ * Post-sol RB-1 — the PROTECTED CONFIG UNIVERSE: npm/yarn config keys whose
+ * effective value must be Canary's (or Canary-determined) for the isolation
+ * contract to hold: scripts execution, config-file sources, cache/registry
+ * resolution, and everything that changes WHERE or HOW the package manager
+ * installs (target root, cwd, global-ness, workspace selection, script
+ * shell, TLS/proxy interception, version/tag selection, auto-confirm).
+ * Matching happens on the RESOLVED key (see resolveOptionToken), so
+ * abbreviations and negations of these names are covered by the prefix test.
+ */
+export const NPM_PROTECTED_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  'userconfig', 'globalconfig', 'config', 'cache', 'registry', 'prefix', 'chdir',
+  'global', 'location', 'workspace', 'workspaces', 'ignore-scripts',
+  'foreground-scripts', 'script-shell', 'omit', 'include', 'dist-tag', 'tag',
+  'proxy', 'https-proxy', 'noproxy', 'strict-ssl', 'ca', 'cert', 'key',
+  'editor', 'node-version', 'yes',
 ]);
-/** Bare-OK long options BEFORE the subcommand (provably valueless booleans). */
+export const YARN_PROTECTED_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  'cwd', 'use-yarnrc', 'ignore-scripts', 'ignore-path', 'registry',
+  'cache-folder', 'config', 'global',
+]);
+
+/**
+ * CLOSED INSTALL OPTION ALLOWLIST (exact spellings, case-folded). Only these
+ * user options may accompany an install/update-family command; every one is
+ * a boolean (bare or `=true|false`) or is listed in the *_VALUE_REQUIRED set
+ * (which forces the `=` form so no bare token can consume a following argv
+ * slot). The allowlist is property-tested prefix-disjoint from the protected
+ * universe (executor.test.ts), so no accepted spelling can abbreviate or
+ * negate INTO a protected key. Deliberately EXCLUDED: every abbreviable or
+ * negatable relationship to protected keys, the per-package config family,
+ * and anything not positively vetted for this command family.
+ */
+export const NPM_INSTALL_OPTION_ALLOW: ReadonlySet<string> = new Set([
+  '--json', '--silent', '--quiet', '--verbose', '--no-color',
+  '--no-audit', '--audit', '--no-fund', '--fund',
+  '--no-save', '--save', '--save-dev', '--save-prod', '--save-optional', '--save-exact',
+  '--no-package-lock', '--package-lock', '--legacy-peer-deps', '--dry-run',
+  '--no-update-notifier',
+]);
+/** Allow entries that TAKE a value and therefore require the `=` form. */
+export const NPM_INSTALL_VALUE_REQUIRED: ReadonlySet<string> = new Set([
+  '--before', '--loglevel',
+]);
+export const YARN_INSTALL_OPTION_ALLOW: ReadonlySet<string> = new Set([
+  '--frozen-lockfile', '--pure-lockfile', '--no-lockfile', '--check-files',
+  '--update-checksums', '--ignore-engines', '--production', '--dev',
+  '--offline', '--verbose', '--silent',
+]);
+const YARN_INSTALL_VALUE_REQUIRED: ReadonlySet<string> = new Set([
+  '--loglevel', '--mutex', '--network-timeout',
+]);
+
+/** Bare-OK long options BEFORE the subcommand in NON-install families
+ *  (provably valueless booleans; install families ignore this and use the
+ *  closed allowlist above). */
 const NPM_BARE_OK = new Set([
   '--json', '--silent', '--quiet', '--verbose', '--no-color', '--version', '--help',
   '--no-update-notifier', '--no-audit', '--no-fund', '--audit', '--fund',
@@ -187,11 +284,44 @@ const NPM_BARE_OK = new Set([
   '--save-exact', '--no-package-lock', '--package-lock', '--dry-run',
   '--legacy-peer-deps',
 ]);
-const YARN_CONFLICT_LONG = new Set([
-  '--cwd', '--use-yarnrc', '--ignore-scripts', '--ignore-path', '--registry',
-  '--cache-folder', '--config', '--global',
-]);
 const YARN_BARE_OK = new Set(['--silent', '--verbose', '--non-interactive', '--offline', '--version', '--help']);
+
+/**
+ * Normalize one long-option token into its RESOLVED config key (post-sol
+ * RB-1). npm's observable CLI semantics (probe-verified on 11.16/11.19):
+ * names are lower-case kebab; the value attaches via `=`; `--no-<key>`
+ * negates (one strip only — `--noproxy` is its own key); everything else is
+ * literal. Abbreviation is a PREFIX RELATION, expressed by callers via
+ * touchesProtected — this function never expands.
+ */
+export function resolveOptionToken(tok: string): { name: string; value: string | undefined; negated: boolean } {
+  const eq = tok.indexOf('=');
+  let name = (eq === -1 ? tok : tok.slice(0, eq)).toLowerCase();
+  if (name.startsWith('--')) name = name.slice(2);
+  let negated = false;
+  if (name.startsWith('no-')) { name = name.slice(3); negated = true; }
+  return { name, value: eq === -1 ? undefined : tok.slice(eq + 1), negated };
+}
+
+/** The per-package config family: scoped registries, per-registry auth.
+ *  These are genuine npm config keys (`--@scope:registry=…` verifies — see
+ *  the executed probe) and CANNOT be neutralized by a later global
+ *  `--registry`, so they are refused at resolution time everywhere. */
+function isPerPackageConfigKey(name: string): boolean {
+  return name.startsWith('@') || name.startsWith('//') || name.startsWith('_') || name.includes(':');
+}
+
+/**
+ * True iff a RESOLVED option name can reach a protected key under npm's
+ * abbreviation semantics: the token applies to key K iff K starts with the
+ * token name (unique-prefix expansion, probe-verified direction). Case and
+ * `no-` stripping happened in resolveOptionToken.
+ */
+function touchesProtected(name: string, universe: ReadonlySet<string>): string | undefined {
+  if (isPerPackageConfigKey(name)) return name; // the whole family is protected
+  for (const k of universe) if (k.startsWith(name)) return k;
+  return undefined;
+}
 
 const RAW_PM_BASENAMES = new Set(['npm', 'npm.cmd', 'npm.exe', 'npx', 'npx.cmd', 'npx.exe', 'yarn', 'yarn.cmd', 'yarn.exe', 'yarnpkg']);
 /** Package names whose $bin: form resolves the pm CLI itself (B5 bypass). */
@@ -303,18 +433,29 @@ export interface PmPolicy {
 }
 
 /**
- * B5 rules 2–5: closed-allowlist parse of a $npm/$yarn spec command.
+ * B5 rules 2–5 + post-sol RB-1: closed-allowlist parse of a $npm/$yarn spec
+ * command, with SEMANTIC option policing. Pass 1 pins the subcommand/family
+ * and the structural shapes (`--` position, short options). Pass 2 then
+ * validates every option token npm itself will parse — install-family tokens
+ * against the closed exact-spelling allowlist (protected-key spellings get
+ * their own isolation-conflicting diagnosis), non-install tokens against the
+ * resolved-key protected universe.
  * Throws CanaryError on any shape Canary refuses to police; returns the
  * pinned subcommand + its family otherwise.
  */
 export function pmArgvPolicy(cmd: readonly string[]): PmPolicy {
   const npm = cmd[0] === '$npm';
-  const conflict = npm ? NPM_CONFLICT_LONG : YARN_CONFLICT_LONG;
   const bareOk = npm ? NPM_BARE_OK : YARN_BARE_OK;
   const installSubs = npm ? NPM_INSTALL_SUBS : YARN_INSTALL_SUBS;
   const scriptSubs = npm ? NPM_SCRIPT_SUBS : YARN_SCRIPT_SUBS;
   const infoSubs = npm ? NPM_INFO_SUBS : new Set<string>();
+  const universe = npm ? NPM_PROTECTED_CONFIG_KEYS : YARN_PROTECTED_CONFIG_KEYS;
+  const allow = npm ? NPM_INSTALL_OPTION_ALLOW : YARN_INSTALL_OPTION_ALLOW;
+  const valueRequired = npm ? NPM_INSTALL_VALUE_REQUIRED : YARN_INSTALL_VALUE_REQUIRED;
+
+  // ---- pass 1: structure (subcommand pinning, --, short options) ----
   let policy: PmPolicy | undefined;
+  let passthroughFrom = cmd.length; // first index NOT parsed by npm (after `--`)
   for (let k = 1; k < cmd.length; k++) {
     const tok = cmd[k]!;
     if (tok === '--') {
@@ -323,11 +464,12 @@ export function pmArgvPolicy(cmd: readonly string[]): PmPolicy {
       }
       if (policy.family === 'install') {
         throw new CanaryError(
-          `spec command '${cmd.join(' ')}': '--' is not allowed for install-family commands — isolation flags appended after it would be dead weight (B5 bypass shape)`,
+          `spec command '${cmd.join(' ')}': '--' is not allowed for install-family commands — Canary's appended isolation flags would land in the positionals (B5 bypass shape)`,
           'spec-dashdash-install',
         );
       }
-      break; // script/info passthrough: remaining tokens are not npm's to parse
+      passthroughFrom = k; // script/info passthrough: remaining tokens are not npm's to parse
+      break;
     }
     if (!tok.startsWith('-')) {
       if (policy === undefined) {
@@ -350,20 +492,19 @@ export function pmArgvPolicy(cmd: readonly string[]): PmPolicy {
         'spec-short-option',
       );
     }
-    const eq = tok.indexOf('=');
-    // Case-fold the option name for ALL set membership (red-team post-F8:
-    // `--Userconfig=evil` must not sneak through exact matching).
-    const name = (eq === -1 ? tok : tok.slice(0, eq)).toLowerCase();
-    if (conflict.has(name)) {
+    // Family-INDEPENDENT conflict check, kept in scan order (a protected
+    // spelling must outrank the diagnostic of any later structural surprise):
+    // any token whose RESOLVED name (case-folded, one no- strip) reaches a
+    // protected key — exact, abbreviation, negation, or per-package family.
+    const early = cmd[k]!;
+    const { name: earlyName } = resolveOptionToken(early);
+    const touchedEarly = touchesProtected(earlyName, universe);
+    if (touchedEarly !== undefined) {
+      const eqE = early.indexOf('=');
+      const fullNameE = (eqE === -1 ? early : early.slice(0, eqE)).toLowerCase();
       throw new CanaryError(
-        `spec command contains isolation-conflicting flag '${name}': Canary pins userconfig/cache/scripts/registry policy and prefix/workspace resolution itself`,
+        `spec command contains isolation-conflicting flag '${fullNameE}'${touchedEarly === earlyName ? '' : ` (resolves to protected config '${touchedEarly}')`}: Canary pins userconfig/cache/scripts/registry policy and prefix/workspace/location resolution itself`,
         'spec-config-conflict',
-      );
-    }
-    if (eq === -1 && policy === undefined && !bareOk.has(name)) {
-      throw new CanaryError(
-        `bare option '${name}' before the subcommand cannot be verified valueless — value-taking options before the subcommand skip isolation-flag injection; use '--flag=value' form or move options after the subcommand`,
-        'spec-ambiguous-option',
       );
     }
   }
@@ -372,6 +513,47 @@ export function pmArgvPolicy(cmd: readonly string[]): PmPolicy {
       `spec command '${cmd.join(' ')}' has no recognizable ${cmd[0]} subcommand`,
       'unsupported-subcommand',
     );
+  }
+
+  // ---- pass 2: option tokens npm itself will parse. (The protected-key
+  // conflict check already ran in pass 1 in scan order; what remains is
+  // family-specific.) ----
+  for (let k = 1; k < passthroughFrom; k++) {
+    const tok = cmd[k]!;
+    if (!tok.startsWith('--') || tok === '--') continue; // structure handled in pass 1
+    const eq = tok.indexOf('=');
+    const fullName = (eq === -1 ? tok : tok.slice(0, eq)).toLowerCase(); // exact-spelling key
+    // (b) install family: the closed exact-spelling allowlist (RB-1).
+    if (policy.family === 'install') {
+      const known = allow.has(fullName) || valueRequired.has(fullName);
+      if (!known) {
+        throw new CanaryError(
+          `install-family option '${fullName}' is not on Canary's closed option allowlist: only vetted exact spellings may accompany an install (abbreviations, negations and unvetted config keys are rejected because npm applies semantically equivalent forms — post-sol RB-1)`,
+          'spec-install-option-not-allowed',
+        );
+      }
+      if (valueRequired.has(fullName) && eq === -1) {
+        throw new CanaryError(
+          `install-family option '${fullName}' takes a value and must use the '--${fullName.slice(2)}=value' form: a bare value-taking option can swallow the following argv slot (npm probe: '--before --json' consumed the flag)`,
+          'spec-install-option-valueless',
+        );
+      }
+      if (allow.has(fullName) && eq !== -1 && tok.slice(eq + 1) !== 'true' && tok.slice(eq + 1) !== 'false') {
+        throw new CanaryError(
+          `install-family boolean option '${fullName}' only accepts '=true'/'=false' values, got '${tok}'`,
+          'spec-install-option-valueless',
+        );
+      }
+      continue;
+    }
+    // (c) non-install families keep the pre-subcommand bare-option ambiguity
+    // rule (value-taking options before the subcommand shift detection).
+    if (eq === -1 && k < policy.subIdx && !bareOk.has(fullName)) {
+      throw new CanaryError(
+        `bare option '${fullName}' before the subcommand cannot be verified valueless — value-taking options before the subcommand skip isolation-flag injection; use '--flag=value' form or move options after the subcommand`,
+        'spec-ambiguous-option',
+      );
+    }
   }
   return policy;
 }
@@ -387,10 +569,11 @@ export class Recorder {
 
   /**
    * Expand spec tokens to concrete argv and ENFORCE Canary's isolation policy
-   * on any package-manager command (audit B5). For install/update-family
-   * subcommands the isolation flags are spliced in IMMEDIATELY AFTER the
-   * subcommand (not appended at the end, which a user `--` would neutralise),
-   * and the subcommand is validated against a closed allowlist before the
+   * on any package-manager command (audit B5, post-sol RB-1). For install/-
+   * update-family subcommands the isolation flags are APPENDED LAST (npm's
+   * CLI layer is last-wins, probe-verified), the option surface is a closed
+   * exact-spelling allowlist prefix-disjoint from the protected keys, and
+   * the subcommand is validated against a closed allowlist before the
    * command is ever allowed to expand.
    */
   expandArgv(
@@ -413,16 +596,16 @@ export class Recorder {
     const isPm = tool === '$npm' || tool === '$yarn';
     let policy: PmPolicy | undefined;
     if (isPm) {
-      policy = pmArgvPolicy(cmd);          // B5.2: closed-allowlist parse/rejection
+      policy = pmArgvPolicy(cmd);          // B5.2 + RB-1: closed-allowlist parse/rejection
     }
 
-    // Expand every token, remembering the OUTPUT index each SPEC token lands
-    // at so the install-family flags can be inserted right after the
-    // subcommand's expanded position.
+    // Expand every token. The install-family flags are APPENDED LAST (RB-1):
+    // npm's CLI config layer is last-wins (probe-verified on 11.16/11.19),
+    // so a suffix position makes the EFFECTIVE protected configuration
+    // structurally Canary's no matter how an accepted user token was
+    // spelled or positioned.
     const out: string[] = [];
-    const specToOut = new Map<number, number>();
-    cmd.forEach((raw, idx) => {
-      specToOut.set(idx, out.length);
+    cmd.forEach((raw) => {
       const t = raw
         .replaceAll('{dep}', subs.dep)
         .replaceAll('{candidate}', subs.candidate)
@@ -451,9 +634,10 @@ export class Recorder {
     });
 
     if (policy && policy.family === 'install') {
-      // insert right after the expanded subcommand token (sub maps to exactly
-      // one out token: the bare subcommand word)
-      const insertAt = (specToOut.get(policy.subIdx) ?? out.length - 1) + 1;
+      // APPEND as the argv suffix (RB-1): the last occurrence of a CLI config
+      // key wins, so nothing user-controlled can follow this block — `--` and
+      // short options are rejected in this family, and every accepted option
+      // spelling is allowlisted and prefix-disjoint from these keys.
       const flags = tool === '$npm'
         ? ['--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps',
             '--userconfig', path.join(d.ws.root, 'empty.npmrc'),
@@ -461,7 +645,7 @@ export class Recorder {
             '--registry', NPM_REGISTRY_PIN]
         : ['--ignore-scripts', '--non-interactive', '--no-progress',
             '--cache-folder', path.join(d.ws.root, 'yarn-cache')];
-      out.splice(insertAt, 0, ...flags);
+      out.push(...flags);
     }
     return out;
   }

@@ -278,3 +278,27 @@ describe('streamsStable', () => {
     assert.ok(!streamsStable([]));
   });
 });
+
+// post-sol secondary: the summary parser and identity extractor previously
+// split only on /\r?\n/ — a lone-CR stream (some progress reporters emit
+// it) parsed as ONE line and silently lost counts. Both now normalize at
+// entry, matching the executor matchers and the normalizer pipeline.
+describe('post-sol secondary — lone-CR line endings parse identically to LF/CRLF', () => {
+  const LOG_LF = '  suite\r\n    √ ok one\r\n  128 passing (3s)\r\n  3 failing\r\n\r\n  1) suite A\r\n       breaks thing:\r\n';
+  const toCR = (s: string): string => s.replace(/\r\n/g, '\r');
+  it('parseSummaryCounts reads the same totals across LF, CRLF and CR-only', () => {
+    const lf = parseSummaryCounts(LOG_LF.replace(/\r\n/g, '\n'));
+    const crlf = parseSummaryCounts(LOG_LF);
+    const cr = parseSummaryCounts(toCR(LOG_LF));
+    assert.deepEqual(cr, lf);
+    assert.deepEqual(crlf, lf);
+    assert.equal(lf.passing, 128);
+    assert.equal(lf.failing, 3);
+  });
+  it('extractFailingTestNames finds the same identities across LF, CRLF and CR-only', () => {
+    const lf = [...extractFailingTestNames(LOG_LF.replace(/\r\n/g, '\n'))].sort();
+    const cr = [...extractFailingTestNames(toCR(LOG_LF))].sort();
+    assert.deepEqual(cr, lf);
+    assert.ok(lf.length >= 1, 'fixture must actually carry an identity');
+  });
+});
