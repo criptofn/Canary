@@ -24,8 +24,9 @@
       "summary": { "passing": 125, "failing": 3 }
     },
     "failingTestNames": [
-      "can pass headers to match to a handler",
-      "handles baseURL correctly"
+      "MockAdapter basics > can pass headers to match to a handler",
+      "passThrough tests (requires Node) > handles baseURL correctly",
+      "onNoMatch=passthrough option tests (requires Node) > handles baseURL correctly"
     ]
   },
   "provenance": {

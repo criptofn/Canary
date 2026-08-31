@@ -40,7 +40,7 @@ function writeStub(stub: string): void {
     "const v = require('./node_modules/widget/package.json').version;",
     "if (v !== '2.0.0') { console.log('  2 passing (1ms)'); process.exit(0); }",
     "console.log('  1 passing (1ms)'); console.log('  1 failing'); console.log('');",
-    "console.log('  1) widget suite:'); console.log('       candidate breaks widget:');",
+    "console.log('  1) widget suite'); console.log('       candidate breaks widget:');",
     "process.exit(1);",
   ].join('\n'));
   fs.writeFileSync(path.join(stub, 'swap.js'),
@@ -82,7 +82,7 @@ async function stage(): Promise<{ repoRoot: string; specPath: string; artifactsD
       classification: 'CONFIRMED_REGRESSION', rule: 5, driftConfinedToDependency: true,
       baseline: { rounds: 2, exitCodes: [0, 0], normalizedStdoutSha256AcrossRounds: hashes('baseline'), summary: { passing: 2 } },
       candidate: { rounds: 2, exitCodes: [1, 1], normalizedStdoutSha256AcrossRounds: hashes('candidate'), summary: { passing: 1, failing: 1 } },
-      failingTestNames: ['candidate breaks widget'],
+      failingTestNames: ['widget suite > candidate breaks widget'],
     },
   };
   fs.writeFileSync(specPath.replace(/\.json$/, '.proof.json'), JSON.stringify(proof, null, 2));

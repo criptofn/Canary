@@ -86,15 +86,71 @@ describe('log parsing (auxiliary — never decides classification)', () => {
     '       handles baseURL correctly:',
   ].join('\n');
 
-  it('extracts failing test names from mocha output', () => {
+  it('extracts canonical suite-qualified identities from mocha output (audit B1)', () => {
     const names = extractFailingTestNames(mochaSample);
-    assert.ok(names.includes('can pass headers to match to a handler'));
-    assert.ok(names.includes('handles baseURL correctly'));
+    assert.ok(names.includes('MockAdapter basics > can pass headers to match to a handler'),
+      JSON.stringify(names));
+    assert.ok(names.includes('passThrough tests (requires Node) > handles baseURL correctly'),
+      JSON.stringify(names));
   });
 
-  it('extracts failing test names from ava output', () => {
-    const names = extractFailingTestNames('  ✖ basic › should store cookies to cookiejar');
-    assert.ok(names.some((n) => n.includes('should store cookies')));
+  it('audit B1: same leaf title in DIFFERENT suites stays DISTINCT', () => {
+    const log = [
+      '  1) passThrough tests (requires Node)',
+      '       handles baseURL correctly:',
+      '     TypeError: Invalid URL',
+      '  2) onNoMatch=passthrough option tests (requires Node)',
+      '       handles baseURL correctly:',
+      '     TypeError: Invalid URL',
+    ].join('\n');
+    const names = extractFailingTestNames(log);
+    assert.equal(names.length, 2, `collapse: ${JSON.stringify(names)}`);
+    assert.notEqual(names[0], names[1]);
+  });
+
+  it('audit B1: nested describe paths survive as multi-segment identities', () => {
+    const log = [
+      '  1) Outer suite',
+      '       Inner suite',
+      '         does the thing:',
+      '     Error: boom',
+    ].join('\n');
+    assert.deepEqual(extractFailingTestNames(log), ['Outer suite > Inner suite > does the thing']);
+  });
+
+  it('audit B1: progress-list lines (N) followed by a passing line yield NO identity', () => {
+    // mocha's inline progress section prints "    1) test title" lines BEFORE
+    // the summary; they are not failure-detail blocks and must not fabricate
+    // suite-only identities.
+    const log = [
+      '    1) handles baseURL correctly',
+      '    √ handle request with baseURL only',
+      '  125 passing',
+      '  1 failing',
+      '  1) passThrough tests (requires Node)',
+      '       handles baseURL correctly:',
+      '     TypeError: Invalid URL',
+    ].join('\n');
+    const names = extractFailingTestNames(log);
+    assert.deepEqual(names, ['passThrough tests (requires Node) > handles baseURL correctly']);
+  });
+
+  it('audit B1: identical identities in one run dedupe deterministically; distinct never collapse', () => {
+    const dup = [
+      '  1) Suite S', '       t twice:', '     Error: a',
+      '  2) Suite S', '       t twice:', '     Error: b',
+      '  3) Suite S', '       u other:', '     Error: c',
+    ].join('\n');
+    assert.deepEqual(extractFailingTestNames(dup), ['Suite S > t twice', 'Suite S > u other']);
+    // order independence of the identity itself is not a thing — mocha numbers
+    // are deterministic; verify run-to-run stability by re-extracting.
+    assert.deepEqual(extractFailingTestNames(dup), extractFailingTestNames(dup));
+  });
+
+  it('audit B1: ava identities keep the full suite path', () => {
+    const names = extractFailingTestNames(
+      '  ✖ basic › should store cookies to cookiejar\n  ✖ api > users › creates');
+    assert.ok(names.includes('basic > should store cookies to cookiejar'), JSON.stringify(names));
   });
 
   it('parses summary counts', () => {

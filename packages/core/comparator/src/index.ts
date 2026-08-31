@@ -54,21 +54,58 @@ export function escapePkgKey(name: string): string {
 }
 
 /**
- * Extract failing test names from mocha-style output:
- *   "  N) Suite\n      test name:\n" plus spec lines "  ✗ name".
- * Ava-style "✖ name" lines too. Best-effort auxiliary evidence —
- * classification never depends on it.
+ * Canonical, SUITE-QUALIFIED failing-test identity (audit B1).
+ *
+ * The old parser captured ONLY the leaf test title, so two failures in
+ * different suites sharing a leaf title (the real Axios run has
+ * `passThrough tests (requires Node) > handles baseURL correctly` AND
+ * `onNoMatch=passthrough option tests (requires Node) > handles baseURL
+ * correctly`) collapsed to ONE identity. A candidate round failing Suite A's
+ * copy and another failing Suite B's copy then looked "deterministic" — a
+ * false CONFIRMED_REGRESSION. The canonical identity keeps the full describe
+ * path so distinct failures stay distinct.
+ *
+ * Format (deterministic, no volatile path/timestamp data):
+ *   - mocha: "Suite path > ... > test name" — the `N)` line is the first
+ *     title segment, continuation lines up to (and excluding) the trailing
+ *     ':' are further segments.
+ *   - ava:   "suite › test" normalised to "suite > test".
+ * Identical identities within a run are deduplicated (deterministic);
+ * DIFFERENT identities are never collapsed. Best-effort auxiliary evidence —
+ * the classifier consumes these only for profile comparison (audit F2).
  */
 export function extractFailingTestNames(log: string): string[] {
-  const names = new Set<string>();
-  // mocha failure listing: `  1) Suite`, then indented `     test name:`
-  const mochaBody = /^\s+\d+\)\s+.+\n\s+(.+?):/gm;
-  let m: RegExpExecArray | null;
-  while ((m = mochaBody.exec(log)) !== null) names.add(m[1]!.trim());
-  // ava
-  const ava = /^\s*✖\s+(?:\w+\s*›\s*)?(.+?)\s*$/gm;
-  while ((m = ava.exec(log)) !== null) names.add(m[1]!.trim());
-  return [...names];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (id: string): void => {
+    const t = id.trim();
+    if (t && !seen.has(t)) { seen.add(t); out.push(t); }
+  };
+
+  const lines = log.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^\s*\d+\)\s+(.+?)\s*$/.exec(lines[i]!);
+    if (!m) continue;
+    const segments: string[] = [m[1]!.trim()];
+    let foundColon = false;
+    for (let j = i + 1; j < lines.length; j++) {
+      const l = lines[j]!.trim();
+      if (l === '') continue;
+      // an error/stack line before any ':' means this `N)` block carries no
+      // parseable title tail — abandon (avoids fabricating a suite-only id).
+      if (/^(?:Error|AssertionError|TypeError|RangeError|ReferenceError|expected\b|\w+Error\b|\bat\s|√|✓|✗|×|—|-)/.test(l)) break;
+      if (/:\s*$/.test(l)) { segments.push(l.replace(/:\s*$/, '').trim()); foundColon = true; break; }
+      segments.push(l);
+    }
+    if (foundColon) add(segments.filter(Boolean).join(' > '));
+  }
+
+  // ava-style failing lines: "✖ suite › nested › test"
+  const ava = /^\s*[✖×]\s+(.+?)\s*$/gm;
+  let a: RegExpExecArray | null;
+  while ((a = ava.exec(log)) !== null) add(a[1]!.replace(/\s*›\s*/g, ' > ').trim());
+
+  return out;
 }
 
 /** Counts of pass/fail lines in a test-runner summary (mocha/ava formats). */

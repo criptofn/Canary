@@ -122,7 +122,7 @@ describe('assertProof — audit F11 (portable vs host-exact assertions)', () => 
         classification: 'CONFIRMED_REGRESSION', rule: 5, driftConfinedToDependency: true,
         baseline: { rounds: 1, exitCodes: [0], normalizedStdoutSha256AcrossRounds: hashes('baseline'), summary: { passing: 2 } },
         candidate: { rounds: 1, exitCodes: [3], normalizedStdoutSha256AcrossRounds: hashes('candidate'), summary: { passing: 1, failing: 1 } },
-        failingTestNames: ['candidate breaks widget'],
+        failingTestNames: ['suite > candidate breaks widget'],
       },
     };
   }

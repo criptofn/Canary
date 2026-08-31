@@ -6,10 +6,15 @@ import { describe, it } from 'node:test';
 
 import { Recorder, roundEvidence, hasRunnerSummary, isInfraOutput } from '../src/index.js';
 import { sanitizedEnv, sanitizedEnvKeys } from '@canary-rn/support';
+import { classify, type RoundFact } from '@canary-rn/classification';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
 
 const NODE = process.execPath;
 const NODE_DIR = path.dirname(NODE);
+
+const armBase = (round = 1): RoundFact => ({
+  arm: 'baseline', round, exitCode: 0, hasRunnerSummary: true, infraSignal: false,
+});
 
 function freshRecorder() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-exec-'));
@@ -257,12 +262,57 @@ describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', (
         'console.log("     alpha works:");',
       ].join('')], 30);
       assert.equal(r.fact.reportedFailing, 2);
-      // sorted — order-independent profile comparison (audit F2)
-      assert.deepEqual(r.fact.failingTestNames, ['alpha works', 'beta works']);
+      // canonical suite-qualified identities (audit B1), sorted for
+      // order-independent profile comparison (audit F2)
+      assert.deepEqual(r.fact.failingTestNames, ['Suite A > alpha works', 'Suite B > beta works']);
       const ev = roundEvidence(r, r.fact);
       assert.equal(ev.reportedFailing, 2);
-      assert.deepEqual(ev.failingTestNames, ['alpha works', 'beta works']);
+      assert.deepEqual(ev.failingTestNames, ['Suite A > alpha works', 'Suite B > beta works']);
       assert.equal(ev.infraSignal, false);
+    } finally { cleanup(); }
+  });
+
+  it('audit B1 e2e: same leaf title, different SUITE across candidate rounds -> FLAKY', async () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const failLog = (suite: string): string => [
+        'console.log("  10 passing (1ms)");',
+        'console.log("  1 failing");',
+        `console.log("  1) ${suite}");`,
+        'console.log("       handles baseURL correctly:");',
+        'console.log("     TypeError: nope");',
+        'process.exit(1);',
+      ].join('');
+      const rA = await rec.round('candidate', 1, [NODE, '-e', failLog('passThrough tests (requires Node)')], 30);
+      const rB = await rec.round('candidate', 2, [NODE, '-e', failLog('onNoMatch=passthrough option tests (requires Node)')], 30);
+      // distinct canonical identities despite identical leaf titles
+      assert.notDeepEqual(rA.fact.failingTestNames, rB.fact.failingTestNames);
+      // ...and classification sees the divergence: never CONFIRMED_REGRESSION
+      const facts = [
+        armBase(), rA.fact, rB.fact,
+      ];
+      const cls = classify(facts);
+      assert.equal(cls.classification, 'FLAKY');
+      assert.equal(cls.rule, 8);
+    } finally { cleanup(); }
+  });
+
+  it('audit B1 e2e: identical SUITE-QUALIFIED identity across rounds stays CONFIRM-eligible', async () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const failLog = [
+        'console.log("  10 passing (1ms)");',
+        'console.log("  1 failing");',
+        'console.log("  1) passThrough tests (requires Node)");',
+        'console.log("       handles baseURL correctly:");',
+        'process.exit(1);',
+      ].join('');
+      const rA = await rec.round('candidate', 1, [NODE, '-e', failLog], 30);
+      const rB = await rec.round('candidate', 2, [NODE, '-e', failLog], 30);
+      assert.deepEqual(rA.fact.failingTestNames, rB.fact.failingTestNames);
+      const cls = classify([armBase(), rA.fact, rB.fact]);
+      assert.equal(cls.classification, 'CONFIRMED_REGRESSION');
+      assert.equal(cls.rule, 5);
     } finally { cleanup(); }
   });
 

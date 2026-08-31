@@ -57,7 +57,7 @@ function makeStub(dir: string, opts: { driftSwap: boolean }): void {
     "console.log('  1 passing (1ms)');",
     "console.log('  1 failing');",
     "console.log('');",
-    "console.log('  1) widget suite:');",
+    "console.log('  1) widget suite');",
     "console.log('       candidate breaks widget:');",
     "console.log('     Error: widget 2 changed behavior');",
     "process.exit(1);",
@@ -131,7 +131,7 @@ describe('audit M8 — offline pipeline end-to-end', () => {
         classification: 'CONFIRMED_REGRESSION', rule: 5, driftConfinedToDependency: true,
         baseline: { rounds: baseHashes.length, exitCodes: [0, 0], normalizedStdoutSha256AcrossRounds: baseHashes, summary: { passing: 2 } },
         candidate: { rounds: candHashes.length, exitCodes: [1, 1], normalizedStdoutSha256AcrossRounds: candHashes, summary: { passing: 1, failing: 1 } },
-        failingTestNames: ['candidate breaks widget'],
+        failingTestNames: ['widget suite > candidate breaks widget'],
       },
     };
     const readLog = (arm: 'baseline' | 'candidate'): string => {
