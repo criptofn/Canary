@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund   # audit S3: reproducible, lockfile-exact install
       - run: npm run build
       - run: node --test "packages/**/dist/test/*.test.js" "apps/**/dist/test/*.test.js"
 
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 26
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund   # audit S3
       - run: npm run build
       # Audit F11: CI must run the REAL proof assertions, not just `run`'s exit
       # code. `check` re-asserts the committed expectation against the just-run

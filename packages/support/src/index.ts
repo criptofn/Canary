@@ -230,16 +230,18 @@ const SWEEP_MAX_PROCESSES = 200;
  *    intermediate ancestors are gone. A CreationDate >= spawn-time filter
  *    guards against PID-reuse collateral (a recycled PPID belongs to a newer
  *    unrelated tree).
- *  - POSIX: the child was spawned `detached` => it led its own process group;
- *    the group outlives the leader, so group members still alive after close
- *    are found via /proc (or `ps`) and SIGKILLed, then the whole pgid is
- *    signalled as a race backstop.
+ *  - POSIX: the child was spawned `detached` => it led its own process GROUP
+ *    and SESSION (setsid ⇒ sid == childPid). Members still alive after close
+ *    are found via /proc (or `ps`) by SESSION or group membership (audit S1:
+ *    a descendant that setpgid()s into its own group but keeps the session is
+ *    now caught) plus a transitive PPID BFS, then SIGKILLed, and the whole pgid
+ *    is signalled as a race backstop.
  *
  * Residual gap, documented honestly (SECURITY.md): a POSIX descendant that
- * `setsid()`s itself (double-fork daemonization) leaves the group before the
- * parent dies and is then indistinguishable — that is out of sweep reach on
- * both platforms absent a kernel containment primitive (Job Objects / cgroups),
- * which v0.1 does not claim.
+ * `setsid()`s itself (double-fork daemonization) leaves BOTH the group and the
+ * session before the parent dies and is then indistinguishable — that is out of
+ * sweep reach on both platforms absent a kernel containment primitive (Job
+ * Objects / cgroups), which v0.1 does not claim.
  */
 export function sweepDescendants(pid: number | undefined, spawnedAtMs: number): SweepResult {
   if (!pid || pid <= 0) return { killed: [], failed: false };
@@ -254,26 +256,50 @@ export function sweepDescendants(pid: number | undefined, spawnedAtMs: number): 
 
 function sweepPosix(pid: number): SweepResult {
   const killed: number[] = [];
-  const members = new Set<number>();
+  // collect: [pid, ppid, pgrp, session]
+  const rows: Array<{ p: number; ppid: number; pgrp: number; sid: number }> = [];
   if (fs.existsSync('/proc')) {
     for (const entry of fs.readdirSync('/proc')) {
       if (!/^\d+$/.test(entry)) continue;
-      const other = Number(entry);
-      if (other === pid || other === process.pid) continue;
       let stat = '';
       try { stat = fs.readFileSync(`/proc/${entry}/stat`, 'utf8'); } catch { continue; }
       // fields after the parenthesized comm: state ppid pgrp session ...
       const rest = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-      const ppid = Number(rest[1]); const pgrp = Number(rest[2]);
-      if (ppid === pid || pgrp === pid) members.add(other);
+      const ppid = Number(rest[1]); const pgrp = Number(rest[2]); const sid = Number(rest[3]);
+      if (!Number.isFinite(ppid)) continue;
+      rows.push({ p: Number(entry), ppid, pgrp, sid });
     }
   } else {
-    const ps = spawnSync('ps', ['-o', 'pid=,ppid=,pgid='], { timeout: 10_000, encoding: 'utf8' });
+    const ps = spawnSync('ps', ['-o', 'pid=,ppid=,pgid=,sid='], { timeout: 10_000, encoding: 'utf8' });
     if (ps.status !== 0) return { killed, failed: true };
     for (const line of ps.stdout.split('\n')) {
-      const [p, pp, pg] = line.trim().split(/\s+/).map(Number);
-      if (p === undefined || !Number.isFinite(p) || p === pid || p === process.pid) continue;
-      if (pp === pid || pg === pid) members.add(p);
+      const [p, pp, pg, sd] = line.trim().split(/\s+/).map(Number);
+      if (p === undefined || pp === undefined || !Number.isFinite(p) || !Number.isFinite(pp)) continue;
+      rows.push({
+        p, ppid: pp,
+        pgrp: pg !== undefined && Number.isFinite(pg) ? pg : -1,
+        sid: sd !== undefined && Number.isFinite(sd) ? sd : -1,
+      });
+    }
+  }
+  // Membership: same session as the (setsid'd) child — catches descendants that
+  // setpgid()ed into their own group but never escaped the session; OR stale
+  // direct-ppid lineage (BFS below handles intermediate deaths). A process that
+  // BOTH setsid()es and reparents is a documented residual (SECURITY Tier B).
+  const inSession = (r: { pgrp: number; sid: number }): boolean => posixSessionMember(r.pgrp, r.sid, pid);
+  const members = new Set<number>();
+  for (const r of rows) {
+    if (r.p === pid || r.p === process.pid) continue;
+    if (inSession(r)) members.add(r.p);
+  }
+  // transitive PPID BFS (catches lineage whose session was reset but parentage
+  // retained — rare, bounded by SWEEP_MAX_PROCESSES)
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const r of rows) {
+      if (r.p === pid || r.p === process.pid || members.has(r.p)) continue;
+      if (members.has(r.ppid)) { members.add(r.p); grew = true; }
     }
   }
   for (const m of members) {
@@ -282,6 +308,16 @@ function sweepPosix(pid: number): SweepResult {
   }
   try { process.kill(-pid, 'SIGKILL'); } catch { /* group already empty */ }
   return { killed, failed: false };
+}
+
+/**
+ * Audit S1 (F10-adjacent): a process belongs to the swept child's lineage if it
+ * is in the child's SESSION (the detached child is its own session leader, so
+ * sid === child pid, and setpgid() descendants keep that sid) or directly
+ * parented by it. Exported for unit testing of the predicate alone.
+ */
+export function posixSessionMember(pgrp: number, sid: number, childPid: number): boolean {
+  return sid === childPid || pgrp === childPid;
 }
 
 function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {

@@ -35,9 +35,9 @@ change (script run 2026-08-31; output recorded in the session and summarized):
 
 | ID | Finding | Status |
 |---|---|---|
-| S1 | F10-adjacent: POSIX sweep ignores session-level lineage (setpgid-escapees within the child's session missed) | OPEN |
+| S1 | F10-adjacent: POSIX sweep ignores session-level lineage (setpgid-escapees within the child's session missed) | FIXED @ this commit |
 | S2 | proof schema/experimentId not asserted (folds into B4) | FIXED @ B4 commit |
-| S3 | CI/clean-room use `npm install`, not `npm ci` | OPEN |
+| S3 | CI/clean-room use `npm install`, not `npm ci` | FIXED @ this commit (lockfile synced; clean-room runs `npm ci`) |
 | S4 | README test count stale; PLAN historical claims to re-check | OPEN (final doc pass) |
 | S5 | report renders without any artifact verification (folds into B4) | FIXED @ B4 commit |
 

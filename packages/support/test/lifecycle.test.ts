@@ -8,7 +8,9 @@
  *     parent's descendant (enumerate + kill). Windows enumerates via
  *     Win32_Process.ParentProcessId (which a live orphan retains after its
  *     parent dies — stale-PPID lineage); POSIX via the child's own process
- *     group (/proc pgrp scan, group-kill backstop).
+ *     GROUP, and (audit S1) also the child's SESSION so a descendant that
+ *     setpgid()ed into its own group is still caught, plus a transitive
+ *     PPID BFS, with a group-kill backstop.
  *  2. containment: after runCommand resolves — normal exit or timeout — no
  *     descendant of the spawned child may still be alive. Which layer won the
  *     race (Canary's post-exit sweep vs an OS job-object container wrapping
@@ -22,7 +24,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
 
-import { runCommand, sweepDescendants, type RunOutcome, type WorkspaceLayout } from '../src/index.js';
+import { runCommand, sweepDescendants, posixSessionMember, type RunOutcome, type WorkspaceLayout } from '../src/index.js';
 
 const NODE = process.execPath;
 const NODE_DIR = path.dirname(NODE);
@@ -180,5 +182,20 @@ describe('audit F5 — containment through runCommand', () => {
     // Canary itself must never appear in a sweep result.
     assert.ok(!out.sweptPids?.includes(process.pid));
     for (const p of out.sweptPids ?? []) killIfAlive(p);
+  });
+});
+
+describe('audit S1 — POSIX session-membership predicate (setpgid escapees)', () => {
+  it('a member of the child session is caught even after it setpgid()s', () => {
+    // detached child: session id == childPid; a descendant that setpgid into a
+    // new group keeps sid == childPid -> still a member (old pgid-only check
+    // would MISS it).
+    assert.equal(posixSessionMember(/* pgrp */ 9999, /* sid */ 4242, /* childPid */ 4242), true);
+  });
+  it('a member of the child group is caught', () => {
+    assert.equal(posixSessionMember(/* pgrp */ 4242, /* sid */ 1, 4242), true);
+  });
+  it('an unrelated process is not swept', () => {
+    assert.equal(posixSessionMember(/* pgrp */ 77, /* sid */ 88, 4242), false);
   });
 });
