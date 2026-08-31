@@ -179,15 +179,39 @@ export function findLatestEvidencePath(repoRoot: string): { experimentId: string
  * re-hash the four artifact files (raw stdout/stderr + normalized
  * stdout/stderr, per the Recorder's filename convention) and require exact
  * equality with the recorded digests. Returns issues; empty = untampered.
+ *
+ * Audit B3 (this hardening): filenames are now DERIVED from each round's
+ * structured arm/round (never parsed from the attacker-supplied logPath), the
+ * round's logPath MUST equal the canonical `${arm}-${round}.stdout.log`
+ * (ownership binding — kills `../` traversal, absolute paths, separator
+ * variants AND cross-round/cross-type swaps), and every file is additionally
+ * realpath-confined to the artifacts directory (symlink escape guard). A bare
+ * derived basename cannot carry a separator, so containment is structural; the
+ * lexical + realpath checks are defense-in-depth against a manipulated root or
+ * a planted symlink.
  */
 export function verifyArtifacts(artifactsDir: string, bundle: EvidenceBundle): string[] {
   const issues: string[] = [];
+  const rootAbs = path.resolve(artifactsDir);
+  let rootReal = rootAbs;
+  try { rootReal = fs.realpathSync(rootAbs); } catch { /* root missing → surfaced per-file */ }
+
   for (const r of bundle.rounds) {
-    if (!r.logPath.endsWith('.stdout.log')) {
-      issues.push(`round ${r.arm}#${r.round}: unexpected logPath ${r.logPath} (cannot derive artifact names)`);
+    const at = `round ${String(r.arm)}#${String(r.round)}`;
+    if (r.arm !== 'baseline' && r.arm !== 'candidate') {
+      issues.push(`${at}: invalid arm (cannot derive artifact names)`);
       continue;
     }
-    const label = r.logPath.slice(0, -'.stdout.log'.length);
+    if (!Number.isInteger(r.round) || r.round < 1) {
+      issues.push(`${at}: invalid round index`);
+      continue;
+    }
+    const label = `${r.arm}-${r.round}`;
+    const expectedLogPath = `${label}.stdout.log`;
+    if (r.logPath !== expectedLogPath) {
+      issues.push(`${at}: logPath '${String(r.logPath)}' does not match its own identity (expected '${expectedLogPath}') — traversal/absolute path/cross-round ownership mismatch`);
+      continue; // never read the claimed path; the canonical name is authoritative
+    }
     const want: Array<[string, string]> = [
       [`${label}.stdout.log`, r.rawStdoutSha256],
       [`${label}.stderr.log`, r.rawStderrSha256],
@@ -195,22 +219,38 @@ export function verifyArtifacts(artifactsDir: string, bundle: EvidenceBundle): s
       [`${label}.stderr.norm`, r.normalizedStderrSha256],
     ];
     for (const [file, hash] of want) {
-      const p = path.join(artifactsDir, file);
+      const p = path.join(rootAbs, file); // file is a bare derived basename (no separators)
+      const lex = withinDir(rootAbs, p);
+      if (!lex.ok) { issues.push(`${at}: artifact ${file} escapes the artifacts directory (${lex.why})`); continue; }
+      let real = p;
+      try { real = fs.realpathSync(p); } catch { /* dangling symlink; lexical already ok */ }
+      const re = withinDir(rootReal, real);
+      if (!re.ok) { issues.push(`${at}: artifact ${file} resolves outside the artifacts directory (${re.why})`); continue; }
       if (!fs.existsSync(p)) {
-        issues.push(`round ${r.arm}#${r.round}: artifact missing: ${file}`);
+        issues.push(`${at}: artifact missing: ${file}`);
         continue;
       }
       let actual: string;
       try {
         actual = sha256File(p);
       } catch (e) {
-        issues.push(`round ${r.arm}#${r.round}: cannot hash ${file}: ${e}`);
+        issues.push(`${at}: cannot hash ${file}: ${String(e)}`);
         continue;
       }
       if (actual !== hash) {
-        issues.push(`round ${r.arm}#${r.round}: TAMPERED artifact ${file}: recorded ${hash.slice(0, 16)}…, on disk ${actual.slice(0, 16)}…`);
+        issues.push(`${at}: TAMPERED artifact ${file}: recorded ${hash.slice(0, 16)}…, on disk ${actual.slice(0, 16)}…`);
       }
     }
   }
   return issues;
+}
+
+/** Lexical containment of `abs` within `root`; reports why it fails. */
+function withinDir(root: string, abs: string): { ok: boolean; why: string } {
+  const rel = path.relative(root, abs);
+  if (rel === '') return { ok: true, why: '' };
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    return { ok: false, why: `'${abs}' is not inside '${root}'` };
+  }
+  return { ok: true, why: '' };
 }

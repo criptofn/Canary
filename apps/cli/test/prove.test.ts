@@ -90,16 +90,153 @@ describe('verifyArtifacts — audit F4 (proof must rehash the real artifacts)', 
     } finally { cleanup(); }
   });
 
-  it('flags a logPath that breaks the artifact-name contract', () => {
+  it('rejects a logPath that breaks the round-ownership contract', () => {
     const { dir, bundle, cleanup } = harness();
     try {
       (bundle.rounds[0] as { logPath: string }).logPath = 'weird-name.txt';
       const issues = verifyArtifacts(dir, bundle);
       assert.equal(issues.length, 1);
-      assert.match(issues[0]!, /unexpected logPath/);
+      assert.match(issues[0]!, /does not match its own identity/);
     } finally { cleanup(); }
   });
 });
+
+describe('verifyArtifacts — audit B3 (path confinement + ownership)', () => {
+  // Independent harness so each case controls file bytes + claimed paths.
+  function art(): { dir: string; outside: string; cleanup: () => void } {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-b3-'));
+    const dir = path.join(tmp, 'artifacts');
+    fs.mkdirSync(dir, { recursive: true });
+    const outside = path.join(tmp, 'external');
+    fs.mkdirSync(outside, { recursive: true });
+    return { dir, outside, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
+  }
+  const roundBase = (arm: 'baseline' | 'candidate', n: number): Record<string, unknown> => ({
+    arm, round: n, exitCode: arm === 'baseline' ? 0 : 1, killedByTimeout: false,
+    hasRunnerSummary: true, infraSignal: false,
+    startedAt: 'x', durationMs: 1,
+    rawStdoutSha256: '0'.repeat(64), rawStderrSha256: '0'.repeat(64),
+    normalizedStdoutSha256: '0'.repeat(64), normalizedStderrSha256: '0'.repeat(64),
+    logPath: `${arm}-${n}.stdout.log`, argv: ['x'], envKeys: ['PATH'],
+  });
+  const bundleOf = (rounds: Record<string, unknown>[]): EvidenceBundle =>
+    ({ rounds } as unknown as EvidenceBundle);
+  const writeAll = (dir: string, label: string, content: string): Record<string, string> => {
+    const h = sha256hex(content);
+    for (const suf of ['.stdout.log', '.stderr.log', '.stdout.norm', '.stderr.norm']) {
+      fs.writeFileSync(path.join(dir, label + suf), content, 'utf8');
+    }
+    return { rawStdoutSha256: h, rawStderrSha256: h, normalizedStdoutSha256: h, normalizedStderrSha256: h };
+  };
+
+  it('../../ identical external substitution is refused (ownership), not verified against the external bytes', () => {
+    const { dir, outside, cleanup } = art();
+    try {
+      // identical bytes live OUTSIDE the artifacts dir
+      const h = writeAll(outside, 'baseline-1', 'same-content');
+      const r = { ...roundBase('baseline', 1), ...h, logPath: '../external/baseline-1.stdout.log' };
+      const issues = verifyArtifacts(dir, bundleOf([r]));
+      assert.equal(issues.length, 1, JSON.stringify(issues));
+      assert.match(issues[0]!, /does not match its own identity/);
+    } finally { cleanup(); }
+  });
+
+  it('absolute external path in logPath is refused', () => {
+    const { dir, outside, cleanup } = art();
+    try {
+      const h = writeAll(outside, 'baseline-1', 'x');
+      const abs = path.join(outside, 'baseline-1.stdout.log');
+      const r = { ...roundBase('baseline', 1), ...h, logPath: abs };
+      const issues = verifyArtifacts(dir, bundleOf([r]));
+      assert.ok(issues.some((i) => /does not match its own identity/.test(i)), JSON.stringify(issues));
+    } finally { cleanup(); }
+  });
+
+  it('cross-round swap (candidate#1 claims candidate#2 log) is refused', () => {
+    const { dir, cleanup } = art();
+    try {
+      const h1 = writeAll(dir, 'candidate-1', 'round one bytes');
+      const h2 = writeAll(dir, 'candidate-2', 'round two bytes');
+      // swap: round 1 carries round 2's path AND its digests, and vice versa —
+      // a naive "hash the file logPath points to" verifier would accept this.
+      const r1 = { ...roundBase('candidate', 1), ...h2, logPath: 'candidate-2.stdout.log' };
+      const r2 = { ...roundBase('candidate', 2), ...h1, logPath: 'candidate-1.stdout.log' };
+      const issues = verifyArtifacts(dir, bundleOf([r1, r2]));
+      assert.equal(issues.filter((i) => /does not match its own identity/.test(i)).length, 2,
+        JSON.stringify(issues));
+    } finally { cleanup(); }
+  });
+
+  it('baseline pointing at a candidate artifact is refused', () => {
+    const { dir, cleanup } = art();
+    try {
+      const hc = writeAll(dir, 'candidate-1', 'candidate bytes');
+      const r = { ...roundBase('baseline', 1), ...hc, logPath: 'candidate-1.stdout.log' };
+      const issues = verifyArtifacts(dir, bundleOf([r]));
+      assert.ok(issues.some((i) => /does not match its own identity/.test(i)), JSON.stringify(issues));
+    } finally { cleanup(); }
+  });
+
+  it('a valid canonical relative artifact path verifies clean', () => {
+    const { dir, cleanup } = art();
+    try {
+      const h = writeAll(dir, 'baseline-1', 'genuine');
+      const r = { ...roundBase('baseline', 1), ...h };
+      assert.deepEqual(verifyArtifacts(dir, bundleOf([r])), []);
+    } finally { cleanup(); }
+  });
+
+  it('missing + modified artifacts are refused', () => {
+    const { dir, cleanup } = art();
+    try {
+      const h = writeAll(dir, 'candidate-1', 'orig');
+      const present = { ...roundBase('candidate', 1), ...h };
+      // delete one of the four -> missing
+      fs.rmSync(path.join(dir, 'candidate-1.stderr.norm'));
+      assert.ok(verifyArtifacts(dir, bundleOf([present])).some((i) => /missing/.test(i)));
+    } finally { cleanup(); }
+    const { dir: d2, cleanup: c2 } = art();
+    try {
+      const h = writeAll(d2, 'candidate-1', 'orig');
+      fs.writeFileSync(path.join(d2, 'candidate-1.stdout.norm'), 'tampered');
+      const r = { ...roundBase('candidate', 1), ...h };
+      assert.ok(verifyArtifacts(d2, bundleOf([r])).some((i) => /TAMPERED/.test(i)));
+    } finally { c2(); }
+  });
+
+  it('a symlinked artifact resolving outside the dir is refused (symlink escape)', (t) => {
+    if (!canSymlink()) { t.skip('symlink privileges unavailable on this host'); return; }
+    const { dir, outside, cleanup } = art();
+    try {
+      const content = 'outside-symlinked';
+      const h = sha256hex(content);
+      fs.writeFileSync(path.join(outside, 'secret-stdout.log'), content, 'utf8');
+      // canonical basename, but the file is a symlink to outside
+      fs.symlinkSync(path.join(outside, 'secret-stdout.log'), path.join(dir, 'baseline-1.stdout.log'));
+      for (const suf of ['.stderr.log', '.stdout.norm', '.stderr.norm']) {
+        fs.writeFileSync(path.join(dir, 'baseline-1' + suf), '', 'utf8');
+      }
+      const r = {
+        ...roundBase('baseline', 1),
+        rawStdoutSha256: h, rawStderrSha256: sha256hex(''),
+        normalizedStdoutSha256: sha256hex(''), normalizedStderrSha256: sha256hex(''),
+      };
+      const issues = verifyArtifacts(dir, bundleOf([r]));
+      assert.ok(issues.some((i) => /resolves outside the artifacts directory/.test(i)),
+        `symlink escape not caught: ${JSON.stringify(issues)}`);
+    } finally { cleanup(); }
+  });
+});
+
+function canSymlink(): boolean {
+  try {
+    const t = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-sym-'));
+    fs.writeFileSync(path.join(t, 'a'), 'x');
+    fs.symlinkSync(path.join(t, 'a'), path.join(t, 'b'));
+    fs.rmSync(t, { recursive: true, force: true });
+    return true;
+  } catch { return false; }
+}
 
 const CAND_LOG = [
   '  suite', '    √ ok one', '', '  1 passing (1ms)', '  1 failing', '',

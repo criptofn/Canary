@@ -235,6 +235,15 @@ function semanticChecks(
   // 1. Per-round internal contradictions.
   for (const r of rounds) {
     const at = `round ${String(r.arm)}#${String(r.round)}`;
+    // Audit B3: the log path must be the canonical name OWNED by this round.
+    // (verifyArtifacts re-derives bytes from arm/round, never from logPath;
+    // this check makes a lying path a structural bundle error too.)
+    if (typeof r.logPath === 'string' &&
+      (r.arm === 'baseline' || r.arm === 'candidate') &&
+      Number.isInteger(r.round) && (r.round as number) >= 1 &&
+      r.logPath !== `${String(r.arm)}-${String(r.round)}.stdout.log`) {
+      issues.push(`${at}: logPath '${String(r.logPath)}' is not this round's canonical artifact path (${String(r.arm)}-${String(r.round)}.stdout.log)`);
+    }
     if (r.killedByTimeout === true && r.exitCode !== -1) {
       issues.push(`${at}: killedByTimeout but exitCode=${String(r.exitCode)} (a killed round exits -1)`);
     }
