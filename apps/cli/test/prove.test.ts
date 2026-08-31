@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, it } from 'node:test';
+import { after, describe, it } from 'node:test';
 
-import { verifyArtifacts, assertProof, type ProofExpectation } from '../src/prove.js';
+import { verifyArtifacts, assertProof, proofVerdict, environmentAttestationIssues, type ProofExpectation } from '../src/prove.js';
 import { sha256hex } from '@canary-rn/hashing';
 import type { EvidenceBundle, RoundEvidence } from '@canary-rn/evidence-schema';
 
@@ -244,7 +244,7 @@ const CAND_LOG = [
 ].join('\n');
 const BASE_LOG = '  2 passing (1ms)\n';
 
-describe('assertProof — audit F11 (portable vs host-exact assertions)', () => {
+describe('assertProof — audit F11 + round-3 B3 (host-exactness from the ACTUAL runtime)', () => {
   function proofFor(bundle: EvidenceBundle, withHost: boolean): ProofExpectation {
     const hashes = (arm: 'baseline' | 'candidate') =>
       bundle.rounds.filter((r) => r.arm === arm).map((r) => r.normalizedStdoutSha256);
@@ -252,6 +252,9 @@ describe('assertProof — audit F11 (portable vs host-exact assertions)', () => 
       schema: 1, experimentId: 'e',
       dependency: { package: 'p', baseline: '1', candidate: '2' },
       downstream: { repo: 'u', commit: 'b'.repeat(40) },
+      // Round-3 B4: a proof must pin the tarball digest (assertProof refuses
+      // one that doesn't); the harness pins the value the bundle records.
+      tarballSha256: bundle.downstream.tarballSha256,
       ...(withHost
         ? { proofHost: { platform: bundle.environment.platform, arch: bundle.environment.arch, nodeVersion: bundle.environment.nodeVersion, npmVersion: bundle.environment.npmVersion } }
         : {}),
@@ -263,47 +266,91 @@ describe('assertProof — audit F11 (portable vs host-exact assertions)', () => 
       },
     };
   }
-  const run = (bundle: EvidenceBundle, proof: ProofExpectation) =>
-    assertProof(bundle, proof, { candidateStdout: CAND_LOG, baselineStdout: BASE_LOG });
+  // The harness bundle CLAIMS x/y/v/n. `runtimeOnRecordedMachine` simulates a
+  // verify process whose ACTUAL identity matches that claim (the only way the
+  // pre-B3 code could be satisfied); the fake-host runtime simulates verifying
+  // somewhere else. The evidence itself is NEVER consulted for the decision.
+  const runtimeOnRecordedMachine = { platform: 'x', arch: 'y', nodeVersion: 'v', npmVersion: 'n' };
+  const runtimeElsewhere = { platform: 'linux', arch: 'arm64', nodeVersion: 'v22.0.0', npmVersion: '10.0.0' };
+  const run = (bundle: EvidenceBundle, proof: ProofExpectation, runtime = runtimeOnRecordedMachine) =>
+    assertProof(bundle, proof, { candidateStdout: CAND_LOG, baselineStdout: BASE_LOG }, runtime);
 
-  it('no proofHost (legacy proof file): hash assertions run unconditionally (strict)', () => {
+  it('legacy proof (no proofHost): host-exact hashes assert ONLY when the actual runtime matches the recorded environment', () => {
     const { dir, bundle, cleanup } = harness();
     try {
-      const checks = run(bundle, proofFor(bundle, false));
-      const hash = checks.find((c) => c.name === 'candidate normalized stdout hashes')!;
+      const onMachine = run(bundle, proofFor(bundle, false));
+      const hash = onMachine.find((c) => c.name === 'candidate normalized stdout hashes')!;
       assert.equal(hash.ok, true);
       assert.equal(hash.skipped, undefined);
+      // The old unconditional-strict branch is GONE: a legacy proof verified
+      // on a foreign machine must skip (INCOMPLETE), not silently assert.
+      const elsewhere = run(bundle, proofFor(bundle, false), runtimeElsewhere);
+      const skipped = elsewhere.filter((c) => c.skipped);
+      assert.equal(skipped.length, 2, JSON.stringify(skipped.map((s) => s.name)));
+      assert.ok(skipped.every((s) => /no committed proofHost and the actual runtime differs/.test(s.name)));
     } finally { cleanup(); }
   });
 
-  it('matching proofHost: every assertion including hashes evaluates', () => {
+  it('matching proofHost + actual runtime on it: every assertion including hashes AND the environment binding evaluates', () => {
     const { dir, bundle, cleanup } = harness();
     try {
       const checks = run(bundle, proofFor(bundle, true));
       assert.equal(checks.some((c) => c.skipped), false);
       assert.equal(checks.every((c) => c.ok), true);
+      assert.ok(checks.some((c) => c.name === 'evidence environment bound to proof host'),
+        'B3 binding must exist as an evaluated check');
     } finally { cleanup(); }
   });
 
-  it('off-proof-host: ONLY the two hash comparisons skip (flagged, not silent); every portable assertion still evaluates', () => {
+  it('round-3 B3 core: resealing the evidence environment can NO LONGER skip strict checks — it FAILS the binding', () => {
+    const { dir, bundle, cleanup } = harness();
+    try {
+      // proofHost is the recorded (true) host; the actual runtime is ON it.
+      const proof = proofFor(bundle, true);
+      // Attacker reseals the environment block (say, to dodge a known-bad
+      // node-version assertion) — pre-B3 this made `onProofHost` false and
+      // every strict check politely skipped to a PASS. Now the binding fires.
+      bundle.environment.npmVersion = '9.9.9-fake';
+      // proofHost/actual runtime are both x/y/v/n; the resealed 'fake' npm
+      // version now CONTRADICTS the committed expectation on the proof host:
+      const checks = run(bundle, proof);
+      const bound = checks.find((c) => c.name === 'evidence environment bound to proof host')!;
+      assert.equal(bound.ok, false);
+      assert.equal(bound.skipped, undefined);
+      // and no check skipped its way out:
+      assert.equal(checks.filter((c) => c.skipped).length, 0);
+      const v = proofVerdict(checks);
+      assert.equal(v.status, 'FAIL');
+      assert.equal(v.exitCode, 1);
+    } finally { cleanup(); }
+  });
+
+  it('off-proof-host: host-exact comparisons skip (flagged, not silent); portable assertions still evaluate; verdict is INCOMPLETE', () => {
     const { dir, bundle, cleanup } = harness();
     try {
       const proof = proofFor(bundle, true);
-      proof.proofHost = { ...proof.proofHost!, nodeVersion: 'v99.0.0' }; // a host that is NOT this one
-      const checks = run(bundle, proof);
+      proof.proofHost = { ...proof.proofHost!, nodeVersion: 'v99.0.0' }; // a host the ACTUAL runtime is not
+      const checks = run(bundle, proof); // actual runtime == x/y/v/n
       const skipped = checks.filter((c) => c.skipped);
       assert.deepEqual(skipped.map((c) => c.name).sort(), [
-        'baseline normalized stdout hashes [SKIPPED: not proof host x/y/node v99.0.0]',
-        'candidate normalized stdout hashes [SKIPPED: not proof host x/y/node v99.0.0]',
+        'baseline normalized stdout hashes [SKIPPED: actual runtime is not the committed proof host x/y/node v99.0.0/npm n]',
+        'candidate normalized stdout hashes [SKIPPED: actual runtime is not the committed proof host x/y/node v99.0.0/npm n]',
+        'evidence environment bound to proof host [SKIPPED: actual runtime is not the committed proof host x/y/node v99.0.0/npm n]',
       ]);
       // determinism-within-arm is host-INDEPENDENT and must NOT skip:
       assert.ok(checks.some((c) => c.name === 'candidate arm internally deterministic' && !c.skipped));
+      // B3: skipped host-exactness downgrades the VERDICT — no PASS pretense.
+      const v = proofVerdict(checks);
+      assert.equal(v.status, 'INCOMPLETE');
+      assert.equal(v.exitCode, 2);
       // a real portable violation is still FAIL even while hashes skip:
       proof.expected.rule = 7;
       const diverged = run(bundle, proof);
       const bad = diverged.find((c) => c.name === 'rule')!;
       assert.equal(bad.ok, false);
       assert.equal(bad.skipped, undefined);
+      assert.equal(proofVerdict(diverged).status, 'FAIL');
+      assert.equal(proofVerdict(diverged).exitCode, 1);
     } finally { cleanup(); }
   });
 
@@ -317,7 +364,117 @@ describe('assertProof — audit F11 (portable vs host-exact assertions)', () => 
       proof.expected.candidate.normalizedStdoutSha256AcrossRounds = ['0'.repeat(64)]; // wrong on purpose
       const checks = run(bundle, proof);
       assert.equal(checks.filter((c) => !c.ok).length, 0); // skipped, not failed
+      assert.equal(proofVerdict(checks).status, 'INCOMPLETE'); // but never PASS
       assert.equal(verifyArtifacts(dir, bundle).length, 0); // artifacts still self-consistent
     } finally { cleanup(); }
+  });
+});
+
+describe('round-3 B3 — environment attestation + verdict helpers', () => {
+  it('environmentAttestationIssues: silent only when claim == ACTUAL runtime', () => {
+    const { bundle, cleanup } = harness();
+    try {
+      assert.deepEqual(environmentAttestationIssues(bundle, { platform: 'x', arch: 'y', nodeVersion: 'v', npmVersion: 'n' }), []);
+      const lies = environmentAttestationIssues(bundle, { platform: 'x', arch: 'y', nodeVersion: 'v0.0.1', npmVersion: 'n' });
+      assert.equal(lies.length, 1);
+      assert.match(lies[0]!, /ACTUAL verifying runtime/);
+      assert.match(lies[0]!, /v0\.0\.1/);
+    } finally { cleanup(); }
+  });
+  it('proofVerdict: PASS requires zero failures AND zero skips', () => {
+    assert.equal(proofVerdict([{ name: 'a', ok: true }]).status, 'PASS');
+    assert.equal(proofVerdict([{ name: 'a', ok: true }, { name: 'b', ok: true, skipped: true }]).status, 'INCOMPLETE');
+    assert.equal(proofVerdict([{ name: 'b', ok: true, skipped: true }]).exitCode, 2);
+    assert.equal(proofVerdict([{ name: 'a', ok: false }]).status, 'FAIL');
+    assert.equal(proofVerdict([]).status, 'PASS');
+  });
+});
+
+describe('round-3 B4-D — exact failing-identity set equality (proof vs candidate bytes)', () => {
+  // The pre-B4 check was membership-only: a proof pinning a SUBSET of the
+  // real failures passed while hiding nothing was asserted about EXTRA ones.
+  // Now the extracted set must equal the expected set exactly.
+  const { bundle, cleanup } = harness();
+  after(cleanup); // assertProof never reads the dir — only the bundle + logs
+  const proof = {
+    schema: 1, experimentId: 'e',
+    dependency: { package: 'p', baseline: '1', candidate: '2' },
+    downstream: { repo: 'u', commit: 'b'.repeat(40) },
+    tarballSha256: bundle.downstream.tarballSha256,
+    expected: {
+      classification: 'CONFIRMED_REGRESSION', rule: 5, driftConfinedToDependency: true,
+      baseline: { rounds: 1, exitCodes: [0], normalizedStdoutSha256AcrossRounds: [bundle.rounds[0]!.normalizedStdoutSha256], summary: { passing: 2 } },
+      candidate: { rounds: 1, exitCodes: [3], normalizedStdoutSha256AcrossRounds: [bundle.rounds[1]!.normalizedStdoutSha256], summary: { passing: 1, failing: 1 } },
+      failingTestNames: ['suite > candidate breaks widget'],
+    },
+  } as ProofExpectation;
+  const run = (p: ProofExpectation) =>
+    assertProof(bundle, p, { candidateStdout: CAND_LOG, baselineStdout: BASE_LOG }, { platform: 'x', arch: 'y', nodeVersion: 'v', npmVersion: 'n' });
+  const exactName = 'failing test identities (exact set from candidate bytes)';
+
+  it('faithful expectation: exact set holds', () => {
+    const c = run(proof).find((x) => x.name === exactName)!;
+    assert.equal(c.ok, true);
+  });
+  it('proof pinning a SUBSET (hiding a real failure) FAILS', () => {
+    const p = structuredClone(proof);
+    p.expected.failingTestNames = [];
+    const c = run(p).find((x) => x.name === exactName)!;
+    assert.equal(c.ok, false);
+  });
+  it('proof pinning an EXTRA (non-existent) identity FAILS', () => {
+    const p = structuredClone(proof);
+    p.expected.failingTestNames = ['suite > candidate breaks widget', 'suite > a name that never failed'];
+    const c = run(p).find((x) => x.name === exactName)!;
+    assert.equal(c.ok, false);
+  });
+  it('the exact-set check is portable — it evaluates (never skips) off-host', () => {
+    const p = structuredClone(proof);
+    p.proofHost = { platform: 'os2', arch: 'ppc', nodeVersion: 'v0', npmVersion: '0' }; // we are NOT it
+    const c = run(p).find((x) => x.name === exactName)!;
+    assert.equal(c.skipped, undefined);
+    assert.equal(c.ok, true); // bytes vs proof, host-independent
+  });
+  it('a proof that does not pin the tarball digest FAILS the pin requirement', () => {
+    const p = structuredClone(proof);
+    delete p.tarballSha256;
+    const checks = run(p);
+    const c = checks.find((x) => x.name === 'proof pins tarball digest')!;
+    assert.equal(c.ok, false);
+    assert.equal(c.skipped, undefined, 'the pin requirement itself is portable');
+  });
+
+  // Self-review N10 (found by mutation testing): deleting the experiment-
+  // identity eq from assertProof left EVERY suite green — the CLI flow catches
+  // experimentId rewrites EARLIER (verifyRunIdentity's runId↔directory and
+  // exp-<id>- prefix binding), so nothing exercised this pin directly. It is
+  // load-bearing for the standalone API: an attacker who copies a run
+  // directory, renames it, and coherently reseals runId+experimentId+manifest
+  // satisfies every other layer — only the proof's own identity anchor refuses
+  // that bundle as the wrong experiment. assertProof does NOT consult the
+  // manifest, so re-sealing integrity is irrelevant to this check.
+  it('assertProof alone refuses a resealed experimentId the proof does not name (mutation N10)', () => {
+    const forged = structuredClone(bundle) as EvidenceBundle;
+    forged.experimentId = 'some-other-experiment';
+    const c = assertProof(
+      forged, proof, { candidateStdout: CAND_LOG, baselineStdout: BASE_LOG },
+      { platform: 'x', arch: 'y', nodeVersion: 'v', npmVersion: 'n' },
+    ).find((x) => x.name === 'experiment identity')!;
+    assert.equal(c.ok, false, 'the proof-identity pin must be the refuser at the assertProof layer');
+    assert.equal(c.skipped, undefined, 'identity pinning is host-independent');
+  });
+
+  // Self-review N9 (proof-version confusion): assertProof consumed
+  // proof.schema without ever reading it — a proof authored for another
+  // expectation layout would be silently interpreted under v1 semantics.
+  it('a proof declaring a schema version the reader does not implement FAILS (portable)', () => {
+    for (const bad of [2, 0, undefined]) {
+      const p = structuredClone(proof) as ProofExpectation & { schema?: number };
+      if (bad === undefined) delete (p as { schema?: unknown }).schema; else p.schema = bad;
+      const checks = run(p);
+      const c = checks.find((x) => x.name === 'proof schema')!;
+      assert.equal(c.ok, false, `schema=${String(bad)} must not certify`);
+      assert.equal(c.skipped, undefined, 'the version pin is host-independent');
+    }
   });
 });

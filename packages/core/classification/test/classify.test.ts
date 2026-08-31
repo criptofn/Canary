@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { applyConfinementGuard, classify, type RoundFact } from '../src/index.js';
+import { applyConfinementGuard, classify, identityCoverage, infraCause, type RoundFact } from '../src/index.js';
 
 /** Build a healthy test round (runner summary present, no infra noise).
  *  Failing rounds carry a parseable failing count: post-audit-F1 semantics
@@ -203,11 +203,19 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
   });
 
   it('audit F2: identical failure profiles (golden shape) -> still CONFIRMED_REGRESSION rule 5', () => {
+    // Round-3 note: the identity list must FULLY account for the failing
+    // count (3 names for "3 failing") — the pre-fix fixture paired 3 failures
+    // with 2 identities, the exact partial-parse shape the classifier now
+    // (correctly) refuses via rule 11.
     const golden = (round: number): RoundFact => ({
       arm: 'candidate', round, exitCode: 3,
       hasRunnerSummary: true, infraSignal: false,
       reportedFailing: 3,
-      failingTestNames: ['can pass headers to match to a handler', 'handles baseURL correctly'],
+      failingTestNames: [
+        'can pass headers to match to a handler',
+        'handles baseURL correctly',
+        'passes multipart/form-data with the right boundary',
+      ],
     });
     const r = classify([
       arm('baseline', 1), arm('baseline', 2), golden(1), golden(2), golden(3),
@@ -333,5 +341,220 @@ describe('audit F9/B6 — applyConfinementGuard (rules 9 + 10, enforced not deco
     const unconfined = applyConfinementGuard(cls, { confined: false, other: ['evil-pkg'], dependency: 'axios', ...VALID });
     assert.equal(confined.classification, 'CONFIRMED_REGRESSION');
     assert.equal(unconfined.classification, 'INCONCLUSIVE');
+  });
+});
+
+// ---- Round-3 BLOCKER 1: failure-identity COMPLETENESS ----
+// The audited hole: a round can report "N failing" while the parser yields
+// fewer identities (root-level "1) title:" lines parsed to NOTHING before
+// the fix). Two such rounds profile-match on their EMPTY sets and the
+// classifier confirms a regression from zero identified failures.
+describe('round-3 blocker 1 — identity coverage gates trustful verdicts', () => {
+  const failRound = (arm: 'baseline' | 'candidate', round: number, reported: number, names: string[]): RoundFact => ({
+    arm, round, exitCode: 3, hasRunnerSummary: true, infraSignal: false,
+    reportedPassing: 100, reportedFailing: reported, failingTestNames: [...names].sort(),
+  });
+
+  it('identityCoverage: exact match COMPLETE; fewer / more / missing => INCOMPLETE / NOT_OBSERVED', () => {
+    assert.equal(identityCoverage(failRound('candidate', 1, 2, ['a', 'b'])), 'COMPLETE');
+    assert.equal(identityCoverage(failRound('candidate', 1, 0, [])), 'COMPLETE');
+    assert.equal(identityCoverage(failRound('candidate', 1, 2, ['a'])), 'INCOMPLETE');
+    assert.equal(identityCoverage(failRound('candidate', 1, 2, ['a', 'a'])), 'INCOMPLETE', 'duplicates must not fake coverage');
+    assert.equal(identityCoverage(failRound('candidate', 1, 1, ['a', 'b'])), 'INCOMPLETE', 'count and identities contradict');
+    assert.equal(identityCoverage({ arm: 'candidate', round: 1, exitCode: 3, hasRunnerSummary: true, infraSignal: false }), 'NOT_OBSERVED');
+    assert.equal(identityCoverage({ ...failRound('candidate', 1, 2, []), failingTestNames: undefined }), 'NOT_OBSERVED');
+  });
+
+  it('two DIFFERENT root-level failures that collapsed to equal EMPTY sets can never CONFIRM (rule 11)', () => {
+    // Pre-fix this exact shape yielded CONFIRMED_REGRESSION: both rounds had
+    // reportedFailing=2 and failingTestNames=[] (the parser could not see
+    // root "N) title:" lines), so the profiles matched.
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      failRound('candidate', 1, 2, []),
+      failRound('candidate', 2, 2, []),
+    ]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 11);
+    assert.match(r.reason, /not fully accounted/);
+  });
+
+  it('repeated "2 failing" with only ONE extractable identity -> INCONCLUSIVE rule 11, never CONFIRMED', () => {
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      failRound('candidate', 1, 2, ['x']),
+      failRound('candidate', 2, 2, ['x']),
+    ]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 11);
+  });
+
+  it('single failing round claiming 9 failures with 0 identities -> INCONCLUSIVE rule 11', () => {
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      failRound('candidate', 1, 9, []),
+    ]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 11);
+  });
+
+  it('under-accounted BASELINE blocks PRE_EXISTING_FAILURE too (coverage is not candidate-only)', () => {
+    const r = classify([
+      failRound('baseline', 1, 3, ['only one']),
+      failRound('baseline', 2, 3, ['only one']),
+      failRound('candidate', 1, 3, ['only one']),
+    ]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 11);
+  });
+
+  it('genuinely distinct root failures stay distinct (rule 8 FLAKY, not coverage, not CONFIRMED)', () => {
+    // Post-fix the parser yields one identity per root failure; identical
+    // rounds still CONFIRM (below), differing rounds are FLAKY (here).
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      failRound('candidate', 1, 2, ['root alpha', 'root beta']),
+      failRound('candidate', 2, 2, ['root alpha', 'root gamma']),
+    ]);
+    assert.equal(r.classification, 'FLAKY');
+    assert.equal(r.rule, 8);
+    const same = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      failRound('candidate', 1, 2, ['root alpha', 'root beta']),
+      failRound('candidate', 2, 2, ['root beta', 'root alpha']),
+    ]);
+    assert.equal(same.classification, 'CONFIRMED_REGRESSION', 'reordered equivalents are the same profile');
+    assert.equal(same.rule, 5);
+  });
+
+  it('fully-accounted root-level identities CONFIRM (conservatism must not break real proofs)', () => {
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      failRound('candidate', 1, 3, ['root alpha', 'suite B > inner test', 'suite C > other']),
+      failRound('candidate', 2, 3, ['root alpha', 'suite B > inner test', 'suite C > other']),
+      failRound('candidate', 3, 3, ['root alpha', 'suite B > inner test', 'suite C > other']),
+    ]);
+    assert.equal(r.classification, 'CONFIRMED_REGRESSION');
+    assert.equal(r.rule, 5);
+  });
+});
+
+// ---- Round-3 BLOCKER 2: all-pending / zero-assertion runs ----
+describe('round-3 blocker 2 — pending tests are NOT executed assertions', () => {
+  const pendingRound = (arm: 'baseline' | 'candidate', round: number): RoundFact => ({
+    arm, round, exitCode: 0, hasRunnerSummary: true, infraSignal: false,
+    reportedPassing: 0, reportedFailing: 0, reportedPending: 7,
+  });
+
+  it('all-pending candidate (0/0/7, exit 0) can never PASS -> INFRA', () => {
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      pendingRound('candidate', 1), pendingRound('candidate', 2),
+    ]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(r.rule, 1);
+    assert.match(r.reason, /zero executed tests/);
+    assert.match(r.reason, /pending\/skipped/);
+  });
+
+  it('infraCause flags a pending-only round directly (was: null)', () => {
+    const cause = infraCause(pendingRound('candidate', 1));
+    assert.ok(cause !== null, 'pending-only must be an invalid execution');
+    assert.match(cause, /zero executed tests/);
+  });
+
+  it('healthy baseline + ALL-skipped candidate: the run proves nothing executed', () => {
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      pendingRound('candidate', 1), pendingRound('candidate', 2), pendingRound('candidate', 3),
+    ]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+  });
+
+  it('summary present with NO machine-readable counts at all -> INFRA (prose "summary" proves nothing)', () => {
+    const prose = (arm: 'baseline' | 'candidate', round: number): RoundFact => ({
+      arm, round, exitCode: 0, hasRunnerSummary: true, infraSignal: false,
+      // e.g. a runner whose summary line matched the signature but whose
+      // numbers never parse into passing/failing/pending:
+    });
+    const r = classify([prose('baseline', 1), prose('baseline', 2), prose('candidate', 1), prose('candidate', 2)]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.match(r.reason, /no machine-readable pass\/fail counts/);
+  });
+
+  it('pending-only counts (no passing/failing line — the real mocha shape) -> INFRA zero-executed', () => {
+    const pend = (arm: 'baseline' | 'candidate', round: number): RoundFact => ({
+      arm, round, exitCode: 0, hasRunnerSummary: true, infraSignal: false,
+      reportedPending: 7,
+    });
+    const r = classify([pend('baseline', 1), pend('baseline', 2), pend('candidate', 1), pend('candidate', 2)]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.match(r.reason, /zero executed tests/);
+  });
+
+  it('zero-test with NO summary at all stays INFRA (B2 path unchanged)', () => {
+    const z = (arm: 'baseline' | 'candidate', round: number): RoundFact => ({
+      arm, round, exitCode: 0, hasRunnerSummary: false, infraSignal: false,
+    });
+    const r = classify([z('baseline', 1), z('baseline', 2), z('candidate', 1), z('candidate', 2)]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.match(r.reason, /not recognizable as a test run/);
+  });
+
+  it('a single executed assertion (1 passing, 0 failing, N pending) is enough to be a VALID run', () => {
+    const light = (arm: 'baseline' | 'candidate', round: number): RoundFact => ({
+      arm, round, exitCode: 0, hasRunnerSummary: true, infraSignal: false,
+      reportedPassing: 1, reportedFailing: 0, reportedPending: 99,
+    });
+    const r = classify([light('baseline', 1), light('baseline', 2), light('candidate', 1), light('candidate', 2)]);
+    assert.equal(r.classification, 'PASS');
+  });
+
+  // Self-review P2 probe: parseSummaryCounts takes the FIRST match, so a log
+  // that PRINTS a decoy summary line early ("console.log('0 failing')" as
+  // test subject matter) yields a first-match read that contradicts the real
+  // tail summary. The decision table must absorb that ambiguity only in the
+  // conservative direction — never into a trustful label.
+  it('decoy early summary lines cannot steer a nonzero-exit round into CONFIRMED (probe P2)', () => {
+    // bytes '0 failing' (decoy, first match) vs real '2 failing' tail:
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      {
+        arm: 'candidate', round: 1, exitCode: 1, hasRunnerSummary: true, infraSignal: false,
+        reportedPassing: 3, reportedFailing: 0, // first-match parse of the decoy log
+        failingTestNames: [],
+      },
+      {
+        arm: 'candidate', round: 2, exitCode: 1, hasRunnerSummary: true, infraSignal: false,
+        reportedPassing: 3, reportedFailing: 0,
+        failingTestNames: [],
+      },
+    ]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(r.rule, 1);
+    assert.match(r.reason, /died outside tests/, 'a zero-failing read alongside nonzero exit is infra, never CONFIRMED');
+  });
+
+  // Self-review P4 probe (documented conservative limitation): two distinct
+  // real failures whose SUITE-QUALIFIED identity is genuinely identical
+  // (two spec files with the same describe/it titles — legal in mocha)
+  // dedupe to one identity, under-account the count, and cap the run at
+  // INCONCLUSIVE rule 11. Canary must never silently TRUST such a parse;
+  // this test pins the conservatism so a future "helpful" collapse cannot
+  // flip the direction.
+  it('duplicate identical suite-qualified identities under-account -> rule 11, never trust (probe P4)', () => {
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      {
+        arm: 'candidate', round: 1, exitCode: 2, hasRunnerSummary: true, infraSignal: false,
+        reportedFailing: 2, reportedPassing: 1, failingTestNames: ['Suite A > inner'],
+      },
+      {
+        arm: 'candidate', round: 2, exitCode: 2, hasRunnerSummary: true, infraSignal: false,
+        reportedFailing: 2, reportedPassing: 1, failingTestNames: ['Suite A > inner'],
+      },
+    ]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 11);
   });
 });

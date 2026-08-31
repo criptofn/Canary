@@ -42,14 +42,27 @@ export interface RoundEvidence {
    *  Audit B2: recognized at ANY exit code, including 0. */
   infraSignal?: boolean | undefined;
   /** Passing-test count as parsed from the runner summary, if readable
-   *  (audit B2: with failing+pending defines the executed-total). */
+   *  (round-3 blocker 2: passing+failing — NOT pending — defines the
+   *  executed-total; pending tests never execute an assertion). */
   reportedPassing?: number | undefined;
   /** Failing-test count as parsed from the runner summary, if machine-readable. */
   reportedFailing?: number | undefined;
-  /** Pending/skipped count as parsed from the runner summary (audit B2). */
+  /** Pending/skipped count as parsed from the runner summary. Recorded for
+   *  transparency only; excluded from the executed-total (audit B2 corrected
+   *  by round-3 blocker 2). */
   reportedPending?: number | undefined;
-  /** Sorted failing-test identities parsed from this round's log (audit F13). */
+  /** Sorted, deduped failing-test identities parsed from this round's log
+   *  (audit F13). Round-3 blocker 1: trustful labels additionally require
+   *  |unique identities| == reportedFailing on every failing round — a
+   *  partial parse cannot anchor a regression claim. */
   failingTestNames?: string[] | undefined;
+  /** Fatal runtime crash signature (heap OOM / abort / segfault) observed in
+   *  this round's output (round-3 secondary: a valid summary followed by a
+   *  crash must not masquerade as a clean run). */
+  crashSignal?: boolean | undefined;
+  /** Post-exit containment sweep could not confirm zero survivors (round-3
+   *  secondary: isolation unknown => execution invalid). */
+  sweepFailed?: boolean | undefined;
   startedAt: string;
   durationMs: number;
   rawStdoutSha256: string;
@@ -60,6 +73,41 @@ export interface RoundEvidence {
   logPath: string;
   argv: string[];
   envKeys: string[];
+}
+
+/**
+ * Round-3 blocker 6 — a RETAINED, VERIFIABLE snapshot of one arm's
+ * dependency-tree observation. Before this, `npm ls --json` output was
+ * flattened, hashed, and DISCARDED: the tree hashes, copy counts, VALID
+ * status, and drift confinement inside the bundle referenced nothing that
+ * could later be re-checked — a resealed bundle could claim any tree facts
+ * with zero evidence behind them. These refs name the raw (and canonical)
+ * artifact files whose bytes a verifier re-flattens INDEPENDENTLY of the
+ * pipeline's parser (apps/cli/src/verify-tree.ts) and re-derives every tree
+ * fact from. Filenames are DERIVED from the arm (like round logs, audit B3),
+ * so a bundle cannot redirect a snapshot to another arm's bytes.
+ */
+export interface TreeSnapshotRef {
+  rawStdoutLog: string;
+  rawStdoutSha256: string;
+  rawStderrLog: string;
+  rawStderrSha256: string;
+  canonicalLog: string;
+  canonicalSha256: string;
+}
+
+/** Per-arm observation anomalies recorded by the npm-ls flatten: nodes with
+ *  missing/unreadable versions, unwalked subtrees, malformed entries. A
+ *  physical disk cross-check is deliberately NOT part of the trust path:
+ *  `npm ls` reports the LOGICAL tree (dedupe/hoist re-arranges physical
+ *  locations), so raw disk-vs-JSON key comparison would fire false
+ *  incompleteness on every real hoisted install; the logical tree is what
+ *  drift keys address. Trustful verdicts require this array present AND
+ *  empty (a missing array is indistinguishable from "did not look", which is
+ *  exactly what must not anchor trust). The JSON anomaly list itself is
+ *  RE-DERIVABLE from the retained snapshot bytes by verify-tree. */
+export interface TreeAnomalies {
+  json: string[];
 }
 
 export interface EvidenceBundle {
@@ -107,6 +155,12 @@ export interface EvidenceBundle {
      *  and the version found there — attested, not claimed (red-team F3). */
     resolvedVersions: { baseline: string; candidate: string };
     dependencyCopies: { baseline: number; candidate: number };
+    /** Round-3 blocker 6: retained, arm-name-derived artifact refs for each
+     *  arm's `npm ls` observation. REQUIRED (and required empty-anomaly) for
+     *  any trustful verdict; verify-tree re-derives the tree facts from them. */
+    snapshots?: { baseline: TreeSnapshotRef; candidate: TreeSnapshotRef } | undefined;
+    /** Per-arm anomaly lists recorded by the flatten (see TreeAnomalies). */
+    observationAnomalies?: { baseline: TreeAnomalies; candidate: TreeAnomalies } | undefined;
   };
   classification: {
     label: ClassificationLabel;
@@ -259,6 +313,18 @@ export function validateBundle(b: unknown): Issue[] {
   }
   const rv = tc?.resolvedVersions as Record<string, unknown> | undefined;
   if (!rv || !isStr(rv.baseline) || !isStr(rv.candidate)) issues.push('treeComparison.resolvedVersions missing — arms were not attested');
+  // Round-3 blocker 6: resolvedVersions are ATTESTED from the machine, and
+  // the pipeline aborts the run whenever an attestation disagrees with the
+  // spec (steps [3]/[6]). So inside one honest bundle they can never differ
+  // from the recorded dependency versions — a mismatch therefore cannot be
+  // an artifact of an honest run; it means a tree fact was resealed under a
+  // manifest that still advertises the original spec versions.
+  const depVer = o.dependency as Record<string, unknown> | undefined;
+  for (const [arm, field] of [['baseline', 'baselineVersion'], ['candidate', 'candidateVersion']] as const) {
+    if (rv && depVer && isStr(rv[arm]) && isStr(depVer[field]) && rv[arm] !== depVer[field]) {
+      issues.push(`treeComparison.resolvedVersions.${arm} '${String(rv[arm])}' contradicts dependency.${field} '${String(depVer[field])}' (attestation would have aborted the run — a resealed tree fact)`);
+    }
+  }
   const dc = tc?.dependencyCopies as Record<string, unknown> | undefined;
   if (!dc || typeof dc.baseline !== 'number' || typeof dc.candidate !== 'number') issues.push('treeComparison.dependencyCopies missing');
   // Audit B6: the tree-observation status is mandatory and must be a known value.
@@ -266,6 +332,38 @@ export function validateBundle(b: unknown): Issue[] {
   const os = tc?.observationStatus as Record<string, unknown> | undefined;
   if (!os || !TREE_STATUSES.has(String(os.baseline)) || !TREE_STATUSES.has(String(os.candidate))) {
     issues.push('treeComparison.observationStatus missing/invalid — tree completeness was not recorded (audit B6)');
+  }
+
+  // Round-3 blocker 6: retained snapshot refs are optional STRUCTURALLY (a
+  // run whose trees were garbage may still honestly report INCONCLUSIVE with
+  // refs, or predate them with INCONCLUSIVE without), but when present they
+  // must be complete and carry this arm's DERIVED artifact names — evidence
+  // may not point its own snapshot at another arm's bytes (audit B3 lesson).
+  const snaps = tc?.snapshots as Record<string, unknown> | undefined;
+  if (snaps !== undefined) {
+    for (const arm of ['baseline', 'candidate'] as const) {
+      const s = snaps[arm] as Record<string, unknown> | undefined;
+      if (!s || typeof s !== 'object') { issues.push(`treeComparison.snapshots.${arm} missing`); continue; }
+      for (const f of ['rawStdoutSha256', 'rawStderrSha256', 'canonicalSha256'] as const) {
+        if (!HEX64.test(String(s[f] ?? ''))) issues.push(`treeComparison.snapshots.${arm}.${f} invalid`);
+      }
+      for (const [f, suffix] of [
+        ['rawStdoutLog', 'treels.raw.log'], ['rawStderrLog', 'treels.stderr.log'], ['canonicalLog', 'treels.canonical.json'],
+      ] as const) {
+        if (s[f] !== `tree-${arm}.${suffix}`) {
+          issues.push(`treeComparison.snapshots.${arm}.${f} '${String(s[f])}' is not this arm's canonical artifact name (tree-${arm}.${suffix})`);
+        }
+      }
+    }
+  }
+  const anoms = tc?.observationAnomalies as Record<string, unknown> | undefined;
+  if (anoms !== undefined) {
+    for (const arm of ['baseline', 'candidate'] as const) {
+      const a = anoms[arm] as Record<string, unknown> | undefined;
+      if (!a || !Array.isArray(a.json) || !(a.json as unknown[]).every((x) => typeof x === 'string')) {
+        issues.push(`treeComparison.observationAnomalies.${arm}.json must be an array of strings when present`);
+      }
+    }
   }
 
   // Audit B4: the manifest digest is mandatory and must recompute over the
@@ -333,6 +431,26 @@ function semanticChecks(
       !(Array.isArray(r.failingTestNames) && (r.failingTestNames as unknown[]).every((x) => typeof x === 'string'))) {
       issues.push(`${at}: failingTestNames must be an array of strings when present`);
     }
+    for (const key of ['crashSignal', 'sweepFailed'] as const) {
+      if (r[key] !== undefined && typeof r[key] !== 'boolean') {
+        issues.push(`${at}: ${key} must be boolean when present`);
+      }
+    }
+    // Round-3 blocker 1: a FAILING round of a trustful bundle must fully
+    // account for its reported failures with parsed identities. This is an
+    // independent coverage gate — it does not lean on the classifier's own
+    // re-derivation (the validator must refute the lie even if the decision
+    // table changes).
+    const claimTrustful = cls?.label === 'CONFIRMED_REGRESSION' || cls?.label === 'PRE_EXISTING_FAILURE' || cls?.label === 'PASS';
+    if (claimTrustful && typeof r.exitCode === 'number' && r.exitCode !== 0 &&
+      typeof r.reportedFailing === 'number') {
+      const parsed = Array.isArray(r.failingTestNames) ? new Set(r.failingTestNames).size : -1;
+      if (parsed !== r.reportedFailing) {
+        issues.push(
+          `${at}: claims ${String(cls?.label)} but only ${parsed < 0 ? 'no' : String(parsed)} distinct parsed identities account for ${String(r.reportedFailing)} reported failures — trustful label built on a partial failure parse (rule-11/B1 coverage guard bypassed?)`,
+        );
+      }
+    }
   }
 
   const candCount = rounds.filter((r) => r.arm === 'candidate').length;
@@ -356,15 +474,41 @@ function semanticChecks(
     issues.push(`classification ${label} is impossible with a non-VALID tree observation (baseline=${String(osv?.baseline)}, candidate=${String(osv?.candidate)}; rule-10/B6 guard bypassed?)`);
   }
 
+  // 3b. Round-3 blocker 6 — a trustful verdict MUST be anchored to retained,
+  // independently-verifiable tree snapshots, and those snapshots' anomaly
+  // lists must be present AND EMPTY. Before this, tree hashes/copies/status/
+  // drift floated free of any retained bytes: a resealed bundle could claim
+  // VALID with hidden missing-version nodes and nothing on disk to refute it.
+  if (trustful) {
+    const snaps = tc.snapshots as Record<string, unknown> | undefined;
+    const anoms = tc.observationAnomalies as Record<string, unknown> | undefined;
+    for (const arm of ['baseline', 'candidate'] as const) {
+      if (!snaps || typeof snaps[arm] !== 'object') {
+        issues.push(`classification ${label} (trustful) requires a retained treeComparison.snapshots.${arm} artifact ref (round-3 B6 — tree facts are otherwise unverifiable)`);
+      }
+      const a = anoms?.[arm] as Record<string, unknown> | undefined;
+      if (!a || !Array.isArray(a.json)) {
+        issues.push(`classification ${label} (trustful) requires treeComparison.observationAnomalies.${arm}.json — a missing anomaly list is "did not look", not "nothing found"`);
+      } else if ((a.json as unknown[]).length > 0) {
+        issues.push(`classification ${label} (trustful) is impossible with ${String((a.json as unknown[]).length)} ${arm} tree-observation anomalies (partial/malformed observation cannot anchor trust, round-3 B6)`);
+      }
+    }
+  }
+
   // 4. Re-derive the classification from the round facts using the SAME
   //    decision table that produced it. This only runs when the bundle
   //    carries every input the classifier consumed (infraSignal present on
   //    all rounds — bundles predating audit F13 cannot be semantically
   //    verified and are flagged as such when claiming a trustful verdict).
+  //    Self-review N3: the flag previously named only CONFIRMED_REGRESSION /
+  //    PRE_EXISTING_FAILURE, so a fabricated PASS could omit infraSignal on
+  //    every round, skip the re-derivation entirely, and still validate
+  //    clean — isTrustworthy() accepted a bundle whose story it could not
+  //    check. PASS is trustful (§3 guards it as such); it must die here too.
   const fullFacts = rounds.every((r) => typeof r.hasRunnerSummary === 'boolean' && typeof r.infraSignal === 'boolean');
   if (!fullFacts) {
-    if (label === 'CONFIRMED_REGRESSION' || label === 'PRE_EXISTING_FAILURE') {
-      issues.push('trustful verdict in a bundle without per-round infraSignal — classification cannot be independently re-derived');
+    if (trustful) {
+      issues.push(`${label} (trustful) in a bundle without per-round infraSignal — classification cannot be independently re-derived`);
     }
     return;
   }
@@ -378,6 +522,8 @@ function semanticChecks(
     ...(r.reportedFailing !== undefined ? { reportedFailing: r.reportedFailing as number } : {}),
     ...(r.reportedPending !== undefined ? { reportedPending: r.reportedPending as number } : {}),
     ...(r.failingTestNames !== undefined ? { failingTestNames: r.failingTestNames as string[] } : {}),
+    ...(r.crashSignal !== undefined ? { crashSignal: r.crashSignal === true } : {}),
+    ...(r.sweepFailed !== undefined ? { sweepFailed: r.sweepFailed === true } : {}),
   }));
   const derived = classify(facts);
   // A rule-9 (unconfined drift) or rule-10 (weak observation) downgrade to

@@ -17,7 +17,7 @@ import { Recorder, roundEvidence as execRoundEvidence, type ExecResult } from '@
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
 import { diffTrees, escapePkgKey, extractFailingTestNames, parseSummaryCounts, classifyTreeObservation, dependencyInTree, type DepTree, type TreeStatus } from '@canary-rn/comparator';
 import { classify, applyConfinementGuard, type RoundFact } from '@canary-rn/classification';
-import { EVIDENCE_SCHEMA_VERSION, validateBundle, integrityFor, type EvidenceBundle, type RoundEvidence } from '@canary-rn/evidence-schema';
+import { EVIDENCE_SCHEMA_VERSION, validateBundle, integrityFor, type EvidenceBundle, type RoundEvidence, type TreeSnapshotRef } from '@canary-rn/evidence-schema';
 import { sha256hex } from '@canary-rn/hashing';
 
 const NODE = process.execPath;
@@ -95,30 +95,46 @@ export async function runExperiment(
   // [1] fetch pinned content
   const { repo, commit } = spec.downstream;
   log(`[1] fetch ${repo} @ ${commit.slice(0, 10)} (tarball by SHA)`);
-  const blob = deps.fetch
-    ? await deps.fetch(repo, commit)
-    : await downloadTarball(repo, commit);
-  const tgz = path.join(WS, 'fixture.tgz');
-  fs.writeFileSync(tgz, blob.bytes);
-  log(`  ${Math.round(blob.bytes.length / 1024)} KiB sha256=${blob.sha256.slice(0, 16)}...`);
-  if (deps.extract) {
-    deps.extract(tgz, WS, repo, commit);
-  } else {
-    // Audit F15: tar lives at System32\tar.exe on Windows (bsdtar); POSIX
-    // hosts provide GNU tar on PATH. Behavior on non-Windows hosts remains
-    // UNVERIFIED until CI executes it (docs/SECURITY.md Platform status).
-    const tarExe = process.platform === 'win32'
-      ? path.join(SYSTEMROOT, 'System32', 'tar.exe')
-      : 'tar';
-    const tr = spawnSync(tarExe, ['-xzf', tgz, '-C', WS],
-      { env: sanitizedEnv({ ws, nodeDir: NODE_DIR }), shell: false, timeout: 180_000 });
-    if (tr.status !== 0) throw new Error('tar extraction failed');
+  // Round-3 secondary: acquisition and extraction are INFRASTRUCTURE by
+  // definition. A codeload 502/timeout/empty-tarball used to surface as a
+  // generic Error → CLI exit 3 (misuse), implying the user's invocation was
+  // wrong when in fact the environment failed. Everything from the network
+  // boundary through extraction now throws InfraAbort (CLI exit 2).
+  let blob: { bytes: Buffer; sha256: string };
+  try {
+    blob = deps.fetch
+      ? await deps.fetch(repo, commit)
+      : await downloadTarball(repo, commit);
+  } catch (e) {
+    if (e instanceof InfraAbort) throw e;
+    throw new InfraAbort(`content fetch failed for ${repo}@${commit}: ${e instanceof Error ? e.message : String(e)}`);
   }
-  const want = expectedExtractedDir(repo, commit);
-  const root = fs.readdirSync(WS).find((d) => d === want || (d.startsWith(`${repo.split('/')[1] ?? ''}-`) && d.includes(commit.slice(0, 7))));
-  if (!root) throw new Error(`extracted dir not found (wanted ${want})`);
-  fs.rmSync(FIXTURE, { recursive: true, force: true });
-  fs.renameSync(path.join(WS, root), FIXTURE);
+  const tgz = path.join(WS, 'fixture.tgz');
+  try {
+    fs.writeFileSync(tgz, blob.bytes);
+    log(`  ${Math.round(blob.bytes.length / 1024)} KiB sha256=${blob.sha256.slice(0, 16)}...`);
+    if (deps.extract) {
+      deps.extract(tgz, WS, repo, commit);
+    } else {
+      // Audit F15: tar lives at System32\tar.exe on Windows (bsdtar); POSIX
+      // hosts provide GNU tar on PATH. Behavior on non-Windows hosts remains
+      // UNVERIFIED until CI executes it (docs/SECURITY.md Platform status).
+      const tarExe = process.platform === 'win32'
+        ? path.join(SYSTEMROOT, 'System32', 'tar.exe')
+        : 'tar';
+      const tr = spawnSync(tarExe, ['-xzf', tgz, '-C', WS],
+        { env: sanitizedEnv({ ws, nodeDir: NODE_DIR }), shell: false, timeout: 180_000 });
+      if (tr.status !== 0) throw new Error('tar extraction failed');
+    }
+    const want = expectedExtractedDir(repo, commit);
+    const root = fs.readdirSync(WS).find((d) => d === want || (d.startsWith(`${repo.split('/')[1] ?? ''}-`) && d.includes(commit.slice(0, 7))));
+    if (!root) throw new Error(`extracted dir not found (wanted ${want})`);
+    fs.rmSync(FIXTURE, { recursive: true, force: true });
+    fs.renameSync(path.join(WS, root), FIXTURE);
+  } catch (e) {
+    if (e instanceof InfraAbort) throw e;
+    throw new InfraAbort(`tarball extraction failed for ${repo}@${commit}: ${e instanceof Error ? e.message : String(e)}`);
+  }
 
   // [2] security gate before anything external executes
   log('[2] pre-execution audit');
@@ -140,9 +156,9 @@ export async function runExperiment(
       throw new InfraAbort('toolchain override failed');
     }
   }
-  const treeB = await treeHash(ws, spec.dependency.package);
+  const treeB = await treeHash(ws, spec.dependency.package, ART, 'baseline');
   const attB = await attestDependency(ws, spec.dependency.package);
-  attB.copies = countDependencyCopies(treeB.deps, spec.dependency.package);
+  attB.copies = treeB.copies;
   // F3: the BASELINE arm's resolved dependency version must be attested from
   // the machine, not copied from the spec.
   if (attB.version !== spec.dependency.baseline) {
@@ -171,12 +187,15 @@ export async function runExperiment(
     throw new InfraAbort('swap failed');
   }
   const attC = await attestDependency(ws, spec.dependency.package);
-  log(`  attested candidate: ${spec.dependency.package}@${attC.version} (${attC.copies} copy/copies)`);
   if (attC.version !== spec.dependency.candidate) {
     throw new InfraAbort(`candidate attestation failed: resolved ${attC.version}, spec claims ${spec.dependency.candidate}`);
   }
-  const treeC = await treeHash(ws, spec.dependency.package);
-  attC.copies = countDependencyCopies(treeC.deps, spec.dependency.package);
+  // Secondary round-3 fix: compute the candidate tree BEFORE logging the
+  // attestation so the printed copy count is the real one (it used to print
+  // the placeholder `1` emitted by attestDependency).
+  const treeC = await treeHash(ws, spec.dependency.package, ART, 'candidate');
+  attC.copies = treeC.copies;
+  log(`  attested candidate: ${spec.dependency.package}@${attC.version} (${attC.copies} copy/copies)`);
   const drift = diffTrees(treeB.deps, treeC.deps, spec.dependency.package);
   log(`  tree drift: ${drift.confined ? 'confined to dependency subtree' : `NOT confined (${drift.other.slice(0, 8).join(', ')})`}`);
 
@@ -244,6 +263,16 @@ export async function runExperiment(
       observationStatus: { baseline: treeB.status, candidate: treeC.status },
       resolvedVersions: { baseline: attB.version, candidate: attC.version },
       dependencyCopies: { baseline: attB.copies, candidate: attC.copies },
+      // Round-3 blocker 6: the tree facts above are now ANCHORED — the raw
+      // npm-ls bytes and canonical flatten are retained on disk (names derived
+      // from the arm), and verify-tree re-derives hash/status/copies/drift
+      // from them with an independent parser. A bundle without these refs
+      // cannot carry a trustful verdict.
+      snapshots: { baseline: treeB.snapshot, candidate: treeC.snapshot },
+      observationAnomalies: {
+        baseline: { json: treeB.jsonAnomalies },
+        candidate: { json: treeC.jsonAnomalies },
+      },
     },
     classification: {
       label: cls.classification,
@@ -323,47 +352,163 @@ async function attestDependency(
   }
 }
 
-async function treeHash(ws: WorkspaceLayout, dependency: string): Promise<{
-  hash: string; deps: DepTree; status: TreeStatus;
-}> {
+/**
+ * One arm's dependency-tree OBSERVATION (audit B6, hardened by round-3
+ * blocker 6). Everything release-critical about the tree — hash, status,
+ * copy count, drift — is now anchored to RETAINED artifacts: the raw
+ * `npm ls --json` stdout/stderr bytes and the canonical flatten.
+ * verify-tree.ts re-derives all of it from those bytes with an INDEPENDENT
+ * parser (different traversal, different version-extraction code path), so
+ * the bundle cannot claim tree facts its own evidence does not support.
+ * The flatten/completeness rules live in flattenNpmLsJson below.
+ */
+export interface TreeObservation {
+  hash: string;
+  deps: DepTree;
+  status: TreeStatus;
+  jsonAnomalies: string[];
+  copies: number;
+  snapshot: TreeSnapshotRef;
+}
+
+export interface NpmLsFlatten {
+  parsed: boolean;
+  hasRootDeps: boolean;
+  /** Logical lineage keys (escaped; '/' means parent/child nesting) -> version. */
+  flat: DepTree;
+  /** Sorted, deterministic anomaly list (missing-version: / unwalked-subtree: / malformed-node:). */
+  jsonAnomalies: string[];
+}
+
+/**
+ * Flatten `npm ls --json` stdout bytes into the logical tree + anomaly list
+ * (audit B6, hardened by round-3 blocker 6 and the npm 11.19 compatibility
+ * finding). Exported PURE (bytes in, facts out) so the representation rules
+ * are directly unit-testable — the live golden run exercises this code only
+ * when the host's npm happens to emit `{}` optional nodes, which the
+ * canonical 11.16.0 proof host does not: without a pinned unit test the
+ * 11.19 fix could silently regress and CI would stay green.
+ *
+ * Completeness rules (round-3 blocker 6 — the old code silently turned
+ * missing versions into an `'x'` sentinel and stayed VALID):
+ *  - a node whose `version` is absent/non-string (npm's `{"missing":true}`
+ *    unmet-dependency shape, malformed entries) => anomaly `missing-version`
+ *    AND, if it carries a declared subtree, `unwalked-subtree` (its real
+ *    descendants are NOT observable through it) — observation INCOMPLETE;
+ *  - `dependencies` present but not an object => anomaly `malformed-node`;
+ *  - npm `problems` / non-zero exit do NOT count as anomalies by themselves
+ *    (the Axios fixture's documented ELSPROBLEMS-but-complete-JSON case).
+ *
+ * npm >= 11.19 renders NOT-INSTALLED OPTIONAL dependencies (fsevents on
+ * win32, ws's native bufferutil/utf-8-validate, …) as EMPTY `{}` nodes.
+ * That is a COMPLETE observation of an intentionally-absent package — not a
+ * hole. The rule (mirrored deliberately differently in verify-tree's
+ * iterative re-flatten; the cross-implementation parity test pins the
+ * agreement): a version-less, flag-less, subtree-less, zero-key node whose
+ * package name appears in NO problems line is expected-absent; anything
+ * else version-less stays an anomaly. Uninstalled required deps carry
+ * missing:true and/or a "missing:" problem entry, so they keep failing
+ * closed.
+ */
+export function flattenNpmLsJson(rawStdout: string): NpmLsFlatten {
+  const parseAnomalies: string[] = [];
+  let data: { dependencies?: Record<string, { version?: unknown; dependencies?: unknown; missing?: unknown }>; problems?: unknown };
+  let parsed = false;
+  try {
+    data = JSON.parse(rawStdout) as typeof data;
+    parsed = !!data && typeof data === 'object';
+    if (!parsed) parseAnomalies.push('json-root-not-an-object');
+  } catch {
+    parsed = false;
+    data = {} as typeof data;
+    parseAnomalies.push('json-parse-failure');
+  }
+  // Parity with verify-tree's re-flatten (self-review N2): the verifier
+  // records parse failures IN ITS ANOMALY SET, and verifyArm compares the two
+  // sets for equality. Without these markers, an honestly-broken arm (garbage
+  // npm ls output => INCONCLUSIVE rule 10) would mismatch on
+  // [] vs ['json-parse-failure'] and prove would REFUSE the truthful bundle.
+  // The status is INVALID either way (parsed=false); only the vocabulary was
+  // missing. Successful parses carry no marker, so golden hashes are
+  // unaffected.
+  const problemsText = parsed && data.problems !== undefined ? JSON.stringify(data.problems) : '';
+  const expectedAbsentOptional = (name: string, v: { version?: unknown; dependencies?: unknown; missing?: unknown } | null): boolean =>
+    v !== null && v.missing !== true && Object.keys(v).length === 0 &&
+    !new RegExp(`(^|[^A-Za-z0-9@/\\\\.-])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}@`).test(problemsText);
+  const jsonAnomalies: string[] = [...parseAnomalies];
+  const flat: DepTree = {};
+  const walk = (node: { dependencies?: Record<string, unknown> }, prefix: string): void => {
+    for (const [k, vRaw] of Object.entries(node.dependencies ?? {})) {
+      // F4: escape '/' in (scoped) package names so raw '/' only ever means nesting.
+      const key = `${prefix}${escapePkgKey(k)}`;
+      const v = (typeof vRaw === 'object' && vRaw !== null) ? vRaw as { version?: unknown; dependencies?: unknown; missing?: unknown } : null;
+      if (v === null) jsonAnomalies.push(`malformed-node:${key}`);
+      const hasVersion = typeof v?.version === 'string' && (v?.version as string) !== '';
+      if (hasVersion) flat[key] = v!.version as string;
+      else if (expectedAbsentOptional(k, v)) { /* intentionally absent optional: no version to record, no hole */ }
+      else jsonAnomalies.push(`missing-version:${key}`);
+      const sub = v?.dependencies;
+      if (sub === undefined || sub === null) continue;
+      if (typeof sub !== 'object') { jsonAnomalies.push(`malformed-node:${key}`); continue; }
+      if (hasVersion) {
+        walk({ dependencies: sub as Record<string, unknown> }, `${key}/`);
+      } else if (Object.keys(sub as object).length > 0) {
+        // A version-less node is NOT walked: its subtree inherits the
+        // missing-version anomaly, so trust caps at INCOMPLETE.
+        jsonAnomalies.push(`unwalked-subtree:${key}`);
+      }
+    }
+  };
+  if (parsed) walk(data as { dependencies?: Record<string, unknown> }, '');
+  jsonAnomalies.sort();
+  const hasRootDeps = parsed && !!data.dependencies && typeof data.dependencies === 'object';
+  return { parsed, hasRootDeps, flat, jsonAnomalies };
+}
+
+async function treeHash(
+  ws: WorkspaceLayout, dependency: string, artifactsDir: string, arm: 'baseline' | 'candidate',
+): Promise<TreeObservation> {
   const r = await runCommand({
     ws, nodeDir: NODE_DIR,
     argv: [NODE, NPM_CLI, 'ls', '--json', '--all', '--depth', '9999',
       '--userconfig', path.join(ws.root, 'empty.npmrc')],
     timeoutSecs: 120,
   });
-  let data: { dependencies?: Record<string, { version?: string; dependencies?: unknown }>; problems?: unknown };
-  let parsed = false;
-  try {
-    data = JSON.parse(r.stdout) as typeof data;
-    parsed = !!data && typeof data === 'object';
-  } catch {
-    parsed = false;
-    data = {} as typeof data;
-  }
-  const flat: DepTree = {};
-  const walk = (node: { dependencies?: Record<string, { version?: string; dependencies?: unknown }> }, prefix: string): void => {
-    for (const [k, v] of Object.entries(node.dependencies ?? {})) {
-      // F4: escape '/' in (scoped) package names so raw '/' only ever means nesting.
-      flat[`${prefix}${escapePkgKey(k)}`] = v.version ?? 'x';
-      if (v.dependencies) walk(v as never, `${prefix}${escapePkgKey(k)}/`);
-    }
-  };
-  if (parsed) walk(data, '');
+  const { parsed, hasRootDeps, flat, jsonAnomalies } = flattenNpmLsJson(r.stdout);
   const sortedKeys = Object.keys(flat).sort();
   const canonical = JSON.stringify(sortedKeys.map((k) => [k, flat[k]]));
-  // Audit B6: classify the OBSERVATION itself. A vacuous/empty tree or one
-  // missing the studied dependency cannot support a confinement proof, even
-  // though diffTrees of two empty trees would report `confined: true`.
+  // Audit B6: classify the OBSERVATION itself. A vacuous/empty tree, one
+  // missing the studied dependency, or one carrying ANY partial-observation
+  // anomaly cannot support a confinement proof (round-3 blocker 6).
   const status = classifyTreeObservation({
     parsed,
-    hasRootDeps: parsed && !!data.dependencies && typeof data.dependencies === 'object',
+    hasRootDeps,
     deps: flat,
     dependencyPresent: parsed && dependencyInTree(flat, dependency),
+    anomalies: jsonAnomalies,
   });
-  return { hash: sha256hex(canonical), deps: flat, status };
+
+  // Retain the SNAPSHOT — raw bytes + canonical flatten — as first-class
+  // artifacts. Canonical filenames are derived from the arm (audit B3
+  // lesson: never let evidence name its own bytes).
+  const snapshot: TreeSnapshotRef = {
+    rawStdoutLog: `tree-${arm}.treels.raw.log`,
+    rawStdoutSha256: sha256hex(r.stdout),
+    rawStderrLog: `tree-${arm}.treels.stderr.log`,
+    rawStderrSha256: sha256hex(r.stderr),
+    canonicalLog: `tree-${arm}.treels.canonical.json`,
+    canonicalSha256: sha256hex(canonical),
+  };
+  fs.writeFileSync(path.join(artifactsDir, snapshot.rawStdoutLog), r.stdout);
+  fs.writeFileSync(path.join(artifactsDir, snapshot.rawStderrLog), r.stderr);
+  fs.writeFileSync(path.join(artifactsDir, snapshot.canonicalLog), canonical);
+  return { hash: sha256hex(canonical), deps: flat, status, jsonAnomalies, copies: countDependencyCopies(flat, dependency), snapshot };
 }
 
+/** Count dependency copies from the flattened logical tree.
+ *  NOTE (kept deliberately conservative): this counts LOGICAL positions from
+ *  `npm ls`, not physical node_modules locations — hoisting makes the two
+ *  differ structurally; the logical count is what drift keys address. */
 function countDependencyCopies(deps: DepTree, dep: string): number {
   const esc = escapePkgKey(dep);
   return Object.keys(deps).filter((k) => k.split('/').pop() === esc).length;

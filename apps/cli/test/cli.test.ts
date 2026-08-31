@@ -15,6 +15,7 @@ import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
 
 import { runExperiment } from '../src/pipeline.js';
+import { sha256hex } from '@canary-rn/hashing';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..', '..', '..'); // dist/test -> dist -> cli -> apps -> repo root
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
@@ -65,8 +66,11 @@ async function stage(): Promise<{ repoRoot: string; specPath: string; artifactsD
     repeats: { baseline: 2, candidate: 2 },
     timeoutSecs: { install: 120, test: 120 },
   };
+  // Round-3 B4: the fetch seam must declare the REAL digest of its bytes —
+  // the prove/check gate re-hashes the retained fixture.tgz (verifyRunIdentity).
+  const blob = Buffer.from('canary-cli-stub-tarball');
   const result = await runExperiment(spec, repoRoot, true, {
-    fetch: async () => ({ bytes: Buffer.alloc(0), sha256: 'b'.repeat(64) }),
+    fetch: async () => ({ bytes: blob, sha256: sha256hex(blob) }),
     extract: (_t, wsRoot) => fs.cpSync(stub, path.join(wsRoot, `downstream-${FAKE_SHA}`), { recursive: true }),
   });
   assert.equal(result.bundle.classification.label, 'CONFIRMED_REGRESSION');
@@ -78,6 +82,8 @@ async function stage(): Promise<{ repoRoot: string; specPath: string; artifactsD
   const proof = {
     schema: 1, experimentId: 'stub-cli',
     dependency: spec.dependency, downstream: { repo: 'stub/downstream', commit: FAKE_SHA },
+    // B4: a proof must pin the release-critical tarball digest.
+    tarballSha256: b.downstream.tarballSha256,
     expected: {
       classification: 'CONFIRMED_REGRESSION', rule: 5, driftConfinedToDependency: true,
       baseline: { rounds: 2, exitCodes: [0, 0], normalizedStdoutSha256AcrossRounds: hashes('baseline'), summary: { passing: 2 } },
@@ -144,5 +150,31 @@ describe('audit M8 — CLI subprocess exit-code contract', () => {
     const none = cli(repoRoot, []);
     assert.equal(none.status, 3);
     assert.match(none.stdout, /usage:/);
+  });
+
+  it('round-3 secondary: an infrastructure abort exits 2 (environment fault), never 3 (misuse)', async () => {
+    // The CLI `run` path has NO offline seam, so step [1] fetch of the
+    // non-existent stub/downstream@<fake-sha> fails (404 online, ENOTFOUND
+    // offline — both deterministic) and now throws InfraAbort. Pre-fix that
+    // surfaced as a generic Error -> exit 3 (misuse, blaming the user);
+    // round-3 wrapped acquisition as infrastructure -> exit 2 + banner.
+    const repoRoot = fs.mkdtempSync(path.join(TMP, 'infra-'));
+    const spec = {
+      schema: 2, id: 'stub-infra',
+      dependency: { package: 'widget', baseline: '1.0.0', candidate: '2.0.0' },
+      downstream: { repo: 'stub/downstream-does-not-exist-canary-fixture', commit: FAKE_SHA },
+      commands: {
+        prepare: [['node', '-e', 'process.exit(4);']],
+        swap: ['node', 'swap.js', '{candidate}'],
+        test: ['node', 'test.js'],
+      },
+      repeats: { baseline: 2, candidate: 2 },
+      timeoutSecs: { install: 60, test: 60 },
+    };
+    const specPath = path.join(repoRoot, 'stub-infra.json');
+    fs.writeFileSync(specPath, JSON.stringify(spec));
+    const r = cli(repoRoot, ['run', specPath]);
+    assert.equal(r.status, 2, `stdout:${r.stdout}\nstderr:${r.stderr}`);
+    assert.match(r.stderr, /INFRASTRUCTURE_FAILURE/);
   });
 });

@@ -6,11 +6,27 @@ import { validateBundle, integrityFor, EVIDENCE_SCHEMA_VERSION } from '../src/in
 const H = 'a'.repeat(64);
 const SHA40 = 'b8804442837556a2c7673caeb2925688991b610c';
 
+/** Round-3 B6: a structurally complete retained-snapshot ref for one arm. */
+function snapshotRef(arm: 'baseline' | 'candidate'): Record<string, unknown> {
+  return {
+    rawStdoutLog: `tree-${arm}.treels.raw.log`, rawStdoutSha256: H,
+    rawStderrLog: `tree-${arm}.treels.stderr.log`, rawStderrSha256: H,
+    canonicalLog: `tree-${arm}.treels.canonical.json`, canonicalSha256: H,
+  };
+}
+
 function goodBundle(): Record<string, unknown> {
   const round = (arm: 'baseline' | 'candidate', n: number) => ({
     arm, round: n, exitCode: arm === 'baseline' ? 0 : 3,
     killedByTimeout: false, hasRunnerSummary: true, infraSignal: false,
-    ...(arm === 'candidate' ? { reportedFailing: 3, failingTestNames: ['a test', 'b test'] } : {}),
+    // Round-3 blocker 2: a healthy run must carry machine-readable EXECUTED
+    // counts (passing/failing — pending never counts). A round with no counts
+    // at all can no longer support any verdict.
+    reportedPassing: 5,
+    // Round-3 blocker 1: identities must FULLY account for the failing
+    // count — 3 names for "3 failing" (the pre-fix fixture shipped 2, which
+    // the classifier/validator now correctly refuse to trust).
+    ...(arm === 'candidate' ? { reportedFailing: 3, failingTestNames: ['a test', 'b test', 'c test'] } : {}),
     startedAt: '2026-08-30T00:00:00Z', durationMs: 120,
     rawStdoutSha256: H, rawStderrSha256: H,
     normalizedStdoutSha256: H, normalizedStderrSha256: H,
@@ -24,7 +40,16 @@ function goodBundle(): Record<string, unknown> {
     environment: { nodeVersion: 'v26', npmVersion: '11', packageManagerUsed: 'npm', platform: 'win32', arch: 'x64', toolchainOverrides: {} },
     commands: { prepare: [['a']], build: [], swap: ['b'], test: ['c'] },
     rounds: [round('baseline', 1), round('baseline', 2), round('candidate', 1)],
-    treeComparison: { baselineTreeSha256: H, candidateTreeSha256: H, driftConfinedToDependency: true, observationStatus: { baseline: 'VALID', candidate: 'VALID' }, resolvedVersions: { baseline: '0.27.2', candidate: '1.0.0' }, dependencyCopies: { baseline: 1, candidate: 2 } },
+    treeComparison: {
+      baselineTreeSha256: H, candidateTreeSha256: H, driftConfinedToDependency: true,
+      observationStatus: { baseline: 'VALID', candidate: 'VALID' },
+      resolvedVersions: { baseline: '0.27.2', candidate: '1.0.0' },
+      dependencyCopies: { baseline: 1, candidate: 2 },
+      // Round-3 B6: trustful verdicts must carry retained snapshot refs +
+      // present/empty anomaly arrays (bytes live under arm-derived names).
+      snapshots: { baseline: snapshotRef('baseline'), candidate: snapshotRef('candidate') },
+      observationAnomalies: { baseline: { json: [] }, candidate: { json: [] } },
+    },
     classification: { label: 'CONFIRMED_REGRESSION', rule: 5, reason: 'ok', reproductionCount: 1 },
   };
   b.integrity = integrityFor(b);
@@ -103,7 +128,7 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
       ...(b.rounds as object[]),
       {
         ...(b.rounds as Record<string, unknown>[])[2]!,
-        round: 2, exitCode: 3, reportedFailing: 3, failingTestNames: ['other test', 'b test'],
+        round: 2, exitCode: 3, reportedFailing: 3, failingTestNames: ['other test', 'b test', 'c test'],
       },
     ];
     setCls(b, { reproductionCount: 2 });
@@ -181,11 +206,57 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
     assert.ok(validateBundle(b).some((e) => /cannot be independently re-derived/.test(e)));
   });
 
+  it('self-review N3: the sparse-facts refusal covers a PASS claim too (was: CONFIRMED/PRE_EXISTING only)', () => {
+    // Pre-fix attack: a fabricated PASS deleted infraSignal from every round —
+    // the re-derivation clause named only CONFIRMED_REGRESSION/PRE_EXISTING_-
+    // FAILURE, so the validator SKIPPED its own check for PASS and validated
+    // the lie clean (isTrustworthy() said true from JSON alone).
+    const b = goodBundle();
+    setCls(b, { label: 'PASS', rule: 3, reproductionCount: 1 });
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      r.exitCode = 0;
+      delete r.reportedFailing;
+      delete r.failingTestNames;
+      delete r.infraSignal; // "did not look" must not be PASS-compatible
+    }
+    const issues = validateBundle(seal(b)); // sealed: integrity is NOT the reason
+    assert.ok(issues.some((e) => /cannot be independently re-derived/.test(e)),
+      `PASS over un-re-derivable rounds must die: ${issues.join('; ')}`);
+  });
+
   it('robustness H1: rejects duplicate (arm,round) indices (resealed)', () => {
     const b = goodBundle();
     const rounds = b.rounds as Record<string, unknown>[];
     rounds[1] = structuredClone(rounds[0]!); // two baseline #1
     b.integrity = integrityFor(b);          // resealed -> must be a structural/semantic reject
     assert.ok(validateBundle(b).some((e) => /duplicate round/.test(e)));
+  });
+
+  it('round-3 B1: a RESEALED CONFIRMED whose failing identities under-account the count dies twice over', () => {
+    const b = goodBundle();
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      if (r.arm === 'candidate') { r.failingTestNames = ['only one identity']; }
+    }
+    const issues = validateBundle(seal(b)); // coherent reseal: integrity is NOT the reason
+    assert.ok(issues.some((e) => /coverage guard bypassed/.test(e)),
+      `explicit identity-coverage gate must fire: ${issues.join('; ')}`);
+    assert.ok(issues.some((e) => /re-derivation .* yields INCONCLUSIVE rule 11/.test(e)),
+      `classifier re-derivation must independently refuse: ${issues.join('; ')}`);
+  });
+
+  it('round-3 B2: a PASS label over zero-assertion (pending-only) rounds is rejected', () => {
+    const b = goodBundle();
+    (b.classification as Record<string, unknown>).label = 'PASS';
+    (b.classification as Record<string, unknown>).rule = 3;
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      r.exitCode = 0;
+      r.reportedPassing = 0;
+      r.reportedFailing = 0;
+      r.reportedPending = 42;
+      delete r.failingTestNames;
+    }
+    const issues = validateBundle(seal(b));
+    assert.ok(issues.some((e) => /re-derivation .* yields INFRASTRUCTURE_FAILURE/.test(e)),
+      `pending-only rounds execute nothing — PASS must not survive: ${issues.join('; ')}`);
   });
 });

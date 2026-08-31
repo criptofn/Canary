@@ -2,6 +2,7 @@
   "schema": 1,
   "experimentId": "axios-mock-adapter-1.21.1",
   "evidenceSchema": 1,
+  "tarballSha256": "1343cae70b70d682ab6bfd46d7707d29403ed60a089ef2029a5c7bbf368ff640",
   "proofHost": { "platform": "win32", "arch": "x64", "nodeVersion": "v26.3.0", "npmVersion": "11.16.0" },
   "environment": { "platform": "win32", "arch": "x64", "nodeVersion": "v26.3.0", "npmVersion": "11.16.0" },
   "dependency": { "package": "axios", "baseline": "0.27.2", "candidate": "1.0.0" },
@@ -40,5 +41,5 @@
     "date": "2026-08-30",
     "host": "Windows 11 / Node v26.3.0 / npm 11.16.0"
   },
-  "notes": "Normalized stdout hashes are machine-local (path separators appear in stack traces), so the two 'normalized stdout hashes' assertions are gated on proofHost matching the evidence environment (audit F11). On any other host they report SKIPPED while all portable assertions — classification/rule/drift/attestation/pinning/exit-codes/within-arm determinism/summaries/failing-identities — are still asserted. The designated proof host runs all of them."
+  "notes": "Normalized stdout hashes are machine-local (path separators appear in stack traces), so SIX host-exact assertions — the two normalized-hash pairs, the evidence-environment<->proof-host binding, the runtime version match, and the per-round argv/envKeys re-derivations — are gated on the ACTUAL verifying runtime matching this proofHost (round-3 B3: never on the evidence's own metadata). On any other host they report SKIPPED, the portable assertions (classification/rule/identity/schema/repo/commit/tree/drift/attestation/exit-codes/within-arm determinism/summaries/exact failing-identities) still ALL run, and the verdict is INCOMPLETE (exit 2), never PASS. The pinned CI windows job (node 26.3.0 + npm 11.16.0) is the designated proof host and must execute every assertion with zero skips. tarballSha256 is a REQUIRED pin (round-3 B4): the evidence value is additionally bound to the retained fixture.tgz bytes."
 }

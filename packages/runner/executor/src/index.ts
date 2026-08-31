@@ -66,13 +66,59 @@ export const INFRA_PATTERNS: readonly RegExp[] = [
   /ERR_REQUIRE_ESM/, /ERESOLVE/, /ETARGET/, /npm error/, /npm ERR!/, /error Command failed/,
   /SyntaxError: Unexpected token/,
 ];
+/**
+ * PASS_GLYPH: lines reporting a PASSING test (√/✓). Their text is TEST prose
+ * (titles may quote error phrases), never a harness complaint — HARD infra
+ * patterns skip these lines only.
+ *
+ * PROGRESS_GLYPH: the SOFT errno matcher's skip set. It covers pass glyphs AND
+ * failure/pending marker glyphs (✗ U+2717, ×, →, --): a failing test's TITLE
+ * is equally prose (an honest test named "× connect ECONNREFUSED error" must
+ * not false-INFRA the round). The deliberate exclusion is ✖ (U+2716,
+ * HEAVY BALLOT X) — ava prints REAL infrastructure errors on ✖ lines, and
+ * those must keep firing (proven by test, not comment).
+ */
 const SOFT_CODE = /\b(EADDRINUSE|ECONNREFUSED|ECONNRESET|EMFILE|EPERM|EACCES|EBUSY|ENOSPC|ENOENT|ETIMEDOUT)\b/;
 const SOFT_SHAPE = /\b(?:error|errno|syscall|connect|listen|spawn|fatal|fail(?:ed|ure))\b/i;
+const PASS_GLYPH = /^\s*(?:√|✓)/;
 const PROGRESS_GLYPH = /^\s*(?:√|✓|✗|×|→|-{2,})/;
 export function isInfraOutput(out: string): boolean {
-  if (INFRA_PATTERNS.some((re) => re.test(out))) return true;
-  return out.split(/\r?\n/).some((line) =>
+  // Round-3 secondary: HARD patterns were scanned over the WHOLE output, so a
+  // passing test whose TITLE quotes an error phrase ("√ throws on Cannot
+  // find module") conservatively false-INFRA'd the entire round. They are now
+  // line-scoped and skip pass-glyph lines; genuine error/stack lines never
+  // start with a pass glyph.
+  const lines = out.split(/\r?\n/);
+  if (INFRA_PATTERNS.some((re) => lines.some((line) => !PASS_GLYPH.test(line) && re.test(line)))) return true;
+  return lines.some((line) =>
     !PROGRESS_GLYPH.test(line) && SOFT_CODE.test(line) && SOFT_SHAPE.test(line));
+}
+
+/**
+ * Round-3 secondary: fatal-runtime-crash signatures. Before this, a round
+ * that printed a VALID summary and THEN died (V8 heap OOM, native abort,
+ * segfault) was indistinguishable from a clean run — the summary suppressed
+ * infra suspicion and the crash rode free into a trustful verdict.
+ *
+ * The patterns are the EXACT process-death banners runtimes emit, chosen to
+ * survive the prose trap that bedevils loose infra matching: an ordinary test
+ * may print "aborted request" or "handles out of memory", so a case-
+ * insensitive /\baborted\b/ or /out of memory/ would false-INFRA an honest
+ * suite. We require the specific runtime phrasing (V8 "FATAL ERROR: … heap",
+ * "JavaScript heap out of memory", the shell's "core dumped"/"Segmentation
+ * fault", libc's "abort() called", or a bare SIGSEGV/SIGABRT name), and skip
+ * pass-glyph lines just like the infra matcher.
+ */
+// Self-review N6: the V8 native CHECK-failure banner ('# Fatal error in,
+// line 0' followed by a Runtime/OOM/Check failure line) printed NO keyword
+// the old set matched — a post-summary native abort could therefore pose as
+// an ordinary failing round. '# Fatal error in' is the exact V8 banner
+// prefix (anchored to the line start); the classic OOM/heap, SIGSEGV/SIGABRT
+// and shell 'core dumped' shapes remain.
+const CRASH_LINE =
+  /FATAL ERROR:.*\bheap\b|JavaScript heap out of memory|Segmentation fault|core dumped|abort\(\) called|\bSIGSEGV\b|\bSIGABRT\b|^\s*#\s*Fatal error in[ ,]/i;
+export function hasCrashSignature(out: string): boolean {
+  return out.split(/\r?\n/).some((line) => !PASS_GLYPH.test(line) && CRASH_LINE.test(line));
 }
 
 /**
@@ -99,7 +145,12 @@ export function isInfraOutput(out: string): boolean {
  *     subcommand, where the subcommand is already positionally pinned;
  *  5. the F8 grammar rules stay: short options rejected, isolation-
  *     conflicting flags rejected in ANY position, unknown bare options before
- *     the subcommand rejected (option names case-folded).
+ *     the subcommand rejected (option names case-folded);
+ *  6. (round-3 B5) LITERAL spec executables are allowlisted: only `node` may
+ *     start a non-token command — wrappers (cmd/powershell/env/sh/xargs/…),
+ *     package-manager frontends (pnpm/bun/corepack/volta/…) and every other
+ *     unenumerated executable are refused fail-closed, because their first
+ *     token is not what they execute.
  *
  * Invariant (property-tested): IF an install-family command is accepted, the
  * executed argv demonstrably carries --ignore-scripts, --userconfig, --cache,
@@ -148,6 +199,83 @@ const RAW_PM_PACKAGES = new Set(['npm', 'npx', 'yarn', 'yarnpkg']);
 const NODE_BASENAMES = new Set(['node', 'node.exe']);
 const NPM_SCRIPT_BASENAMES = new Set(['npm-cli.js', 'npx-cli.js', 'yarn.js', 'yarnpkg.js']);
 const basenameLower = (p: string): string => (p.split(/[\\/]/).pop() ?? '').toLowerCase();
+
+/**
+ * Round-3 blocker 5: WRAPPER-MEDIATED EXECUTION. Round 3 proved the B5.1
+ * first-token basename check was insufficient: `cmd /c npm install …`,
+ * `powershell -Command "npm install …"`, `env npm install …`, `sh -c`,
+ * `xargs npm`, and package-manager FRONTENDS (pnpm/bun/corepack/volta) all
+ * start with an executable that is not itself a package manager, so they
+ * passed assertCanonicalPmForm, skipped the $npm/$yarn policy branch, and
+ * EXECUTED A PACKAGE MANAGER with zero isolation flags — the exact hole the
+ * closed allowlist exists to prevent.
+ *
+ * The fix inverts the posture, as the audit demands: a small EXPLICIT
+ * ALLOWLIST for literal spec executables. A spec command may only start with
+ * the `$npm/$yarn/$tsc/$bin:` token forms (each policed at expansion) or a
+ * bare `node` (script execution — what the offline fixtures and any sensible
+ * test command actually use). EVERYTHING ELSE is rejected fail-closed: there
+ * is no wrapper-name treadmill, because no wrapper is allowed.
+ */
+export const SPEC_LITERAL_EXECUTABLES: ReadonlySet<string> = new Set(['node', 'node.exe']);
+
+/** Named here only for a diagnostic error message — the allowlist rejects
+ *  them regardless; this is documentation that survives in the refusal text. */
+const WRAPPER_BASENAMES = new Set([
+  'cmd', 'cmd.exe', 'powershell', 'powershell.exe', 'pwsh', 'pwsh.exe',
+  'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish',
+  'cscript', 'cscript.exe', 'wscript', 'wscript.exe', 'mshta', 'mshta.exe',
+  'wmic', 'wmic.exe', 'runas', 'start', 'env', 'nohup', 'xargs', 'timeout',
+  'sudo', 'doas', 'pkexec', 'wsl', 'wsl.exe', 'busybox', 'unshare', 'setsid', 'time',
+]);
+/** Package-manager frontends/alternate implementations — each internally
+ *  resolves + runs installs, so even "script-like" wrappers of them escape
+ *  the $npm policy surface entirely. Rejected by name for message clarity;
+ *  the allowlist rejects them too. */
+const PM_FRONTEND_BASENAMES = new Set([
+  'pnpm', 'pnpm.cmd', 'pnpm.exe', 'pnpx', 'bun', 'bunx', 'bunx.cmd', 'corepack', 'corepack.cmd',
+  'volta', 'cnpm', 'npmi', 'nvm', 'deno', 'aqua', 'proto', 'mise', 'rtx', 'yarn', 'yarnpkg',
+]);
+
+/** Round-3 B5: literal spec executables are allowlisted; wrappers and pm
+ *  frontends are refused by name, anything else by fail-closed default. */
+export function assertSupportedSpecExecutable(cmd: readonly string[]): void {
+  if (cmd.length === 0) return;
+  const first = cmd[0]!;
+  if (first.startsWith('$')) return; // token forms are policed at expansion time
+  const base = basenameLower(first);
+  if (base && SPEC_LITERAL_EXECUTABLES.has(base)) {
+    // Bypass shape: node <something-that-is-a-pm> [args] — e.g. ['node','npm','install']
+    // runs whatever ./npm lives in the cwd. Arguments are checked as WHOLE
+    // basenames (never substrings) so ['node','compare.js','npm-vs-yarn-report'] stands.
+    for (let k = 1; k < cmd.length; k++) {
+      const arg = basenameLower(cmd[k]!);
+      if (RAW_PM_BASENAMES.has(arg) || NPM_SCRIPT_BASENAMES.has(arg)) {
+        throw new CanaryError(
+          `spec command '${cmd.join(' ')}' executes node with a package-manager file argument ('${cmd[k]}'): use the $npm token so Canary can enforce its isolation policy`,
+          'wrapper-mediated-package-manager',
+        );
+      }
+    }
+    return;
+  }
+  if (base && WRAPPER_BASENAMES.has(base)) {
+    throw new CanaryError(
+      `spec command starts with the wrapper/interpreter '${first}': wrappers re-parse and execute their arguments OUTSIDE Canary's package-manager policy ('${first} … npm install …' was the round-3 B5 bypass) — spec commands may only start with $npm/$yarn/$tsc/$bin: tokens or node`,
+      'wrapper-mediated-package-manager',
+    );
+  }
+  if (base && PM_FRONTEND_BASENAMES.has(base)) {
+    throw new CanaryError(
+      `spec command starts with a package-manager frontend ('${first}'): pnpm/bun/corepack/volta-style frontends resolve and run installs with their own tooling, invisible to the $npm/$yarn isolation policy — not supported in v0.1`,
+      'package-manager-frontend',
+    );
+  }
+  throw new CanaryError(
+    `spec command starts with '${first}', which is not on Canary's explicit allowlist of literal spec executables (node; token forms $npm/$yarn/$tsc/$bin:) — unenumerated executables cannot be policed for package-manager or isolation behavior (round-3 B5 fail-closed)`,
+    'spec-executable-not-allowlisted',
+  );
+}
 
 /** B5 rule 1: raw package-manager invocation forms are rejected outright. */
 export function assertCanonicalPmForm(cmd: readonly string[]): void {
@@ -276,6 +404,12 @@ export class Recorder {
     // before the $npm/$yarn policy branch — otherwise a spec using a literal
     // `npm install` (tool not `$npm`) would skip the guard entirely.
     assertCanonicalPmForm(cmd);
+    // Round-3 B5: literal (non-token) spec executables are allowlisted. This
+    // closes the wrapper-mediated bypass (cmd/powershell/env/sh + a package
+    // manager argument) and the frontend bypass (pnpm/bun/corepack) that the
+    // first-token basename check alone could not see. Runs for EVERY spec
+    // command, before expansion.
+    assertSupportedSpecExecutable(cmd);
     const isPm = tool === '$npm' || tool === '$yarn';
     let policy: PmPolicy | undefined;
     if (isPm) {
@@ -358,6 +492,8 @@ export class Recorder {
   ): Promise<ExecResult & { fact: RoundFact }> {
     const res = await this.step(`${arm}-${index}`, argv, timeoutSecs);
     const counts = parseSummaryCounts(res.combined);
+    const crashed = hasCrashSignature(res.combined);
+    const sweepFailed = res.run.sweepFailed === true;
     const fact: RoundFact = {
       arm,
       round: index,
@@ -375,6 +511,12 @@ export class Recorder {
       // so that profile comparison is order-independent; classification uses
       // them (audit F2), the bundle persists them, the report renders them.
       failingTestNames: extractFailingTestNames(res.combined).sort(),
+      // Round-3 secondaries: a post-summary fatal crash (byte-observable) and
+      // an incomplete containment sweep (kernel-observable) now reach the
+      // decision table via infraCause rule 1 instead of riding silently into
+      // a trustful verdict.
+      ...(crashed ? { crashSignal: true } : {}),
+      ...(sweepFailed ? { sweepFailed: true } : {}),
     };
     this.facts.push(fact);
     return { ...res, fact };
@@ -392,6 +534,8 @@ export interface RoundEvidenceOut {
   reportedFailing?: number | undefined;
   reportedPending?: number | undefined;
   failingTestNames?: string[] | undefined;
+  crashSignal?: boolean | undefined;
+  sweepFailed?: boolean | undefined;
   startedAt: string;
   durationMs: number;
   rawStdoutSha256: string;
@@ -415,6 +559,16 @@ export function roundEvidence(res: ExecResult, fact: RoundFact): RoundEvidenceOu
     reportedFailing: fact.reportedFailing,
     ...(fact.reportedPending !== undefined ? { reportedPending: fact.reportedPending } : {}),
     ...(fact.failingTestNames ? { failingTestNames: [...fact.failingTestNames] } : {}),
+    // Round-3 secondaries: crashSignal IS byte-observable, so the prove path
+    // re-derives and re-checks it against the artifact (verifyArtifact
+    // -Semantics/verifyClassificationDerivation). sweepFailed is a post-exit
+    // kernel observation the streams cannot carry — it is persisted here and
+    // consumed by infraCause, but cannot be byte-re-derived. (Unlike
+    // killedByTimeout, which is at least pinned through the proof-pinned
+    // exitCode === -1 correlation, sweepFailed has NO independent anchor —
+    // integrity-only. Documented in SECURITY.md "Honest integrity limits".)
+    ...(fact.crashSignal ? { crashSignal: true } : {}),
+    ...(fact.sweepFailed ? { sweepFailed: true } : {}),
     startedAt: new Date().toISOString(),
     durationMs: res.run.durationMs,
     rawStdoutSha256: sha256hex(res.run.stdout),

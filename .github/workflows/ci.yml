@@ -21,23 +21,30 @@ jobs:
       - run: node --test "packages/**/dist/test/*.test.js" "apps/**/dist/test/*.test.js"
 
   golden-proof:
-    name: golden regression proof (axios 0.27.2 -> 1.0.0)
+    name: golden regression proof (axios 0.27.2 -> 1.0.0) — DESIGNATED PROOF HOST
     needs: core
     runs-on: windows-latest   # fixture proven on Windows; ubuntu parity TBD
     steps:
       - uses: actions/checkout@v4
+      # Round-3 B3: this job IS the committed proof host (win32/x64/
+      # node 26.3.0/npm 11.16.0 per the proof file's proofHost block).
+      # EXACT pins — not "26": host-exactness is decided by the ACTUAL
+      # runtime, so a drifted node/npm here makes `check` correctly report
+      # INCOMPLETE (exit 2) and fail the job. If the pins move, the proof
+      # file's proofHost/environment blocks must be re-cut on a machine that
+      # genuinely runs the new versions.
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 26.3.0
+      - run: npm install -g npm@11.16.0   # exact npm pin: the proof host identity includes npm
       - run: npm ci --no-audit --no-fund   # audit S3
       - run: npm run build
-      # Audit F11: CI must run the REAL proof assertions, not just `run`'s exit
-      # code. `check` re-asserts the committed expectation against the just-run
-      # evidence WITHOUT a second full run. Only the two normalized-hash
-      # assertions are host-gated (proofHost fingerprint match, audit F11); on a
-      # CI runner they report SKIPPED while classification/rule/drift/
-      # attestation/pinning/exit-codes/within-arm-determinism/summaries/
-      # failing-identities are all asserted and a divergence fails the job.
+      # Audit F11 + round-3 B3: `check` re-asserts the committed expectation
+      # against the just-run evidence WITHOUT a second full run. On this
+      # pinned host EVERY assertion — including the normalized-hash pairs and
+      # the evidence-environment binding — is evaluated; a SKIPPED host-exact
+      # assertion (or a divergence) exits non-zero and fails the job. On any
+      # other machine `check` reports INCOMPLETE (exit 2) by design.
       - name: canary run (execute the axios 0.27.2 -> 1.0.0 experiment)
         run: node apps/cli/dist/src/main.js run fixtures/axios-0.27-to-1.0/specs/axios-mock-adapter.json
         shell: bash

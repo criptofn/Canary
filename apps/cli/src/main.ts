@@ -8,10 +8,12 @@
  *   canary report [evidence.json] [out.html] render the human-readable report
  *                                          (no args: the latest run's evidence)
  *
- * Exit codes: 0 success (proof holds / CONFIRMED_REGRESSION as expected)
+ * Exit codes: 0 proof holds fully on the proof host / CONFIRMED_REGRESSION as expected
  *             1 proof failed / PASS
- *             2 other classification / infra
- *             3 misuse
+ *             2 other classification / infra / proof INCOMPLETE — host-exact
+ *               assertions could not be verified because this runtime is not
+ *               the committed proof host (round-3 B3; never a PASS pretense)
+ *             3 misuse / refused bundle / UNVERIFIED report
  */
 
 import fs from 'node:fs';
@@ -20,7 +22,13 @@ import path from 'node:path';
 import { renderHtml } from '@canary-rn/report';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
 import { runExperiment, InfraAbort, CANARY_VERSION } from './pipeline.js';
-import { assertProof, readLatestEvidence, verifyArtifacts, verifyArtifactSemantics, findLatestEvidencePath, type ProofExpectation } from './prove.js';
+import {
+  assertProof, readLatestEvidence, verifyArtifacts, verifyArtifactSemantics,
+  verifyRunIdentity, verifyClassificationDerivation, hostBoundEvidenceChecks,
+  findLatestEvidencePath, actualHostFingerprint, proofVerdict, environmentAttestationIssues,
+  type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
+} from './prove.js';
+import { verifyTreeSnapshots } from './verify-tree.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -32,6 +40,9 @@ usage:
   canary prove <spec.json> [proof.json]
   canary check <spec.json> [proof.json]     assert last run's evidence (no re-run)
   canary report [evidence.json] [out.html]  (defaults: latest run's evidence; sibling report.html)
+                                          (VERIFIED requires byte + identity + tree +
+                                          derivation checks ON THIS MACHINE; else
+                                          UNVERIFIED, exit 3)
   canary version`);
   process.exit(3);
 }
@@ -56,7 +67,7 @@ async function cmdRun(specPath: string): Promise<number> {
 }
 
 async function cmdProve(specPath: string, proofPath: string, rerun: boolean): Promise<number> {
-  const spec = loadJson(specPath) as { id: string };
+  const spec = loadJson(specPath) as TrustedRunSpec;
   const proof = loadJson(proofPath) as ProofExpectation;
   const id = spec.id;
 
@@ -98,16 +109,65 @@ async function cmdProve(specPath: string, proofPath: string, rerun: boolean): Pr
     for (const s of semantic) console.error('  ' + s);
     return 3;
   }
+  // Round-3 blocker 4-A: run identity and fetched content are bound to the
+  // WORKSPACE, not the bundle's prose — runId must be the physical run
+  // directory, and the recorded tarball digest must be the retained
+  // fixture.tgz's actual bytes.
+  const identity = verifyRunIdentity(ev.artifactsDir, ev.bundle);
+  if (identity.length) {
+    console.error('refusing to prove: run identity / tarball digest is not bound to the workspace bytes');
+    for (const i of identity) console.error('  ' + i);
+    return 3;
+  }
+  // Round-3 blocker 6: the tree claims (hashes, VALID status, copy counts,
+  // drift confinement) must be reproduced from RETAINED npm-ls snapshot bytes
+  // by an INDEPENDENT re-flatten — not taken on the bundle's word. Runs after
+  // validateBundle (which structurally requires the snapshot refs for a
+  // trustful label) and before assertProof (which asserts the proof's pinned
+  // tree expectations against them).
+  const tree = verifyTreeSnapshots(ev.bundle, ev.artifactsDir);
+  if (tree.length) {
+    console.error('refusing to prove: retained tree snapshots do not support the recorded tree facts');
+    for (const t of tree) console.error('  ' + t);
+    return 3;
+  }
+  // Round-3 blocker 4-B: the classification tuple (label, rule, REASON,
+  // reproductionCount) must be reproducible from the artifact bytes plus the
+  // retained tree snapshots — re-running classify() and the confinement guard
+  // independently, never trusting the bundle's own recorded round facts.
+  const derivation = verifyClassificationDerivation(ev.artifactsDir, ev.bundle);
+  if (derivation.length) {
+    console.error('refusing to prove: the recorded classification does not follow from the evidence bytes');
+    for (const d of derivation) console.error('  ' + d);
+    return 3;
+  }
   const readLog = (round: 'baseline' | 'candidate'): string => {
     const p = path.join(ev.artifactsDir, `${round}-1.stdout.log`);
     return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
   };
+  // Round-3 blocker 3: host-exactness is decided by the ACTUAL runtime
+  // performing this verification — never by the evidence's own mutable
+  // environment block. If reality cannot even be sampled, host-bound claims
+  // are unverifiable: explicit downgrade (exit 2), not a pass.
+  let runtime: HostFingerprint;
+  try {
+    runtime = actualHostFingerprint();
+  } catch (e) {
+    console.error('refusing to certify host-exact claims: cannot sample the actual runtime (npm --version)');
+    console.error(String(e));
+    return 2;
+  }
   const checks = assertProof(ev.bundle, proof, {
     candidateStdout: readLog('candidate'),
     baselineStdout: readLog('baseline'),
-  });
-  const failed = checks.filter((c) => !c.ok);
-  const skipped = checks.filter((c) => c.skipped);
+  }, runtime);
+  // Round-3 blocker 4-C: on the actual pinned proof host, each round's argv
+  // and env key set are re-derived from the COMMITTED spec and the sanitizer
+  // policy — evidence cannot weaken its own execution record and reseal.
+  // Off-host these two skip (B3 posture: the verdict downgrades to
+  // INCOMPLETE, never PASS).
+  checks.push(...hostBoundEvidenceChecks(ev.bundle, proof, spec, ev.artifactsDir, runtime));
+  const v = proofVerdict(checks);
 
   console.log('\n=== PROOF ASSERTIONS ===');
   for (const c of checks) {
@@ -116,12 +176,17 @@ async function cmdProve(specPath: string, proofPath: string, rerun: boolean): Pr
       (c.ok ? '' : `\n         expected: ${JSON.stringify(c.expected)}\n         actual:   ${JSON.stringify(c.actual)}`));
   }
   console.log('='.repeat(60));
-  console.log(failed.length === 0
-    ? `CANARY REGRESSION PROOF: PASS — ${checks.length - skipped.length} assertion(s) held` +
-      (skipped.length ? ` (${skipped.length} host-exact skipped: this is not the proof host)` : ' (all, incl. host-exact hashes)')
-    : `CANARY REGRESSION PROOF: FAIL — ${failed.length}/${checks.length} assertions diverged`);
+  if (v.status === 'FAIL') {
+    console.log(`CANARY REGRESSION PROOF: FAIL — ${v.failed.length}/${checks.length} assertions diverged`);
+  } else if (v.status === 'INCOMPLETE') {
+    console.log(`CANARY REGRESSION PROOF: INCOMPLETE — ${checks.length - v.skipped.length} assertion(s) held, ` +
+      `but ${v.skipped.length} host-exact assertion(s) could not be verified: this runtime is NOT the committed proof host. ` +
+      `PASS is not claimed (exit 2).`);
+  } else {
+    console.log(`CANARY REGRESSION PROOF: PASS — ${checks.length} assertion(s) held (all of them, host-exact included, ON the proof host)`);
+  }
   console.log('='.repeat(60));
-  return failed.length === 0 ? 0 : 1;
+  return v.exitCode;
 }
 
 function validateBundleFile(p: string): string[] {
@@ -151,9 +216,31 @@ function cmdReport(evidencePath: string | undefined, outPath?: string): number {
   // verify the bundle against the on-disk artifacts (digests + byte-derived
   // facts); if that is not fully possible, RENDER BUT LABEL UNVERIFIED.
   const artifactsDir = path.dirname(resolved);
+  // Round-3 blocker 3: normalized digests are machine-local. A report opened
+  // on a machine that is not the machine the evidence claims to have run on
+  // cannot attest those digests — and an evidence block whose claim does not
+  // match reality is itself the forgery tell. Either way: UNVERIFIED note,
+  // decided by the ACTUAL runtime, never by the bundle's own metadata.
+  let hostNotes: string[];
+  try {
+    hostNotes = environmentAttestationIssues(bundle, actualHostFingerprint());
+  } catch (e) {
+    hostNotes = [`environment attestation: the actual runtime could not be sampled (${String(e)}) — host-bound digests are unverifiable here (round-3 B3)`];
+  }
   const notes = [
     ...verifyArtifacts(artifactsDir, bundle),
     ...verifyArtifactSemantics(artifactsDir, bundle),
+    // Round-3 B4: run identity/tarball bytes and the classification derivation
+    // are checked here too — a report must not render resealed release facts
+    // as VERIFIED. (argv/envKeys need the committed spec, which report has
+    // no handle on; those remain prove/check-only host-bound assertions.)
+    ...verifyRunIdentity(artifactsDir, bundle),
+    ...verifyClassificationDerivation(artifactsDir, bundle),
+    // Round-3 B6: tree facts are only VERIFIED if the independent snapshot
+    // re-derivation also holds; without retained tree artifacts the report
+    // says UNVERIFIED rather than rendering tree claims as confirmed.
+    ...verifyTreeSnapshots(bundle, artifactsDir),
+    ...hostNotes,
   ];
   const verified = notes.length === 0;
   const html = renderHtml(bundle, undefined, {

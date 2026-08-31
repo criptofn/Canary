@@ -36,10 +36,16 @@ export function diffTrees(before: DepTree, after: DepTree, dependency: string): 
  *
  *   INVALID    — nothing usable: no parsed tree (parse failure / no root
  *                dependencies object) or a completely empty tree.
- *   INCOMPLETE — a real tree, but the studied dependency is ABSENT from it,
- *                so we are not observing the thing the swap actually changed
- *                (a confinement claim would be unanchored).
- *   VALID      — a non-empty parsed tree that contains the studied dependency.
+ *   INCOMPLETE — a real tree, but something about the OBSERVATION is partial:
+ *                the studied dependency is ABSENT (a confinement claim would
+ *                be unanchored), or `anomalies` records nodes the flatten
+ *                could not fully observe (missing/unreadable version fields,
+ *                non-object subtrees, disk-vs-json disagreements from the
+ *                independent on-disk sweep — round-3 blocker 6: these used to
+ *                be silent 'x' sentinels or invisible omissions while the
+ *                verdict still classified VALID).
+ *   VALID      — a non-empty parsed tree containing the studied dependency,
+ *                with NO observation anomalies.
  *
  * npm's `problems` array (version-invalidity) is passed in ONLY for the
  * caller's transparency and deliberately does NOT change the status: `npm ls`
@@ -47,7 +53,8 @@ export function diffTrees(before: DepTree, after: DepTree, dependency: string): 
  * complete, comparable tree (the Axios fixture's documented case). The audit
  * explicitly requires a principled rule over "exitCode/problems must be
  * clean", so the presence of the studied dependency in a parsed non-empty tree
- * is the signal.
+ * is the signal — and a COMPLETE one: partial observations must never support
+ * trusted verdicts (round-3 blocker 6).
  */
 export type TreeStatus = 'VALID' | 'INCOMPLETE' | 'INVALID';
 
@@ -61,20 +68,35 @@ export function classifyTreeObservation(o: {
   hasRootDeps: boolean;
   deps: DepTree;
   dependencyPresent: boolean;
+  /** Round-3 blocker 6: every partial-observation finding from the flatten
+   *  and the independent disk sweep. Any non-empty list caps the status at
+   *  INCOMPLETE — a tree with holes is not a tree confinement can be proven
+   *  over. Deterministic order expected (callers sort). */
+  anomalies?: readonly string[];
 }): TreeStatus {
   if (!o.parsed || !o.hasRootDeps || Object.keys(o.deps).length === 0) return 'INVALID';
+  if (o.anomalies && o.anomalies.length > 0) return 'INCOMPLETE';
   if (!o.dependencyPresent) return 'INCOMPLETE';
   return 'VALID';
 }
 
 /**
- * True if `key` names the dependency itself, a top-level-nested copy at any
- * depth, or a copy nested under the dependency's own subtree.
+ * True if `key` lies anywhere inside the dependency's SUBTREE: the name of
+ * the dependency appears as ONE FULL PATH SEGMENT of the key. This covers
+ * the dependency itself ('axios'), a nested copy at any depth
+ * ('bundlesize/axios'), the dependency's own children ('axios/proxy-from-env')
+ * AND descendants of nested copies ('bundlesize/axios/proxy-from-env') —
+ * round-3 blocker 6: the old prefix/suffix tests missed exactly that last
+ * family, so drift deeper under a nested copy was falsely reported as
+ * OUTSIDE the subtree (false INCONCLUSIVE), while partial descendants could
+ * not be recognized at all.
  *
  * CONTRACT (red-team F4): keys must be treeHash-ESCAPED — the '/' inside a
  * scoped package name is encoded as '%2F', so a raw '/' only ever means
  * parent/child nesting. Without escaping, '@types/axios' would masquerade
- * as a nested axios copy and bypass the confinement proof.
+ * as a nested axios copy and bypass the confinement proof. The segment test
+ * is SAFE precisely because of escaping: '@types%2Faxios' is one segment
+ * that never equals 'axios'.
  *
  * Audit F10: the `dependency` ARGUMENT is the raw spec name (e.g.
  * '@scope/pkg'), but keys are escaped — comparing raw-vs-escaped meant a
@@ -84,7 +106,7 @@ export function classifyTreeObservation(o: {
  */
 export function inDependencySubtree(key: string, dependency: string): boolean {
   const dep = escapePkgKey(dependency);
-  return key === dep || key.startsWith(dep + '/') || key.endsWith('/' + dep);
+  return key.split('/').includes(dep);
 }
 
 /** Escape one npm package name for use inside DepTree paths. */
@@ -107,12 +129,24 @@ export function escapePkgKey(name: string): string {
  * Format (deterministic, no volatile path/timestamp data):
  *   - mocha: "Suite path > ... > test name" — the `N)` line is the first
  *     title segment, continuation lines up to (and excluding) the trailing
- *     ':' are further segments.
+ *     ':' are further segments. ROOT-LEVEL failures (mocha prints the whole
+ *     title ON the numbered line, colon included: `1) some test:`) get their
+ *     identity directly from that line (round-3 blocker 1: these used to
+ *     parse to NOTHING, collapsing distinct root failures to equal empty
+ *     identity sets and enabling false CONFIRMED_REGRESSION).
  *   - ava:   "suite › test" normalised to "suite > test".
  * Identical identities within a run are deduplicated (deterministic);
  * DIFFERENT identities are never collapsed. Best-effort auxiliary evidence —
- * the classifier consumes these only for profile comparison (audit F2).
+ * the classifier consumes these only for profile comparison (audit F2), and
+ * the classifier REFUSES trustful labels unless parsed identities fully
+ * account for the reported failing count (identityCoverage).
  */
+const ERROR_BREAK = /^(?:Error|AssertionError|TypeError|RangeError|ReferenceError|expected\b|\w+Error\b|\bat\s|√|✓|✗|×|—|-)/;
+const NEXT_BLOCK = /^\s*\d+\)\s/;
+const SUMMARY_LINE = /^\s*\d+\s+(?:tests?\s+)?(?:passing|failing|pending|passed|failed)\b/;
+/** Defensive bound on describe-path nesting scanned for one identity. */
+const MAX_TITLE_SEGMENTS = 24;
+
 export function extractFailingTestNames(log: string): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -125,14 +159,20 @@ export function extractFailingTestNames(log: string): string[] {
   for (let i = 0; i < lines.length; i++) {
     const m = /^\s*\d+\)\s+(.+?)\s*$/.exec(lines[i]!);
     if (!m) continue;
-    const segments: string[] = [m[1]!.trim()];
+    const first = m[1]!.trim();
+    // Root-level failure: the ENTIRE title sits on the numbered line and
+    // ends with ':'. Emit it directly; do not scan continuations.
+    if (/:\s*$/.test(first)) { add(first.replace(/:\s*$/, '').trim()); continue; }
+    const segments: string[] = [first];
     let foundColon = false;
-    for (let j = i + 1; j < lines.length; j++) {
+    for (let j = i + 1; j < lines.length && segments.length <= MAX_TITLE_SEGMENTS; j++) {
       const l = lines[j]!.trim();
       if (l === '') continue;
-      // an error/stack line before any ':' means this `N)` block carries no
-      // parseable title tail — abandon (avoids fabricating a suite-only id).
-      if (/^(?:Error|AssertionError|TypeError|RangeError|ReferenceError|expected\b|\w+Error\b|\bat\s|√|✓|✗|×|—|-)/.test(l)) break;
+      // The block ended without a title tail: next failure block, the
+      // summary line, or an error/stack line. Abandon this `N)` — never
+      // swallow the NEXT block's lines as if they were our continuation
+      // (round-3 blocker 1, mixed root+nested corruption).
+      if (NEXT_BLOCK.test(l) || SUMMARY_LINE.test(l) || ERROR_BREAK.test(l)) break;
       if (/:\s*$/.test(l)) { segments.push(l.replace(/:\s*$/, '').trim()); foundColon = true; break; }
       segments.push(l);
     }

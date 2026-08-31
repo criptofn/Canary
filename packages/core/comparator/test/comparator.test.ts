@@ -25,6 +25,16 @@ describe('inDependencySubtree', () => {
     assert.ok(!inDependencySubtree('axios-mock-adapter', 'axios')); // prefix-lookalike
     assert.ok(!inDependencySubtree('lodash', 'axios'));
   });
+  it('round-3 B6: descendants of a NESTED copy are inside the subtree', () => {
+    // bundlesize/axios/proxy-from-env is a child of a nested axios copy —
+    // the old prefix/suffix tests missed it and falsely reported NOT confined.
+    assert.ok(inDependencySubtree('bundlesize/axios/proxy-from-env', 'axios'));
+    assert.ok(inDependencySubtree('a/b/axios/c/d', 'axios'));
+    // and the escape contract still holds: no segment lookalikes
+    assert.ok(!inDependencySubtree('bundlesize/@types%2Faxios/proxy', 'axios'));
+    assert.ok(!inDependencySubtree('axios-like', 'axios'));
+    assert.ok(!inDependencySubtree('x/axiosy/z', 'axios'));
+  });
   it('audit F10: a SCOPED dependency matches its own escaped keys', () => {
     // dependency '@scope/pkg' → tree key '@scope%2Fpkg'. The old raw compare
     // ('@scope%2Fpkg' === '@scope/pkg') made the dep's OWN subtree look
@@ -106,6 +116,20 @@ describe('audit B6 — classifyTreeObservation (tree completeness)', () => {
     const scoped = { '@scope%2Fpkg': '1.0.0', 'a/@scope%2Fpkg': '1.0.0' };
     assert.ok(dependencyInTree(scoped, '@scope/pkg'));
     assert.ok(!dependencyInTree(scoped, 'other'));
+  });
+  it('round-3 B6: ANY observation anomaly caps the status at INCOMPLETE', () => {
+    const o = {
+      parsed: true, hasRootDeps: true, deps: present,
+      dependencyPresent: dependencyInTree(present, 'axios'),
+    };
+    assert.equal(classifyTreeObservation(o), 'VALID');
+    assert.equal(classifyTreeObservation({ ...o, anomalies: [] }), 'VALID');
+    assert.equal(classifyTreeObservation({ ...o, anomalies: ['missing-version:axios'] }), 'INCOMPLETE');
+    assert.equal(
+      classifyTreeObservation({ ...o, anomalies: ['disk-not-observed:axios/left-pad'] }),
+      'INCOMPLETE', 'target present but descendants omitted must never be VALID');
+    // anomalies cannot resurrect an INVALID observation
+    assert.equal(classifyTreeObservation({ ...o, deps: {}, dependencyPresent: false, anomalies: ['x'] }), 'INVALID');
   });
 });
 
@@ -193,6 +217,57 @@ describe('log parsing (auxiliary — never decides classification)', () => {
 
   it('parses summary counts', () => {
     assert.deepEqual(parseSummaryCounts(mochaSample), { passing: 128, failing: 3, pending: undefined });
+  });
+
+  // ---- Round-3 BLOCKER 1: root-level failures and block-boundary integrity ----
+  it('round-3 B1: ROOT-level failure ("1) title:" — colon on the numbered line) yields its identity', () => {
+    const log = [
+      '  2 failing', '',
+      '  1) root alpha:', '     Error: one', '',
+      '  2) root beta:', '     Error: two',
+    ].join('\n');
+    const names = extractFailingTestNames(log);
+    assert.deepEqual(names, ['root alpha', 'root beta'],
+      'two different root failures must parse to two DISTINCT identities, never empty sets');
+  });
+
+  it('round-3 B1: repeated root-level titles across rounds re-extract identically (deterministic)', () => {
+    const log = ['  1 failing', '  1) a single root test:', '     Error: x'].join('\n');
+    assert.deepEqual(extractFailingTestNames(log), ['a single root test']);
+    assert.deepEqual(extractFailingTestNames(log), extractFailingTestNames(log));
+  });
+
+  it('round-3 B1: mixed root + nested blocks do not corrupt each other', () => {
+    const log = [
+      '  2 failing', '',
+      '  1) root failure:', '  2) suite B', '       inner test:', '     Error: nope',
+    ].join('\n');
+    const names = extractFailingTestNames(log);
+    assert.deepEqual(names, ['root failure', 'suite B > inner test'],
+      'the nested block must not be swallowed as continuation of the root block');
+  });
+
+  it('round-3 B1: a nested block is abandoned at the summary line, never past it', () => {
+    const log = ['  1) orphan suite', '  3 failing', '  1) real suite', '       test:'].join('\n');
+    assert.deepEqual(extractFailingTestNames(log), ['real suite > test']);
+  });
+
+  it('round-3 B1: malformed/truncated output yields NO fabricated identities', () => {
+    const trunc = '  2 failing\n\n  1) suite with truncated block';
+    assert.deepEqual(extractFailingTestNames(trunc), []);
+    const junk = '  1) \n  2)\n     :';
+    // no fabrication: empty/colon-only titles are never emitted as identities
+    assert.ok(extractFailingTestNames(junk).every((n) => n.trim().length > 0 && !n.endsWith(':')));
+  });
+
+  it('round-3 B1: reordered distinct failures extract the same SET (profile order-independence)', () => {
+    const a = ['  1) suite A', '       t1:', '  2) root two:'].join('\n');
+    const b = ['  1) root two:', '  2) suite A', '       t1:'].join('\n');
+    assert.deepEqual(
+      [...extractFailingTestNames(a)].sort(),
+      [...extractFailingTestNames(b)].sort(),
+    );
+    assert.equal(new Set(extractFailingTestNames(a)).size, 2);
   });
 });
 

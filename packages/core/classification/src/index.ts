@@ -37,23 +37,39 @@ export interface RoundFact {
    *  (red-team findings F1/F5). */
   reportedFailing?: number | undefined;
   /** Passing-test count from the runner summary (audit B2). Together with
-   *  failing+pending it defines whether ANY test actually executed: an
-   *  executed-total of zero can never support a PASS. */
+   *  failing it defines whether ANY assertion actually executed: pending
+   *  tests do NOT execute assertions, so an executed-total of
+   *  passing+failing = 0 can never support PASS or CONFIRMED_REGRESSION
+   *  (round-3 blocker 2). */
   reportedPassing?: number | undefined;
-  /** Pending/skipped count from the runner summary (audit B2): pending tests
-   *  ARE executed selections (they prove the runner ran) and count toward the
-   *  executed total. */
+  /** Pending/skipped count from the runner summary. Recorded for
+   *  transparency; deliberately EXCLUDED from the executed-total (round-3
+   *  blocker 2: "0 passing / 0 failing / N pending" proves the runner
+   *  started, not that any test asserted anything). */
   reportedPending?: number | undefined;
-  /** Sorted failing-test identities parsed from the log, when parseable.
-   *  Audit F2: exit-code unanimity alone can label a run CONFIRMED while the
-   *  rounds failed DIFFERENT tests (or different numbers of tests) — a
-   *  non-reproducible failure is FLAKY, never a confirmed regression. */
+  /** Sorted, deduped failing-test identities parsed from the log, when
+   *  parseable. Audit F2: exit-code unanimity alone can label a run CONFIRMED
+   *  while the rounds failed DIFFERENT tests (or different numbers of tests) —
+   *  a non-reproducible failure is FLAKY, never a confirmed regression.
+   *  Round-3 blocker 1: a failing round whose identities do not fully account
+   *  for reportedFailing is INCOMPLETE — never trustful (see identityCoverage). */
   failingTestNames?: readonly string[] | undefined;
+  /** True iff the run's output carries a fatal-runtime-crash signature (V8
+   *  heap OOM, segfault, abort) — a valid summary followed by a post-summary
+   *  crash is NOT a clean run (round-3 secondary: generic crash after a valid
+   *  failure summary was unrepresented). */
+  crashSignal?: boolean | undefined;
+  /** True iff the audit-F5 post-exit descendant containment sweep could not
+   *  confirm zero survivors. Execution isolation is then unknown, so the run
+   *  is not a valid test execution (round-3 secondary: failed sweep was
+   *  recorded internally but omitted from evidence/classification). */
+  sweepFailed?: boolean | undefined;
 }
 
 export interface ClassificationResult {
   classification: Classification;
-  /** Number of the decision-table rule that fired (1..8). */
+  /** Number of the decision-table rule that fired (0..11; 9/10 are the
+   *  confinement guard, 11 the identity-coverage gate). */
   rule: number;
   reason: string;
   details: {
@@ -88,11 +104,22 @@ export interface ClassificationResult {
  * or null when it is. A successful exit is NOT sufficient: a round counts as
  * infrastructure if ANY of
  *  - it was killed / died by signal (exit -1);
+ *  - its output carries a fatal-runtime-crash signature at ANY exit code
+ *    (round-3: a valid failure summary followed by an OOM/segfault abort is
+ *    not a run whose result can be trusted);
+ *  - the post-exit containment sweep could not confirm zero survivors
+ *    (isolation unknown -> the environment of later rounds is unknown);
  *  - its output carries a recognized infrastructure signature at ANY exit
  *    code (B2: harnesses can swallow errors and exit 0);
  *  - it shows no test-runner summary at all (B2: no recognizable execution,
  *    e.g. a script that exits 0 without ever running tests);
- *  - its summary reports ZERO executed tests (B2: "0 passing" is not a PASS);
+ *  - its summary is present but carries NO machine-readable counts (a
+ *    "recognized" prose marker with unreadable numbers proves nothing —
+ *    round-3 blocker 2);
+ *  - its summary reports ZERO EXECUTED tests, where executed counts ONLY
+ *    passing+failing — pending/skipped tests never executed an assertion,
+ *    so "0 passing / 0 failing / N pending" can never be a PASS
+ *    (round-3 blocker 2);
  *  - it exits nonzero while the summary claims zero failures (F1: died for a
  *    non-test reason);
  *  - it exits 0 while the summary reports failures (F5: masked failure).
@@ -100,12 +127,17 @@ export interface ClassificationResult {
  */
 export function infraCause(r: RoundFact): string | null {
   if (r.exitCode === -1) return 'killed or signal death';
+  if (r.crashSignal) return 'fatal runtime crash signature in output (heap OOM / abort / segfault)';
+  if (r.sweepFailed) return 'post-run containment sweep could not confirm zero surviving descendants';
   if (r.infraSignal) return 'recognized infrastructure-failure signature in output';
   if (!r.hasRunnerSummary) return 'no test-runner summary — execution not recognizable as a test run';
   const observed =
     r.reportedPassing !== undefined || r.reportedFailing !== undefined || r.reportedPending !== undefined;
-  const executed = (r.reportedPassing ?? 0) + (r.reportedFailing ?? 0) + (r.reportedPending ?? 0);
-  if (observed && executed === 0) return 'runner summary reports zero executed tests';
+  if (!observed) return 'runner summary present but carries no machine-readable pass/fail counts — cannot prove any test executed';
+  // Round-3 blocker 2: PENDING IS NOT EXECUTION. A skipped test asserts
+  // nothing; an all-pending run proves the runner started and nothing more.
+  const executed = (r.reportedPassing ?? 0) + (r.reportedFailing ?? 0);
+  if (executed === 0) return 'zero executed tests (passing+failing=0; pending/skipped tests do not execute assertions)';
   if (r.exitCode === 0 && (r.reportedFailing ?? 0) > 0) return 'exit 0 while summary reports failing tests (masked failure)';
   if (r.exitCode !== 0 && (r.reportedFailing ?? 0) === 0) return 'nonzero exit while summary reports zero failing tests (died outside tests)';
   return null;
@@ -120,17 +152,40 @@ const unanimous = (rs: readonly RoundFact[]): boolean =>
   rs.length > 0 && rs.every((r) => pass(r) === pass(rs[0]!));
 
 /**
+ * Does the round's parsed identity set FULLY ACCOUNT for its reported
+ * failures? (Round-3 blocker 1.) Two different root-level failures used to
+ * parse to equal EMPTY identity sets — the classifier then saw "identical
+ * failures across rounds" and confirmed a regression from zero evidence.
+ * - COMPLETE     — uniq(parsed names) === reportedFailing (or both zero).
+ * - INCOMPLETE   — a count is reported but the parsed identities do not
+ *                  match it (fewer names than failures — the parser could
+ *                  not attribute every failure; MORE names than the count is
+ *                  also INCOMPLETE: the count and identities contradict).
+ * - NOT_OBSERVED — no failing count at all.
+ */
+export type IdentityCoverage = 'COMPLETE' | 'INCOMPLETE' | 'NOT_OBSERVED';
+
+export function identityCoverage(r: RoundFact): IdentityCoverage {
+  if (r.reportedFailing === undefined) return 'NOT_OBSERVED';
+  if (!Array.isArray(r.failingTestNames)) return 'NOT_OBSERVED';
+  const uniq = new Set(r.failingTestNames).size;
+  return uniq === r.reportedFailing ? 'COMPLETE' : 'INCOMPLETE';
+}
+
+/**
  * Identity of a round's failure: how many tests the summary said failed, and
- * WHICH ones. '?' distinguishes "not observed" from "observed as zero/empty",
- * so a runner whose summary parses on some rounds but not others counts as
- * non-uniform (defensible: the failure record itself varies run-to-run).
+ * WHICH ones, plus the coverage state so an incomplete parse (count>names)
+ * can never profile-match a complete one. '?' distinguishes "not observed"
+ * from "observed as zero/empty", so a runner whose summary parses on some
+ * rounds but not others counts as non-uniform (defensible: the failure
+ * record itself varies run-to-run).
  */
 function failureProfile(r: RoundFact): string {
   const count = r.reportedFailing === undefined ? '?' : String(r.reportedFailing);
   const names = Array.isArray(r.failingTestNames)
     ? [...r.failingTestNames].sort().join('\n')
     : '?';
-  return `${count}|${names}`;
+  return `${count}|${identityCoverage(r)}|${names}`;
 }
 
 /**
@@ -207,6 +262,23 @@ export function classify(rounds: readonly RoundFact[]): ClassificationResult {
     const unstableArm = failingProfileStable(baseline) ? 'candidate' : 'baseline';
     return mk('FLAKY', 8,
       `${unstableArm} failing rounds differ in count/identity across repeats — failure not reproducible`,
+      { baselinePass: bPass, baselineUnanimous: bUnanim, candidateUnanimous: false });
+  }
+
+  // Rule 11 (round-3 blocker 1): every FAILING round must fully ACCOUNT for
+  // its reported failures with parsed identities. A round that says "N
+  // failing" but yields fewer (or zero) distinct parsed identities is a
+  // partial parse — the classifier cannot know WHICH tests failed, so a
+  // CONFIRMED_REGRESSION / PRE_EXISTING_FAILURE built on it would be
+  // unanchored (two different root failures collapse to equal EMPTY identity
+  // sets and look "stable"). INCONCLUSIVE is the conservative floor. Passing
+  // rounds are irrelevant: they report no failures.
+  const underAccounted = rounds.filter((r) => !pass(r) && identityCoverage(r) !== 'COMPLETE');
+  if (underAccounted.length > 0) {
+    const first = underAccounted[0]!;
+    const parsed = Array.isArray(first.failingTestNames) ? new Set(first.failingTestNames).size : '?';
+    return mk('INCONCLUSIVE', 11,
+      `failing round ${first.arm}#${first.round} reports ${first.reportedFailing ?? '?'} failures but only ${parsed} distinct identities parsed — failure set not fully accounted (identityCoverage=${identityCoverage(first)})`,
       { baselinePass: bPass, baselineUnanimous: bUnanim, candidateUnanimous: false });
   }
 

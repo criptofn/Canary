@@ -4,13 +4,17 @@
  * Canary's golden fixture; the CI gate.
  */
 
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
-import { hasRunnerSummary } from '@canary-rn/executor';
+import { diffTrees, extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
+import { hasRunnerSummary, isInfraOutput, hasCrashSignature, Recorder } from '@canary-rn/executor';
 import { sha256File } from '@canary-rn/hashing';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
+import { classify, applyConfinementGuard, type RoundFact } from '@canary-rn/classification';
+import { sanitizedEnv, sanitizedEnvKeys, type WorkspaceLayout } from '@canary-rn/support';
+import { deriveArmTreeFacts } from './verify-tree.js';
 
 export interface SummaryExpectation { passing: number; failing?: number | undefined }
 
@@ -36,8 +40,12 @@ export interface ProofExpectation {
   /** Expected evidence schema (defaults to 1). Binds the bundle's declared
    *  schemaVersion so a rewritten version is caught (audit B4/S2). */
   evidenceSchema?: number | undefined;
-  /** Optional: pin the fetched-content digest so a rewritten tarballSha256 in
-   *  the evidence fails check (audit B4). */
+  /** EXTERNALLY PINNED fetched-content digest (round-3 blocker 4). A proof
+   *  without it is refused by assertProof ('proof pins tarball digest'):
+   *  the tarball digest is release-critical, so the committed expectation —
+   *  not the evidence — must anchor it. Independently, verifyRunIdentity
+   *  re-hashes the retained `fixture.tgz` on disk, binding the evidence value
+   *  to bytes as well. */
   tarballSha256?: string | undefined;
   dependency?: { package: string; baseline: string; candidate: string };
   downstream?: { repo: string; commit: string };
@@ -47,9 +55,13 @@ export interface ProofExpectation {
     platform: string; arch: string;
     nodeVersion?: string | undefined; npmVersion?: string | undefined;
   } | undefined;
-  /** When present, hash-exact assertions run only if the evidence's recorded
-   *  environment matches field-for-field; elsewhere they are reported SKIPPED
-   *  (honestly — not silently dropped, not silently failed). */
+  /** Round-3 blocker 3: the COMMITTED, trusted identity of the machine whose
+   *  exact normalized hashes are meaningful. Host-exact assertions run only
+   *  when the ACTUAL runtime performing the verification matches this
+   *  fingerprint field-for-field — the evidence's own (mutable) environment
+   *  block can never opt into or out of these checks. Elsewhere they are
+   *  reported SKIPPED and the CLI verdict downgrades to INCOMPLETE (exit 2):
+   *  unverifiable host-exactness is never dressed up as PASS. */
   proofHost?: HostFingerprint | undefined;
   expected: {
     classification: string;
@@ -70,10 +82,89 @@ export interface AssertionResult {
   skipped?: boolean | undefined;
 }
 
+/**
+ * Round-3 blocker 3: sample the ACTUAL runtime performing the verification.
+ * platform/arch/nodeVersion come from this very process; npmVersion from a
+ * spawned `npm --version` resolved the same way the pipeline resolves it
+ * (node_modules/npm under the running node's prefix) — never from evidence.
+ * Throws if npm cannot be sampled; callers must treat that as unverifiable
+ * (INCOMPLETE), never as a pass.
+ */
+export function actualHostFingerprint(): HostFingerprint {
+  const npmCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  const npmVersion = execFileSync(process.execPath, [npmCli, '--version'], {
+    encoding: 'utf8', shell: false, timeout: 60_000,
+  }).trim();
+  if (!npmVersion) throw new Error('npm --version produced empty output');
+  return { platform: process.platform, arch: process.arch, nodeVersion: process.version, npmVersion };
+}
+
+const fpEq = (a: HostFingerprint, b: HostFingerprint): boolean =>
+  a.platform === b.platform && a.arch === b.arch &&
+  a.nodeVersion === b.nodeVersion && a.npmVersion === b.npmVersion;
+
+/**
+ * Round-3 blocker 3: bind the EVIDENCE's claimed environment to reality.
+ * A bundle recorded on machine X can only be digest-verified on machine X;
+ * when the two disagree, every host-bound claim (normalized hashes above all)
+ * is unverifiable HERE — surfaced as an explicit note (report: UNVERIFIED)
+ * instead of a silent VERIFIED banner.
+ */
+export function environmentAttestationIssues(bundle: EvidenceBundle, runtime: HostFingerprint): string[] {
+  const e = bundle.environment;
+  const claimed: HostFingerprint = {
+    platform: e.platform, arch: e.arch, nodeVersion: e.nodeVersion, npmVersion: e.npmVersion,
+  };
+  if (fpEq(claimed, runtime)) return [];
+  return [`environment attestation: evidence claims ${claimed.platform}/${claimed.arch}/node ${claimed.nodeVersion}/npm ${claimed.npmVersion}, ` +
+    `but the ACTUAL verifying runtime is ${runtime.platform}/${runtime.arch}/node ${runtime.nodeVersion}/npm ${runtime.npmVersion} — ` +
+    `host-bound digests cannot be verified from this machine (round-3 B3)`];
+}
+
+/**
+ * Round-3 blocker 3: the CLI verdict from assertion results. A PASS claim
+ * requires ZERO failures AND zero skipped host-exact assertions — evidence
+ * whose host-exactness could not be checked downgrades to INCOMPLETE (exit 2)
+ * rather than passing on a shrug.
+ */
+export function proofVerdict(checks: AssertionResult[]): {
+  failed: AssertionResult[]; skipped: AssertionResult[];
+  status: 'PASS' | 'FAIL' | 'INCOMPLETE'; exitCode: number;
+} {
+  const failed = checks.filter((c) => !c.ok);
+  const skipped = checks.filter((c) => c.skipped);
+  if (failed.length > 0) return { failed, skipped, status: 'FAIL', exitCode: 1 };
+  if (skipped.length > 0) return { failed, skipped, status: 'INCOMPLETE', exitCode: 2 };
+  return { failed, skipped, status: 'PASS', exitCode: 0 };
+}
+
+/**
+ * Round-3 blocker 3/4: decide host-exactness ONCE, from the ACTUAL runtime
+ * only (never from evidence metadata), and produce the uniform skip reason.
+ * Shared by assertProof and the host-bound evidence checks so both agree on
+ * when a claim is verifiable here.
+ */
+export function proofHostContext(
+  ev: EvidenceBundle, proof: ProofExpectation, runtime: HostFingerprint,
+): { onProofHost: boolean; skipWhy: string } {
+  const hf = proof.proofHost;
+  const onProofHost = hf ? fpEq(runtime, hf) : fpEq(runtime, ev.environment);
+  const skipWhy = hf
+    ? `actual runtime is not the committed proof host ${hf.platform}/${hf.arch}/node ${hf.nodeVersion}/npm ${hf.npmVersion}`
+    : 'no committed proofHost and the actual runtime differs from the evidence-recorded environment';
+  return { onProofHost, skipWhy };
+}
+
+/**
+ * Round-3 blocker 3: `runtime` is the ACTUAL host performing the assertion
+ * (see actualHostFingerprint). It is a REQUIRED parameter: host-exactness can
+ * no longer be decided from the evidence's own mutable metadata.
+ */
 export function assertProof(
   ev: EvidenceBundle,
   proof: ProofExpectation,
   logs: { candidateStdout: string; baselineStdout: string },
+  runtime: HostFingerprint,
 ): AssertionResult[] {
   const checks: AssertionResult[] = [];
   const eq = (name: string, actual: unknown, expected: unknown): void => {
@@ -81,6 +172,13 @@ export function assertProof(
   };
   const e = proof.expected;
 
+  // Self-review N9 (proof-version confusion): the expectation file declares a
+  // schema version NO ONE used to read. A proof authored for a future (or
+  // past) layout — moved fields, different hash truncation, new gates —
+  // would be consumed under v1 semantics, silently comparing the wrong things
+  // (or undefined against undefined). The proof is the trusted anchor; it
+  // must ANCHOR at a version the reader actually implements.
+  eq('proof schema', proof.schema, 1);
   eq('classification', ev.classification.label, e.classification);
   eq('rule', ev.classification.rule, e.rule);
   // Audit B4/S2: bind the bundle's identity to the (committed, trusted) proof.
@@ -106,6 +204,10 @@ export function assertProof(
       `${ev.dependency.package}@${ev.dependency.baselineVersion}->${ev.dependency.candidateVersion}`,
       `${proof.dependency.package}@${proof.dependency.baseline}->${proof.dependency.candidate}`);
   }
+  // Round-3 blocker 4: the tarball digest is RELEASE-CRITICAL — a proof that
+  // does not pin it cannot support a PASS claim (the golden proof omitted the
+  // pin, so a coherently resealed tarballSha256 survived check unnoticed).
+  eq('proof pins tarball digest', proof.tarballSha256 !== undefined, true);
   if (proof.tarballSha256 !== undefined) {
     eq('tarball digest pinned', ev.downstream.tarballSha256, proof.tarballSha256);
   }
@@ -115,21 +217,20 @@ export function assertProof(
   eq('baseline exit codes', base.map((x) => x.exitCode), e.baseline.exitCodes);
   eq('candidate exit codes', cand.map((x) => x.exitCode), e.candidate.exitCodes);
 
-  // Audit F11: the ONLY host-local assertions. Normalized-stream hashes embed
-  // machine-specific formatting, so they are exact only on the proof host.
-  // A structured fingerprint comparison (NOT substring/prose matching) decides
-  // whether to assert them or to report them SKIPPED (honest, never silent).
+  // Audit F11 + Round-3 blocker 3: the ONLY host-local assertions.
+  // Normalized-stream hashes embed machine-specific formatting, so they are
+  // exact only on the proof host. Round 3 showed the gate must NOT read the
+  // evidence's mutable environment block (reseal it and every strict check
+  // politely skips to a PASS). The ACTUAL runtime now decides (see
+  // proofHostContext): committed proofHost wins when present, else the
+  // evidence's recorded environment is the best available anchor.
+  const { onProofHost, skipWhy } = proofHostContext(ev, proof, runtime);
   const hf = proof.proofHost;
-  const onProofHost = !hf || (
-    ev.environment.platform === hf.platform &&
-    ev.environment.arch === hf.arch &&
-    ev.environment.nodeVersion === hf.nodeVersion &&
-    ev.environment.npmVersion === hf.npmVersion);
   const hostExact = (
     name: string, actual: unknown, expected: unknown,
   ): void => {
     if (onProofHost) eq(name, actual, expected);
-    else checks.push({ name: `${name} [SKIPPED: not proof host ${hf!.platform}/${hf!.arch}/node ${hf!.nodeVersion}]`, ok: true, skipped: true, expected, actual });
+    else checks.push({ name: `${name} [SKIPPED: ${skipWhy}]`, ok: true, skipped: true, expected, actual });
   };
   hostExact('baseline normalized stdout hashes',
     base.map((x) => x.normalizedStdoutSha256.slice(0, 16)),
@@ -137,6 +238,16 @@ export function assertProof(
   hostExact('candidate normalized stdout hashes',
     cand.map((x) => x.normalizedStdoutSha256.slice(0, 16)),
     e.candidate.normalizedStdoutSha256AcrossRounds.map((h) => h.slice(0, 16)));
+  if (hf) {
+    // The binding that makes resealing USELESS: on the proof host, the
+    // evidence's environment block is no longer an identity claim to trust —
+    // it is a fact to check against the committed expectation. Off host it
+    // skips (and the verdict downgrades to INCOMPLETE), so metadata can
+    // neither opt out of strict checks nor fake its way into them.
+    hostExact('evidence environment bound to proof host',
+      [ev.environment.platform, ev.environment.arch, ev.environment.nodeVersion, ev.environment.npmVersion],
+      [hf.platform, hf.arch, hf.nodeVersion, hf.npmVersion]);
+  }
   // Within-arm determinism is host-INDEPENDENT (compares rounds to each other
   // in one run) and stays unconditional on every host.
   eq('baseline arm internally deterministic', new Set(base.map((x) => x.normalizedStdoutSha256)).size, 1);
@@ -160,12 +271,14 @@ export function assertProof(
     }
   }
 
-  // F7: set membership on ACTUAL failing-test extraction, not raw substrings
-  // (mocha prints test titles on passing lines too).
-  const failing = new Set(extractFailingTestNames(logs.candidateStdout));
-  for (const t of e.failingTestNames) {
-    checks.push({ name: `failing test (extracted): "${t}"`, ok: failing.has(t), actual: [...failing] });
-  }
+  // F7 + Round-3 blocker 4-D: EXACT-SET equality on failing-test identities
+  // extracted from the candidate bytes — not membership. Membership let a
+  // resealed proof pin a SUBSET of the real failures (or the evidence hide an
+  // extra one) while every pinned name was still present. No extra failure
+  // identities, no missing ones; extraction (not raw substrings, mocha prints
+  // test titles on passing lines too) is the source for the actual set.
+  const failing = [...new Set(extractFailingTestNames(logs.candidateStdout))].sort();
+  eq('failing test identities (exact set from candidate bytes)', failing, [...new Set(e.failingTestNames)].sort());
   return checks;
 }
 
@@ -332,9 +445,20 @@ export function verifyArtifactSemantics(artifactsDir: string, bundle: EvidenceBu
     const combined = so + se;
     const counts = parseSummaryCounts(combined);
     const summary = hasRunnerSummary(combined);
+    const infra = isInfraOutput(combined);
+    const crashed = hasCrashSignature(combined);
     const names = extractFailingTestNames(combined).sort();
     if (r.hasRunnerSummary !== summary) {
       issues.push(`${at}: hasRunnerSummary=${String(r.hasRunnerSummary)} but the artifact bytes ${summary ? 'DO' : 'DO NOT'} match a runner summary`);
+    }
+    if (r.infraSignal !== infra) {
+      issues.push(`${at}: infraSignal=${String(r.infraSignal)} but the artifact bytes ${infra ? 'DO' : 'DO NOT'} carry an infrastructure signature (round-3 B2 matcher)`);
+    }
+    // Round-3 secondary: a post-summary fatal crash (V8 OOM / abort / segfault)
+    // is byte-observable and must be recorded exactly as the bytes say — a
+    // resealed false must not launder a crashed round into a trustful verdict.
+    if ((r.crashSignal ?? false) !== crashed) {
+      issues.push(`${at}: crashSignal=${String(r.crashSignal ?? false)} but the artifact bytes ${crashed ? 'DO' : 'do NOT'} carry a fatal-crash signature`);
     }
     for (const [field, rec, obs] of [
       ['reportedPassing', r.reportedPassing, counts.passing],
@@ -351,4 +475,305 @@ export function verifyArtifactSemantics(artifactsDir: string, bundle: EvidenceBu
     }
   }
   return issues;
+}
+
+// ---------------------------------------------------------------------------
+// Round-3 blocker 4 — release-critical fields bound to INDEPENDENT sources.
+//
+// The Round-3 audit's proven attack: copy a valid bundle, rewrite any of
+// {runId, tarball digest, dependency-copy counts, argv, env key set,
+// classification label/rule/reason/reproductionCount}, recompute the manifest,
+// and every pre-B4 layer agrees — because each layer compared the bundle to
+// itself or to bytes that the rewritten field still described. These three
+// closers make each field answer to something the forger does not control:
+//   A. verifyRunIdentity            — the workspace directory and the RETAINED
+//                                      fixture.tgz bytes on disk;
+//   B. verifyClassificationDerivation — the round bytes re-flattened through
+//                                      the decision table + retained trees;
+//   C. hostBoundEvidenceChecks      — the COMMITTED spec re-expanded by the
+//                                      trusted policy code, on the pinned
+//                                      proof host only (paths/env are
+//                                      machine-local; off-host the checks skip
+//                                      and the verdict downgrades, B3-style).
+// None of them trusts a value merely because it also appears in the bundle.
+// ---------------------------------------------------------------------------
+
+/**
+ * B4-A: bind the run's identity and the fetched content to the workspace.
+ * The pipeline retains BOTH the run directory (named `exp-<id>-<timestamp>`)
+ * and the exact fetched tarball (`WS/fixture.tgz`) on disk, so these are
+ * facts to CHECK, not claims to trust:
+ *  - evidence runId equals the physical workspace directory name;
+ *  - that name carries the `exp-<experimentId>-` convention;
+ *  - sha256 of the retained tarball bytes equals downstream.tarballSha256.
+ * A resealed bundle that renames the run or swaps the digest contradicts the
+ * directory layout; one that keeps both consistent must also swap the actual
+ * tarball bytes — which then diverges from the proof-pinned digest
+ * (assertProof) and from what the tests executed against.
+ */
+export function verifyRunIdentity(artifactsDir: string, bundle: EvidenceBundle): string[] {
+  const issues: string[] = [];
+  const wsDir = path.resolve(path.dirname(artifactsDir));
+  const dirId = path.basename(wsDir);
+  if (bundle.runId !== dirId) {
+    issues.push(`runId '${bundle.runId}' is not the workspace directory the artifacts live in ('${dirId}') — resealed run identity`);
+  }
+  const prefix = `exp-${bundle.experimentId}-`;
+  if (!bundle.runId.startsWith(prefix)) {
+    issues.push(`runId '${bundle.runId}' does not carry the run-directory convention 'exp-<experimentId>-<timestamp>' (expected prefix '${prefix}')`);
+  }
+  const tgz = path.join(wsDir, 'fixture.tgz');
+  if (!fs.existsSync(tgz)) {
+    issues.push(`retained fixture tarball missing (${tgz}) — downstream.tarballSha256 cannot be bound to bytes`);
+  } else {
+    let actual = '';
+    try {
+      actual = sha256File(tgz);
+    } catch (e) {
+      issues.push(`cannot hash retained fixture tarball: ${String(e)}`);
+    }
+    if (actual && actual !== bundle.downstream.tarballSha256) {
+      issues.push(`TAMPERED fixture tarball: evidence records ${bundle.downstream.tarballSha256.slice(0, 16)}…, the retained bytes hash to ${actual.slice(0, 16)}…`);
+    }
+  }
+  return issues;
+}
+
+/**
+ * B4-B: the classification must FOLLOW from the evidence bytes, not merely
+ * sit inside them. RoundFacts are rebuilt from the artifact bytes (the same
+ * stdout+stderr the recorder assembled, digest-verified by verifyArtifacts
+ * upstream): counts via parseSummaryCounts, hasRunnerSummary, isInfraOutput,
+ * extractFailingTestNames. The confinement facts (statuses + drift) are
+ * re-derived from the RETAINED tree snapshots via the independent re-flatten
+ * (verify-tree), never from the bundle's treeComparison block. classify() +
+ * applyConfinementGuard() are re-run over those facts and the recorded label,
+ * rule, REASON and reproductionCount must match exactly — validateBundle only
+ * re-checks label/rule against the bundle's own recorded facts; this checks
+ * the full tuple against facts the bundle does not get to declare.
+ *
+ * exitCode and (when present) crashSignal/sweepFailed are execution facts no
+ * byte stream carries — exit codes are pinned against the committed proof by
+ * assertProof; the signal fields are read as recorded, matching how
+ * validateBundle re-derives.
+ */
+export function verifyClassificationDerivation(artifactsDir: string, bundle: EvidenceBundle): string[] {
+  const issues: string[] = [];
+  const rootAbs = path.resolve(artifactsDir);
+  const read = (name: string): string | null => {
+    const p = path.join(rootAbs, name);
+    const lex = withinDir(rootAbs, p);
+    if (!lex.ok) return null;
+    try { return fs.readFileSync(p, 'utf8'); } catch { return null; }
+  };
+  const facts: RoundFact[] = [];
+  for (const r of bundle.rounds) {
+    const at = `round ${r.arm}#${r.round}`;
+    const label = `${r.arm}-${r.round}`;
+    const so = read(`${label}.stdout.log`);
+    const se = read(`${label}.stderr.log`);
+    if (so === null || se === null) {
+      issues.push(`${at}: cannot read raw stdout/stderr for classification re-derivation`);
+      continue;
+    }
+    const combined = so + se;
+    const counts = parseSummaryCounts(combined);
+    facts.push({
+      arm: r.arm,
+      round: r.round,
+      exitCode: r.exitCode,
+      hasRunnerSummary: hasRunnerSummary(combined),
+      infraSignal: isInfraOutput(combined),
+      reportedPassing: counts.passing,
+      reportedFailing: counts.failing,
+      reportedPending: counts.pending,
+      failingTestNames: extractFailingTestNames(combined).sort(),
+      // crashSignal is byte-observable → re-derived here, not trusted from the
+      // record, so a resealed false cannot launder a crashed round into trust.
+      ...(hasCrashSignature(combined) ? { crashSignal: true } : {}),
+      // sweepFailed is a post-exit kernel observation the streams cannot carry
+      // → read as recorded (honest limit, documented in the executor).
+      ...(r.sweepFailed !== undefined ? { sweepFailed: r.sweepFailed } : {}),
+    });
+  }
+  if (issues.length > 0) return issues; // no verdict can be derived from unreadable bytes
+
+  const treesB = deriveArmTreeFacts(bundle, rootAbs, 'baseline');
+  const treesC = deriveArmTreeFacts(bundle, rootAbs, 'candidate');
+  if (!treesB || !treesC) {
+    return ['classification re-derivation requires retained tree snapshots readable for both arms — confinement facts would otherwise be taken on the bundle\'s word (round-3 B4)'];
+  }
+  const drift = diffTrees(treesB.flat, treesC.flat, bundle.dependency.package);
+  const derived = applyConfinementGuard(classify(facts), {
+    confined: drift.confined,
+    other: drift.other,
+    dependency: bundle.dependency.package,
+    baselineStatus: treesB.status,
+    candidateStatus: treesC.status,
+  });
+  const rec = bundle.classification;
+  if (derived.classification !== rec.label) {
+    issues.push(`classification label '${rec.label}' disagrees with re-derivation from the artifact bytes ('${derived.classification}')`);
+  }
+  if (derived.rule !== rec.rule) {
+    issues.push(`classification rule ${rec.rule} disagrees with re-derivation from the artifact bytes (rule ${derived.rule})`);
+  }
+  if (derived.reason !== rec.reason) {
+    issues.push(`classification reason '${rec.reason}' is not what the decision table says for these bytes ('${derived.reason}')`);
+  }
+  if (derived.details.candidateRuns !== rec.reproductionCount) {
+    issues.push(`reproductionCount=${rec.reproductionCount} disagrees with the re-derived candidate round count (${derived.details.candidateRuns})`);
+  }
+  return issues;
+}
+
+/**
+ * B4-C input: the slice of the COMMITTED spec the host-bound checks re-execute
+ * expansion over. Trusted precisely because it is the checked-in file the
+ * proof gate was invoked with — never anything the evidence carries.
+ */
+export interface TrustedRunSpec {
+  id: string;
+  dependency: { package: string; baseline: string; candidate: string };
+  /** The re-derivation consumes `test`; the index signature lets a real
+   *  (fuller) spec object flow through unchanged. */
+  commands: { test: string[]; [k: string]: unknown };
+}
+
+/** Same npm-CLI resolution the pipeline itself uses (dirname of the running node). */
+const proofNpmCli = (): string =>
+  path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+
+/** Mirror of the pipeline's resolveBin over the RETAINED fixture install. */
+function fixtureResolveBin(fixtureDir: string): (pkg: string, key?: string) => string {
+  return (pkg, key) => {
+    const pj = JSON.parse(
+      fs.readFileSync(path.join(fixtureDir, 'node_modules', pkg, 'package.json'), 'utf8'),
+    ) as { bin?: string | Record<string, string> };
+    const rel = typeof pj.bin === 'string' ? pj.bin : pj.bin?.[key ?? pkg.split('/').pop() ?? pkg];
+    if (!rel) throw new Error(`no bin for ${pkg}`);
+    const abs = path.join(fixtureDir, 'node_modules', pkg, rel);
+    if (!fs.existsSync(abs)) throw new Error(`bin missing: ${abs}`);
+    return abs;
+  };
+}
+
+/**
+ * Expected argv for EVERY measurement round, re-derived from the committed
+ * spec by the TRUSTED expansion code (Recorder.expandArgv with placeholder /
+ * $npm / $yarn / $tsc / $bin: handling and install-family flag splicing) —
+ * the VALUE pipeline-generated argv from the evidence. The inputs are the
+ * spec file, the retained workspace, and this process's node resolution; a
+ * resealed r.argv that dropped flags or swapped the executable diverges.
+ */
+export function deriveExpectedRoundArgv(spec: TrustedRunSpec, wsRoot: string): string[] {
+  const fixture = path.join(wsRoot, 'fixture');
+  const rec = new Recorder({
+    ws: { root: wsRoot, fixture },
+    nodeDir: path.dirname(process.execPath),
+    npmCli: proofNpmCli(),
+    artifactsDir: wsRoot, // irrelevant to expandArgv
+    pipeline: [],
+  });
+  return rec.expandArgv(
+    spec.commands.test,
+    { dep: spec.dependency.package, baseline: spec.dependency.baseline, candidate: spec.dependency.candidate },
+    fixtureResolveBin(fixture),
+  );
+}
+
+/**
+ * B4-C: on the ACTUAL pinned proof host, each round's argv and env key set are
+ * facts checkable against reality: the committed spec re-expanded to argv, and
+ * the sanitizer's own declaration to the env key set (win32: 15 keys, POSIX:
+ * 4 — derived here from `sanitizedEnv`, not from the allowlist prose). The
+ * evidence therefore cannot weaken its own argv (e.g. dropping --ignore-scripts)
+ * or trim its envKeys to a smaller allowlisted subset and reseal — both break
+ * exact equality with the re-derivation. Off the proof host these are the only
+ * checks that legitimately cannot be reproduced (paths and env policy ARE
+ * machine-local), so they SKIP — and proofVerdict downgrades to INCOMPLETE,
+ * never PASS (B3 posture).
+ */
+export function hostBoundEvidenceChecks(
+  ev: EvidenceBundle,
+  proof: ProofExpectation,
+  spec: TrustedRunSpec | undefined,
+  artifactsDir: string,
+  runtime: HostFingerprint,
+): AssertionResult[] {
+  const checks: AssertionResult[] = [];
+  const { onProofHost, skipWhy } = proofHostContext(ev, proof, runtime);
+  if (!onProofHost) {
+    checks.push({
+      name: `round argv re-derived from committed spec [SKIPPED: ${skipWhy}]`,
+      ok: true, skipped: true,
+      expected: 'every round\'s argv == expandArgv(spec.commands.test) on this host',
+      actual: ev.rounds.map((r) => [`${r.arm}#${r.round}`, r.argv]),
+    });
+    checks.push({
+      name: `round envKeys re-derived from sanitizer policy [SKIPPED: ${skipWhy}]`,
+      ok: true, skipped: true,
+      expected: 'every round\'s envKeys == the exact sanitizedEnv key set on this host',
+      actual: ev.rounds.map((r) => [`${r.arm}#${r.round}`, r.envKeys]),
+    });
+    return checks;
+  }
+  const wsRoot = path.resolve(path.dirname(artifactsDir));
+  const eqJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+  // --- argv per round -------------------------------------------------------
+  if (!spec || !Array.isArray(spec.commands?.test) || spec.commands.test.length === 0) {
+    checks.push({
+      name: 'committed spec provides commands.test (argv re-derivation anchor)',
+      ok: false,
+      expected: 'spec.commands.test: non-empty string[]',
+      actual: spec ? spec.commands?.test ?? null : 'no spec supplied',
+    });
+  } else {
+    let expected: string[] | undefined;
+    let why = '';
+    try {
+      expected = deriveExpectedRoundArgv(spec, wsRoot);
+    } catch (e) {
+      why = String(e);
+    }
+    if (expected === undefined) {
+      checks.push({
+        name: 'round argv re-derivation impossible (retained fixture or spec defective)',
+        ok: false, expected: 'expandArgv over the committed spec + retained workspace', actual: why,
+      });
+    } else {
+      for (const r of ev.rounds) {
+        checks.push({
+          name: `round ${r.arm}#${r.round} argv re-derived from committed spec`,
+          ok: eqJson(r.argv, expected), expected, actual: r.argv,
+        });
+      }
+    }
+  }
+
+  // --- env key set per round ------------------------------------------------
+  let expectedKeys: string[] | undefined;
+  let keysWhy = '';
+  try {
+    const ws: WorkspaceLayout = { root: wsRoot, fixture: path.join(wsRoot, 'fixture') };
+    expectedKeys = sanitizedEnvKeys(sanitizedEnv({ ws, nodeDir: path.dirname(process.execPath) }));
+  } catch (e) {
+    keysWhy = String(e);
+  }
+  if (expectedKeys === undefined) {
+    checks.push({
+      name: 'round envKeys re-derivation impossible (sanitizer policy not evaluable here)',
+      ok: false, expected: 'Object.keys(sanitizedEnv(...)) on this host', actual: keysWhy,
+    });
+  } else {
+    for (const r of ev.rounds) {
+      const actual = [...r.envKeys].sort();
+      checks.push({
+        name: `round ${r.arm}#${r.round} envKeys re-derived from sanitizer policy`,
+        ok: eqJson(actual, expectedKeys), expected: expectedKeys, actual,
+      });
+    }
+  }
+  return checks;
 }
