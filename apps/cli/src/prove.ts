@@ -6,6 +6,7 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { diffTrees, extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
@@ -89,11 +90,21 @@ export interface AssertionResult {
  * (node_modules/npm under the running node's prefix) — never from evidence.
  * Throws if npm cannot be sampled; callers must treat that as unverifiable
  * (INCOMPLETE), never as a pass.
+ *
+ * Post-sol secondary: the sampler spawns under the SAME sanitized child
+ * environment every other Canary process gets (allowlist, no inherited
+ * NODE_OPTIONS / npm_config_*). Before this, it inherited the verifier's
+ * full process environment: a poisoned NODE_OPTIONS (or any npm-steering
+ * var) in the verifying shell could spoof or crash the very measurement
+ * that decides host-exactness — the fingerprint must describe the RUNTIME,
+ * not the shell that invoked us.
  */
 export function actualHostFingerprint(): HostFingerprint {
-  const npmCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  const nodeDir = path.dirname(process.execPath);
+  const npmCli = path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
   const npmVersion = execFileSync(process.execPath, [npmCli, '--version'], {
-    encoding: 'utf8', shell: false, timeout: 60_000,
+    encoding: 'utf8', shell: false, timeout: 60_000, windowsHide: true,
+    env: sanitizedEnv({ ws: { root: os.tmpdir(), fixture: process.cwd() }, nodeDir }),
   }).trim();
   if (!npmVersion) throw new Error('npm --version produced empty output');
   return { platform: process.platform, arch: process.arch, nodeVersion: process.version, npmVersion };
@@ -107,8 +118,8 @@ const fpEq = (a: HostFingerprint, b: HostFingerprint): boolean =>
  * Round-3 blocker 3: bind the EVIDENCE's claimed environment to reality.
  * A bundle recorded on machine X can only be digest-verified on machine X;
  * when the two disagree, every host-bound claim (normalized hashes above all)
- * is unverifiable HERE — surfaced as an explicit note (report: UNVERIFIED)
- * instead of a silent VERIFIED banner.
+ * is unverifiable HERE — surfaced as an explicit note (report: NOT SELF-CONSISTENT)
+ * instead of a silent self-consistency banner.
  */
 export function environmentAttestationIssues(bundle: EvidenceBundle, runtime: HostFingerprint): string[] {
   const e = bundle.environment;

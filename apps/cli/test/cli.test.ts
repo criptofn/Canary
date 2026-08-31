@@ -129,6 +129,13 @@ describe('audit M8 — CLI subprocess exit-code contract', () => {
     assert.ok(fs.existsSync(htmlPath), 'report.html must be written next to the evidence');
     const html = fs.readFileSync(htmlPath, 'utf8');
     assert.match(html, /CONFIRMED_REGRESSION/);
+    // post-sol F1: the local-consistency banner must not claim plain VERIFIED,
+    // and must point at prove/check for committed-proof agreement:
+    assert.ok(!html.includes('VERIFIED'), `report banner overstated: ${html.slice(0, 600)}`);
+    assert.match(html, /SELF-CONSISTENT/);
+    assert.match(html, /committed proof/i);
+    assert.match(render.stdout, /SELF-CONSISTENT/);
+    assert.ok(!render.stdout.includes('VERIFIED'), render.stdout);
   });
 
   it('audit F12: report with NO argument defaults to the latest run and renders bundle-persisted failing identities', async () => {

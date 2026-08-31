@@ -20,17 +20,37 @@ function esc(s: unknown): string {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
 }
 
-export type VerificationStatus = 'VERIFIED' | 'UNVERIFIED';
+/**
+ * Post-sol F1 (confirmed independently by GLM and Sol): `report` checks the
+ * evidence against the ARTIFACTS ON DISK on THIS machine — digests, byte-
+ * derived facts, run identity, retained trees, classification derivation,
+ * host attestation. It NEVER consults the committed proof expectation
+ * (`canary prove`/`canary check` do that, against a different, stronger
+ * anchor). The former status word VERIFIED read as if proof agreement had
+ * been checked, when a self-consistent-but-proof-divergent bundle could
+ * render it while `check` FAILed the same bytes. The status is therefore
+ * renamed to exactly the property evaluated: SELF-CONSISTENT /
+ * NOT SELF-CONSISTENT, with the committed-proof disclaimer stated in the
+ * banner itself in both directions. (Permanent test: proof-host.test.ts
+ * "SELF-CONSISTENT is NOT proof-agreement".)
+ */
+export type VerificationStatus = 'SELF_CONSISTENT' | 'NOT_SELF_CONSISTENT';
 export function renderHtml(
   bundle: EvidenceBundle,
   extras?: { failingTestNames?: string[] },
   verification?: { status: VerificationStatus; notes?: string[] | undefined } | undefined,
 ): string {
   const color = COLORS[bundle.classification.label] ?? '#000';
-  const vStatus = verification?.status ?? 'UNVERIFIED';
-  const vColor = vStatus === 'VERIFIED' ? '#1a7f37' : '#b91c1c';
+  const vStatus = verification?.status ?? 'NOT_SELF_CONSISTENT';
+  const positive = vStatus === 'SELF_CONSISTENT';
+  const vColor = positive ? '#1a7f37' : '#b91c1c';
   const vBanner = `<div style="padding:.5rem .75rem;border-radius:6px;color:#fff;background:${vColor};font-weight:700">
-   ARTIFACT VERIFICATION: ${esc(vStatus)}${vStatus === 'UNVERIFIED' ? ' — the on-disk artifacts and bytes backing this bundle were NOT (fully) verified; do not treat this report as trusted' : ''}</div>` +
+   ARTIFACT SELF-CONSISTENCY (THIS MACHINE): ${positive ? 'SELF-CONSISTENT' : 'NOT SELF-CONSISTENT'}</div>` +
+    `<div style="color:#6b7280;font-size:.85rem;margin:.35rem 0">
+   ${positive
+      ? 'Every byte-, identity-, tree- and derivation-level check of this bundle against the artifacts on this machine holds. This is NOT a statement that the bundle agrees with the committed proof expectation — that comparison is only ever made by <code>canary prove</code> / <code>canary check</code>.'
+      : 'The on-disk artifacts and bytes backing this bundle were NOT (fully) self-consistent; do not treat this report as trusted. (Committed-proof agreement is checked only by <code>canary prove</code> / <code>canary check</code>.)'
+    }</div>` +
     (verification?.notes?.length
       ? `<ul style="color:#b91c1c">${verification.notes.map((n) => `<li><code>${esc(n)}</code></li>`).join('')}</ul>`
       : '');

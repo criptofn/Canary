@@ -13,7 +13,10 @@
  *             2 other classification / infra / proof INCOMPLETE — host-exact
  *               assertions could not be verified because this runtime is not
  *               the committed proof host (round-3 B3; never a PASS pretense)
- *             3 misuse / refused bundle / UNVERIFIED report
+ *             3 misuse / refused bundle / NOT-SELF-CONSISTENT report
+ *               (report's exit 0 means the evidence is self-consistent with
+ *               the local artifacts — post-sol F1: it does NOT mean the
+ *               committed proof was consulted; only prove/check do that)
  */
 
 import fs from 'node:fs';
@@ -40,9 +43,10 @@ usage:
   canary prove <spec.json> [proof.json]
   canary check <spec.json> [proof.json]     assert last run's evidence (no re-run)
   canary report [evidence.json] [out.html]  (defaults: latest run's evidence; sibling report.html)
-                                          (VERIFIED requires byte + identity + tree +
-                                          derivation checks ON THIS MACHINE; else
-                                          UNVERIFIED, exit 3)
+                                          (SELF-CONSISTENT requires byte + identity + tree +
+                                          derivation checks ON THIS MACHINE — NOT a committed-
+                                          proof comparison; that is prove/check. exit 0 on
+                                          self-consistency, else NOT SELF-CONSISTENT, exit 3)
   canary version`);
   process.exit(3);
 }
@@ -214,12 +218,12 @@ function cmdReport(evidencePath: string | undefined, outPath?: string): number {
   }
   // Audit B4: a report must not look more trustworthy than its evidence. Try to
   // verify the bundle against the on-disk artifacts (digests + byte-derived
-  // facts); if that is not fully possible, RENDER BUT LABEL UNVERIFIED.
+  // facts); if that is not fully possible, RENDER BUT LABEL NOT SELF-CONSISTENT.
   const artifactsDir = path.dirname(resolved);
   // Round-3 blocker 3: normalized digests are machine-local. A report opened
   // on a machine that is not the machine the evidence claims to have run on
   // cannot attest those digests — and an evidence block whose claim does not
-  // match reality is itself the forgery tell. Either way: UNVERIFIED note,
+  // match reality is itself the forgery tell. Either way: a NOT-SELF-CONSISTENT note,
   // decided by the ACTUAL runtime, never by the bundle's own metadata.
   let hostNotes: string[];
   try {
@@ -232,25 +236,29 @@ function cmdReport(evidencePath: string | undefined, outPath?: string): number {
     ...verifyArtifactSemantics(artifactsDir, bundle),
     // Round-3 B4: run identity/tarball bytes and the classification derivation
     // are checked here too — a report must not render resealed release facts
-    // as VERIFIED. (argv/envKeys need the committed spec, which report has
+    // as self-consistent. (argv/envKeys need the committed spec, which report has
     // no handle on; those remain prove/check-only host-bound assertions.)
     ...verifyRunIdentity(artifactsDir, bundle),
     ...verifyClassificationDerivation(artifactsDir, bundle),
-    // Round-3 B6: tree facts are only VERIFIED if the independent snapshot
+    // Round-3 B6: tree facts are only counted self-consistent when the independent snapshot
     // re-derivation also holds; without retained tree artifacts the report
-    // says UNVERIFIED rather than rendering tree claims as confirmed.
+    // says NOT SELF-CONSISTENT rather than rendering tree claims as confirmed.
     ...verifyTreeSnapshots(bundle, artifactsDir),
     ...hostNotes,
   ];
-  const verified = notes.length === 0;
+  const selfConsistent = notes.length === 0;
   const html = renderHtml(bundle, undefined, {
-    status: verified ? 'VERIFIED' : 'UNVERIFIED',
-    notes: verified ? undefined : notes.slice(0, 12),
+    status: selfConsistent ? 'SELF_CONSISTENT' : 'NOT_SELF_CONSISTENT',
+    notes: selfConsistent ? undefined : notes.slice(0, 12),
   });
   const target = outPath ?? path.join(artifactsDir, 'report.html');
   fs.writeFileSync(target, html, 'utf8');
-  console.log(`report: ${target} (${verified ? 'VERIFIED against artifacts' : 'UNVERIFIED — see banner'})`);
-  return verified ? 0 : 3;
+  // post-sol F1: report verifies AGAINST THE LOCAL ARTIFACTS ONLY; the
+  // committed-proof comparison belongs to prove/check and is never implied.
+  console.log(`report: ${target} (${selfConsistent
+    ? 'SELF-CONSISTENT on local artifacts — committed proof NOT compared (use canary check)'
+    : 'NOT SELF-CONSISTENT — see banner'})`);
+  return selfConsistent ? 0 : 3;
 }
 
 async function main(argv: string[]): Promise<number> {

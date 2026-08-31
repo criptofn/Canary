@@ -67,3 +67,33 @@ describe('renderHtml', () => {
     assert.ok(!/Failing downstream tests/.test(h));
   });
 });
+
+// ---------------------------------------------------------------------------
+// POST-SOL F1 (GLM + Sol, independently): `report` verifies the evidence
+// against the artifacts ON DISK — it never compares anything against the
+// COMMITTED PROOF. The old banner word "VERIFIED" overstated that property
+// (a self-consistent but proof-divergent bundle read VERIFIED while `check`
+// FAILed on the same bytes). The banner must state the NARROWER property.
+// ---------------------------------------------------------------------------
+describe('post-sol F1 — the verification banner says SELF-CONSISTENT, not VERIFIED', () => {
+  it('a fully local-consistent render is labeled SELF-CONSISTENT and disclaims the committed proof', () => {
+    const h = renderHtml(bundle, undefined, { status: 'SELF_CONSISTENT' });
+    assert.match(h, /SELF-CONSISTENT/);
+    assert.match(h, /committed proof/i);
+    assert.match(h, /canary (prove|check)/i);
+    // the overstating word must be entirely gone from the positive render:
+    assert.ok(!h.includes('VERIFIED'), 'no bare VERIFIED may remain in a self-consistency banner');
+  });
+
+  it('a failing consistency render is labeled NOT SELF-CONSISTENT and still warns', () => {
+    const h = renderHtml(bundle, undefined, { status: 'NOT_SELF_CONSISTENT', notes: ['something diverged'] });
+    assert.match(h, /NOT SELF-CONSISTENT/);
+    assert.match(h, /do not treat this report as trusted/i);
+    assert.match(h, /something diverged/);
+  });
+
+  it('no verification argument at all renders NOT SELF-CONSISTENT (absence of checking is not success)', () => {
+    const h = renderHtml(bundle);
+    assert.match(h, /NOT SELF-CONSISTENT/);
+  });
+});

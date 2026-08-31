@@ -177,6 +177,37 @@ describe('round-3 B3 — the proof host is the ACTUAL runtime, never the evidenc
     assert.ok(environmentAttestationIssues(bundle, foreign).length === 1);
   });
 
+  it('post-sol F1 — SELF-CONSISTENT is NOT proof-agreement: a bundle fully consistent on this machine can still FAIL check against a diverged committed proof', async () => {
+    const { bundle, artifactsDir, proof, spec } = await realRun();
+    // The bundle is honest: every report-layer check (digests, bytes, run
+    // identity, tree snapshots, classification derivation, host attestation)
+    // is silent here, on the recording machine.
+    const reportNotes = [
+      ...verifyArtifacts(artifactsDir, bundle),
+      ...verifyArtifactSemantics(artifactsDir, bundle),
+      ...verifyRunIdentity(artifactsDir, bundle),
+      ...verifyClassificationDerivation(artifactsDir, bundle),
+      ...verifyTreeSnapshots(bundle, artifactsDir),
+      ...environmentAttestationIssues(bundle, RUNTIME),
+    ];
+    assert.deepEqual(reportNotes, [], 'pristine evidence must be self-consistent on this machine');
+    // Yet a committed proof that pins a DIFFERENT expected property must FAIL
+    // — proof agreement is a separate, stronger check report never performed.
+    const divergedProof: ProofExpectation = structuredClone(proof);
+    divergedProof.expected.classification = 'PASS';
+    const readLog = (arm: 'baseline' | 'candidate'): string => {
+      const p = path.join(artifactsDir, `${arm}-1.stdout.log`);
+      return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+    };
+    const checks = assertProof(bundle, divergedProof, {
+      candidateStdout: readLog('candidate'), baselineStdout: readLog('baseline'),
+    }, RUNTIME);
+    checks.push(...hostBoundEvidenceChecks(bundle, divergedProof, spec, artifactsDir, RUNTIME));
+    const v = proofVerdict(checks);
+    assert.equal(v.status, 'FAIL', 'self-consistency must not imply proof agreement');
+    assert.ok(v.failed.some((f) => f.name === 'classification'), JSON.stringify(v.failed.map((f) => f.name)));
+  });
+
   it('a lying proof file cannot flip the verdict either: proofHost=foreign while running here still skips (evidence-agnostic)', async () => {
     const { bundle, artifactsDir, proof, spec } = await realRun();
     const badProof: ProofExpectation = { ...proof, proofHost: { platform: 'os2', arch: 'ppc', nodeVersion: 'v1', npmVersion: '1' } };

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
 
-import { verifyArtifacts, assertProof, proofVerdict, environmentAttestationIssues, type ProofExpectation } from '../src/prove.js';
+import { verifyArtifacts, assertProof, proofVerdict, environmentAttestationIssues, actualHostFingerprint, type ProofExpectation } from '../src/prove.js';
 import { sha256hex } from '@canary-rn/hashing';
 import type { EvidenceBundle, RoundEvidence } from '@canary-rn/evidence-schema';
 
@@ -475,6 +475,30 @@ describe('round-3 B4-D — exact failing-identity set equality (proof vs candida
       const c = checks.find((x) => x.name === 'proof schema')!;
       assert.equal(c.ok, false, `schema=${String(bad)} must not certify`);
       assert.equal(c.skipped, undefined, 'the version pin is host-independent');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST-SOL SECONDARY — the host fingerprint sampler must describe the
+// RUNTIME, not the shell that invoked it. Before this, actualHostFingerprint
+// spawned `npm --version` WITHOUT a sanitized env, so an inherited
+// NODE_OPTIONS (or any npm-steering var) in the verifying process could
+// crash or spoof the measurement that decides host-exactness. Probe-verified
+// red: a poisoned NODE_OPTIONS made the pre-fix sampler throw.
+// ---------------------------------------------------------------------------
+describe('post-sol secondary — host sampling is immune to the verifier process environment', () => {
+  it('a poisoned NODE_OPTIONS in the verifying process does NOT crash or steer the fingerprint', () => {
+    const saved = process.env['NODE_OPTIONS'];
+    process.env['NODE_OPTIONS'] = '--invalid-option-canary-probe';
+    try {
+      const fp = actualHostFingerprint();
+      assert.match(fp.npmVersion, /^\d+\.\d+\.\d+/, 'must still sample a real npm version');
+      assert.equal(fp.nodeVersion, process.version);
+      assert.equal(fp.platform, process.platform);
+    } finally {
+      if (saved === undefined) delete process.env['NODE_OPTIONS'];
+      else process.env['NODE_OPTIONS'] = saved;
     }
   });
 });
