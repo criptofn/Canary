@@ -70,21 +70,39 @@ be a lie; here is the real picture.
   postinstall|prepare`) and project rc files (`.npmrc`/`.yarnrc`/`.yarnrc.yml`,
   matched case-INSENSITIVELY per audit F7, scanned recursively per red-team
   F10) in the pinned source abort the run BEFORE anything external executes.
-- **Isolation-flag injection that cannot be dodged.** `--ignore-scripts`,
-  cache/userconfig redirection and pinned registry are appended to every
-  install-family command; the argv subcommand detector (audit F8) rejects
-  short options, isolation-conflicting flags in any position, unverifiable bare
-  options, and `exec`/`dlx`/`shell`/`explore` subcommands rather than letting
-  them silently shift detection past the guards.
+- **Isolation-flag injection that cannot be dodged** (audit F8→B5). Canary
+  OWNS the package-manager surface via a CLOSED ALLOWLIST, not an alias
+  blacklist: only the `$npm`/`$yarn` tokens may run a package manager (raw
+  `npm`/`npm-cli.js`/`$bin:npm` forms are rejected), the subcommand must be on
+  an allowlist (unknown aliases and `exec`/`dlx`/`shell`/`publish` are refused
+  rather than run unpolicied), and install-family isolation flags
+  (`--ignore-scripts`, cache/userconfig/registry pins) are spliced in
+  EFFECTIVE position right after the subcommand. A user `--` in an install is
+  rejected (it used to neutralise end-appended flags); short options and
+  isolation-conflicting flags in any position are rejected.
 - **Content pinning.** Repo content arrives only as a tarball fetched by a
   full 40-hex commit SHA (codeload), never a branch, and its digest is recorded
   in the bundle.
 - **Classification.** Deterministic function of run facts; the LLM has no path
   to it (see docs/PLAN.md §6/§8). Tree drift outside the dependency subtree
-  *downgrades* the verdict to INCONCLUSIVE (rule 9) — enforced, not advisory.
+  *downgrades* the verdict to INCONCLUSIVE (rule 9); a non-VALID tree
+  OBSERVATION (empty/partial/missing the studied dependency) downgrades it too
+  (rule 10, audit B6) — enforced, not advisory. Zero-execution / no-summary /
+  infra-at-exit-0 rounds can never yield PASS (audit B2).
+- **Evidence integrity** (audit B3/B4). Artifact filenames are derived from a
+  round's arm/round and must equal the canonical name, realpath-confined to the
+  run dir (no `../`/absolute/cross-round swaps); a manifest digest makes any
+  single-field rewrite without full recompute detectable (integrity, NOT
+  authenticated provenance — no trust root); `prove`/`check`/`report` re-derive
+  each round's summary, counts and failing-test identities FROM the artifact
+  BYTES, so the bundle cannot misdescribe what actually ran. `report` stamps
+  VERIFIED / UNVERIFIED and refuses unverified evidence as if it were trusted.
 - **Process containment.** Timeout kills the whole process tree; AND on every
   child exit (normal or killed) a descendant sweep runs (audit F5) so a runner
   helper that outlived its parent cannot leak ports/files into a later round.
+  The sweep follows stale-PPID lineage on Windows and group- AND session-level
+  membership on POSIX (audit S1), so a `setpgid()`-escapee within the child's
+  session is still caught.
 
 ### Tier B — structural convention (strong in practice, NOT OS-enforced)
 
@@ -175,8 +193,9 @@ F1–F15 recorded in docs/AUDIT-REMEDIATION-2026-08-30.md):
 ## Independent audit remediation (Codex audit 2026-08-30, findings F1–F15)
 
 Full ledger with root causes, execution evidence and per-milestone commits:
-**docs/AUDIT-REMEDIATION-2026-08-30.md**. Headline outcomes, each covered by
-the current 133-test suite:
+**docs/AUDIT-REMEDIATION-2026-08-30.md** (round 1) and
+**docs/AUDIT-REMEDIATION-ROUND2-2026-08-31.md** (round 2). Headline outcomes,
+each covered by the current 196-test suite:
 
 - **F1/F2/F13 — classification correctness.** A passing-summary-then-nonzero-
   exit can no longer produce CONFIRMED_REGRESSION (conservative INFRA);
@@ -201,11 +220,40 @@ the current 133-test suite:
 - **F14 — this document**: guarantees tiered (A enforced / B convention /
   C absent); no fs-jail or network-allowlist claims anywhere.
 
+### Round-2 Codex re-audit (B1–B6, 2026-08-31)
+
+A re-audit of `f823b98` found six release blockers where the round-1 fixes were
+real but incomplete; each is now fixed with reproduction + regression +
+adversarial + mutation evidence (ledger: AUDIT-REMEDIATION-ROUND2-2026-08-31.md):
+
+- **B1 — suite-qualified identity.** Failing-test identities now carry the full
+  describe path, so two same-leaf-title failures in different suites stay
+  distinct (the real Axios run has three; they were collapsed to two). Removes a
+  false-CONFIRMED vector in rule-8 profile comparison.
+- **B2 — execution validity.** Zero-test runs, no-runner-summary runs, and
+  infra-shaped output at exit 0 can never become PASS (recognized at ANY exit
+  code, without flagging benign prose that merely mentions an errno code).
+- **B3 — artifact confinement + ownership.** Artifact filenames are derived from
+  each round's arm/round (never the claimed `logPath`), which must equal the
+  canonical name; every file is realpath-confined to the artifacts dir. Kills
+  `../`/absolute traversal, cross-round and cross-type swaps.
+- **B4 — evidence bound to bytes.** A manifest digest (content integrity, NOT
+  authenticated provenance) plus per-round re-derivation of summary/counts/
+  identities FROM the artifact bytes, plus assertProof pinning identity/schema/
+  repo/commit/runtime, plus report verifying-or-labelling UNVERIFIED. The
+  bundle can no longer lie about what its bytes contain.
+- **B5 — package-manager closed allowlist.** Raw `npm`/`npm-cli.js`/`$bin:npm`
+  forms and unknown subcommands are rejected; install-family isolation flags are
+  spliced into effective position and a user `--` in an install is refused.
+- **B6 — tree observation completeness.** EMPTY/partial dependency-tree
+  observations no longer "prove" confinement; only a VALID observation (parsed,
+  non-empty, contains the studied dependency) supports a trustful label.
+
 ## Platform status (audit F15 — no unproven cross-platform claims)
 
-- **Windows (win32/x64, Node 26):** the fully executed platform — entire 133-
+- **Windows (win32/x64, Node 26):** the fully executed platform — entire 196-
   test suite, including real-subprocess lifecycle/env tests, and the golden
-  Axios proof (designated proof host).
+  Axios proof (24 assertions, designated proof host).
 - **Linux (POSIX paths):** the offline test suite, POSIX branches of the
   process sweep and env observation, and the pipeline's tar path are WRITTEN
   but have NOT yet been executed on Linux (no Linux host in the remediation

@@ -42,10 +42,11 @@ failing tests           →  "can pass headers to match to a handler" (AxiosHead
 Reproduce it:
 
 ```bash
-npm install
+npm ci            # lockfile-exact, reproducible install
 npm run build
-npm test          # 133 tests across 13 packages (offline)
-npm run prove     # fresh end-to-end run, asserts against committed expectations
+npm test          # 196 tests across 13 packages (offline; 1 skips off-Linux)
+npm run prove     # fresh end-to-end run, asserts 24 committed expectations
+npm run report    # no args: renders the latest run's evidence (artifact-verified)
 ```
 
 Also demonstrated by this fixture: **Canary does not manufacture
@@ -79,16 +80,30 @@ Every downstream repository is **untrusted**. Enforced by
   `NODE_OPTIONS`, SSH agents, user npm auth are *structurally invisible*
   to external processes (deny-by-omission); Windows session-identity vars the
   OS loader injects are *neutralized* so observed == declared (proven by test)
-- `--ignore-scripts` on every install; disposable workspace under
-  `.canary-runs/`; caches and HOME redirected inside it
+- `--ignore-scripts` on every install (flags spliced in *effective position*,
+  and package-manager commands go through a **closed subcommand allowlist** —
+  raw `npm`/`npm-cli.js` forms and `--`-bypass shapes are rejected, audit B5);
+  disposable workspace under `.canary-runs/`; caches and HOME redirected inside
+- **evidence is bound to reality, not just self-consistent** (audit B1–B4):
+  failing-test identities are suite-qualified (no leaf-title collapse); a
+  zero-test / no-summary / infra-at-exit-0 run can never become PASS; every
+  artifact path is derived from its round (traversal/ownership rejected) and
+  confined to the run dir; a manifest digest makes single-field rewrites
+  detectable; and `prove`/`check`/`report` re-derive each round's summary,
+  counts and failing-test identities **from the artifact bytes**, so the
+  bundle cannot lie about what actually ran
 - no publish, no push, no external auth, ever
 - if a *Tier-A (code-enforced)* bound can't hold: `INFRASTRUCTURE_FAILURE`,
   before executing
 
 **What v0.1 does NOT claim** (read the tiered section): there is no filesystem
 jail and no network egress allowlist — a fixture's own test code runs with the
-operator's OS permissions. Isolation is real at the process/environment
-boundary and a deliberate best-effort convention beyond it.
+operator's OS permissions. The evidence manifest is tamper-*evidence* /
+cross-field integrity, **not authenticated provenance** (no signing key /
+external trust root); a forger who controls the whole file recomputes it, which
+is exactly why the byte re-derivation and committed proof do the real binding.
+Isolation is real at the process/environment boundary and a deliberate
+best-effort convention beyond it.
 
 ## Layout
 
