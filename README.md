@@ -31,8 +31,9 @@ What Canary reproduces on demand, from scratch each time:
 ```
 baseline  axios 0.27.2  →  128 passing, 0 failing        (exit 0) ×2
 candidate axios 1.0.0   →  125 passing, 3 failing        (exit 3) ×3 unanimous
-tree drift              →  confined to axios subtree     (2 entries, verified)
-normalized output       →  byte-identical per arm, across rounds AND runs
+tree drift              →  confined to axios subtree     (2 entries, verified; re-derived from retained npm-ls snapshots)
+normalized output       →  byte-identical per arm, across rounds AND runs ON THE PROOF HOST (host-exact assertions
+                           are gated on the actual runtime; off-host the proof honestly reports INCOMPLETE)
 classification          →  CONFIRMED_REGRESSION (rule 5) — pure function, no LLM
 failing tests           →  "can pass headers to match to a handler" (AxiosHeaders),
                            "handles baseURL correctly" (URL resolution) — genuine
@@ -44,9 +45,14 @@ Reproduce it:
 ```bash
 npm ci            # lockfile-exact, reproducible install
 npm run build
-npm test          # 196 tests across 13 packages (offline; 1 skips off-Linux)
-npm run prove     # fresh end-to-end run, asserts 24 committed expectations
-npm run report    # no args: renders the latest run's evidence (artifact-verified)
+npm test          # 320 tests / 45 suites (offline; 1 skip when the OS denies symlink creation)
+npm run prove     # fresh end-to-end run; PASS requires the committed proof host (36 assertions
+                  # executed, zero skips). On any other runtime it honestly exits 2 (INCOMPLETE):
+                  # the 22 portable assertions must all hold, the 6 host-exact ones are skipped,
+                  # never silently passed.
+npm run report    # no args: renders the latest run's evidence (VERIFIED requires byte +
+                  # run-identity + tree-snapshot + classification re-derivation checks to pass
+                  # on THIS machine; otherwise the report says UNVERIFIED)
 ```
 
 Also demonstrated by this fixture: **Canary does not manufacture
@@ -63,8 +69,11 @@ node apps/cli/dist/src/main.js check  <spec.json>   # assert last run's evidence
 node apps/cli/dist/src/main.js report [evidence.json] [out.html]  # defaults: latest run
 ```
 
-Exit codes: `0` proof holds / regression confirmed · `1` PASS / proof failed ·
-`2` other classification or infra · `3` misuse.
+Exit codes: `0` proof holds fully (on the committed proof host) / regression
+confirmed · `1` a proof assertion diverged (or `run` classified PASS) ·
+`2` other classification / infra / proof INCOMPLETE (this runtime is not the
+proof host — host-exact assertions unverifiable, never a PASS pretense) ·
+`3` misuse, refused bundle, or an UNVERIFIED report.
 
 ## Security contract — enforced at the process/env boundary, tiered elsewhere
 

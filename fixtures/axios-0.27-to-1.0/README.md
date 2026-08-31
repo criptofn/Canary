@@ -45,11 +45,19 @@ baseline ×2 → swap → candidate ×3) produced:
 - identical classification: `CONFIRMED_REGRESSION` (rule 5)
 - tree drift **confined** to `axios 0.27.2→1.0.0` + new transitive `proxy-from-env` (2 entries, verified)
 - byte-identical **normalized** stdout per arm, across rounds AND across runs
-- same failing downstream tests every time:
-  `can pass headers to match to a handler` (headers object → AxiosHeaders
-  change) and `handles baseURL correctly` ×2 (baseURL resolution timing change)
+  ON THE PROOF HOST (the proof-host gate is decided by the actual runtime —
+  round-3 B3; off-host those assertions skip and the verdict is INCOMPLETE)
+- same failing downstream tests every time, as THREE suite-qualified
+  identities (audit B1: `handles baseURL correctly` appears in two different
+  suites and must stay distinct):
+  `MockAdapter basics > can pass headers to match to a handler`,
+  `passThrough tests (requires Node) > handles baseURL correctly`,
+  `onNoMatch=passthrough option tests (requires Node) > handles baseURL correctly`
 - committed expectation file: `specs/axios-mock-adapter.proof.json`
-- machine check: `npm run prove` (CLI: `canary prove`) → 16/16 assertions
+- machine check: `npm run prove` (CLI: `canary prove`) → 36/36 assertions with
+  ZERO skips on the designated proof host (win32/x64, node v26.3.0, npm
+  11.16.0); on other hosts every portable assertion (22) still executes and
+  the run reports INCOMPLETE (exit 2) instead of claiming PASS
 - dependency versions **attested at runtime** from the fixture's own module
   resolver (both arms), nested copies counted and recorded in the bundle
 - sample evidence artifacts: not committed (they are generated run outputs

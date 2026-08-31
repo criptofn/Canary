@@ -193,9 +193,10 @@ F1–F15 recorded in docs/AUDIT-REMEDIATION-2026-08-30.md):
 ## Independent audit remediation (Codex audit 2026-08-30, findings F1–F15)
 
 Full ledger with root causes, execution evidence and per-milestone commits:
-**docs/AUDIT-REMEDIATION-2026-08-30.md** (round 1) and
-**docs/AUDIT-REMEDIATION-ROUND2-2026-08-31.md** (round 2). Headline outcomes,
-each covered by the current 196-test suite:
+**docs/AUDIT-REMEDIATION-2026-08-30.md** (round 1),
+**docs/AUDIT-REMEDIATION-ROUND2-2026-08-31.md** (round 2) and
+**docs/AUDIT-REMEDIATION-ROUND3-2026-08-31.md** (round 3 + internal adversarial
+self-review). Headline outcomes, each covered by the current 320-test suite:
 
 - **F1/F2/F13 — classification correctness.** A passing-summary-then-nonzero-
   exit can no longer produce CONFIRMED_REGRESSION (conservative INFRA);
@@ -213,8 +214,15 @@ each covered by the current 196-test suite:
   isolation-flag injection).
 - **F9/F10 — confinement guard is pure + tested end-to-end; scoped-drift keys
   match.**
-- **F11 — CI runs the real proof assertions** (`run` + `check`), with only the
-  two hash-exact assertions gated by a structured proofHost fingerprint.
+- **F11 — CI runs the real proof assertions** (`run` + `check`). The CI
+  golden-proof job is the DESIGNATED proof host (exact pins: node 26.3.0 +
+  npm 11.16.0 on windows-latest), so every assertion executes there. (Updated
+  by round-3 B3: the host-exact set is now SIX assertions — the two
+  normalized-hash pairs, the evidence-environment↔proof-host binding, the
+  runtime version match, and the per-round argv/envKeys re-derivations — and
+  the gate reads the ACTUAL runtime, never the evidence's own metadata; off
+  the proof host they report SKIPPED and the verdict downgrades to INCOMPLETE
+  (exit 2), never PASS.)
 - **F12 — `npm run report` works**; the report renders failing identities from
   the bundle itself.
 - **F14 — this document**: guarantees tiered (A enforced / B convention /
@@ -249,11 +257,69 @@ adversarial + mutation evidence (ledger: AUDIT-REMEDIATION-ROUND2-2026-08-31.md)
   observations no longer "prove" confinement; only a VALID observation (parsed,
   non-empty, contains the studied dependency) supports a trustful label.
 
+### Round-3 Codex re-audit (B1–B6 + secondaries, 2026-08-31)
+
+Ledger: **docs/AUDIT-REMEDIATION-ROUND3-2026-08-31.md**. Headline outcomes:
+
+- **R3-B1 — identity coverage.** A failing round must fully account for its
+  reported failure count with parsed identities (`identityCoverage`); partial
+  parses cap every trustful label at INCONCLUSIVE (classifier rule 11 + an
+  independent validator gate). Root-level mocha failures (`1) title:`) now
+  yield real identities instead of collapsing to empty sets.
+- **R3-B2 — pending is not execution.** "0 passing / 0 failing / N pending"
+  can never PASS or CONFIRM (executed-total = passing+failing only); a summary
+  with NO machine-readable counts proves nothing either. Hard infra patterns
+  are line-scoped so a PASSING test quoting "Cannot find module" no longer
+  false-INFRA's a whole round.
+- **R3-B3 — host-exactness is reality, not paper.** The proof-host gate is
+  decided by the ACTUAL verifying runtime (`actualHostFingerprint()`), never
+  by the evidence's mutable environment block; resealed host metadata now
+  FAILS the environment-binding assertion instead of skipping checks to a
+  fake PASS, and any skipped host-exact assertion downgrades the verdict to
+  INCOMPLETE (exit 2).
+- **R3-B4 — release-critical fields bound to independent sources.** runId ↔
+  the physical workspace directory; tarballSha256 ↔ the retained
+  `fixture.tgz` bytes AND a required proof pin; per-round argv ↔ the committed
+  spec re-expanded by the trusted policy code (proof host); envKeys ↔ the
+  sanitizer policy re-evaluated (proof host); the full classification tuple
+  (label/rule/REASON/reproductionCount) ↔ byte re-derivation + retained tree
+  snapshots; failing identities asserted as an EXACT SET, not membership.
+- **R3-B5 — wrapper-mediated execution closed.** Spec executables outside the
+  literal allowlist (`node`; token forms) are refused fail-closed —
+  `cmd /c npm install …`, `powershell`, `env`, `sh`, `xargs`, and
+  pnpm/bun/corepack/volta frontends cannot reach a package manager with zero
+  isolation flags.
+- **R3-B6 — tree facts are now ANCHORED.** Each arm's `npm ls --json` raw
+  stdout/stderr + canonical flatten are retained as arm-name-derived artifacts;
+  an independent iterative re-flatten (different code path) re-derives hashes,
+  copy counts, status, anomalies and drift; ANY observation anomaly caps the
+  status at INCOMPLETE; a trustful verdict requires retained snapshots with
+  EMPTY anomaly lists; and npm ≥ 11.19's empty-`{}` rendering of
+  NOT-installed OPTIONAL deps is recognized as a complete observation (token-
+  anchored `problems` check keeps genuinely-missing deps failing closed).
+- **Secondaries:** post-summary fatal-crash signatures (`crashSignal`) and
+  failed containment sweeps (`sweepFailed`) now invalidate a round via rule 1;
+  fetch/extraction failures are INFRASTRUCTURE (exit 2), not misuse (exit 3);
+  subtree containment uses full-path-segment semantics.
+
+**Honest integrity limits after round 3.** `sweepFailed` (and `killedByTimeout`
+beyond its exit-code correlation) are KERNEL observations the artifact bytes
+cannot carry — they are recorded, consumed by the decision table, and bound to
+the manifest, but not independently byte-re-derivable; a total forger who
+re-derives every bound field can still produce a self-consistent fabricated
+bundle. That residual is tamper-evidence + committed-proof anchoring, NOT
+authenticated provenance — restated here rather than hidden.
+
 ## Platform status (audit F15 — no unproven cross-platform claims)
 
-- **Windows (win32/x64, Node 26):** the fully executed platform — entire 196-
-  test suite, including real-subprocess lifecycle/env tests, and the golden
-  Axios proof (24 assertions, designated proof host).
+- **Windows (win32/x64, Node 26):** the fully executed platform — entire
+  320-test suite (45 suites, 1 platform-conditional skip), including
+  real-subprocess lifecycle/env tests, and the golden Axios proof — 36
+  assertions executed with ZERO skips on the designated proof host
+  (win32/x64/node v26.3.0/npm 11.16.0, reproduced twice in-session), 22
+  portable assertions executing on drifted hosts (verified on node v26.7.0 /
+  npm 11.19.0, which additionally exercises the npm-11.19 tree-representation
+  compatibility path end-to-end).
 - **Linux (POSIX paths):** the offline test suite, POSIX branches of the
   process sweep and env observation, and the pipeline's tar path are WRITTEN
   but have NOT yet been executed on Linux (no Linux host in the remediation

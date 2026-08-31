@@ -290,9 +290,17 @@ and `run-experiment.mjs` (the M0 ladder harnesses), promoted into
 
 Known deliberate limits (v0.1):
 - Hash-exact proof is machine-local (path separators in stack traces). Resolved
-  by audit-F11: the two normalized-hash assertions are gated on a structured
-  `proofHost` fingerprint; off-host they report SKIPPED while all 14 portable
-  assertions run in CI (`run` + `check`). No `--portable` flag was needed.
+  by audit-F11, hardened by round-3 B3: SIX host-exact assertions (normalized
+  hashes, evidence-environment↔proof-host binding, runtime version match,
+  per-round argv/envKeys re-derivations) are gated on the ACTUAL runtime
+  matching the committed `proofHost`; off-host they report SKIPPED, every
+  portable assertion still runs (22 of them), and the verdict is INCOMPLETE
+  (exit 2) — never a PASS built on skips. The pinned CI windows job executes
+  all 36 with zero skips. No `--portable` flag was needed.
+- Round-3 ledger: docs/AUDIT-REMEDIATION-ROUND3-2026-08-31.md (blockers B1–B6,
+  secondaries, and the internal adversarial self-review N1–N10 + doc-truth
+  pass). The golden proof has never been re-cut for host drift: drifted dev
+  hosts are COMPATIBILITY evidence, not new canonical hosts.
 - Normalizer user/host rules disabled in pipeline wiring — the child env is
   sanitized with identity vars NEUTRALIZED (audit F6) so real usernames/hosts
   should not appear in fixture logs; re-enable per domain if needed.
