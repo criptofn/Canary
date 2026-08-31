@@ -20,8 +20,20 @@ function esc(s: unknown): string {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
 }
 
-export function renderHtml(bundle: EvidenceBundle, extras?: { failingTestNames?: string[] }): string {
+export type VerificationStatus = 'VERIFIED' | 'UNVERIFIED';
+export function renderHtml(
+  bundle: EvidenceBundle,
+  extras?: { failingTestNames?: string[] },
+  verification?: { status: VerificationStatus; notes?: string[] | undefined } | undefined,
+): string {
   const color = COLORS[bundle.classification.label] ?? '#000';
+  const vStatus = verification?.status ?? 'UNVERIFIED';
+  const vColor = vStatus === 'VERIFIED' ? '#1a7f37' : '#b91c1c';
+  const vBanner = `<div style="padding:.5rem .75rem;border-radius:6px;color:#fff;background:${vColor};font-weight:700">
+   ARTIFACT VERIFICATION: ${esc(vStatus)}${vStatus === 'UNVERIFIED' ? ' — the on-disk artifacts and bytes backing this bundle were NOT (fully) verified; do not treat this report as trusted' : ''}</div>` +
+    (verification?.notes?.length
+      ? `<ul style="color:#b91c1c">${verification.notes.map((n) => `<li><code>${esc(n)}</code></li>`).join('')}</ul>`
+      : '');
   const rows = bundle.rounds.map((r) => `
     <tr class="${r.arm}">
       <td>${esc(r.arm)} #${r.round}</td>
@@ -58,6 +70,7 @@ export function renderHtml(bundle: EvidenceBundle, extras?: { failingTestNames?:
  .grid b{font-weight:600;color:#374151}
  footer{margin-top:3rem;color:#6b7280;font-size:.85rem;border-top:1px solid #eee;padding-top:1rem}
 </style></head><body>
+${vBanner}
 <div class="verdict">${esc(bundle.classification.label)} — rule ${esc(bundle.classification.rule)}</div>
 <p>${esc(bundle.classification.reason)} · reproduced ${esc(bundle.classification.reproductionCount)}×</p>
 

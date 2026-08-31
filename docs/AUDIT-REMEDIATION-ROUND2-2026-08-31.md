@@ -27,7 +27,7 @@ change (script run 2026-08-31; output recorded in the session and summarized):
 | B1 | Suite-qualified canonical test identity; no leaf-title collapse; proof updated to the REAL three golden identities | FIXED @ this commit |
 | B2 | Execution-validity taxonomy: zero-test and no-summary runs can never PASS; infra-shaped output at exit 0 never PASS (without misclassifying benign prose) | FIXED @ this commit |
 | B3 | Artifact paths canonical (derived from arm/round, not trusted strings) + resolved-path containment + ownership binding | FIXED @ d5512ea |
-| B4 | Evidence bound to bytes: manifest integrity digest, per-round fact replay against artifacts, report verifies-or-labels, proof asserts schema/experimentId/repo/environment/tarball | OPEN |
+| B4 | Evidence bound to bytes: manifest integrity digest, per-round fact replay against artifacts, report verifies-or-labels, proof asserts schema/experimentId/repo/environment/tarball | FIXED @ this commit |
 | B5 | Canonical package-manager policy: closed subcommand allowlist (no alias blacklist), raw npm forms rejected, `--`-in-install rejected, isolation flags in effective position by construction | FIXED @ a4bb6cf |
 | B6 | Tree observations typed VALID/INCOMPLETE/INVALID; only VALID supports trustful labels. Principled rule: a parsed non-empty tree CONTAINING the studied dependency is VALID regardless of npm ls exit/problems (Axios has known version-invalidity); `problems` recorded, never used to downgrade | FIXED @ this commit |
 
@@ -36,10 +36,10 @@ change (script run 2026-08-31; output recorded in the session and summarized):
 | ID | Finding | Status |
 |---|---|---|
 | S1 | F10-adjacent: POSIX sweep ignores session-level lineage (setpgid-escapees within the child's session missed) | OPEN |
-| S2 | proof schema/experimentId not asserted (folds into B4) | OPEN |
+| S2 | proof schema/experimentId not asserted (folds into B4) | FIXED @ B4 commit |
 | S3 | CI/clean-room use `npm install`, not `npm ci` | OPEN |
 | S4 | README test count stale; PLAN historical claims to re-check | OPEN (final doc pass) |
-| S5 | report renders without any artifact verification (folds into B4) | OPEN |
+| S5 | report renders without any artifact verification (folds into B4) | FIXED @ B4 commit |
 
 ## Milestone log
 
@@ -140,3 +140,34 @@ INCOMPLETE/INVALID rejected, legit rule-10 accepted, fabricated rule-10
 rejected, status mandatory). Mutation: guard rule-10 branch disabled fails 2;
 validator status check disabled fails 1; restore 0. Suite 162→174 (+1 skip);
 build+typecheck clean; golden Axios proof PASS 17/17.
+
+### 2026-08-31 — B4 bind evidence to reality @ this commit
+Four layers (schema gains `integrity`; pipeline seals the manifest before
+validating):
+(a) verifyArtifactSemantics(artifactsDir, bundle): re-derives each round's
+    hasRunnerSummary/counts/failingTestNames from the RAW stdout+stderr bytes
+    (same combined concatenation + same matchers as the executor) — recorded
+    facts must equal the bytes, even if the forger recomputed the manifest.
+(b) assertProof now also pins: experiment identity, evidence schema, fetch
+    method, repository URL, commit, tree observation VALID, and (optional)
+    tarball digest + runtime platform/arch (node/npm host-gated like hashes).
+(c) manifest: integrity.manifestSha256 = sha256(canonicalJson(bundle minus
+    integrity)) — covers every field incl. round digests, so any single-field
+    rewrite without full recompute fails validateBundle. Documented as content
+    INTEGRITY/coherence, NOT authenticated provenance (no trust root; a total
+    forger recomputes it — that residual is covered by (a)+(b), not the hash).
+(d) cmdReport verifies artifacts+semantics and stamps VERIFIED / UNVERIFIED
+    (exit 3 + red banner on any mismatch); still refuses invalid bundles.
+Honest limits (documented in code + here): resealed rewrites of host-absolute
+argv, per-run runId, and the not-proven-cross-host-reproducible tarball digest
+are integrity-only (the pinned commit SHA remains the content anchor); the
+golden proof deliberately does NOT hard-pin the tarball digest.
+provenance.test.ts = the forgery matrix (17 cases): every Codex accepted-
+forgery class (runtime, repo URL, IDs, argv, env keys, tarball digest, failure
+counts, failure identities, tree data) run naive AND resealed, asserting the
+rejecting layer; +2 novel forgeries (relabel-PASS, per-round name
+disagreement). Mutation evidence (§10): disabling verifyArtifactSemantics
+fails 2 matrix tests; vacuous manifest check fails 4; restore -> 0.
+Suite 174→191 (+1 skip); build+typecheck clean; golden Axios proof PASS 24/24
+(was 17: +7 identity/provenance assertions; byte re-derivation green on real
+run data).

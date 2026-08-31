@@ -17,7 +17,7 @@ import { Recorder, roundEvidence as execRoundEvidence, type ExecResult } from '@
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
 import { diffTrees, escapePkgKey, extractFailingTestNames, parseSummaryCounts, classifyTreeObservation, dependencyInTree, type DepTree, type TreeStatus } from '@canary-rn/comparator';
 import { classify, applyConfinementGuard, type RoundFact } from '@canary-rn/classification';
-import { EVIDENCE_SCHEMA_VERSION, validateBundle, type EvidenceBundle, type RoundEvidence } from '@canary-rn/evidence-schema';
+import { EVIDENCE_SCHEMA_VERSION, validateBundle, integrityFor, type EvidenceBundle, type RoundEvidence } from '@canary-rn/evidence-schema';
 import { sha256hex } from '@canary-rn/hashing';
 
 const NODE = process.execPath;
@@ -252,6 +252,11 @@ export async function runExperiment(
       reproductionCount: cls.details.candidateRuns,
     },
   };
+
+  // Audit B4: bind every release-critical claim (and the per-round artifact
+  // digests, which verifyArtifacts ties to the on-disk bytes) into a single
+  // manifest digest, computed BEFORE validation so the bundle is self-verifying.
+  bundle.integrity = integrityFor(bundle);
 
   const bundleIssues = validateBundle(bundle);
   fs.writeFileSync(path.join(ART, 'evidence.json'), JSON.stringify(bundle, null, 2));

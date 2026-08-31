@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { validateBundle, EVIDENCE_SCHEMA_VERSION } from '../src/index.js';
+import { validateBundle, integrityFor, EVIDENCE_SCHEMA_VERSION } from '../src/index.js';
 
 const H = 'a'.repeat(64);
 const SHA40 = 'b8804442837556a2c7673caeb2925688991b610c';
@@ -16,7 +16,7 @@ function goodBundle(): Record<string, unknown> {
     normalizedStdoutSha256: H, normalizedStderrSha256: H,
     logPath: `${arm}-${n}.stdout.log`, argv: ['node', 'x'], envKeys: ['PATH'],
   });
-  return {
+  const b: Record<string, unknown> = {
     schemaVersion: EVIDENCE_SCHEMA_VERSION,
     runId: 'r1', createdAt: '2026-08-30T00:00:00Z', canaryVersion: '0.1.0', experimentId: 'e1',
     dependency: { package: 'axios', baselineVersion: '0.27.2', candidateVersion: '1.0.0' },
@@ -27,7 +27,16 @@ function goodBundle(): Record<string, unknown> {
     treeComparison: { baselineTreeSha256: H, candidateTreeSha256: H, driftConfinedToDependency: true, observationStatus: { baseline: 'VALID', candidate: 'VALID' }, resolvedVersions: { baseline: '0.27.2', candidate: '1.0.0' }, dependencyCopies: { baseline: 1, candidate: 2 } },
     classification: { label: 'CONFIRMED_REGRESSION', rule: 5, reason: 'ok', reproductionCount: 1 },
   };
+  b.integrity = integrityFor(b);
+  return b;
 }
+
+/** Re-seal the manifest after a mutation (tests that legitimately rewrite a
+ *  field then expect a clean validation, e.g. the rule-9/10 overrides). */
+const seal = (b: Record<string, unknown>): Record<string, unknown> => {
+  b.integrity = integrityFor(b);
+  return b;
+};
 
 describe('validateBundle', () => {
   it('accepts a well-formed bundle', () => {
@@ -134,7 +143,7 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
     const b = goodBundle();
     (b.treeComparison as Record<string, unknown>).driftConfinedToDependency = false;
     setCls(b, { label: 'INCONCLUSIVE', rule: 9 });
-    assert.deepEqual(validateBundle(b), []);
+    assert.deepEqual(validateBundle(seal(b)), []);
   });
 
   it('audit B6: rejects a trustful verdict built on a non-VALID tree observation', () => {
@@ -149,15 +158,15 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
     const b = goodBundle();
     (b.treeComparison as { observationStatus: Record<string, unknown> }).observationStatus.baseline = 'INCOMPLETE';
     setCls(b, { label: 'INCONCLUSIVE', rule: 10 });
-    assert.deepEqual(validateBundle(b), []);
+    assert.deepEqual(validateBundle(seal(b)), []);
   });
 
-  it('audit B6: rejects a FABRICATED rule-10 downgrade (observation is actually VALID)', () => {
+  it('audit B6: rejects a FABRICATED rule-10 downgrade even with a valid manifest (semantic layer alone catches it)', () => {
     const b = goodBundle(); // trees VALID, rounds give CONFIRMED rule 5
     setCls(b, { label: 'INCONCLUSIVE', rule: 10 });
-    const issues = validateBundle(b);
-    assert.ok(issues.some((e) => /contradicts its own round facts|rule-10/.test(e)),
-      `fabricated rule 10 with VALID tree must be rejected: ${issues.join('; ')}`);
+    const issues = validateBundle(seal(b)); // sealed → integrity is NOT the reason
+    assert.ok(issues.some((e) => /contradicts its own round facts/.test(e)),
+      `fabricated rule 10 with VALID tree must be rejected by re-derivation: ${issues.join('; ')}`);
   });
 
   it('audit B6: observationStatus is mandatory', () => {

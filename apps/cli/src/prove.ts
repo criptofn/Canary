@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
+import { hasRunnerSummary } from '@canary-rn/executor';
 import { sha256File } from '@canary-rn/hashing';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
 
@@ -32,8 +33,20 @@ export interface HostFingerprint {
 export interface ProofExpectation {
   schema: number;
   experimentId: string;
+  /** Expected evidence schema (defaults to 1). Binds the bundle's declared
+   *  schemaVersion so a rewritten version is caught (audit B4/S2). */
+  evidenceSchema?: number | undefined;
+  /** Optional: pin the fetched-content digest so a rewritten tarballSha256 in
+   *  the evidence fails check (audit B4). */
+  tarballSha256?: string | undefined;
   dependency?: { package: string; baseline: string; candidate: string };
   downstream?: { repo: string; commit: string };
+  /** Optional runtime pin (audit B4): platform/arch are asserted on every
+   *  host; nodeVersion/npmVersion only on the proof host. */
+  environment?: {
+    platform: string; arch: string;
+    nodeVersion?: string | undefined; npmVersion?: string | undefined;
+  } | undefined;
   /** When present, hash-exact assertions run only if the evidence's recorded
    *  environment matches field-for-field; elsewhere they are reported SKIPPED
    *  (honestly — not silently dropped, not silently failed). */
@@ -70,6 +83,20 @@ export function assertProof(
 
   eq('classification', ev.classification.label, e.classification);
   eq('rule', ev.classification.rule, e.rule);
+  // Audit B4/S2: bind the bundle's identity to the (committed, trusted) proof.
+  // Without these, experimentId / run identity / schema / repo / tarball could
+  // be rewritten in the evidence and check would still "pass".
+  eq('experiment identity', ev.experimentId, proof.experimentId);
+  eq('evidence schema', ev.schemaVersion, proof.evidenceSchema ?? 1);
+  eq('fetch method', ev.downstream.fetchMethod, 'tarball-by-sha');
+  if (proof.downstream?.repo) {
+    eq('repository pinned', ev.downstream.repositoryUrl, `https://github.com/${proof.downstream.repo}`);
+  }
+  if (proof.downstream) {
+    eq('commit pinned', ev.downstream.commitSha, proof.downstream.commit);
+  }
+  // Audit B4: a release-critical fact the check path must not silently trust.
+  eq('tree observation VALID', [ev.treeComparison.observationStatus?.baseline, ev.treeComparison.observationStatus?.candidate], ['VALID', 'VALID']);
   eq('drift-confined-to-dependency', ev.treeComparison.driftConfinedToDependency, true);
   eq('resolved versions attested',
     `${ev.treeComparison.resolvedVersions.baseline}->${ev.treeComparison.resolvedVersions.candidate}`,
@@ -79,8 +106,8 @@ export function assertProof(
       `${ev.dependency.package}@${ev.dependency.baselineVersion}->${ev.dependency.candidateVersion}`,
       `${proof.dependency.package}@${proof.dependency.baseline}->${proof.dependency.candidate}`);
   }
-  if (proof.downstream) {
-    eq('commit pinned', ev.downstream.commitSha, proof.downstream.commit);
+  if (proof.tarballSha256 !== undefined) {
+    eq('tarball digest pinned', ev.downstream.tarballSha256, proof.tarballSha256);
   }
 
   const base = ev.rounds.filter((x) => x.arm === 'baseline');
@@ -118,6 +145,20 @@ export function assertProof(
   // F7: numeric summary expectations, not substring vibes.
   eq('candidate summary counts', parseSummaryCounts(logs.candidateStdout), e.candidate.summary);
   eq('baseline summary counts', parseSummaryCounts(logs.baselineStdout), e.baseline.summary);
+
+  // Audit B4: pin the RUNTIME METADATA so rewriting environment.{platform,
+  // arch} (portable) can't slip through; node/npm exactness is host-gated
+  // alongside the hashes (they legitimately differ across runners).
+  if (proof.environment) {
+    eq('environment platform/arch match proof',
+      [ev.environment.platform, ev.environment.arch],
+      [proof.environment.platform, proof.environment.arch]);
+    if (proof.environment.nodeVersion !== undefined || proof.environment.npmVersion !== undefined) {
+      hostExact('runtime node/npm match proof',
+        [ev.environment.nodeVersion, ev.environment.npmVersion],
+        [proof.environment.nodeVersion ?? ev.environment.nodeVersion, proof.environment.npmVersion ?? ev.environment.npmVersion]);
+    }
+  }
 
   // F7: set membership on ACTUAL failing-test extraction, not raw substrings
   // (mocha prints test titles on passing lines too).
@@ -253,4 +294,61 @@ function withinDir(root: string, abs: string): { ok: boolean; why: string } {
     return { ok: false, why: `'${abs}' is not inside '${root}'` };
   }
   return { ok: true, why: '' };
+}
+
+/**
+ * Audit B4 (layer a): bind the ROUND FACTS that drive classification to the
+ * actual artifact BYTES. verifyArtifacts (B3/F4) proves the bytes match their
+ * recorded digests; this proves the digests' bytes actually *say* what the
+ * bundle claims they say — the same summary parse (`stdout ++ stderr`, exactly
+ * as the recorder assembled `combined`) re-run through the same matchers the
+ * executor used must reproduce the recorded hasRunnerSummary / counts /
+ * failing-test identities. A bundle whose reportedFailing=3 is really a "0
+ * passing" log, or whose failingTestNames don't appear in the bytes, is now
+ * rejected here rather than being re-derivable only from its own self-
+ * consistent (but unverified) facts.
+ *
+ * Returns issues; empty = every round's recorded facts are reproduced from
+ * disk. Reads only canonical `${arm}-${round}.stdout.log`/`.stderr.log`.
+ */
+export function verifyArtifactSemantics(artifactsDir: string, bundle: EvidenceBundle): string[] {
+  const issues: string[] = [];
+  const rootAbs = path.resolve(artifactsDir);
+  const read = (name: string): string | null => {
+    const p = path.join(rootAbs, name);
+    const lex = withinDir(rootAbs, p);
+    if (!lex.ok) return null;
+    try { return fs.readFileSync(p, 'utf8'); } catch { return null; }
+  };
+  for (const r of bundle.rounds) {
+    const at = `round ${r.arm}#${r.round}`;
+    const label = `${r.arm}-${r.round}`;
+    const so = read(`${label}.stdout.log`);
+    const se = read(`${label}.stderr.log`);
+    if (so === null || se === null) {
+      issues.push(`${at}: cannot read raw stdout/stderr for semantic re-derivation`);
+      continue;
+    }
+    const combined = so + se;
+    const counts = parseSummaryCounts(combined);
+    const summary = hasRunnerSummary(combined);
+    const names = extractFailingTestNames(combined).sort();
+    if (r.hasRunnerSummary !== summary) {
+      issues.push(`${at}: hasRunnerSummary=${String(r.hasRunnerSummary)} but the artifact bytes ${summary ? 'DO' : 'DO NOT'} match a runner summary`);
+    }
+    for (const [field, rec, obs] of [
+      ['reportedPassing', r.reportedPassing, counts.passing],
+      ['reportedFailing', r.reportedFailing, counts.failing],
+      ['reportedPending', r.reportedPending, counts.pending],
+    ] as const) {
+      if ((rec ?? undefined) !== (obs ?? undefined)) {
+        issues.push(`${at}: ${field}=${String(rec)} but the artifact bytes report ${String(obs)}`);
+      }
+    }
+    const recNames = [...(r.failingTestNames ?? [])].sort();
+    if (JSON.stringify(recNames) !== JSON.stringify(names)) {
+      issues.push(`${at}: failingTestNames ${JSON.stringify(recNames)} disagree with the ${JSON.stringify(names)} extracted from the artifact bytes`);
+    }
+  }
+  return issues;
 }

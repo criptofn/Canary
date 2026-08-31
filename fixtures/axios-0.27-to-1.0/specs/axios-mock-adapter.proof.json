@@ -1,7 +1,9 @@
 {
   "schema": 1,
   "experimentId": "axios-mock-adapter-1.21.1",
+  "evidenceSchema": 1,
   "proofHost": { "platform": "win32", "arch": "x64", "nodeVersion": "v26.3.0", "npmVersion": "11.16.0" },
+  "environment": { "platform": "win32", "arch": "x64", "nodeVersion": "v26.3.0", "npmVersion": "11.16.0" },
   "dependency": { "package": "axios", "baseline": "0.27.2", "candidate": "1.0.0" },
   "downstream": {
     "repo": "ctimmerm/axios-mock-adapter",

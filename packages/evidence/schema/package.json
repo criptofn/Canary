@@ -10,6 +10,7 @@
     ".": { "types": "./dist/src/index.d.ts", "default": "./dist/src/index.js" }
   },
   "dependencies": {
-    "@canary-rn/classification": "*"
+    "@canary-rn/classification": "*",
+    "@canary-rn/hashing": "*"
   }
 }

@@ -8,7 +8,7 @@
   "required": [
     "schemaVersion", "runId", "createdAt", "canaryVersion", "experimentId",
     "dependency", "downstream", "environment", "commands", "rounds",
-    "treeComparison", "classification"
+    "treeComparison", "classification", "integrity"
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
@@ -140,6 +140,16 @@
         "rule": { "type": "number" },
         "reason": { "type": "string" },
         "reproductionCount": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Audit B4: deterministic manifest digest binding every release-critical claim (incl. the per-round artifact digests, which verifyArtifacts ties to on-disk bytes) into one self-consistency hash. Content INTEGRITY + cross-field coherence, NOT authenticated provenance/signature — there is no external trust root.",
+      "required": ["version", "manifestSha256"],
+      "properties": {
+        "version": { "const": 1 },
+        "manifestSha256": { "$ref": "#/$defs/sha256" }
       }
     },
     "ai": {

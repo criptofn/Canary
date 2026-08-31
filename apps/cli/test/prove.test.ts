@@ -32,7 +32,7 @@ function harness(): { dir: string; bundle: EvidenceBundle; cleanup: () => void }
   const bundle = {
     schemaVersion: 1, runId: 'r', createdAt: '2026-08-30T00:00:00Z', canaryVersion: '0.1.0',
     experimentId: 'e', dependency: { package: 'p', baselineVersion: '1', candidateVersion: '2' },
-    downstream: { repositoryUrl: 'u', commitSha: 'b'.repeat(40), fetchMethod: 'tarball-by-sha', tarballSha256: 'a'.repeat(64) },
+    downstream: { repositoryUrl: 'https://github.com/u', commitSha: 'b'.repeat(40), fetchMethod: 'tarball-by-sha', tarballSha256: 'a'.repeat(64) },
     environment: { nodeVersion: 'v', npmVersion: 'n', packageManagerUsed: 'npm', platform: 'x', arch: 'y', toolchainOverrides: {} },
     commands: { prepare: [['a']], build: [], swap: ['b'], test: ['c'] },
     rounds: [mkRound('baseline', 1), mkRound('candidate', 1)],

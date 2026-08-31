@@ -16,6 +16,7 @@
  */
 
 import { classify, type RoundFact } from '@canary-rn/classification';
+import { canonicalJson, sha256hex } from '@canary-rn/hashing';
 
 
 export const EVIDENCE_SCHEMA_VERSION = 1;
@@ -113,12 +114,50 @@ export interface EvidenceBundle {
     reason: string;
     reproductionCount: number;
   };
+  /**
+   * Audit B4 — deterministic MANIFEST digest binding the run's release-critical
+   * claims into a single self-consistency hash. It covers the whole bundle
+   * EXCEPT this `integrity` field (canonical, key-sorted serialization). Because
+   * the per-round artifact DIGESTS are inside that scope, the manifest is
+   * transitively bound to the on-disk bytes that verifyArtifacts checks, so a
+   * rewrite of ANY field (experimentId, runId, repo URL, tarball digest, argv,
+   * env keys, counts, failing identities, tree facts, classification) without
+   * recomputing the manifest is caught here.
+   *
+   * HONEST SCOPE: this is content INTEGRITY / tamper-EVIDENCE and cross-field
+   * coherence — NOT authenticated provenance. There is no external trust root or
+   * signature; a forger who controls the whole file can recompute the digest.
+   * The fields that can be checked against reality are checked by
+   * verifyArtifacts (digests↔bytes) and verifyArtifactSemantics (facts↔bytes);
+   * the fields that cannot (repo URL, tarball digest, argv) are pinned against
+   * the committed proof by assertProof. Do not read this hash as a signature.
+   */
+  integrity?: BundleIntegrity | undefined;
   /** Optional, non-authoritative, structurally unable to affect classification. */
   ai?: {
     provider: string;
     summary: string;
     attachedAt: string;
   };
+}
+
+export interface BundleIntegrity {
+  version: number;
+  /** sha256 over canonicalJson(bundle minus `integrity`). */
+  manifestSha256: string;
+}
+
+/** Recompute the manifest digest over a bundle (any `integrity` field is
+ *  excluded so this is stable whether or not one is already attached). */
+export function computeManifestSha256(bundle: unknown): string {
+  const { integrity: _omit, ...rest } = bundle as Record<string, unknown>;
+  void _omit;
+  return sha256hex(canonicalJson(rest));
+}
+
+/** Produce the integrity block for a freshly-built bundle. */
+export function integrityFor(bundle: unknown): BundleIntegrity {
+  return { version: 1, manifestSha256: computeManifestSha256(bundle) };
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -218,6 +257,23 @@ export function validateBundle(b: unknown): Issue[] {
   const os = tc?.observationStatus as Record<string, unknown> | undefined;
   if (!os || !TREE_STATUSES.has(String(os.baseline)) || !TREE_STATUSES.has(String(os.candidate))) {
     issues.push('treeComparison.observationStatus missing/invalid — tree completeness was not recorded (audit B6)');
+  }
+
+  // Audit B4: the manifest digest is mandatory and must recompute over the
+  // bundle's own (canonical) fields. A rewrite of any bound field without
+  // recomputing the manifest is caught here (content integrity / cross-field
+  // coherence — NOT authenticated provenance; see the interface docs).
+  const integ = o.integrity as Record<string, unknown> | undefined;
+  if (!integ || integ.version !== 1 || !HEX64.test(String(integ.manifestSha256 ?? ''))) {
+    issues.push('integrity.manifestSha256 missing/invalid — bundle is not manifest-bound (audit B4)');
+  } else {
+    const recomputed = computeManifestSha256(o);
+    if (recomputed !== integ.manifestSha256) {
+      issues.push(
+        `integrity.manifestSha256 mismatch — a bound field was rewritten without recomputing the manifest ` +
+        `(recorded ${String(integ.manifestSha256).slice(0, 16)}…, recomputed ${recomputed.slice(0, 16)}…)`,
+      );
+    }
   }
 
   if (Array.isArray(rounds) && rounds.length > 0) {

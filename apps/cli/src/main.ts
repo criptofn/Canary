@@ -20,7 +20,7 @@ import path from 'node:path';
 import { renderHtml } from '@canary-rn/report';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
 import { runExperiment, InfraAbort, CANARY_VERSION } from './pipeline.js';
-import { assertProof, readLatestEvidence, verifyArtifacts, findLatestEvidencePath, type ProofExpectation } from './prove.js';
+import { assertProof, readLatestEvidence, verifyArtifacts, verifyArtifactSemantics, findLatestEvidencePath, type ProofExpectation } from './prove.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -90,6 +90,14 @@ async function cmdProve(specPath: string, proofPath: string, rerun: boolean): Pr
     for (const t of tamper) console.error('  ' + t);
     return 3;
   }
+  // Audit B4: the digests matching their bytes is not enough — the round facts
+  // that DRIVE the classification must be reproduced FROM those bytes.
+  const semantic = verifyArtifactSemantics(ev.artifactsDir, ev.bundle);
+  if (semantic.length) {
+    console.error('refusing to prove: recorded round facts do not match the artifact bytes');
+    for (const s of semantic) console.error('  ' + s);
+    return 3;
+  }
   const readLog = (round: 'baseline' | 'candidate'): string => {
     const p = path.join(ev.artifactsDir, `${round}-1.stdout.log`);
     return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
@@ -139,11 +147,23 @@ function cmdReport(evidencePath: string | undefined, outPath?: string): number {
     console.error('refusing to render an invalid bundle:', issues);
     return 3;
   }
-  const html = renderHtml(bundle);
-  const target = outPath ?? path.join(path.dirname(resolved), 'report.html');
+  // Audit B4: a report must not look more trustworthy than its evidence. Try to
+  // verify the bundle against the on-disk artifacts (digests + byte-derived
+  // facts); if that is not fully possible, RENDER BUT LABEL UNVERIFIED.
+  const artifactsDir = path.dirname(resolved);
+  const notes = [
+    ...verifyArtifacts(artifactsDir, bundle),
+    ...verifyArtifactSemantics(artifactsDir, bundle),
+  ];
+  const verified = notes.length === 0;
+  const html = renderHtml(bundle, undefined, {
+    status: verified ? 'VERIFIED' : 'UNVERIFIED',
+    notes: verified ? undefined : notes.slice(0, 12),
+  });
+  const target = outPath ?? path.join(artifactsDir, 'report.html');
   fs.writeFileSync(target, html, 'utf8');
-  console.log(`report: ${target}`);
-  return 0;
+  console.log(`report: ${target} (${verified ? 'VERIFIED against artifacts' : 'UNVERIFIED — see banner'})`);
+  return verified ? 0 : 3;
 }
 
 async function main(argv: string[]): Promise<number> {
