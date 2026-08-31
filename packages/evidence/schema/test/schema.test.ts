@@ -180,4 +180,12 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
     for (const r of b.rounds as Record<string, unknown>[]) delete r.infraSignal;
     assert.ok(validateBundle(b).some((e) => /cannot be independently re-derived/.test(e)));
   });
+
+  it('robustness H1: rejects duplicate (arm,round) indices (resealed)', () => {
+    const b = goodBundle();
+    const rounds = b.rounds as Record<string, unknown>[];
+    rounds[1] = structuredClone(rounds[0]!); // two baseline #1
+    b.integrity = integrityFor(b);          // resealed -> must be a structural/semantic reject
+    assert.ok(validateBundle(b).some((e) => /duplicate round/.test(e)));
+  });
 });

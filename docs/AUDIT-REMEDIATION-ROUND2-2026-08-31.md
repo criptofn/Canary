@@ -41,6 +41,25 @@ change (script run 2026-08-31; output recorded in the session and summarized):
 | S4 | README test count stale; PLAN historical claims to re-check | OPEN (final doc pass) |
 | S5 | report renders without any artifact verification (folds into B4) | FIXED @ B4 commit |
 
+## Round-2 robustness pass (novel hypotheses beyond the audit list)
+
+Executed against the fixed build (7 hypotheses):
+
+| H | Hypothesis | Result |
+|---|---|---|
+| H1 | duplicate `(arm,round)` indices accepted as a valid bundle | FOUND → fixed: validateBundle rejects duplicate round ids (unit test `robustness H1`) |
+| H2 | add an unknown top-level field to dodge per-field checks | OK: unknown field changes the manifest → integrity mismatch |
+| H3 | infra signature at exit 0 still yields PASS | OK: HARD pattern (Cannot find module) → infraSignal → INFRA, never PASS |
+| H4 | value-taking option before the subcommand shifts detection past install | OK: rejected (short/conflict/ambiguous pre-sub option) |
+| H5 | noisy npm ls (problems/nonzero) over-downgrades a complete tree | OK: dep present + parsed non-empty → VALID (principled, Axios-safe) |
+| H6 | candidate round with names but unparseable count vs a counted round | OK (conservative): the unknown-count round is itself flagged not-a-valid-test-run → INFRA rule 1; refusal, never false CONFIRMED |
+| H7 | backslash traversal in logPath on a POSIX-style check | OK: ownership equality rejects regardless of separator |
+
+Re-running the six original blocker reproductions against the fixed build: all
+six now REFUTED (B1 two distinct identities; B2 zero-test→INFRA; B3 traversal
+refused; B5 alias injected + raw npm + user-`--` rejected; B6 empty tree
+INVALID; B4 by the 17-case provenance matrix).
+
 ## Milestone log
 
 (append one dated entry per milestone: reproduction → change → regression +
@@ -171,3 +190,19 @@ fails 2 matrix tests; vacuous manifest check fails 4; restore -> 0.
 Suite 174→191 (+1 skip); build+typecheck clean; golden Axios proof PASS 24/24
 (was 17: +7 identity/provenance assertions; byte re-derivation green on real
 run data).
+
+### 2026-08-31 — S1 session sweep + S3 npm ci @ f809416
+POSIX sweep now matches by SESSION (detached child is its own session leader)
+or group + a transitive PPID BFS → setpgid-escapees within the child's session
+are caught; exported pure predicate posixSessionMember() unit-tested; mutation
+(dropping the session match) fails 1. Fully-detached (setsid+reparent) daemons
+remain the documented Tier-B residual. CI switched to `npm ci`; workspace
+lockfile resynced (schema→hashing) and verified lockfile-exact. Suite
+191→194(+1 skip).
+
+### 2026-08-31 — round-2 robustness pass @ this commit
+7 novel hypotheses (§12.7). H1 FOUND + FIXED: validateBundle now rejects
+duplicate (arm,round) ids (unit test). H2–H7 all handled correctly by the
+existing B1–B6 layers (documented in the robustness table). Re-ran all six
+original blocker reproductions against the fixed build → all six REFUTED.
+Suite 194→196(+1 skip); build+typecheck clean; golden Axios proof PASS 24/24.

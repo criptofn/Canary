@@ -212,10 +212,19 @@ export function validateBundle(b: unknown): Issue[] {
     issues.push('rounds must be a non-empty array');
   } else {
     const kinds = new Set<string>();
+    // Robustness H1 (round-2): each (arm, round) must be UNIQUE. A duplicated
+    // index lets a bundle carry two contradictory claims for the same slot and
+    // desyncs arm/round-derived artifact names from the rounds array.
+    const seenIds = new Set<string>();
     rounds.forEach((r: Record<string, unknown>, i) => {
       const at = `rounds[${i}]`;
       if (r.arm === 'baseline' || r.arm === 'candidate') kinds.add(r.arm);
       else issues.push(`${at}.arm invalid`);
+      if (r.arm === 'baseline' || r.arm === 'candidate') {
+        const rid = `${String(r.arm)}#${String(r.round)}`;
+        if (seenIds.has(rid)) issues.push(`${at}: duplicate round ${rid} (each arm/round must appear once)`);
+        else seenIds.add(rid);
+      }
       if (typeof r.exitCode !== 'number' || !Number.isInteger(r.exitCode) || r.exitCode < -1) {
         issues.push(`${at}.exitCode invalid`);
       }
