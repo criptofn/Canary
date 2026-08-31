@@ -17,7 +17,13 @@
 
 import { classify, type RoundFact } from '@canary-rn/classification';
 import { canonicalJson, sha256hex } from '@canary-rn/hashing';
+import { structuralIssues } from './contract.js';
 
+
+// Post-sol M-1: the structural contract (shared source of truth for BOTH the
+// runtime floor and the published JSON schema) is re-exported so consumers
+// (apps/cli e2e tests) can validate against it too.
+export { buildPublishedSchema, structuralIssues, BUNDLE_CONTRACT, TRUSTFUL_LABELS } from './contract.js';
 
 export const EVIDENCE_SCHEMA_VERSION = 1;
 
@@ -215,7 +221,6 @@ export function integrityFor(bundle: unknown): BundleIntegrity {
 }
 
 const HEX64 = /^[0-9a-f]{64}$/;
-const SHA40 = /^[0-9a-f]{40}$/;
 
 /**
  * The exact variable names @canary-rn/support grants to children (both
@@ -240,40 +245,42 @@ function isStr(v: unknown): v is string {
   return typeof v === 'string';
 }
 
-/** Structural validation of a bundle. Returns issues; empty array = valid. */
+/** Structural validation of a bundle. Returns issues; empty array = valid.
+ *
+ * Post-sol M-1: the structural floor (field presence, types, the
+ * unknown-field policy) is derived from the SAME contract table that
+ * generates the published schemas/evidence.schema.json — the runtime and
+ * the published contract are now one definition viewed twice, and
+ * schema.test.ts pins both directions of that equivalence. What stays
+ * hand-written below is deliberately SEMANTIC: uniqueness/density of round
+ * indices, the env-key allowlist, artifact-name ownership, attestation
+ * coherence, the trustful evidence floor, and the full re-derivation.
+ */
 export function validateBundle(b: unknown): Issue[] {
   const issues: Issue[] = [];
   if (typeof b !== 'object' || b === null) return ['root is not an object'];
   const o = b as Record<string, unknown>;
 
   if (o.schemaVersion !== EVIDENCE_SCHEMA_VERSION) issues.push(`schemaVersion must be ${EVIDENCE_SCHEMA_VERSION}`);
-  for (const k of ['runId', 'createdAt', 'canaryVersion', 'experimentId']) {
-    if (!isStr(o[k]) || (o[k] as string).length === 0) issues.push(`${k} missing/empty`);
-  }
-
-  const dep = o.dependency as Record<string, unknown> | undefined;
-  if (!dep || !isStr(dep.package) || !isStr(dep.baselineVersion) || !isStr(dep.candidateVersion)) {
-    issues.push('dependency{package,baselineVersion,candidateVersion} incomplete');
-  }
-
-  const ds = o.downstream as Record<string, unknown> | undefined;
-  if (!ds || !isStr(ds.repositoryUrl)) issues.push('downstream.repositoryUrl missing');
-  if (!ds || !SHA40.test(String(ds.commitSha ?? ''))) issues.push('downstream.commitSha must be a full 40-hex SHA');
-  if (!ds || !HEX64.test(String(ds.tarballSha256 ?? ''))) issues.push('downstream.tarballSha256 invalid');
+  issues.push(...structuralIssues(o));
 
   const rounds = o.rounds;
-  if (!Array.isArray(rounds) || rounds.length === 0) {
-    issues.push('rounds must be a non-empty array');
-  } else {
+  if (Array.isArray(rounds) && rounds.length > 0) {
     const kinds = new Set<string>();
     // Robustness H1 (round-2): each (arm, round) must be UNIQUE. A duplicated
     // index lets a bundle carry two contradictory claims for the same slot and
     // desyncs arm/round-derived artifact names from the rounds array.
+    // Post-sol M-1 adds the other half of the honesty condition: the indices
+    // must form a CONTIGUOUS 1..n per arm (an omitted round silently shrinks
+    // the claimed reproduction).
     const seenIds = new Set<string>();
+    const byArm: Record<'baseline' | 'candidate', number[]> = { baseline: [], candidate: [] };
     rounds.forEach((r: Record<string, unknown>, i) => {
       const at = `rounds[${i}]`;
-      if (r.arm === 'baseline' || r.arm === 'candidate') kinds.add(r.arm);
-      else issues.push(`${at}.arm invalid`);
+      if (r.arm === 'baseline' || r.arm === 'candidate') {
+        kinds.add(r.arm);
+        byArm[r.arm].push(Number(r.round));
+      } else issues.push(`${at}.arm invalid`);
       if (r.arm === 'baseline' || r.arm === 'candidate') {
         const rid = `${String(r.arm)}#${String(r.round)}`;
         if (seenIds.has(rid)) issues.push(`${at}: duplicate round ${rid} (each arm/round must appear once)`);
@@ -282,13 +289,7 @@ export function validateBundle(b: unknown): Issue[] {
       if (typeof r.exitCode !== 'number' || !Number.isInteger(r.exitCode) || r.exitCode < -1) {
         issues.push(`${at}.exitCode invalid`);
       }
-      for (const h of ['rawStdoutSha256', 'rawStderrSha256', 'normalizedStdoutSha256', 'normalizedStderrSha256']) {
-        if (!HEX64.test(String(r[h] ?? ''))) issues.push(`${at}.${h} invalid`);
-      }
-      if (!isStr(r.logPath)) issues.push(`${at}.logPath missing`);
-      if (!Array.isArray(r.argv) || (r.argv as unknown[]).length === 0) issues.push(`${at}.argv empty`);
-      if (!Array.isArray(r.envKeys)) issues.push(`${at}.envKeys missing`);
-      else {
+      if (Array.isArray(r.envKeys)) {
         for (const k of r.envKeys as unknown[]) {
           if (!SANITIZE_ALLOWLIST.has(String(k))) issues.push(`${at}.envKeys contains non-allowlisted var: ${String(k)}`);
         }
@@ -296,23 +297,17 @@ export function validateBundle(b: unknown): Issue[] {
     });
     if (!kinds.has('baseline')) issues.push('no baseline rounds');
     if (!kinds.has('candidate')) issues.push('no candidate rounds');
+    for (const [armName, idx] of Object.entries(byArm) as Array<['baseline' | 'candidate', number[]]>) {
+      const sorted = idx.filter((n) => Number.isInteger(n)).sort((a, b) => a - b);
+      sorted.forEach((n, k) => { if (n !== k + 1) issues.push(`${armName} rounds are not a contiguous 1..${sorted.length} sequence (got ${sorted.join(',')}) — omitted rounds shrink the claimed reproduction (post-sol M-1)`); });
+    }
+  } else {
+    issues.push('rounds must be a non-empty array');
   }
 
   const cls = o.classification as Record<string, unknown> | undefined;
-  if (!cls || !CLASSIFICATION_LABELS.includes(cls.label as ClassificationLabel)) {
-    issues.push('classification.label must be one of the six deterministic labels');
-  }
-  if (!cls || typeof cls.rule !== 'number') issues.push('classification.rule missing');
-  if (!cls || typeof cls.reproductionCount !== 'number' || (cls.reproductionCount as number) < 1) {
-    issues.push('classification.reproductionCount must be >= 1');
-  }
-
   const tc = o.treeComparison as Record<string, unknown> | undefined;
-  if (!tc || !HEX64.test(String(tc.baselineTreeSha256 ?? '')) || !HEX64.test(String(tc.candidateTreeSha256 ?? ''))) {
-    issues.push('treeComparison hashes invalid');
-  }
   const rv = tc?.resolvedVersions as Record<string, unknown> | undefined;
-  if (!rv || !isStr(rv.baseline) || !isStr(rv.candidate)) issues.push('treeComparison.resolvedVersions missing — arms were not attested');
   // Round-3 blocker 6: resolvedVersions are ATTESTED from the machine, and
   // the pipeline aborts the run whenever an attestation disagrees with the
   // spec (steps [3]/[6]). So inside one honest bundle they can never differ
@@ -325,28 +320,14 @@ export function validateBundle(b: unknown): Issue[] {
       issues.push(`treeComparison.resolvedVersions.${arm} '${String(rv[arm])}' contradicts dependency.${field} '${String(depVer[field])}' (attestation would have aborted the run — a resealed tree fact)`);
     }
   }
-  const dc = tc?.dependencyCopies as Record<string, unknown> | undefined;
-  if (!dc || typeof dc.baseline !== 'number' || typeof dc.candidate !== 'number') issues.push('treeComparison.dependencyCopies missing');
-  // Audit B6: the tree-observation status is mandatory and must be a known value.
-  const TREE_STATUSES = new Set(['VALID', 'INCOMPLETE', 'INVALID']);
-  const os = tc?.observationStatus as Record<string, unknown> | undefined;
-  if (!os || !TREE_STATUSES.has(String(os.baseline)) || !TREE_STATUSES.has(String(os.candidate))) {
-    issues.push('treeComparison.observationStatus missing/invalid — tree completeness was not recorded (audit B6)');
-  }
-
-  // Round-3 blocker 6: retained snapshot refs are optional STRUCTURALLY (a
-  // run whose trees were garbage may still honestly report INCONCLUSIVE with
-  // refs, or predate them with INCONCLUSIVE without), but when present they
-  // must be complete and carry this arm's DERIVED artifact names — evidence
+  // Round-3 blocker 6 (types/presence now contract-enforced): retained
+  // snapshot refs must carry THIS ARM'S DERIVED artifact names — evidence
   // may not point its own snapshot at another arm's bytes (audit B3 lesson).
   const snaps = tc?.snapshots as Record<string, unknown> | undefined;
   if (snaps !== undefined) {
     for (const arm of ['baseline', 'candidate'] as const) {
       const s = snaps[arm] as Record<string, unknown> | undefined;
-      if (!s || typeof s !== 'object') { issues.push(`treeComparison.snapshots.${arm} missing`); continue; }
-      for (const f of ['rawStdoutSha256', 'rawStderrSha256', 'canonicalSha256'] as const) {
-        if (!HEX64.test(String(s[f] ?? ''))) issues.push(`treeComparison.snapshots.${arm}.${f} invalid`);
-      }
+      if (!s || typeof s !== 'object') continue; // presence/type: contract
       for (const [f, suffix] of [
         ['rawStdoutLog', 'treels.raw.log'], ['rawStderrLog', 'treels.stderr.log'], ['canonicalLog', 'treels.canonical.json'],
       ] as const) {
@@ -356,24 +337,16 @@ export function validateBundle(b: unknown): Issue[] {
       }
     }
   }
-  const anoms = tc?.observationAnomalies as Record<string, unknown> | undefined;
-  if (anoms !== undefined) {
-    for (const arm of ['baseline', 'candidate'] as const) {
-      const a = anoms[arm] as Record<string, unknown> | undefined;
-      if (!a || !Array.isArray(a.json) || !(a.json as unknown[]).every((x) => typeof x === 'string')) {
-        issues.push(`treeComparison.observationAnomalies.${arm}.json must be an array of strings when present`);
-      }
-    }
-  }
 
   // Audit B4: the manifest digest is mandatory and must recompute over the
   // bundle's own (canonical) fields. A rewrite of any bound field without
   // recomputing the manifest is caught here (content integrity / cross-field
   // coherence — NOT authenticated provenance; see the interface docs).
+  // Presence/type of integrity.{version,manifestSha256} is contract-governed;
+  // the RECOMPUTE is the semantic heart of audit B4 and stays here.
   const integ = o.integrity as Record<string, unknown> | undefined;
-  if (!integ || integ.version !== 1 || !HEX64.test(String(integ.manifestSha256 ?? ''))) {
-    issues.push('integrity.manifestSha256 missing/invalid — bundle is not manifest-bound (audit B4)');
-  } else {
+  if (integ && integ.version !== 1) issues.push('integrity.version must be 1');
+  if (integ && typeof integ.manifestSha256 === 'string' && HEX64.test(integ.manifestSha256)) {
     const recomputed = computeManifestSha256(o);
     if (recomputed !== integ.manifestSha256) {
       issues.push(
@@ -472,6 +445,52 @@ function semanticChecks(
   }
   if (!treeValid && trustful) {
     issues.push(`classification ${label} is impossible with a non-VALID tree observation (baseline=${String(osv?.baseline)}, candidate=${String(osv?.candidate)}; rule-10/B6 guard bypassed?)`);
+  }
+
+  // 3c. Post-sol RB-2 — INDEPENDENT coverage-parity gate (the same posture
+  // as the B1 identity-coverage gate: it must refute the lie even if the
+  // decision table changes). A trustful label is a claim that BOTH arms
+  // executed the SAME experiment, repeatedly:
+  //   - >= 2 rounds per arm (a single round cannot 'reproduce' anything);
+  //   - per-arm STABLE executed (passing+failing) and observed (+pending)
+  //     totals across repetitions;
+  //   - cross-arm COMPARABLE totals (undefined counts read as zero, exactly
+  //     as the classifier does — a zero-count round is separately refused
+  //     by the rules above/re-derivation).
+  // Tests silently disappearing between arms are NOT equivalent to a stable
+  // passing->failing transition, and may never anchor a strong verdict.
+  if (trustful) {
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
+    const totals = (r: Record<string, unknown>) => {
+      const executed = num(r.reportedPassing) + num(r.reportedFailing);
+      return { executed, observed: executed + num(r.reportedPending) };
+    };
+    for (const armName of ['baseline', 'candidate'] as const) {
+      const rs = rounds.filter((r) => r.arm === armName);
+      if (rs.length < 2) {
+        issues.push(`classification ${label} (trustful) requires >= 2 ${armName} rounds — a strong verdict needs repeated execution, one round proves no reproduction (post-sol RB-2)`);
+        continue;
+      }
+      const first = totals(rs[0]!);
+      for (const r of rs.slice(1)) {
+        const t = totals(r);
+        if (t.executed !== first.executed || t.observed !== first.observed) {
+          issues.push(
+            `classification ${label} (trustful) is impossible with ${armName} coverage-parity violation: rounds differ in executed/observed (${first.executed}/${first.observed} vs ${t.executed}/${t.observed}) — repetition coverage instability must cap at FLAKY (post-sol RB-2 coverage-parity gate bypassed?)`,
+          );
+          break;
+        }
+      }
+      const cand = rounds.filter((r) => r.arm === 'candidate');
+      if (armName === 'baseline' && cand.length >= 2) {
+        const ct = totals(cand[0]!);
+        if (ct.executed !== first.executed || ct.observed !== first.observed) {
+          issues.push(
+            `classification ${label} (trustful) is impossible with cross-arm coverage-parity violation: baseline executed/observed ${first.executed}/${first.observed}, candidate ${ct.executed}/${ct.observed} — weaker or missing test execution must not produce a stronger verdict (post-sol RB-2 coverage-parity gate bypassed?)`,
+          );
+        }
+      }
+    }
   }
 
   // 3b. Round-3 blocker 6 — a trustful verdict MUST be anchored to retained,

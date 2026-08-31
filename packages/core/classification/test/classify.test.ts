@@ -210,7 +210,12 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
     const golden = (round: number): RoundFact => ({
       arm: 'candidate', round, exitCode: 3,
       hasRunnerSummary: true, infraSignal: false,
-      reportedFailing: 3,
+      // post-sol RB-2: real mocha prints BOTH counts; 2 passing + 3 failing
+      // keeps the EXECUTED total (5) comparable with the baseline rounds
+      // (arm() reports 5 passing) — the invariant is about totals, so the
+      // fixture now carries the shape an actual collapsed-coverage refusal
+      // would see in honest logs.
+      reportedPassing: 2, reportedFailing: 3,
       failingTestNames: [
         'can pass headers to match to a handler',
         'handles baseURL correctly',
@@ -227,8 +232,9 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
   it('audit F2: profile comparison is order-independent (sorted identities)', () => {
     const r = classify([
       arm('baseline', 1), arm('baseline', 2),
-      { ...arm('candidate', 1, false), reportedFailing: 2, failingTestNames: ['beta', 'alpha'] },
-      { ...arm('candidate', 2, false), reportedFailing: 2, failingTestNames: ['alpha', 'beta'] },
+      // reportedPassing 3 keeps executed=5 comparable across arms (post-sol RB-2)
+      { ...arm('candidate', 1, false), reportedPassing: 3, reportedFailing: 2, failingTestNames: ['beta', 'alpha'] },
+      { ...arm('candidate', 2, false), reportedPassing: 3, reportedFailing: 2, failingTestNames: ['alpha', 'beta'] },
     ]);
     assert.equal(r.classification, 'CONFIRMED_REGRESSION');
   });
@@ -350,9 +356,13 @@ describe('audit F9/B6 — applyConfinementGuard (rules 9 + 10, enforced not deco
 // the fix). Two such rounds profile-match on their EMPTY sets and the
 // classifier confirms a regression from zero identified failures.
 describe('round-3 blocker 1 — identity coverage gates trustful verdicts', () => {
-  const failRound = (arm: 'baseline' | 'candidate', round: number, reported: number, names: string[]): RoundFact => ({
+  // reportedPassing keeps EXECUTED totals comparable with the plain arm()
+  // rounds (executed 5) — post-sol RB-2 makes an incomparable fixture
+  // INCONCLUSIVE rule 13, which would mask the rule-11 behavior under test.
+  // Override `passing` per case when the totals must line up differently.
+  const failRound = (arm: 'baseline' | 'candidate', round: number, reported: number, names: string[], passing = 5 - reported): RoundFact => ({
     arm, round, exitCode: 3, hasRunnerSummary: true, infraSignal: false,
-    reportedPassing: 100, reportedFailing: reported, failingTestNames: [...names].sort(),
+    reportedPassing: passing, reportedFailing: reported, failingTestNames: [...names].sort(),
   });
 
   it('identityCoverage: exact match COMPLETE; fewer / more / missing => INCOMPLETE / NOT_OBSERVED', () => {
@@ -556,5 +566,150 @@ describe('round-3 blocker 2 — pending tests are NOT executed assertions', () =
     ]);
     assert.equal(r.classification, 'INCONCLUSIVE');
     assert.equal(r.rule, 11);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST-SOL RB-2 — SUITE-COLLAPSE / COVERAGE-CONSISTENCY INVARIANT.
+// Sol demonstrated the classifier considered execution successful as long as
+// AT LEAST ONE assertion executed:
+//   b=128p vs c=1p            -> PASS rule 3
+//   b reps 128p, 1p           -> PASS rule 3
+//   b=128p vs c=1p/127pending -> PASS rule 3
+//   b=128p vs c=1 failing     -> CONFIRMED_REGRESSION rule 5
+// Violating the core invariant: WEAKER OR MISSING TEST EXECUTION MUST NOT
+// PRODUCE A STRONGER VERDICT. The rules added (12/13) reason from the
+// EXPERIMENT ITSELF (executed = passing+failing, observed = +pending):
+//  - per-arm repetitions must show STABLE totals (rule 12, FLAKY);
+//  - a STRONG verdict (PASS / CONFIRMED_REGRESSION / PRE_EXISTING_FAILURE)
+//    requires the arms' totals to be COMPARABLE (rule 13, INCONCLUSIVE);
+//  - a legitimate regression moves tests from passing to failing at a
+//    STABLE executed total (the Axios shape) and must still confirm.
+// No hard-coded test-count minimum anywhere.
+// ---------------------------------------------------------------------------
+describe('post-sol RB-2 — coverage consistency gates strong verdicts', () => {
+  const b = (round: number, passing: number, pending?: number): RoundFact => ({
+    arm: 'baseline', round, exitCode: 0, hasRunnerSummary: true, infraSignal: false,
+    reportedPassing: passing, ...(pending !== undefined ? { reportedPending: pending } : {}),
+  });
+  const cPass = (round: number, passing: number, pending?: number): RoundFact => ({
+    arm: 'candidate', round, exitCode: 0, hasRunnerSummary: true, infraSignal: false,
+    reportedPassing: passing, ...(pending !== undefined ? { reportedPending: pending } : {}),
+  });
+  const cFail = (round: number, passing: number, failing: number): RoundFact => ({
+    arm: 'candidate', round, exitCode: 3, hasRunnerSummary: true, infraSignal: false,
+    reportedPassing: passing, reportedFailing: failing,
+    failingTestNames: ['t1', 't2', 't3'].slice(0, failing),
+  });
+
+  // ---- the four demonstrated cases, exactly as Sol produced them ----
+  it("Sol case 1: baseline 128 passing, candidate 1 passing is NOT PASS", () => {
+    const r = classify([b(1, 128), b(2, 128), cPass(1, 1), cPass(2, 1)]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 13);
+    assert.match(r.reason, /128\/128/);
+    assert.match(r.reason, /1\/1/);
+  });
+
+  it('Sol case 2: baseline repetitions 128 then 1 (both exit 0) is NOT PASS', () => {
+    const r = classify([b(1, 128), b(2, 1), cPass(1, 1), cPass(2, 1)]);
+    assert.equal(r.classification, 'FLAKY');
+    assert.equal(r.rule, 12);
+    assert.match(r.reason, /repetitions differ in observed test coverage/);
+  });
+
+  it('Sol case 3: baseline 128, candidate 1 passing / 127 pending is NOT PASS', () => {
+    const r = classify([b(1, 128), b(2, 128), cPass(1, 1, 127), cPass(2, 1, 127)]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 13);
+  });
+
+  it('Sol case 4: baseline 128, candidate 1 stable failing test is NOT CONFIRMED_REGRESSION', () => {
+    const r = classify([b(1, 128), b(2, 128), cFail(1, 0, 1), cFail(2, 0, 1), cFail(3, 0, 1)]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 13);
+  });
+
+  // ---- the invariant must NOT break legitimate verdicts ----
+  it('Axios golden shape (128 passing -> 125 passing / 3 failing) STILL classifies CONFIRMED_REGRESSION rule 5', () => {
+    const r = classify([
+      b(1, 128), b(2, 128),
+      cFail(1, 125, 3), cFail(2, 125, 3), cFail(3, 125, 3),
+    ]);
+    assert.equal(r.classification, 'CONFIRMED_REGRESSION');
+    assert.equal(r.rule, 5);
+  });
+
+  it('a passing->failing move at stable totals is a regression, not a coverage gap', () => {
+    const r = classify([b(1, 10), b(2, 10), cFail(1, 8, 2), cFail(2, 8, 2)]);
+    assert.equal(r.classification, 'CONFIRMED_REGRESSION');
+    assert.equal(r.rule, 5);
+  });
+
+  it('one executed test on BOTH arms, stable across repetitions, still PASSES (no hard-coded minimum)', () => {
+    const r = classify([b(1, 1), b(2, 1), cPass(1, 1), cPass(2, 1)]);
+    assert.equal(r.classification, 'PASS');
+    assert.equal(r.rule, 3);
+  });
+
+  it('pending that SHRINKS candidate-side is caught by the observed total (5 executed + 0 pending vs 5 + 5 pending)', () => {
+    const r = classify([b(1, 5), b(2, 5), cPass(1, 5, 5), cPass(2, 5, 5)]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 13);
+    assert.match(r.reason, /observed/);
+  });
+
+  it('candidate executing MORE than baseline is equally non-comparable (strong verdicts need both directions)', () => {
+    const r = classify([b(1, 5), b(2, 5), cPass(1, 6), cPass(2, 6)]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 13);
+  });
+
+  it('rule 12 fires on candidate-side instability too (one repeat loses a test, both exit 0)', () => {
+    const r = classify([b(1, 5), b(2, 5), cPass(1, 5), cPass(2, 4)]);
+    assert.equal(r.classification, 'FLAKY');
+    assert.equal(r.rule, 12);
+  });
+
+  it('PRE_EXISTING_FAILURE also demands comparability (baseline fails with fewer executed than candidate)', () => {
+    const base = (round: number): RoundFact => ({
+      arm: 'baseline', round, exitCode: 1, hasRunnerSummary: true, infraSignal: false,
+      reportedPassing: 2, reportedFailing: 1, failingTestNames: ['t1'],
+    });
+    const r = classify([
+      base(1), base(2),
+      cFail(1, 4, 1), cFail(2, 4, 1),
+    ]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 13);
+  });
+
+  it('weak outputs are never inflated by the new rules: mixed candidate with a coverage gap stays FLAKY (rule 7), infra wins over coverage (rule 1)', () => {
+    const mixed = classify([b(1, 5), b(2, 5), cPass(1, 5), cFail(2, 0, 1)]);
+    assert.ok(['FLAKY'].includes(mixed.classification), mixed.classification);
+    assert.notEqual(mixed.rule, 5);
+    const infraFirst = classify([b(1, 5), b(2, 5), cPass(1, 5, 120), { ...cPass(2, 5, 120), infraSignal: true }]);
+    assert.equal(infraFirst.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(infraFirst.rule, 1);
+  });
+
+  it('treats undefined counts as zero consistently with rule 1 (mocha omits the 0-failing line): 5 passing vs 5 passing+3 failing is NOT comparable', () => {
+    const r = classify([
+      b(1, 5), b(2, 5),
+      cFail(1, 5, 3), cFail(2, 5, 3),
+    ]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 13); // 5 vs 8 executed
+  });
+
+  it('a stable-coverage collapse on BOTH arms (128 -> 1 -> uniform) is comparable and can still PASS — and is reported honestly', () => {
+    // The suite genuinely shrank before BOTH arms ran (e.g. the operator
+    // changed it): coverage is stable and comparable, so the experiment
+    // itself carries no inconsistency signal. Canary cannot detect it from
+    // run facts alone; the committed proof (pinned summary/counts) is the
+    // external anchor. This test pins the boundary of rule 13 — no
+    // hard-coded minimum is smuggled back in.
+    const r = classify([b(1, 1), b(2, 1), cPass(1, 1), cPass(2, 1)]);
+    assert.equal(r.classification, 'PASS');
   });
 });

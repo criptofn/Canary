@@ -2,171 +2,617 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://canary-reliability-network.local/schemas/evidence.schema.json",
   "title": "Canary Evidence Bundle",
-  "description": "Machine-readable output of one Canary experiment. The classification field is produced exclusively by the deterministic decision table (docs/PLAN.md section 6); no field in this schema can be authored by an AI provider.",
+  "description": "Machine-readable output of one Canary experiment. GENERATED FILE — the single source of truth is packages/evidence/schema/src/contract.ts (schema.test.ts regenerates and deep-compares; edit the contract, never this file). The classification field is produced exclusively by the deterministic decision table (docs/PLAN.md section 6); no field in this schema can be authored by an AI provider. Trustful-tier fields (round infraSignal; treeComparison.snapshots/observationAnomalies) are required exactly when classification.label is PASS/CONFIRMED_REGRESSION/PRE_EXISTING_FAILURE — see the allOf block; the runtime validator enforces the same tier and additionally requires the anomaly lists to be EMPTY for a trustful label (a rule beyond JSON-schema presence).",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schemaVersion", "runId", "createdAt", "canaryVersion", "experimentId",
-    "dependency", "downstream", "environment", "commands", "rounds",
-    "treeComparison", "classification", "integrity"
+    "canaryVersion",
+    "classification",
+    "commands",
+    "createdAt",
+    "dependency",
+    "downstream",
+    "environment",
+    "experimentId",
+    "integrity",
+    "rounds",
+    "runId",
+    "schemaVersion",
+    "treeComparison"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
-    "runId": { "type": "string", "minLength": 1 },
-    "createdAt": { "type": "string" },
-    "canaryVersion": { "type": "string" },
-    "experimentId": { "type": "string", "minLength": 1 },
+    "schemaVersion": {
+      "type": "number"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+    },
+    "canaryVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "experimentId": {
+      "type": "string",
+      "minLength": 1
+    },
     "dependency": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["package", "baselineVersion", "candidateVersion"],
+      "required": [
+        "baselineVersion",
+        "candidateVersion",
+        "package"
+      ],
       "properties": {
-        "package": { "type": "string" },
-        "baselineVersion": { "type": "string" },
-        "candidateVersion": { "type": "string" }
+        "package": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baselineVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidateVersion": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "downstream": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repositoryUrl", "commitSha", "fetchMethod", "tarballSha256"],
+      "required": [
+        "commitSha",
+        "fetchMethod",
+        "repositoryUrl",
+        "tarballSha256"
+      ],
       "properties": {
-        "repositoryUrl": { "type": "string" },
-        "commitSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "fetchMethod": { "const": "tarball-by-sha" },
-        "tarballSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        "repositoryUrl": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commitSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "fetchMethod": {
+          "enum": [
+            "tarball-by-sha"
+          ]
+        },
+        "tarballSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
       }
     },
     "environment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["nodeVersion", "npmVersion", "packageManagerUsed", "platform", "arch", "toolchainOverrides"],
+      "required": [
+        "arch",
+        "nodeVersion",
+        "npmVersion",
+        "packageManagerUsed",
+        "platform",
+        "toolchainOverrides"
+      ],
       "properties": {
-        "nodeVersion": { "type": "string" },
-        "npmVersion": { "type": "string" },
-        "packageManagerUsed": { "type": "string" },
-        "platform": { "type": "string" },
-        "arch": { "type": "string" },
-        "toolchainOverrides": { "type": "object" }
+        "nodeVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "npmVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packageManagerUsed": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "toolchainOverrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
       }
     },
     "commands": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["prepare", "build", "swap", "test"],
+      "required": [
+        "build",
+        "prepare",
+        "swap",
+        "test"
+      ],
       "properties": {
-        "prepare": { "$ref": "#/$defs/argvList" },
-        "build": { "$ref": "#/$defs/argvList" },
-        "swap": { "$ref": "#/$defs/argv" },
-        "test": { "$ref": "#/$defs/argv" }
+        "prepare": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        },
+        "build": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          }
+        },
+        "swap": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "test": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        }
       }
     },
     "rounds": {
       "type": "array",
-      "minItems": 2,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "arm", "round", "exitCode", "killedByTimeout", "hasRunnerSummary",
-          "startedAt", "durationMs", "rawStdoutSha256", "rawStderrSha256",
-          "normalizedStdoutSha256", "normalizedStderrSha256", "logPath", "argv", "envKeys"
+          "argv",
+          "arm",
+          "durationMs",
+          "envKeys",
+          "exitCode",
+          "hasRunnerSummary",
+          "killedByTimeout",
+          "logPath",
+          "normalizedStderrSha256",
+          "normalizedStdoutSha256",
+          "rawStderrSha256",
+          "rawStdoutSha256",
+          "round",
+          "startedAt"
         ],
         "properties": {
-          "arm": { "enum": ["baseline", "candidate"] },
-          "round": { "type": "integer", "minimum": 1 },
-          "exitCode": { "type": "integer", "minimum": -1 },
-          "killedByTimeout": { "type": "boolean" },
-          "hasRunnerSummary": { "type": "boolean" },
-          "infraSignal": { "type": "boolean" },
-          "reportedPassing": { "type": "integer", "minimum": 0 },
-          "reportedFailing": { "type": "integer", "minimum": 0 },
-          "reportedPending": { "type": "integer", "minimum": 0 },
-          "failingTestNames": { "type": "array", "items": { "type": "string" } },
-          "startedAt": { "type": "string" },
-          "durationMs": { "type": "integer", "minimum": 0 },
-          "rawStdoutSha256": { "$ref": "#/$defs/sha256" },
-          "rawStderrSha256": { "$ref": "#/$defs/sha256" },
-          "normalizedStdoutSha256": { "$ref": "#/$defs/sha256" },
-          "normalizedStderrSha256": { "$ref": "#/$defs/sha256" },
-          "logPath": { "type": "string" },
-          "argv": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-          "envKeys": { "type": "array", "items": { "type": "string" } }
+          "arm": {
+            "enum": [
+              "baseline",
+              "candidate"
+            ]
+          },
+          "round": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "exitCode": {
+            "type": "number"
+          },
+          "killedByTimeout": {
+            "type": "boolean"
+          },
+          "hasRunnerSummary": {
+            "type": "boolean"
+          },
+          "infraSignal": {
+            "type": "boolean"
+          },
+          "reportedPassing": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reportedFailing": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reportedPending": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failingTestNames": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "crashSignal": {
+            "type": "boolean"
+          },
+          "sweepFailed": {
+            "type": "boolean"
+          },
+          "startedAt": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rawStdoutSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "rawStderrSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "normalizedStdoutSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "normalizedStderrSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "logPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "envKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       }
     },
     "treeComparison": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["baselineTreeSha256", "candidateTreeSha256", "driftConfinedToDependency", "observationStatus", "resolvedVersions", "dependencyCopies"],
+      "required": [
+        "baselineTreeSha256",
+        "candidateTreeSha256",
+        "dependencyCopies",
+        "driftConfinedToDependency",
+        "observationStatus",
+        "resolvedVersions"
+      ],
       "properties": {
-        "baselineTreeSha256": { "$ref": "#/$defs/sha256" },
-        "candidateTreeSha256": { "$ref": "#/$defs/sha256" },
-        "driftConfinedToDependency": { "type": "boolean" },
+        "baselineTreeSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "candidateTreeSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "driftConfinedToDependency": {
+          "type": "boolean"
+        },
         "observationStatus": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["baseline", "candidate"],
+          "required": [
+            "baseline",
+            "candidate"
+          ],
           "properties": {
-            "baseline": { "enum": ["VALID", "INCOMPLETE", "INVALID"] },
-            "candidate": { "enum": ["VALID", "INCOMPLETE", "INVALID"] }
+            "baseline": {
+              "enum": [
+                "VALID",
+                "INCOMPLETE",
+                "INVALID"
+              ]
+            },
+            "candidate": {
+              "enum": [
+                "VALID",
+                "INCOMPLETE",
+                "INVALID"
+              ]
+            }
           }
         },
         "resolvedVersions": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["baseline", "candidate"],
-          "properties": { "baseline": { "type": "string" }, "candidate": { "type": "string" } }
+          "required": [
+            "baseline",
+            "candidate"
+          ],
+          "properties": {
+            "baseline": {
+              "type": "string",
+              "minLength": 1
+            },
+            "candidate": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         },
         "dependencyCopies": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["baseline", "candidate"],
-          "properties": { "baseline": { "type": "integer", "minimum": 0 }, "candidate": { "type": "integer", "minimum": 0 } }
+          "required": [
+            "baseline",
+            "candidate"
+          ],
+          "properties": {
+            "baseline": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "candidate": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "snapshots": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "baseline",
+            "candidate"
+          ],
+          "properties": {
+            "baseline": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "canonicalLog",
+                "canonicalSha256",
+                "rawStderrLog",
+                "rawStderrSha256",
+                "rawStdoutLog",
+                "rawStdoutSha256"
+              ],
+              "properties": {
+                "rawStdoutLog": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "rawStdoutSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "rawStderrLog": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "rawStderrSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "canonicalLog": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "canonicalSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            },
+            "candidate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "canonicalLog",
+                "canonicalSha256",
+                "rawStderrLog",
+                "rawStderrSha256",
+                "rawStdoutLog",
+                "rawStdoutSha256"
+              ],
+              "properties": {
+                "rawStdoutLog": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "rawStdoutSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "rawStderrLog": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "rawStderrSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "canonicalLog": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "canonicalSha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        },
+        "observationAnomalies": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "baseline",
+            "candidate"
+          ],
+          "properties": {
+            "baseline": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "json"
+              ],
+              "properties": {
+                "json": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "candidate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "json"
+              ],
+              "properties": {
+                "json": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
     "classification": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["label", "rule", "reason", "reproductionCount"],
+      "required": [
+        "label",
+        "reason",
+        "reproductionCount",
+        "rule"
+      ],
       "properties": {
         "label": {
           "enum": [
-            "PASS", "CONFIRMED_REGRESSION", "PRE_EXISTING_FAILURE",
-            "FLAKY", "INFRASTRUCTURE_FAILURE", "INCONCLUSIVE"
+            "PASS",
+            "CONFIRMED_REGRESSION",
+            "PRE_EXISTING_FAILURE",
+            "FLAKY",
+            "INFRASTRUCTURE_FAILURE",
+            "INCONCLUSIVE"
           ]
         },
-        "rule": { "type": "number" },
-        "reason": { "type": "string" },
-        "reproductionCount": { "type": "integer", "minimum": 1 }
+        "rule": {
+          "type": "number"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reproductionCount": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "integrity": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Audit B4: deterministic manifest digest binding every release-critical claim (incl. the per-round artifact digests, which verifyArtifacts ties to on-disk bytes) into one self-consistency hash. Content INTEGRITY + cross-field coherence, NOT authenticated provenance/signature — there is no external trust root.",
-      "required": ["version", "manifestSha256"],
+      "required": [
+        "manifestSha256",
+        "version"
+      ],
       "properties": {
-        "version": { "const": 1 },
-        "manifestSha256": { "$ref": "#/$defs/sha256" }
+        "version": {
+          "type": "number"
+        },
+        "manifestSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
       }
     },
     "ai": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Non-authoritative annotation. Deliberately cannot contain or reference classification fields; the classifier never reads this namespace.",
-      "required": ["provider", "summary", "attachedAt"],
+      "required": [
+        "attachedAt",
+        "provider",
+        "summary"
+      ],
       "properties": {
-        "provider": { "type": "string" },
-        "summary": { "type": "string" },
-        "attachedAt": { "type": "string" }
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attachedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T"
+        }
       }
     }
   },
-  "$defs": {
-    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "argv": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-    "argvList": { "type": "array", "items": { "$ref": "#/$defs/argv" } }
-  }
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "classification": {
+            "properties": {
+              "label": {
+                "enum": [
+                  "PASS",
+                  "CONFIRMED_REGRESSION",
+                  "PRE_EXISTING_FAILURE"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rounds": {
+            "items": {
+              "required": [
+                "infraSignal"
+              ]
+            }
+          },
+          "treeComparison": {
+            "required": [
+              "snapshots",
+              "observationAnomalies"
+            ]
+          }
+        }
+      }
+    }
+  ]
 }

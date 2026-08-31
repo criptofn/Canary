@@ -380,14 +380,23 @@ export interface NpmLsFlatten {
   jsonAnomalies: string[];
 }
 
+/** Traversal budgets shared BY CONTRACT with verify-tree's re-flatten (the
+ *  parity suite pins equality): a tree deeper/wider than any real npm
+ *  resolution (post-sol secondary: deep inputs were unbounded — recursive
+ *  walks could exhaust the stack on hostile bytes) is recorded as a bounded
+ *  PARTIAL observation, never silently truncated. */
+export const MAX_TREE_NODES = 200_000;
+export const MAX_TREE_DEPTH = 128;
+
 /**
- * Flatten `npm ls --json` stdout bytes into the logical tree + anomaly list
- * (audit B6, hardened by round-3 blocker 6 and the npm 11.19 compatibility
- * finding). Exported PURE (bytes in, facts out) so the representation rules
- * are directly unit-testable — the live golden run exercises this code only
- * when the host's npm happens to emit `{}` optional nodes, which the
- * canonical 11.16.0 proof host does not: without a pinned unit test the
- * 11.19 fix could silently regress and CI would stay green.
+ * Flatten `npm ls --json` stdout bytes (+ the retained stderr bytes, post-sol
+ * M-2) into the logical tree + anomaly list (audit B6, hardened by round-3
+ * blocker 6, the npm 11.19 compatibility finding, and post-sol M-2).
+ * Exported PURE (bytes in, facts out) so the representation rules are
+ * directly unit-testable — the live golden run exercises this code only when
+ * the host's npm happens to emit `{}` optional nodes, which the canonical
+ * 11.16.0 proof host does not: without a pinned unit test the 11.19 fix
+ * could silently regress and CI would stay green.
  *
  * Completeness rules (round-3 blocker 6 — the old code silently turned
  * missing versions into an `'x'` sentinel and stayed VALID):
@@ -396,21 +405,38 @@ export interface NpmLsFlatten {
  *    AND, if it carries a declared subtree, `unwalked-subtree` (its real
  *    descendants are NOT observable through it) — observation INCOMPLETE;
  *  - `dependencies` present but not an object => anomaly `malformed-node`;
- *  - npm `problems` / non-zero exit do NOT count as anomalies by themselves
- *    (the Axios fixture's documented ELSPROBLEMS-but-complete-JSON case).
+ *  - traversal beyond MAX_TREE_NODES / MAX_TREE_DEPTH => *budget-exceeded
+ *    anomalies (partial observation, INCOMPLETE; post-sol secondary).
  *
  * npm >= 11.19 renders NOT-INSTALLED OPTIONAL dependencies (fsevents on
- * win32, ws's native bufferutil/utf-8-validate, …) as EMPTY `{}` nodes.
- * That is a COMPLETE observation of an intentionally-absent package — not a
- * hole. The rule (mirrored deliberately differently in verify-tree's
- * iterative re-flatten; the cross-implementation parity test pins the
- * agreement): a version-less, flag-less, subtree-less, zero-key node whose
- * package name appears in NO problems line is expected-absent; anything
- * else version-less stays an anomaly. Uninstalled required deps carry
- * missing:true and/or a "missing:" problem entry, so they keep failing
- * closed.
+ * win32, ws's native bufferutil/utf-8-validate, …) as EMPTY `{}` nodes —
+ * probe-verified ground truth. An uninstalled REQUIRED dep NEVER renders
+ * `{}`: it carries missing:true plus a root `problems` array and an
+ * ELSPROBLEMS line on stderr. The narrowest evidence-supported exemption
+ * (post-sol M-2; mirrored deliberately differently in verify-tree's
+ * iterative re-flatten, pinned by the parity suite):
+ *   a zero-key node is an expected-absent optional ONLY when
+ *   (1) the document's `problems` channel is WELL-FORMED (absent, or an
+ *       array containing nothing but strings; anything else is a
+ *       `malformed-problems` anomaly and the name-silence check cannot be
+ *       trusted),
+ *   (2) the error channel is not CONTRADICTED: an ELSPROBLEMS line in the
+ *       retained stderr demands a non-empty problems array (stderr screaming
+ *       errors over a JSON that reports none is a stripped-channel forgery).
+ *       The converse does NOT hold — self-review R4-SR1 probe: npm's
+ *       extraneous-only trees list `problems: ["extraneous: …"]` while
+ *       exiting 0 with an EMPTY stderr, so silent-stderr-with-problems is
+ *       a genuine complete observation and must not be punished, and
+ *   (3) no problems entry token-anchors the package name.
+ * Anything else version-less stays an anomaly — uninstalled required deps
+ * (missing:true / mentions) and partial or contradictory observations all
+ * fail closed. The residual gap — bytes forged consistently across BOTH
+ * channels — is the documented integrity-only ceiling, not a new trust
+ * surface: the studied dependency can never be excused INTO presence
+ * (a `{}` dep is absence => INCOMPLETE), and the committed proof pins the
+ * summary counts the tree is claimed alongside.
  */
-export function flattenNpmLsJson(rawStdout: string): NpmLsFlatten {
+export function flattenNpmLsJson(rawStdout: string, rawStderr = ''): NpmLsFlatten {
   const parseAnomalies: string[] = [];
   let data: { dependencies?: Record<string, { version?: unknown; dependencies?: unknown; missing?: unknown }>; problems?: unknown };
   let parsed = false;
@@ -431,14 +457,55 @@ export function flattenNpmLsJson(rawStdout: string): NpmLsFlatten {
   // The status is INVALID either way (parsed=false); only the vocabulary was
   // missing. Successful parses carry no marker, so golden hashes are
   // unaffected.
-  const problemsText = parsed && data.problems !== undefined ? JSON.stringify(data.problems) : '';
+  const channelAnomalies: string[] = [];
+  let exemptionAllowed = parsed; // post-sol M-2: only for a corroborated doc
+  if (parsed && data.problems !== undefined) {
+    const okArray = Array.isArray(data.problems) && (data.problems as unknown[]).every((x) => typeof x === 'string');
+    if (!okArray) {
+      // The mention scan cannot be trusted over a channel npm never emits
+      // this way (a STRING problems field was the post-sol differential
+      // between the two parsers — unified here, fail closed).
+      channelAnomalies.push('malformed-problems');
+      exemptionAllowed = false;
+    } else if ((data.problems as string[]).length === 0 && /ELSPROBLEMS/.test(rawStderr)) {
+      // Only the ERROR-channel-loud + REPORT-channel-silent direction is a
+      // contradiction: npm's extraneous-only trees carry non-empty problems
+      // with a silent stderr BY DESIGN (R4-SR1 probe-verified).
+      channelAnomalies.push('problems-stderr-contradiction');
+      exemptionAllowed = false;
+    }
+  } else if (parsed && /ELSPROBLEMS/.test(rawStderr)) {
+    // problems channel silent but stderr says the tree has problems:
+    // contradiction (the stripped-`problems` forgery shape from post-sol M-2).
+    channelAnomalies.push('problems-stderr-contradiction');
+    exemptionAllowed = false;
+  }
+  const problemsLines: string[] = parsed && Array.isArray(data.problems)
+    ? (data.problems as unknown[]).filter((x): x is string => typeof x === 'string')
+    : [];
+  const mentionedInProblems = (name: string): boolean => {
+    const needle = `${name}@`;
+    for (const line of problemsLines) {
+      for (let i = line.indexOf(needle); i !== -1; i = line.indexOf(needle, i + 1)) {
+        if (i === 0 || !/[A-Za-z0-9@/\\.-]/.test(line[i - 1]!)) return true;
+      }
+    }
+    return false;
+  };
   const expectedAbsentOptional = (name: string, v: { version?: unknown; dependencies?: unknown; missing?: unknown } | null): boolean =>
-    v !== null && v.missing !== true && Object.keys(v).length === 0 &&
-    !new RegExp(`(^|[^A-Za-z0-9@/\\\\.-])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}@`).test(problemsText);
-  const jsonAnomalies: string[] = [...parseAnomalies];
+    exemptionAllowed && v !== null && v.missing !== true && Object.keys(v).length === 0 && !mentionedInProblems(name);
+  const jsonAnomalies: string[] = [...parseAnomalies, ...channelAnomalies];
   const flat: DepTree = {};
-  const walk = (node: { dependencies?: Record<string, unknown> }, prefix: string): void => {
+  let visited = 0;
+  let budgetHit = false;
+  const walk = (node: { dependencies?: Record<string, unknown> }, prefix: string, depth: number): void => {
     for (const [k, vRaw] of Object.entries(node.dependencies ?? {})) {
+      if (budgetHit) return;
+      if (++visited > MAX_TREE_NODES || depth >= MAX_TREE_DEPTH) {
+        budgetHit = true;
+        jsonAnomalies.push(visited > MAX_TREE_NODES ? 'traversal-budget-exceeded' : 'depth-budget-exceeded');
+        return;
+      }
       // F4: escape '/' in (scoped) package names so raw '/' only ever means nesting.
       const key = `${prefix}${escapePkgKey(k)}`;
       const v = (typeof vRaw === 'object' && vRaw !== null) ? vRaw as { version?: unknown; dependencies?: unknown; missing?: unknown } : null;
@@ -451,7 +518,7 @@ export function flattenNpmLsJson(rawStdout: string): NpmLsFlatten {
       if (sub === undefined || sub === null) continue;
       if (typeof sub !== 'object') { jsonAnomalies.push(`malformed-node:${key}`); continue; }
       if (hasVersion) {
-        walk({ dependencies: sub as Record<string, unknown> }, `${key}/`);
+        walk({ dependencies: sub as Record<string, unknown> }, `${key}/`, depth + 1);
       } else if (Object.keys(sub as object).length > 0) {
         // A version-less node is NOT walked: its subtree inherits the
         // missing-version anomaly, so trust caps at INCOMPLETE.
@@ -459,10 +526,10 @@ export function flattenNpmLsJson(rawStdout: string): NpmLsFlatten {
       }
     }
   };
-  if (parsed) walk(data as { dependencies?: Record<string, unknown> }, '');
+  if (parsed) walk(data as { dependencies?: Record<string, unknown> }, '', 0);
   jsonAnomalies.sort();
   const hasRootDeps = parsed && !!data.dependencies && typeof data.dependencies === 'object';
-  return { parsed, hasRootDeps, flat, jsonAnomalies };
+  return { parsed, hasRootDeps, flat, jsonAnomalies: [...new Set(jsonAnomalies)].sort() };
 }
 
 async function treeHash(
@@ -474,7 +541,7 @@ async function treeHash(
       '--userconfig', path.join(ws.root, 'empty.npmrc')],
     timeoutSecs: 120,
   });
-  const { parsed, hasRootDeps, flat, jsonAnomalies } = flattenNpmLsJson(r.stdout);
+  const { parsed, hasRootDeps, flat, jsonAnomalies } = flattenNpmLsJson(r.stdout, r.stderr);
   const sortedKeys = Object.keys(flat).sort();
   const canonical = JSON.stringify(sortedKeys.map((k) => [k, flat[k]]));
   // Audit B6: classify the OBSERVATION itself. A vacuous/empty tree, one

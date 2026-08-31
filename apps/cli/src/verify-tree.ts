@@ -39,15 +39,23 @@ export interface Reflattened {
 
 const escName = (name: string): string => name.replaceAll('/', '%2F');
 
+/** Traversal budgets — SAME VALUES as the pipeline's flatten by contract
+ *  (exported and pinned equal by the parity suite; post-sol secondary:
+ *  deep/wide hostile trees must be bounded PARTIAL observations). */
+export const MAX_TREE_NODES = 200_000;
+export const MAX_TREE_DEPTH = 128;
+
 /**
- * Iterative stack-based re-flatten of `npm ls --json` bytes. Structurally
- * different from the pipeline's recursive closure ON PURPOSE (see file
- * header): the two agreeing on hostile input is evidence, not a tautology.
- * Same anomaly VOCABULARY as the pipeline (missing-version:,
- * unwalked-subtree:, malformed-node:) so the two implementations can be
- * diffed; different code path to reach it.
+ * Iterative stack-based re-flatten of `npm ls --json` bytes (+ the retained
+ * stderr bytes, post-sol M-2). Structurally different from the pipeline's
+ * recursive closure ON PURPOSE (see file header): the two agreeing on
+ * hostile input is evidence, not a tautology. Same anomaly VOCABULARY as
+ * the pipeline (missing-version:, unwalked-subtree:, malformed-node:,
+ * malformed-problems:, problems-stderr-contradiction:, traversal-budget-exceeded:,
+ * depth-budget-exceeded:) so the two implementations can be diffed; a
+ * different code path to reach it.
  */
-export function reflattenNpmLs(rawJson: string): Reflattened {
+export function reflattenNpmLs(rawJson: string, rawStderr = ''): Reflattened {
   let data: unknown;
   try {
     data = JSON.parse(rawJson) as unknown;
@@ -60,32 +68,66 @@ export function reflattenNpmLs(rawJson: string): Reflattened {
   const rootDeps = (data as Record<string, unknown>)['dependencies'];
   const hasRootDeps = typeof rootDeps === 'object' && rootDeps !== null;
   // npm >= 11.19 lists NOT-INSTALLED OPTIONAL dependencies (fsevents on
-  // win32, ws's bufferutil/utf-8-validate, …) as empty `{}` nodes. That is a
-  // complete observation of an intentionally-absent package, not a hole —
-  // exempt iff: zero keys, no `missing` flag, and npm's own `problems` list
-  // never mentions the package. GENUINE unmet dependencies carry
-  // missing:true and/or a problems entry, so they keep failing closed. The
-  // pipeline's flatten encodes this same rule with different code ON
-  // PURPOSE; verifyArm's anomaly-set equality then cross-checks the two.
+  // win32, ws's bufferutil/utf-8-validate — probe-verified) as empty `{}`
+  // nodes. Post-sol M-2 narrowest exemption: a zero-key node is an
+  // expected-absent optional ONLY when npm's own problem channels are
+  // well-formed and NOT contradicted (problems absent-or-string[]; an
+  // ELSPROBLEMS line in the retained stderr demands a non-empty problems
+  // array — but non-empty problems with a silent stderr is npm's genuine
+  // extraneous-only shape, R4-SR1) AND no problems entry token-anchors the
+  // name. Uninstalled
+  // REQUIRED deps always carry missing:true + problems + ELSPROBLEMS, so
+  // they fail closed regardless — and a doc whose channels disagree is
+  // treated as untrustworthy for EVERY {} node. The pipeline's flatten
+  // encodes this same rule with different code ON PURPOSE; verifyArm's
+  // anomaly-set equality then cross-checks the two.
   const problemsRaw = (data as Record<string, unknown>)['problems'];
-  const problemHay = (Array.isArray(problemsRaw) ? problemsRaw : [])
-    .map((p) => (typeof p === 'string' ? p : JSON.stringify(p)))
-    .join('\n');
+  const anomalies: string[] = [];
+  let exemptionAllowed = true;
+  if (problemsRaw === undefined) {
+    if (/ELSPROBLEMS/.test(rawStderr)) {
+      anomalies.push('problems-stderr-contradiction');
+      exemptionAllowed = false;
+    }
+  } else if (Array.isArray(problemsRaw) && problemsRaw.every((x) => typeof x === 'string')) {
+    // MONOTONIC contradiction only (post-sol R4-SR1): stderr screaming
+    // ELSPROBLEMS over an empty problems array is a stripped-channel
+    // forgery, but non-empty problems with a SILENT stderr is npm's genuine
+    // extraneous-only shape (problems = report channel, ELSPROBLEMS = error
+    // channel; extraneous alone exits 0 quietly).
+    if ((problemsRaw as string[]).length === 0 && /ELSPROBLEMS/.test(rawStderr)) {
+      anomalies.push('problems-stderr-contradiction');
+      exemptionAllowed = false;
+    }
+  } else {
+    anomalies.push('malformed-problems');
+    exemptionAllowed = false;
+  }
+  const problemLines: string[] = Array.isArray(problemsRaw)
+    ? (problemsRaw as unknown[]).filter((x): x is string => typeof x === 'string')
+    : [];
   const mentionedInProblems = (n: string): boolean => {
     const at = `${n}@`;
-    for (let i = problemHay.indexOf(at); i !== -1; i = problemHay.indexOf(at, i + 1)) {
-      if (i === 0 || !/[A-Za-z0-9@/\\.-]/.test(problemHay[i - 1]!)) return true;
-    }
-    return false;
+    return problemLines.some((line) => {
+      for (let i = line.indexOf(at); i !== -1; i = line.indexOf(at, i + 1)) {
+        if (i === 0 || !/[A-Za-z0-9@/\\.-]/.test(line[i - 1]!)) return true;
+      }
+      return false;
+    });
   };
   const flat: Record<string, string> = {};
-  const anomalies: string[] = [];
-  const stack: Array<[Record<string, unknown>, string]> =
-    hasRootDeps ? [[rootDeps as Record<string, unknown>, '']] : [];
+  const stack: Array<{ deps: Record<string, unknown>; prefix: string; depth: number }> =
+    hasRootDeps ? [{ deps: rootDeps as Record<string, unknown>, prefix: '', depth: 0 }] : [];
   let visited = 0;
-  while (stack.length > 0) {
-    const [deps, prefix] = stack.pop()!;
+  let budgetHit = false;
+  while (stack.length > 0 && !budgetHit) {
+    const { deps, prefix, depth } = stack.pop()!;
     for (const name of Object.keys(deps)) {
+      if (++visited > MAX_TREE_NODES || depth >= MAX_TREE_DEPTH) {
+        budgetHit = true;
+        anomalies.push(visited > MAX_TREE_NODES ? 'traversal-budget-exceeded' : 'depth-budget-exceeded');
+        break;
+      }
       const node = deps[name];
       const key = `${prefix}${escName(name)}`;
       const ent = (typeof node === 'object' && node !== null)
@@ -95,7 +137,7 @@ export function reflattenNpmLs(rawJson: string): Reflattened {
       const hasVersion = typeof version === 'string' && version !== '';
       if (ent === null) anomalies.push(`malformed-node:${key}`);
       if (hasVersion) flat[key] = version as string;
-      else if (ent !== null && Object.keys(ent).length === 0 && !('missing' in ent) && !mentionedInProblems(name)) {
+      else if (exemptionAllowed && ent !== null && Object.keys(ent).length === 0 && !('missing' in ent) && !mentionedInProblems(name)) {
         /* expected-absent optional: nothing recorded, nothing missing */
       } else anomalies.push(`missing-version:${key}`);
       const sub = ent?.['dependencies'];
@@ -103,11 +145,10 @@ export function reflattenNpmLs(rawJson: string): Reflattened {
       if (typeof sub !== 'object') { anomalies.push(`malformed-node:${key}`); continue; }
       if (Object.keys(sub as object).length === 0) continue;
       if (hasVersion && ent !== null) {
-        stack.push([sub as Record<string, unknown>, `${key}/`]);
+        stack.push({ deps: sub as Record<string, unknown>, prefix: `${key}/`, depth: depth + 1 });
       } else {
         anomalies.push(`unwalked-subtree:${key}`);
       }
-      if (++visited > 500_000) { anomalies.push('traversal-budget-exceeded'); stack.length = 0; break; }
     }
   }
   return { parsed: true, hasRootDeps, flat, anomalies: [...new Set(anomalies)].sort() };
@@ -141,13 +182,25 @@ export function deriveConfined(changedKeys: readonly string[], dep: string): boo
   return changedKeys.every((k) => k.split('/').includes(esc));
 }
 
+/**
+ * Read one artifact file, confined to the artifacts directory. Round-3 B3
+ * established the discipline for ROUND artifacts in prove.ts (lexical check
+ * + realpath — a symlink may name an innocent basename yet resolve outside
+ * the run). Post-sol secondary: TREE snapshot reads now carry the EQUIVALENT
+ * realpath confinement; without it a planted symlink (or a manipulated
+ * artifacts dir) could point a tree claim at bytes outside the workspace.
+ */
 function readArtifact(artifactsDir: string, name: string): string | undefined {
   try {
+    if (name !== path.basename(name)) return undefined; // bare derived basename only
     const abs = path.resolve(artifactsDir, name);
     const root = path.resolve(artifactsDir);
     if (!abs.startsWith(root + path.sep)) return undefined; // confinement (audit B3)
-    if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return fs.readFileSync(abs, 'utf8');
-    return undefined;
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return undefined;
+    const real = fs.realpathSync(abs);
+    const rootReal = fs.realpathSync(root);
+    if (real !== rootReal && !real.startsWith(rootReal + path.sep)) return undefined; // post-sol secondary: symlink escape
+    return fs.readFileSync(abs, 'utf8');
   } catch {
     return undefined;
   }
@@ -187,7 +240,9 @@ export function deriveArmTreeFacts(
   if (!snap) return undefined;
   const raw = readArtifact(artifactsDir, snap.rawStdoutLog);
   if (raw === undefined) return undefined;
-  const re = reflattenNpmLs(raw);
+  // post-sol M-2: the stderr channel participates in the exemption
+  // corroboration, so the re-derivation reads it too (absent => silent).
+  const re = reflattenNpmLs(raw, readArtifact(artifactsDir, snap.rawStderrLog) ?? '');
   return { flat: re.flat, anomalies: re.anomalies, status: statusOfObservation(re, bundle.dependency.package) };
 }
 
@@ -232,8 +287,12 @@ function verifyArm(
   if (stderr === undefined) issues.push(`${at}: raw npm-ls STDERR artifact '${snap.rawStderrLog}' missing (npm prints ELSPROBLEMS there; absence means it was not retained)`);
   else if (sha256hex(stderr) !== snap.rawStderrSha256) issues.push(`${at}: stderr bytes do not match the recorded digest`);
 
-  // Re-derive everything from bytes with the INDEPENDENT parser.
-  const re = reflattenNpmLs(raw);
+  // Re-derive everything from bytes with the INDEPENDENT parser. Post-sol
+  // M-2: the RETAINED stderr channel corroborates (or refutes) the `{}`
+  // optional-node exemption, so it feeds the re-flatten; a missing stderr
+  // artifact reads as silent, which the anomaly-set comparison then exposes
+  // for any document that claims problems (fail closed).
+  const re = reflattenNpmLs(raw, stderr ?? '');
   const claimedStatus = (tc.observationStatus as Record<string, string>)[arm];
   const claimedTreeSha = arm === 'baseline' ? tc.baselineTreeSha256 : tc.candidateTreeSha256;
   const claimedCopies = (tc.dependencyCopies as Record<string, number>)[arm];

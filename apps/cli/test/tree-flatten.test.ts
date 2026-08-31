@@ -21,11 +21,11 @@
  *     anomalies cap trust at INCOMPLETE, and confinement semantics are
  *     unchanged.
  */
-import { test, describe } from 'node:test';
+import { test, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { flattenNpmLsJson } from '../src/pipeline.js';
-import { reflattenNpmLs, statusOfObservation } from '../src/verify-tree.js';
+import { flattenNpmLsJson, MAX_TREE_NODES, MAX_TREE_DEPTH } from '../src/pipeline.js';
+import { reflattenNpmLs, statusOfObservation, MAX_TREE_NODES as V_NODES, MAX_TREE_DEPTH as V_DEPTH } from '../src/verify-tree.js';
 import { classifyTreeObservation, dependencyInTree, inDependencySubtree, diffTrees } from '@canary-rn/comparator';
 
 const J = (o: unknown): string => JSON.stringify(o);
@@ -57,7 +57,10 @@ describe('flattenNpmLsJson — npm 11.19 empty-object representation (pipeline p
       dependencies: { axios: { version: '0.27.2' }, fsevents: {} },
       problems: ['invalid: fsevents@2.3.3 node_modules/fsevents'],
     });
-    const r = flattenNpmLsJson(out);
+    // post-sol M-2: a non-empty problems array MUST be echoed by ELSPROBLEMS
+    // on stderr (real npm does exactly this) or the doc fails closed for
+    // every {} node — the channels are fed consistently here.
+    const r = flattenNpmLsJson(out, 'npm error code ELSPROBLEMS\nnpm error invalid: fsevents@2.3.3 node_modules/fsevents\n');
     assert.deepEqual(r.jsonAnomalies, ['missing-version:fsevents']);
   });
 
@@ -84,7 +87,7 @@ describe('flattenNpmLsJson — npm 11.19 empty-object representation (pipeline p
       dependencies: { axios: { version: '0.27.2' }, util: {}, bufferutil: {} },
       problems: ['invalid extraneous bufferutil@1.0.0'],
     });
-    const r = flattenNpmLsJson(out);
+    const r = flattenNpmLsJson(out, 'npm error code ELSPROBLEMS\n');
     // 'util@' must not fire inside 'bufferutil@' — util is expected-absent;
     // bufferutil IS mentioned -> anomaly.
     assert.deepEqual(r.jsonAnomalies, ['missing-version:bufferutil']);
@@ -130,6 +133,162 @@ describe('flattenNpmLsJson — npm 11.19 empty-object representation (pipeline p
       parsed: r.parsed, hasRootDeps: r.hasRootDeps, deps: r.flat,
       dependencyPresent: dependencyInTree(r.flat, 'axios'), anomalies: r.jsonAnomalies,
     }), 'INCOMPLETE');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST-SOL M-2 — the `{}` exemption must be the NARROWEST evidence-supported
+// condition, not a general trust in empty nodes. Empirical ground truth
+// (probed against the real npm 11.19 during remediation):
+//   * an uninstalled OPTIONAL dep renders as a pure `{}` node (root fsevents
+//     on win32, ws's bufferutil/utf-8-validate) in a document whose `problems`
+//     channel is SILENT (field absent) and whose STDERR is silent — npm's own
+//     verdict that the tree is problem-free;
+//   * an uninstalled REQUIRED dep NEVER renders `{}`: it carries
+//     {"missing":true,"problems":[...]} plus a root `problems` array plus an
+//     "ELSPROBLEMS" line on stderr (exit 1).
+// Therefore a zero-key node is an expected-absent optional ONLY IF the
+// document's problem channels are well-formed and mutually CONSISTENT
+// (problems absent-or-string[], stderr ELSPROBLEMS present iff problems
+// non-empty) and npm's problems list mentions the name nowhere. Malformed
+// problems, channel contradictions, or a missing-flag node are holes and fail
+// CLOSED. This is the narrowest condition retained bytes can express; the
+// remaining gap (a forgery consistent across BOTH channels) is the documented
+// integrity-only ceiling (SECURITY.md), not a trust grant.
+// ---------------------------------------------------------------------------
+describe('post-sol M-2 — empty-node semantics (narrowest exemption)', () => {
+  const J = (o: unknown): string => JSON.stringify(o);
+
+  it('the REAL captured npm 11.19 shape (root fsevents {}, ws nested {} natives) stays VALID', () => {
+    // verbatim structural sample from `npm ls --json --all --depth 9999`
+    // (npm 11.19.0, win32) during the remediation probes
+    const out = J({
+      version: '1.0.0', name: 'probe',
+      dependencies: {
+        fsevents: {},
+        'left-pad': { version: '1.3.0', resolved: 'https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz', overridden: false },
+        ws: {
+          version: '8.18.0', resolved: 'https://r/ws-8.18.0.tgz', overridden: false,
+          dependencies: { bufferutil: {}, 'utf-8-validate': {}, asyncLocalStorage: { version: '2.1.0' } },
+        },
+      },
+    });
+    const r = flattenNpmLsJson(out, '');
+    assert.deepEqual(r.jsonAnomalies, []);
+    assert.deepEqual(r.flat, { 'left-pad': '1.3.0', ws: '8.18.0', 'ws/asyncLocalStorage': '2.1.0' });
+    assert.equal(classifyTreeObservation({
+      parsed: r.parsed, hasRootDeps: r.hasRootDeps, deps: r.flat,
+      dependencyPresent: dependencyInTree(r.flat, 'ws'), anomalies: r.jsonAnomalies,
+    }), 'VALID');
+    // …and the independent verifier agrees (same rules, different code):
+    const v = reflattenNpmLs(out, '');
+    assert.deepEqual(v.anomalies, []);
+    assert.deepEqual(v.flat, r.flat);
+  });
+
+  it('R4-SR1 (self-review): problems WITH a silent stderr is npm\'s real extraneous-only shape — the observation is complete, not contradictory', () => {
+    // Probe-verified on npm 11.19: `npm ls` lists extraneous problems in
+    // the JSON while exiting 0 with EMPTY stderr. The contradiction check
+    // is therefore MONOTONIC (ELSPROBLEMS demands problems, never the
+    // reverse); over-firing it here would cap every honest extraneous tree
+    // at INCOMPLETE and destroy the golden drift test (rule 9 -> 10).
+    const out = J({
+      dependencies: { axios: { version: '1.0.0' }, fsevents: {}, left: { version: '1.0.0', extraneous: true } },
+      problems: ['extraneous: left@1.0.0 node_modules/left'],
+    });
+    const r = flattenNpmLsJson(out, '');
+    assert.deepEqual(r.jsonAnomalies, [], r.jsonAnomalies.join('; '));
+    assert.equal(r.flat['fsevents'], undefined, 'expected-absent optional: no flat entry');
+    assert.equal(r.flat['left'], '1.0.0');
+    assert.deepEqual(reflattenNpmLs(out, '').anomalies, []);
+    assert.equal(classifyTreeObservation({
+      parsed: r.parsed, hasRootDeps: r.hasRootDeps, deps: r.flat,
+      dependencyPresent: true, anomalies: r.jsonAnomalies,
+    }), 'VALID');
+  });
+
+  it('an empty/absent problems field under an ELSPROBLEMS stderr IS the contradiction (stripped-report forgery)', () => {
+    const err = 'npm error code ELSPROBLEMS\nnpm error missing: evil@1.0.0, required by app@1.0.0\n';
+    for (const doc of [
+      { dependencies: { axios: { version: '1.0.0' }, 'evil-required': {} } },
+      { dependencies: { axios: { version: '1.0.0' }, 'evil-required': {} }, problems: [] },
+    ]) {
+      const out = J(doc);
+      const r = flattenNpmLsJson(out, err);
+      assert.ok(r.jsonAnomalies.includes('problems-stderr-contradiction'), JSON.stringify(r.jsonAnomalies));
+      assert.ok(r.jsonAnomalies.includes('missing-version:evil-required'),
+        'a {} node cannot masquerade as optional when npm exited with a problems banner it did not report');
+      assert.deepEqual(reflattenNpmLs(out, err).anomalies, r.jsonAnomalies);
+    }
+  });
+
+  it('problems ABSENT but stderr SCREAMING ELSPROBLEMS is equally a contradiction (stripped-stderr forgery)', () => {
+    const err = 'npm error code ELSPROBLEMS\nnpm error missing: evil-required@1.0.0, required by app@1.0.0\n';
+    const out = J({ dependencies: { axios: { version: '1.0.0' }, 'evil-required': {} } });
+    const r = flattenNpmLsJson(out, err);
+    assert.ok(r.jsonAnomalies.includes('problems-stderr-contradiction'), JSON.stringify(r.jsonAnomalies));
+    assert.ok(r.jsonAnomalies.includes('missing-version:evil-required'),
+      'a {} node cannot masquerade as optional when stderr says the tree has problems');
+  });
+
+  it('a MALFORMED problems field (string, object, or array with non-strings) kills the exemption and is itself an anomaly', () => {
+    for (const bad of ['just a string about axios@1.0.0', { weird: true }, ['valid entry', 42]]) {
+      const out = J({ dependencies: { axios: { version: '1.0.0' }, fsevents: {} }, problems: bad });
+      const r = flattenNpmLsJson(out, '');
+      assert.ok(r.jsonAnomalies.includes('malformed-problems'), JSON.stringify(r.jsonAnomalies) + ' for ' + JSON.stringify(bad));
+      assert.ok(r.jsonAnomalies.includes('missing-version:fsevents'), 'no exemption through a malformed channel');
+      // parity: verifier sees the same
+      assert.deepEqual(reflattenNpmLs(out, '').anomalies, r.jsonAnomalies);
+    }
+  });
+
+  it('string-valued problems mentioning the node fail closed identically on BOTH parsers (N4 differential)', () => {
+    const out = J({ dependencies: { axios: { version: '1.0.0' }, fsevents: {} }, problems: 'invalid: fsevents@2.3.3 node_modules/fsevents' });
+    const a = flattenNpmLsJson(out, '');
+    const b = reflattenNpmLs(out, '');
+    assert.deepEqual(a.jsonAnomalies, b.anomalies);
+    assert.ok(a.jsonAnomalies.includes('malformed-problems'));
+    assert.ok(a.jsonAnomalies.includes('missing-version:fsevents'));
+  });
+
+  it('the STUDIED dependency appearing as {} is absence (INCOMPLETE via depPresent), never presence', () => {
+    const out = J({ dependencies: { axios: {}, other: { version: '1.0.0' } } });
+    const r = flattenNpmLsJson(out, '');
+    assert.equal(dependencyInTree(r.flat, 'axios'), false);
+    assert.equal(statusOfObservation(reflattenNpmLs(out, ''), 'axios'), 'INCOMPLETE');
+  });
+
+  it('drift caused by DISAPPEARANCE of a formerly-versioned dep is byte-visible, not exemption-hidden (outside-subtree drift -> unconfined)', () => {
+    const base = flattenNpmLsJson(J({ dependencies: { axios: { version: '0.27.2' }, 'left-pad': { version: '1.3.0' } } }), '').flat;
+    // candidate: left-pad rendered {} (a hole dressed as optional in a clean doc):
+    const cand = flattenNpmLsJson(J({ dependencies: { axios: { version: '1.0.0' }, 'left-pad': {} } }), '').flat;
+    const drift = diffTrees(base, cand, 'axios');
+    assert.equal(drift.confined, false, 'disappearance outside the dep subtree must surface as drift');
+    assert.deepEqual(drift.other, ['left-pad']);
+  });
+
+  it('deeply nested hostile trees are BOUNDED on both parsers (no stack exhaustion; fails closed)', () => {
+    // 300 levels of legitimate-looking nesting
+    let deep: Record<string, unknown> = { version: '9.9.9' };
+    for (let i = 0; i < 300; i++) deep = { version: `${i}.0.0`, dependencies: { [`p${i}`]: deep } };
+    const out = JSON.stringify({ name: 'hostile', version: '1.0.0', dependencies: { axios: { version: '1.0.0' }, deep: deep as never } });
+    const a = flattenNpmLsJson(out, '');
+    const b = reflattenNpmLs(out, '');
+    assert.ok(a.jsonAnomalies.some((x) => /budget-exceeded/.test(x)), JSON.stringify(a.jsonAnomalies.slice(0, 4)));
+    assert.deepEqual(b.anomalies, a.jsonAnomalies);
+    assert.equal(statusOfObservation(b, 'axios'), 'INCOMPLETE', 'a bounded (partial) observation cannot be VALID');
+  });
+
+  it('the traversal budgets are IDENTICAL contracts in both implementations', () => {
+    assert.equal(MAX_TREE_NODES, V_NODES, 'node budget drift between producer and verifier');
+    assert.equal(MAX_TREE_DEPTH, V_DEPTH, 'depth budget drift between producer and verifier');
+  });
+
+  it('anomalies from the two problem channels are DETERMINISTIC and deduped across repeated {} nodes', () => {
+    const out = J({ dependencies: { axios: { version: '1.0.0' }, a: {}, b: {}, c: {} }, problems: 'x' });
+    const r = flattenNpmLsJson(out, '');
+    assert.equal(r.jsonAnomalies.filter((x) => x === 'malformed-problems').length, 1);
+    assert.deepEqual(r.jsonAnomalies, [...r.jsonAnomalies].sort());
   });
 });
 

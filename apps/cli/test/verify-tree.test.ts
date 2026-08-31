@@ -47,7 +47,9 @@ describe('reflattenNpmLs — independent re-derivation of the tree observation',
       },
       problems: ['extraneous: left-pad@1.0.0'], // ELSPROBLEMS noise is NOT an anomaly
     });
-    const r = reflattenNpmLs(nested);
+    // post-sol M-2: the problems array and stderr ELSPROBLEMS must agree
+    // (real npm emits both) before the tree is trusted as consistent.
+    const r = reflattenNpmLs(nested, 'npm error code ELSPROBLEMS\n');
     assert.ok(r.parsed && r.hasRootDeps);
     assert.deepEqual(r.anomalies, []);
     assert.equal(r.flat['widget'], '1.0.0');
@@ -80,7 +82,7 @@ describe('reflattenNpmLs — independent re-derivation of the tree observation',
       },
       problems: ['invalid: ajv@6.15.0 C:\\x\\node_modules\\ajv'],
     });
-    const r = reflattenNpmLs(raw);
+    const r = reflattenNpmLs(raw, 'npm error code ELSPROBLEMS\n');
     assert.deepEqual(r.anomalies, [], JSON.stringify(r.anomalies));
     assert.deepEqual(Object.keys(r.flat).sort(), ['mocha', 'mocha/chokidar', 'ws']);
   });
@@ -90,7 +92,7 @@ describe('reflattenNpmLs — independent re-derivation of the tree observation',
       dependencies: { ws: { version: '8.0.0', dependencies: { bufferutil: {} } } },
       problems: ['missing: bufferutil@2.0.0'],
     });
-    const r = reflattenNpmLs(raw);
+    const r = reflattenNpmLs(raw, 'npm error code ELSPROBLEMS\n');
     assert.deepEqual(r.anomalies, ['missing-version:ws/bufferutil']);
   });
   it('problems name-matching is token-anchored: "util" is not mentioned by "bufferutil@1.0.0"', () => {
@@ -99,7 +101,7 @@ describe('reflattenNpmLs — independent re-derivation of the tree observation',
       dependencies: { pkg: { version: '1.0.0', dependencies: { util: {} } } },
       problems: ['missing: bufferutil@1.0.0'],
     });
-    const r = reflattenNpmLs(raw);
+    const r = reflattenNpmLs(raw, 'npm error code ELSPROBLEMS\n');
     assert.deepEqual(r.anomalies, [], 'a substring-only coincidence must not force INCOMPLETE');
   });
   it('a {} node WITH a declared subtree is still missing-version + unwalked-subtree', () => {
@@ -376,9 +378,12 @@ describe('retained tree snapshots — real pipeline bytes, independent verifier'
 describe('validateBundle — round-3 B6 snapshot/anomaly/version gates', () => {
   function baseTrustfulBundle(): Record<string, unknown> {
     const H = 'a'.repeat(64);
+    // Post-sol RB-2: executed totals (passing+failing) must match across
+    // arms for a trustful label: baseline 5+0 vs candidate 4+1 = 5.
     const round = (arm: 'baseline' | 'candidate', n: number): Record<string, unknown> => ({
       arm, round: n, exitCode: arm === 'baseline' ? 0 : 1,
-      killedByTimeout: false, hasRunnerSummary: true, infraSignal: false, reportedPassing: 5,
+      killedByTimeout: false, hasRunnerSummary: true, infraSignal: false,
+      reportedPassing: arm === 'candidate' ? 4 : 5,
       ...(arm === 'candidate' ? { reportedFailing: 1, failingTestNames: ['t'] } : {}),
       startedAt: '2026-08-31T00:00:00Z', durationMs: 10,
       rawStdoutSha256: H, rawStderrSha256: H, normalizedStdoutSha256: H, normalizedStderrSha256: H,

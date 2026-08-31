@@ -42,10 +42,12 @@ export interface RoundFact {
    *  passing+failing = 0 can never support PASS or CONFIRMED_REGRESSION
    *  (round-3 blocker 2). */
   reportedPassing?: number | undefined;
-  /** Pending/skipped count from the runner summary. Recorded for
-   *  transparency; deliberately EXCLUDED from the executed-total (round-3
-   *  blocker 2: "0 passing / 0 failing / N pending" proves the runner
-   *  started, not that any test asserted anything). */
+  /** Pending/skipped count from the runner summary. EXCLUDED from the
+   *  executed-total (round-3 blocker 2: "0 passing / 0 failing / N pending"
+   *  proves the runner started, not that any test asserted anything) but
+   *  INCLUDED in the observed-total used for the post-sol RB-2 coverage
+   *  comparison — pending that grows across arms or repetitions is a
+   *  coverage change and may never anchor a strong verdict. */
   reportedPending?: number | undefined;
   /** Sorted, deduped failing-test identities parsed from the log, when
    *  parseable. Audit F2: exit-code unanimity alone can label a run CONFIRMED
@@ -68,8 +70,9 @@ export interface RoundFact {
 
 export interface ClassificationResult {
   classification: Classification;
-  /** Number of the decision-table rule that fired (0..11; 9/10 are the
-   *  confinement guard, 11 the identity-coverage gate). */
+  /** Number of the decision-table rule that fired (0..13; 9/10 are the
+   *  confinement guard, 11 the identity-coverage gate, 12/13 the post-sol
+   *  RB-2 coverage-consistency pair). */
   rule: number;
   reason: string;
   details: {
@@ -146,6 +149,44 @@ export function infraCause(r: RoundFact): string | null {
 function isInfraRound(r: RoundFact): boolean {
   return infraCause(r) !== null;
 }
+
+/**
+ * Post-sol RB-2 — COVERAGE CONSISTENCY. Coverage totals derived from one
+ * round's summary:
+ *   executed = passing + failing  (assertions that actually ran)
+ *   observed = executed + pending (tests registered in the summary)
+ * Undefined counts read as zero: rule 1 already guarantees every surviving
+ * round carries at least one machine-readable count, and mocha/ava OMIT the
+ * failing/pending lines when those are zero. A round whose counts are wholly
+ * absent is infra, never a coverage datum.
+ *
+ * The invariant: WEAKER OR MISSING TEST EXECUTION MUST NOT PRODUCE A STRONGER
+ * VERDICT. A real regression moves tests from passing to failing at a stable
+ * executed total; tests vanishing from execution (collapse, silent skip,
+ * suite-load truncation) are not equivalent to PASS, and not equivalent
+ * enough to CONFIRM anything. Both rules reason from the experiment's own
+ * totals — there is deliberately NO hard-coded minimum test count: N
+ * repetitions and both arms must merely AGREE.
+ */
+export interface CoverageTotals { executed: number; observed: number }
+
+export function coverageOf(r: RoundFact): CoverageTotals {
+  const executed = (r.reportedPassing ?? 0) + (r.reportedFailing ?? 0);
+  return { executed, observed: executed + (r.reportedPending ?? 0) };
+}
+
+/** The arm's shared coverage totals, or undefined when its repetitions
+ *  disagree (coverage instability = FLAKY at the observation level). */
+function coverageStable(rs: readonly RoundFact[]): CoverageTotals | undefined {
+  if (rs.length === 0) return undefined;
+  const first = coverageOf(rs[0]!);
+  return rs.every((r) => {
+    const c = coverageOf(r);
+    return c.executed === first.executed && c.observed === first.observed;
+  }) ? first : undefined;
+}
+
+const covText = (c: CoverageTotals): string => `${c.executed}/${c.observed}`;
 
 const pass = (r: RoundFact): boolean => r.exitCode === 0;
 const unanimous = (rs: readonly RoundFact[]): boolean =>
@@ -282,8 +323,39 @@ export function classify(rounds: readonly RoundFact[]): ClassificationResult {
       { baselinePass: bPass, baselineUnanimous: bUnanim, candidateUnanimous: false });
   }
 
+  // Rule 12 (post-sol RB-2): every repetition of an arm must show the SAME
+  // executed/observed coverage totals. Baseline "128 passing" repeating as
+  // "1 passing" is not a stable environment — even with unanimous exit
+  // codes — and must never support PASS (Sol case 2). Candidate-side
+  // instability is equally FLAKY.
+  const bCov = coverageStable(baseline);
+  const cCov = coverageStable(candidate);
+  if (!bCov || !cCov) {
+    const unstableArm = !bCov ? 'baseline' : 'candidate';
+    const rs = (!bCov ? baseline : candidate).map((r) => covText(coverageOf(r))).join(', ');
+    return mk('FLAKY', 12,
+      `${unstableArm} repetitions differ in observed test coverage (executed/observed: ${rs}) — coverage instability across repeats invalidates the comparison`,
+      { baselinePass: bPass, baselineUnanimous: bUnanim, candidateUnanimous: unanimous(candidate) });
+  }
+
   const cAllPass = candidate.every(pass);
   const cAllFail = candidate.every((r) => !pass(r));
+
+  // Rule 13 (post-sol RB-2): cross-arm COMPARABILITY gates STRONG verdicts
+  // only. PASS / CONFIRMED_REGRESSION / PRE_EXISTING_FAILURE claim the arms
+  // measured the same experiment; a summary whose executed or observed
+  // totals differ across arms means tests silently disappeared from (or
+  // appeared in) execution — that is exactly the weaker-or-missing
+  // execution that may never produce the stronger verdict (Sol cases 1, 3,
+  // 4). A legitimate regression (passing -> failing at stable totals, the
+  // Axios shape 128 -> 125+3) passes this gate untouched.
+  const wouldBeStrong =
+    (bPass && (cAllPass || cAllFail)) || (!bPass && cAllFail);
+  if (wouldBeStrong && (bCov.executed !== cCov.executed || bCov.observed !== cCov.observed)) {
+    return mk('INCONCLUSIVE', 13,
+      `test coverage differs between arms (baseline executed/observed ${covText(bCov)}, candidate ${covText(cCov)}) — weaker or missing test execution must not produce a stronger verdict; a legitimate regression keeps the executed total stable and moves tests from passing to failing`,
+      { baselinePass: bPass, baselineUnanimous: bUnanim, candidateUnanimous: false });
+  }
 
   // Rule 3: clean + clean -> PASS.
   if (bPass && cAllPass) {

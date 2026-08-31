@@ -22,7 +22,7 @@ import path from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import { runExperiment, InfraAbort } from '../src/pipeline.js';
-import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
+import { validateBundle, structuralIssues, type EvidenceBundle } from '@canary-rn/evidence-schema';
 import { assertProof, actualHostFingerprint, verifyArtifacts, verifyRunIdentity, verifyClassificationDerivation, type ProofExpectation } from '../src/prove.js';
 import { sha256hex } from '@canary-rn/hashing';
 
@@ -115,6 +115,12 @@ describe('audit M8 — offline pipeline end-to-end', () => {
   it('confined regression: CONFIRMED_REGRESSION, real artifacts re-hash clean', async () => {
     const { bundle, artifactsDir, issues } = await offlineRun(false);
     assert.deepEqual(issues, [], `bundle must self-validate: ${issues.join('; ')}`);
+    // post-sol M-1: REAL generated evidence satisfies the published
+    // structural contract (same source of truth that generates
+    // schemas/evidence.schema.json — drift between producer output and the
+    // published contract fails here, not in an audit).
+    assert.deepEqual(structuralIssues(bundle as unknown as Record<string, unknown>), [],
+      'real pipeline evidence must satisfy the published contract');
     assert.equal(bundle.classification.label, 'CONFIRMED_REGRESSION', bundle.classification.reason);
     assert.equal(bundle.classification.rule, 5);
     assert.equal(bundle.treeComparison.driftConfinedToDependency, true);

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it } from 'node:test';
 
-import { validateBundle, integrityFor, EVIDENCE_SCHEMA_VERSION } from '../src/index.js';
+import {
+  validateBundle, integrityFor, EVIDENCE_SCHEMA_VERSION,
+  buildPublishedSchema, structuralIssues, BUNDLE_CONTRACT,
+} from '../src/index.js';
 
 const H = 'a'.repeat(64);
 const SHA40 = 'b8804442837556a2c7673caeb2925688991b610c';
@@ -22,11 +27,13 @@ function goodBundle(): Record<string, unknown> {
     // Round-3 blocker 2: a healthy run must carry machine-readable EXECUTED
     // counts (passing/failing — pending never counts). A round with no counts
     // at all can no longer support any verdict.
-    reportedPassing: 5,
-    // Round-3 blocker 1: identities must FULLY account for the failing
-    // count — 3 names for "3 failing" (the pre-fix fixture shipped 2, which
-    // the classifier/validator now correctly refuse to trust).
-    ...(arm === 'candidate' ? { reportedFailing: 3, failingTestNames: ['a test', 'b test', 'c test'] } : {}),
+    // Post-sol RB-2: EXECUTED totals (passing+failing) must match across
+    // arms for a trustful label — baseline 5+0 vs candidate 2+3 = 5 — so the
+    // independent coverage-parity gate accepts this shape (an incomparable
+    // one is tested below).
+    ...(arm === 'candidate'
+      ? { reportedPassing: 2, reportedFailing: 3, failingTestNames: ['a test', 'b test', 'c test'] }
+      : { reportedPassing: 5 }),
     startedAt: '2026-08-30T00:00:00Z', durationMs: 120,
     rawStdoutSha256: H, rawStderrSha256: H,
     normalizedStdoutSha256: H, normalizedStderrSha256: H,
@@ -39,7 +46,10 @@ function goodBundle(): Record<string, unknown> {
     downstream: { repositoryUrl: 'https://github.com/x/y', commitSha: SHA40, fetchMethod: 'tarball-by-sha', tarballSha256: H },
     environment: { nodeVersion: 'v26', npmVersion: '11', packageManagerUsed: 'npm', platform: 'win32', arch: 'x64', toolchainOverrides: {} },
     commands: { prepare: [['a']], build: [], swap: ['b'], test: ['c'] },
-    rounds: [round('baseline', 1), round('baseline', 2), round('candidate', 1)],
+    // Post-sol RB-2: a trustful label also requires REPEATED execution —
+    // >= 2 rounds per arm (the planner enforces repeats >= 2; the validator
+    // independently refuses a "confirmed"/"pass" claim built on one round).
+    rounds: [round('baseline', 1), round('baseline', 2), round('candidate', 1), round('candidate', 2)],
     treeComparison: {
       baselineTreeSha256: H, candidateTreeSha256: H, driftConfinedToDependency: true,
       observationStatus: { baseline: 'VALID', candidate: 'VALID' },
@@ -50,7 +60,7 @@ function goodBundle(): Record<string, unknown> {
       snapshots: { baseline: snapshotRef('baseline'), candidate: snapshotRef('candidate') },
       observationAnomalies: { baseline: { json: [] }, candidate: { json: [] } },
     },
-    classification: { label: 'CONFIRMED_REGRESSION', rule: 5, reason: 'ok', reproductionCount: 1 },
+    classification: { label: 'CONFIRMED_REGRESSION', rule: 5, reason: 'ok', reproductionCount: 2 },
   };
   b.integrity = integrityFor(b);
   return b;
@@ -116,22 +126,19 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
   it('rejects a CONFIRMED_REGRESSION label whose own rounds say PASS', () => {
     const b = goodBundle();
     for (const r of b.rounds as Record<string, unknown>[]) {
-      if (r.arm === 'candidate') { r.exitCode = 0; delete r.reportedFailing; delete r.failingTestNames; }
+      // reportedPassing 5 keeps the arms comparable (post-sol RB-2) so the
+      // refusal tested here is the label/round contradiction, not coverage.
+      if (r.arm === 'candidate') { r.exitCode = 0; r.reportedPassing = 5; delete r.reportedFailing; delete r.failingTestNames; }
     }
-    assert.ok(validateBundle(b).some((e) => /re-derivation from these rounds yields PASS/.test(e)),
+    assert.ok(validateBundle(b).some((e) => /re-derivation from these rounds yields PASS rule 3/.test(e)),
       String(validateBundle(b)));
   });
 
   it('rejects a CONFIRMED_REGRESSION built from rounds whose failure identities differ (must re-derive FLAKY rule 8)', () => {
     const b = goodBundle();
-    b.rounds = [
-      ...(b.rounds as object[]),
-      {
-        ...(b.rounds as Record<string, unknown>[])[2]!,
-        round: 2, exitCode: 3, reportedFailing: 3, failingTestNames: ['other test', 'b test', 'c test'],
-      },
-    ];
-    setCls(b, { reproductionCount: 2 });
+    // goodBundle carries two candidate rounds; diverging #2's identities
+    // makes the failing profiles disagree across repetitions.
+    ((b.rounds as Record<string, unknown>[])[3]!).failingTestNames = ['other test', 'b test', 'c test'];
     assert.ok(validateBundle(b).some((e) => /yields FLAKY rule 8/.test(e)), String(validateBundle(b)));
   });
 
@@ -155,7 +162,7 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
   it('rejects an inflated reproductionCount not backed by candidate rounds', () => {
     const b = goodBundle();
     setCls(b, { reproductionCount: 100 });
-    assert.ok(validateBundle(b).some((e) => /reproductionCount=100 but bundle has 1 candidate/.test(e)));
+    assert.ok(validateBundle(b).some((e) => /reproductionCount=100 but bundle has 2 candidate/.test(e)));
   });
 
   it('rejects a trustful verdict while drift says NOT confined (rule-9 guard bypassed)', () => {
@@ -244,6 +251,60 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
       `classifier re-derivation must independently refuse: ${issues.join('; ')}`);
   });
 
+  // POST-SOL RB-2: a trustful label must be anchored to comparable, stable,
+  // repeated test execution. The classifier re-derivation catches these via
+  // rules 12/13; the validator ALSO refuses them through an INDEPENDENT
+  // parity gate (the bundle must refute the lie even if the decision table
+  // changes — same posture as the round-3 B1 identity-coverage gate).
+  it('post-sol RB-2: a resealed trustful bundle over incomparable arm coverage dies twice over', () => {
+    const b = goodBundle();
+    // candidate executes 2+8 = 10 where baseline executes 5 (collapse/
+    // disappearance shaped as a 'regression'): re-seal so integrity is NOT
+    // the reason.
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      if (r.arm === 'candidate') r.reportedFailing = 8;
+    }
+    (b.rounds as Record<string, unknown>[]).forEach((r) => {
+      if (r.arm === 'candidate' && Array.isArray(r.failingTestNames)) {
+        r.failingTestNames = ['a test', 'b test', 'c test', 'd test', 'e test', 'f test', 'g test', 'h test'];
+      }
+    });
+    const issues = validateBundle(seal(b));
+    assert.ok(issues.some((e) => /coverage-parity gate bypassed/i.test(e)),
+      `independent parity gate must fire: ${issues.join('; ')}`);
+    assert.ok(issues.some((e) => /re-derivation .* yields INCONCLUSIVE rule 13/.test(e)),
+      `classifier re-derivation must independently refuse: ${issues.join('; ')}`);
+  });
+
+  it('post-sol RB-2: a trustful label with only ONE round per arm is refused', () => {
+    const b = goodBundle();
+    b.rounds = (b.rounds as Record<string, unknown>[]).filter((r) => !(r.arm === 'candidate' && r.round === 2));
+    (b.classification as Record<string, unknown>).reproductionCount = 1;
+    const issues = validateBundle(seal(b)); // classify over 1+2 rounds still says CR 5
+    assert.ok(issues.some((e) => /requires >= 2 .* rounds/.test(e)),
+      `single-round-per-arm trustful claim must die: ${issues.join('; ')}`);
+  });
+
+  it('post-sol RB-2: unstable repetition coverage under a trustful label is refused (baseline 5 vs 4 passing)', () => {
+    const b = goodBundle();
+    const rounds = b.rounds as Record<string, unknown>[];
+    rounds[1]!.reportedPassing = 4; // baseline #2 lost a test
+    const issues = validateBundle(seal(b));
+    assert.ok(issues.some((e) => /coverage-parity/i.test(e)), issues.join('; '));
+  });
+
+  it('post-sol RB-2: weak labels carry no parity requirement (honest INCONCLUSIVE rule 13 validates)', () => {
+    const b = goodBundle();
+    const EIGHT = ['t1', 't2', 't3', 't4', 't5', 't6', 't7', 't8'];
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      if (r.arm === 'candidate') { r.reportedFailing = 8; r.failingTestNames = [...EIGHT]; }
+    }
+    setCls(b, { label: 'INCONCLUSIVE', rule: 13 });
+    // classify over these facts yields INCONCLUSIVE rule 13 — an honest
+    // downgrade of a coverage-incomparable run must validate clean.
+    assert.deepEqual(validateBundle(seal(b)), [], validateBundle(seal(b)).join('; '));
+  });
+
   it('round-3 B2: a PASS label over zero-assertion (pending-only) rounds is rejected', () => {
     const b = goodBundle();
     (b.classification as Record<string, unknown>).label = 'PASS';
@@ -258,5 +319,122 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
     const issues = validateBundle(seal(b));
     assert.ok(issues.some((e) => /re-derivation .* yields INFRASTRUCTURE_FAILURE/.test(e)),
       `pending-only rounds execute nothing — PASS must not survive: ${issues.join('; ')}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST-SOL M-1 — ONE DELIBERATE CONTRACT. The runtime floor and the
+// published JSON schema are two VIEWS of contract.ts; this suite pins:
+//   (a) the committed schema FILE equals the GENERATED schema (drift dies);
+//   (b) every 'always'-required field of the contract is enforced at runtime
+//       (the four deletions Sol demonstrated are in the matrix explicitly);
+//   (c) intentionally-optional fields stay optional (no crude strictification);
+//   (d) unknown fields are refused at every strict scope (matching the
+//       schema's additionalProperties:false — the unknown-field policy is
+//       INTENTIONAL, not accidental);
+//   (e) the trustful tier (infraSignal / snapshots / observationAnomalies)
+//       is required for trustful labels and optional for weak ones.
+// ---------------------------------------------------------------------------
+describe('post-sol M-1 — contract.ts is the single source of truth', () => {
+  const repoRoot = path.resolve(import.meta.dirname, '..', '..', '..', '..', '..');
+  const publishedPath = path.join(repoRoot, 'schemas', 'evidence.schema.json');
+
+  it('the committed schemas/evidence.schema.json EQUALS the generated contract (no drift)', () => {
+    assert.ok(fs.existsSync(publishedPath), `published schema file missing at ${publishedPath}`);
+    const committed = JSON.parse(fs.readFileSync(publishedPath, 'utf8')) as unknown;
+    assert.deepEqual(committed, buildPublishedSchema(),
+      'schemas/evidence.schema.json is stale relative to contract.ts — regenerate from the contract');
+  });
+
+  type Spec = { req: string; kind?: string; obj?: Record<string, Spec>; arr?: Spec };
+  const requiredPaths = (spec: Spec, prefix: string, out: string[]): void => {
+    if (spec.arr) { requiredPaths(spec.arr, `${prefix}[0]`, out); return; }
+    if (spec.obj) {
+      for (const [k, sub] of Object.entries(spec.obj)) {
+        const p = prefix ? `${prefix}.${k}` : k;
+        if (sub.req === 'always') out.push(p);
+        if (sub.req === 'optional') continue; // intentionally optional subtree
+        requiredPaths(sub, p, out);
+      }
+    }
+  };
+  const drop = (o: Record<string, unknown>, dotted: string): void => {
+    const segs = dotted.replace(/\[0\]/g, '.0').split('.').filter(Boolean);
+    let cur: unknown = o;
+    for (let i = 0; i < segs.length - 1; i++) cur = (cur as Record<string, unknown>)[segs[i]!];
+    delete (cur as Record<string, unknown>)[segs[segs.length - 1]!];
+  };
+
+  it('every always-required contract field is refused at runtime when DELETED (Sol: commands, killedByTimeout, startedAt, durationMs included)', () => {
+    const paths: string[] = [];
+    requiredPaths(BUNDLE_CONTRACT as unknown as Spec, '', paths);
+    assert.ok(paths.includes('commands'), 'commands must be always-required now');
+    assert.ok(paths.includes('rounds[0].killedByTimeout') && paths.includes('rounds[0].startedAt') && paths.includes('rounds[0].durationMs'));
+    assert.ok(paths.includes('environment') && paths.includes('environment.toolchainOverrides'));
+    for (const p of paths) {
+      const b = goodBundle();
+      drop(b, p);
+      const issues = validateBundle(b);
+      const leaf = p.split('.').pop()!.replace(/\[0\]/, '');
+      assert.ok(issues.some((i) => i.includes(leaf)), `${p}: runtime accepted a bundle missing an always-required field: ${issues.join('; ')}`);
+    }
+  });
+
+  it('intentionally-optional fields may be absent (we do not blind-strictify)', () => {
+    const b = goodBundle();
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      delete r.reportedPassing; delete r.reportedPending; delete r.crashSignal; delete r.sweepFailed; delete r.failingTestNames;
+    }
+    // reportedFailing removed too (baseline never had it); re-derivation then
+    // sees no counts -> those become INFRA-flagged rounds, so compare only
+    // the STRUCTURAL floor: structuralIssues must stay silent.
+    assert.deepEqual(structuralIssues(b as Record<string, unknown>)
+      .filter((i) => /reportedPassing|reportedPending|crashSignal|sweepFailed|failingTestNames/.test(i)), []);
+    // ai stays optional with the full weak-label path: INCONCLUSIVE rule 0
+    // with no rounds is impossible; instead assert absence of ai is fine:
+    const b2 = goodBundle();
+    delete b2.ai;
+    assert.equal((b2 as Record<string, unknown>).ai, undefined);
+    assert.ok(!structuralIssues(b2).some((i) => /(^|\.)ai\b|ai missing/.test(i)));
+  });
+
+  it('unknown fields are refused at root, round, and treeComparison scopes (policy is intentional)', () => {
+    for (const where of [['bogus'], ['rounds', '0', 'bogus'], ['treeComparison', 'bogus'], ['classification', 'bogus'] as const]) {
+      const b = goodBundle();
+      if (where.length === 1) b[where[0]!] = 1;
+      else if (where[0] === 'rounds') (b.rounds as Record<string, unknown>[])[0]![where[2]!] = 1;
+      else (b[where[0]!] as Record<string, unknown>)[where[1]!] = 1;
+      const issues = structuralIssues(b);
+      assert.ok(issues.some((i) => /unknown fields are refused by policy/.test(i)), `${where.join('.')}: ${issues.join('; ')}`);
+    }
+  });
+
+  it('trustful-tier fields: deleted infraSignal/snapshots/anomalies kill a trustful claim but validate clean under a weak honest label', () => {
+    const b = goodBundle();
+    for (const r of b.rounds as Record<string, unknown>[]) delete r.infraSignal;
+    delete (b.treeComparison as Record<string, unknown>).snapshots;
+    delete (b.treeComparison as Record<string, unknown>).observationAnomalies;
+    const trustfulIssues = validateBundle(seal(b));
+    assert.ok(trustfulIssues.some((e) => /infraSignal/.test(e)), trustfulIssues.join('; '));
+    assert.ok(trustfulIssues.some((e) => /requires a retained treeComparison/.test(e)), trustfulIssues.join('; '));
+    // same deletions under an honest INCONCLUSIVE rule 0... rule 0 needs a
+    // missing arm; rule 13 is the honest coverage story here:
+    const w = goodBundle();
+    for (const r of w.rounds as Record<string, unknown>[]) { delete r.infraSignal; }
+    (w.treeComparison as Record<string, unknown>).observationStatus = { baseline: 'INCOMPLETE', candidate: 'VALID' };
+    delete (w.treeComparison as Record<string, unknown>).snapshots;
+    delete (w.treeComparison as Record<string, unknown>).observationAnomalies;
+    (w.classification as Record<string, unknown>).label = 'INCONCLUSIVE';
+    (w.classification as Record<string, unknown>).rule = 10;
+    assert.deepEqual(validateBundle(seal(w)), [], validateBundle(seal(w)).join('; '));
+  });
+
+  it('round indices must be contiguous per arm (an omitted round shrinks the claimed reproduction)', () => {
+    const b = goodBundle();
+    // rounds order: baseline#1, baseline#2, candidate#1, candidate#2 —
+    // drop baseline#1 so the baseline arm starts at #2 (a silent gap):
+    (b.rounds as Record<string, unknown>[]).splice(0, 1);
+    const issues = validateBundle(seal(b));
+    assert.ok(issues.some((e) => /contiguous 1\.\./.test(e)), issues.join('; '));
   });
 });
