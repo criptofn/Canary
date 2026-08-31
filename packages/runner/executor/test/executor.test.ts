@@ -13,7 +13,10 @@ const NODE = process.execPath;
 const NODE_DIR = path.dirname(NODE);
 
 const armBase = (round = 1): RoundFact => ({
-  arm: 'baseline', round, exitCode: 0, hasRunnerSummary: true, infraSignal: false,
+  arm: 'baseline', round, exitCode: 0, hasRunnerSummary: true, infraSignal: false, reportedPassing: 5,
+});
+const armCandidatePass = (round = 1): RoundFact => ({
+  arm: 'candidate', round, exitCode: 0, hasRunnerSummary: true, infraSignal: false, reportedPassing: 5,
 });
 
 function freshRecorder() {
@@ -206,6 +209,17 @@ describe('summary/infra matchers (F1/F5 hardening)', () => {
     assert.ok(isInfraOutput("Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'x'"));
     assert.ok(!isInfraOutput('  1 failing\n  127 passing (90ms)\n     Error: expected 200 got 404'));
   });
+
+  it('audit B2: errno code in a PASSING test name is NOT infra; in an error line IS', () => {
+    // benign: a test titled after a network code, running green
+    assert.ok(!isInfraOutput(
+      '  √ retries after ECONNREFUSED and succeeds\n  1 passing (5ms)'),
+    'benign prose must not be false-infrastructure');
+    assert.ok(!isInfraOutput('  42 passing\n  note: EACCES handling covered above\n'));
+    // hostile-but-real: an actual error line carrying the code
+    assert.ok(isInfraOutput('  1 passing\nError: connect ECONNREFUSED 127.0.0.1:54321'));
+    assert.ok(isInfraOutput('npm error code EACCES'));
+  });
 });
 
 describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', () => {
@@ -272,8 +286,48 @@ describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', (
     } finally { cleanup(); }
   });
 
-  it('audit B1 e2e: same leaf title, different SUITE across candidate rounds -> FLAKY', async () => {
+  it('audit B2 (real subprocess): 0 passing at exit 0 records reportedPassing=0 (classifier => INFRA)', async () => {
     const { rec, cleanup } = freshRecorder();
+    try {
+      const r = await rec.round('baseline', 1, [NODE, '-e',
+        'console.log("  0 passing (1ms)")'], 30);
+      assert.equal(r.fact.exitCode, 0);
+      assert.equal(r.fact.hasRunnerSummary, true);
+      assert.equal(r.fact.reportedPassing, 0);
+      assert.equal(r.fact.infraSignal, false);
+      const cls = classify([r.fact, { ...r.fact, round: 2 }, armCandidatePass(1), armCandidatePass(2)]);
+      assert.equal(cls.classification, 'INFRASTRUCTURE_FAILURE');
+      assert.equal(cls.rule, 1);
+      assert.match(cls.reason, /zero executed tests/);
+    } finally { cleanup(); }
+  });
+
+  it('audit B2 (real subprocess): ECONNREFUSED error line at exit 0 sets infraSignal true (not swallowed by exit)', async () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const r = await rec.round('candidate', 1, [NODE, '-e',
+        'console.log("  3 passing (1ms)"); console.error("Error: connect ECONNREFUSED 127.0.0.1:54321");'], 30);
+      assert.equal(r.fact.exitCode, 0);
+      assert.equal(r.fact.infraSignal, true, 'infra must be recognized at exit 0');
+      assert.equal(r.fact.reportedPassing, 3);
+      const cls = classify([armBase(), armBase(2), { ...r.fact }, { ...r.fact, round: 2 }]);
+      assert.equal(cls.classification, 'INFRASTRUCTURE_FAILURE');
+    } finally { cleanup(); }
+  });
+
+  it('audit B2 (real subprocess): a genuinely passing run records reportedPassing>0 and stays valid', async () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const r = await rec.round('baseline', 1, [NODE, '-e',
+        'console.log("  5 passing (1ms)")'], 30);
+      assert.equal(r.fact.reportedPassing, 5);
+      assert.equal(r.fact.infraSignal, false);
+      const ev = roundEvidence(r, r.fact);
+      assert.equal(ev.reportedPassing, 5);
+    } finally { cleanup(); }
+  });
+
+  it('audit B1 e2e: same leaf title, different SUITE across candidate rounds -> FLAKY', async () => {    const { rec, cleanup } = freshRecorder();
     try {
       const failLog = (suite: string): string => [
         'console.log("  10 passing (1ms)");',

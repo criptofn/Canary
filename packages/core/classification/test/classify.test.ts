@@ -14,6 +14,10 @@ function arm(kind: 'baseline' | 'candidate', round: number, pass = true): RoundF
     exitCode: pass ? 0 : 1,
     hasRunnerSummary: true,
     infraSignal: false,
+    // audit B2: a healthy round records its passing count too (real runners
+    // print "N passing"); this is what distinguishes a valid zero-failure run
+    // from a zero-execution run that must never PASS.
+    reportedPassing: pass ? 5 : 4,
     ...(pass ? {} : { reportedFailing: 1, failingTestNames: ['placeholder test'] }),
   };
 }
@@ -110,6 +114,53 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
     };
     const r = classify([arm('baseline', 1), arm('baseline', 2), masked, { ...masked, round: 2 }]);
     assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+  });
+
+  // ---- audit B2: a successful exit is NOT sufficient for a valid PASS ----
+  it('audit B2: zero-test execution (exit 0, "0 passing") is INFRA, never PASS', () => {
+    const zero: RoundFact = {
+      arm: 'baseline', round: 1, exitCode: 0,
+      hasRunnerSummary: true, infraSignal: false, reportedPassing: 0,
+    };
+    const r = classify([zero, { ...zero, round: 2 }, arm('candidate', 1), arm('candidate', 2)]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(r.rule, 1);
+    assert.match(r.reason, /zero executed tests/);
+  });
+
+  it('audit B2: a round with NO runner summary at exit 0 is INFRA, never PASS', () => {
+    const nosummary: RoundFact = {
+      arm: 'candidate', round: 1, exitCode: 0, hasRunnerSummary: false, infraSignal: false,
+    };
+    // baseline genuinely passes, candidate "passes" but ran no recognizable tests
+    const r = classify([arm('baseline', 1), arm('baseline', 2), nosummary, { ...nosummary, round: 2 }]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.match(r.reason, /not recognizable as a test run/);
+  });
+
+  it('audit B2: recognized infra signature at EXIT ZERO is INFRA (a harness that swallows errors)', () => {
+    const swallowed: RoundFact = {
+      arm: 'candidate', round: 1, exitCode: 0, hasRunnerSummary: true,
+      infraSignal: true, reportedPassing: 3,   // 0 failing, but ECONNREFUSED in output
+    };
+    const r = classify([arm('baseline', 1), arm('baseline', 2), swallowed, { ...swallowed, round: 2 }]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.match(r.reason, /infrastructure-failure signature/);
+  });
+
+  it('audit B2: a candidate whose baseline is clean but rounds are zero-test is INFRA (never CONFIRMED)', () => {
+    const zeroCand: RoundFact = {
+      arm: 'candidate', round: 1, exitCode: 1, hasRunnerSummary: true,
+      infraSignal: false, reportedPassing: 0, reportedFailing: 0,
+    };
+    const r = classify([arm('baseline', 1), arm('baseline', 2), zeroCand, { ...zeroCand, round: 2 }]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+  });
+
+  it('audit B2 positive control: a valid zero-failure run (N>0 passing, exit 0) still PASSES', () => {
+    const r = classify([arm('baseline', 1), arm('baseline', 2), arm('candidate', 1), arm('candidate', 2)]);
+    assert.equal(r.classification, 'PASS');
+    assert.equal(r.rule, 3);
   });
 
   it('audit F1 (mocha-realistic): passing summary WITHOUT a failing line + nonzero exit -> INFRA, never CONFIRMED_REGRESSION', () => {

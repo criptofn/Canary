@@ -37,10 +37,16 @@ export interface RoundEvidence {
   killedByTimeout: boolean;
   hasRunnerSummary: boolean;
   /** Deterministic infra pattern matched in this round's output (audit F3:
-   *  required for the validator to re-derive the classification faithfully). */
+   *  required for the validator to re-derive the classification faithfully).
+   *  Audit B2: recognized at ANY exit code, including 0. */
   infraSignal?: boolean | undefined;
+  /** Passing-test count as parsed from the runner summary, if readable
+   *  (audit B2: with failing+pending defines the executed-total). */
+  reportedPassing?: number | undefined;
   /** Failing-test count as parsed from the runner summary, if machine-readable. */
   reportedFailing?: number | undefined;
+  /** Pending/skipped count as parsed from the runner summary (audit B2). */
+  reportedPending?: number | undefined;
   /** Sorted failing-test identities parsed from this round's log (audit F13). */
   failingTestNames?: string[] | undefined;
   startedAt: string;
@@ -232,8 +238,11 @@ function semanticChecks(
     if (r.killedByTimeout === true && r.exitCode !== -1) {
       issues.push(`${at}: killedByTimeout but exitCode=${String(r.exitCode)} (a killed round exits -1)`);
     }
-    if (r.reportedFailing !== undefined && (typeof r.reportedFailing !== 'number' || !Number.isInteger(r.reportedFailing) || r.reportedFailing < 0)) {
-      issues.push(`${at}: reportedFailing must be a non-negative integer when present`);
+    for (const key of ['reportedPassing', 'reportedFailing', 'reportedPending'] as const) {
+      const v = r[key];
+      if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < 0)) {
+        issues.push(`${at}: ${key} must be a non-negative integer when present`);
+      }
     }
     if (r.failingTestNames !== undefined &&
       !(Array.isArray(r.failingTestNames) && (r.failingTestNames as unknown[]).every((x) => typeof x === 'string'))) {
@@ -274,7 +283,9 @@ function semanticChecks(
     exitCode: r.exitCode as number,
     hasRunnerSummary: r.hasRunnerSummary as boolean,
     infraSignal: r.infraSignal as boolean,
+    ...(r.reportedPassing !== undefined ? { reportedPassing: r.reportedPassing as number } : {}),
     ...(r.reportedFailing !== undefined ? { reportedFailing: r.reportedFailing as number } : {}),
+    ...(r.reportedPending !== undefined ? { reportedPending: r.reportedPending as number } : {}),
     ...(r.failingTestNames !== undefined ? { failingTestNames: r.failingTestNames as string[] } : {}),
   }));
   const derived = classify(facts);

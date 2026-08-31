@@ -36,6 +36,14 @@ export interface RoundFact {
    *  a zero exit whose log reports failing tests is a masked failure
    *  (red-team findings F1/F5). */
   reportedFailing?: number | undefined;
+  /** Passing-test count from the runner summary (audit B2). Together with
+   *  failing+pending it defines whether ANY test actually executed: an
+   *  executed-total of zero can never support a PASS. */
+  reportedPassing?: number | undefined;
+  /** Pending/skipped count from the runner summary (audit B2): pending tests
+   *  ARE executed selections (they prove the runner ran) and count toward the
+   *  executed total. */
+  reportedPending?: number | undefined;
   /** Sorted failing-test identities parsed from the log, when parseable.
    *  Audit F2: exit-code unanimity alone can label a run CONFIRMED while the
    *  rounds failed DIFFERENT tests (or different numbers of tests) — a
@@ -74,12 +82,37 @@ export interface ClassificationResult {
  *  - exit = 0 while the summary reports >=1 failing -> masked failure via a
  *    bad test command -> infra (never silently PASS)
  */
+/**
+ * Execution-validity rules (audit B2, incorporating red-team F1/F5).
+ * Returns the machine-readable reason a round is NOT a valid test execution,
+ * or null when it is. A successful exit is NOT sufficient: a round counts as
+ * infrastructure if ANY of
+ *  - it was killed / died by signal (exit -1);
+ *  - its output carries a recognized infrastructure signature at ANY exit
+ *    code (B2: harnesses can swallow errors and exit 0);
+ *  - it shows no test-runner summary at all (B2: no recognizable execution,
+ *    e.g. a script that exits 0 without ever running tests);
+ *  - its summary reports ZERO executed tests (B2: "0 passing" is not a PASS);
+ *  - it exits nonzero while the summary claims zero failures (F1: died for a
+ *    non-test reason);
+ *  - it exits 0 while the summary reports failures (F5: masked failure).
+ * None of these may ever yield PASS or CONFIRMED_REGRESSION.
+ */
+export function infraCause(r: RoundFact): string | null {
+  if (r.exitCode === -1) return 'killed or signal death';
+  if (r.infraSignal) return 'recognized infrastructure-failure signature in output';
+  if (!r.hasRunnerSummary) return 'no test-runner summary — execution not recognizable as a test run';
+  const observed =
+    r.reportedPassing !== undefined || r.reportedFailing !== undefined || r.reportedPending !== undefined;
+  const executed = (r.reportedPassing ?? 0) + (r.reportedFailing ?? 0) + (r.reportedPending ?? 0);
+  if (observed && executed === 0) return 'runner summary reports zero executed tests';
+  if (r.exitCode === 0 && (r.reportedFailing ?? 0) > 0) return 'exit 0 while summary reports failing tests (masked failure)';
+  if (r.exitCode !== 0 && (r.reportedFailing ?? 0) === 0) return 'nonzero exit while summary reports zero failing tests (died outside tests)';
+  return null;
+}
+
 function isInfraRound(r: RoundFact): boolean {
-  if (r.exitCode === -1) return true;
-  if (r.exitCode !== 0 && (r.infraSignal || !r.hasRunnerSummary)) return true;
-  if (r.exitCode !== 0 && r.hasRunnerSummary && (r.reportedFailing ?? 0) === 0) return true;
-  if (r.exitCode === 0 && (r.reportedFailing ?? 0) > 0) return true;
-  return false;
+  return infraCause(r) !== null;
 }
 
 const pass = (r: RoundFact): boolean => r.exitCode === 0;
@@ -145,14 +178,15 @@ export function classify(rounds: readonly RoundFact[]): ClassificationResult {
     });
   }
 
-  // Rule 1: any required round is an infra round -> INFRASTRUCTURE_FAILURE.
+  // Rule 1: any required round is not a valid test execution -> INFRA.
   const infraRounds = rounds.filter(isInfraRound);
   if (infraRounds.length > 0) {
     const first = infraRounds[0]!;
     return mk(
       'INFRASTRUCTURE_FAILURE', 1,
-      `round ${first.arm}#${first.round} did not complete as a real test run ` +
-      `(exit=${first.exitCode}, summary=${first.hasRunnerSummary}, infra=${first.infraSignal})`,
+      `round ${first.arm}#${first.round} is not a valid test run: ${infraCause(first)} ` +
+      `(exit=${first.exitCode}, summary=${first.hasRunnerSummary}, infra=${first.infraSignal}, ` +
+      `counts p/f/p=${first.reportedPassing ?? '-'}:${first.reportedFailing ?? '-'}:${first.reportedPending ?? '-'})`,
       { baselinePass: bPass, baselineUnanimous: bUnanim, candidateUnanimous: false },
     );
   }

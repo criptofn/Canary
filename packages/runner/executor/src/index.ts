@@ -46,15 +46,33 @@ export function hasRunnerSummary(out: string): boolean {
   return SUMMARY_LINE.test(out);
 }
 
+/**
+ * Infra signatures, two-tier (audit B2).
+ *
+ * HARD patterns are unambiguous tool/environment failures; they match ANYWHERE
+ * in the round's output regardless of exit code — ESM/module/dependency
+ * resolution breakage is infrastructure even when the harness exits 0.
+ *
+ * SOFT codes (network/fs errno names) CAN legitimately appear inside a
+ * PASSING test suite's prose (a test named "retries after ECONNREFUSED").
+ * They only count when they co-occur on the SAME line with an error shape
+ * ("Error: connect ECONNREFUSED", "npm error EACCES", …) and the line is not
+ * a runner progress glyph (√/✓/✗/×). This is the balance the audit demands:
+ * "recognized infrastructure-failure output must not become PASS" while
+ * "ordinary test text must not become false infrastructure".
+ */
 export const INFRA_PATTERNS: readonly RegExp[] = [
   /ERR_MODULE_NOT_FOUND/, /Cannot find module/, /ReferenceError: require is not defined/,
-  /ERR_REQUIRE_ESM/, /ERESOLVE/, /ETARGET/, /npm error code/, /error Command failed/,
+  /ERR_REQUIRE_ESM/, /ERESOLVE/, /ETARGET/, /npm error/, /npm ERR!/, /error Command failed/,
   /SyntaxError: Unexpected token/,
-  // deterministic environmental failures that must never masquerade as drift (F1/F2):
-  /EADDRINUSE/, /ECONNREFUSED/, /ECONNRESET/, /EMFILE/, /EPERM/, /EBUSY/, /ENOSPC/,
 ];
+const SOFT_CODE = /\b(EADDRINUSE|ECONNREFUSED|ECONNRESET|EMFILE|EPERM|EACCES|EBUSY|ENOSPC|ENOENT|ETIMEDOUT)\b/;
+const SOFT_SHAPE = /\b(?:error|errno|syscall|connect|listen|spawn|fatal|fail(?:ed|ure))\b/i;
+const PROGRESS_GLYPH = /^\s*(?:√|✓|✗|×|→|-{2,})/;
 export function isInfraOutput(out: string): boolean {
-  return INFRA_PATTERNS.some((re) => re.test(out));
+  if (INFRA_PATTERNS.some((re) => re.test(out))) return true;
+  return out.split(/\r?\n/).some((line) =>
+    !PROGRESS_GLYPH.test(line) && SOFT_CODE.test(line) && SOFT_SHAPE.test(line));
 }
 
 /**
@@ -244,8 +262,14 @@ export class Recorder {
       round: index,
       exitCode: res.run.exitCode,
       hasRunnerSummary: hasRunnerSummary(res.combined),
-      infraSignal: res.run.exitCode !== 0 && isInfraOutput(res.combined),
+      // Audit B2: infra signatures are recognized REGARDLESS of exit code —
+      // a harness can swallow an ECONNREFUSED and still exit 0. The
+      // two-tier matcher (see isInfraOutput) keeps benign prose from
+      // triggering this.
+      infraSignal: isInfraOutput(res.combined),
+      reportedPassing: counts.passing,
       reportedFailing: counts.failing,
+      reportedPending: counts.pending,
       // Audit F13: failing-test identities are FIRST-CLASS evidence. Sorted
       // so that profile comparison is order-independent; classification uses
       // them (audit F2), the bundle persists them, the report renders them.
@@ -263,7 +287,9 @@ export interface RoundEvidenceOut {
   killedByTimeout: boolean;
   hasRunnerSummary: boolean;
   infraSignal?: boolean | undefined;
+  reportedPassing?: number | undefined;
   reportedFailing?: number | undefined;
+  reportedPending?: number | undefined;
   failingTestNames?: string[] | undefined;
   startedAt: string;
   durationMs: number;
@@ -284,7 +310,9 @@ export function roundEvidence(res: ExecResult, fact: RoundFact): RoundEvidenceOu
     killedByTimeout: res.run.killedByTimeout,
     hasRunnerSummary: fact.hasRunnerSummary,
     infraSignal: fact.infraSignal,
+    ...(fact.reportedPassing !== undefined ? { reportedPassing: fact.reportedPassing } : {}),
     reportedFailing: fact.reportedFailing,
+    ...(fact.reportedPending !== undefined ? { reportedPending: fact.reportedPending } : {}),
     ...(fact.failingTestNames ? { failingTestNames: [...fact.failingTestNames] } : {}),
     startedAt: new Date().toISOString(),
     durationMs: res.run.durationMs,
