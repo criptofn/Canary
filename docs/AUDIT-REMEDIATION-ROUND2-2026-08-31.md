@@ -26,7 +26,7 @@ change (script run 2026-08-31; output recorded in the session and summarized):
 |---|---|---|
 | B1 | Suite-qualified canonical test identity; no leaf-title collapse; proof updated to the REAL three golden identities | FIXED @ this commit |
 | B2 | Execution-validity taxonomy: zero-test and no-summary runs can never PASS; infra-shaped output at exit 0 never PASS (without misclassifying benign prose) | FIXED @ this commit |
-| B3 | Artifact paths canonical (derived from arm/round, not trusted strings) + resolved-path containment + ownership binding | OPEN |
+| B3 | Artifact paths canonical (derived from arm/round, not trusted strings) + resolved-path containment + ownership binding | FIXED @ d5512ea |
 | B4 | Evidence bound to bytes: manifest integrity digest, per-round fact replay against artifacts, report verifies-or-labels, proof asserts schema/experimentId/repo/environment/tarball | OPEN |
 | B5 | Canonical package-manager policy: closed subcommand allowlist (no alias blacklist), raw npm forms rejected, `--`-in-install rejected, isolation flags in effective position by construction | OPEN |
 | B6 | Tree observations typed TREE_VALID/INCOMPLETE/INVALID; only VALID supports trustful labels; principled rule for npm ls non-zero w/ known problems | OPEN |
@@ -81,3 +81,17 @@ matcher benign/hostile pair. Live: broadened matcher re-checked against all 5
 golden artifacts → all infraSignal=false (no false infra). Mutation: removing
 the zero-exec guard fails 2 tests; reverting infra-at-0 fails 1; restore 0.
 Gate: suite 140→149, build+typecheck clean, golden Axios proof PASS 17/17.
+
+### 2026-08-31 — B3 artifact confinement + ownership @ d5512ea
+Root cause: verifyArtifacts derived filenames by slicing the attacker-supplied
+`logPath`, so `../`/absolute/separator-variant paths read arbitrary external
+files, and cross-round/cross-type swaps verified when digests were swapped too.
+Change: filenames DERIVED from structured arm/round (a bare basename cannot
+carry a separator → containment is structural); `logPath` must equal the
+canonical `${arm}-${round}.stdout.log` (ownership); lexical `withinDir` +
+`fs.realpathSync` re-check reject symlink escapes; arm/round validated before
+any path build; schema `semanticChecks` rejects a non-canonical logPath too.
+Tests: prove.test B3 suite (external-identical refusal, absolute refusal,
+cross-round both directions, baseline→candidate, canonical clean, missing+
+modified, symlink escape). Mutation: disabling the ownership check fails 5
+tests; restore 0. Suite 149→155(+1 skip); typecheck clean; proof PASS 17/17.
