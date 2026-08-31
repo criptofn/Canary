@@ -206,3 +206,42 @@ duplicate (arm,round) ids (unit test). H2–H7 all handled correctly by the
 existing B1–B6 layers (documented in the robustness table). Re-ran all six
 original blocker reproductions against the fixed build → all six REFUTED.
 Suite 194→196(+1 skip); build+typecheck clean; golden Axios proof PASS 24/24.
+
+### 2026-08-31 — CLEAN-ROOM FINAL VALIDATION @ 282a16e
+Fresh `git clone file:// -b reaudit-hardening` → HEAD 282a16e, empty tree.
+`pwd` verified inside the clone before/after EVERY gate (the round-1 cwd-reset
+pitfall was guarded against explicitly):
+- `npm ci --no-audit --no-fund` (17 pkgs, lockfile-exact) → `npm run build` →
+  `npm run typecheck` (clean) → full suite **195/196 pass, 1 skipped**
+  (31 suites) — the skip is the B3 symlink-escape case on a Windows host.
+- `npm run prove` TWICE → **24/24 PASS each**, byte-exact cross-run
+  normalized-hash reproduction (idempotence confirmed).
+- `npm run report` (no args) → exit 0, **"VERIFIED against artifacts"** —
+  B3 confinement + B4 byte re-derivation exercised on the real golden data.
+- Independent re-verification of the produced evidence from scratch:
+  validateBundle [], verifyArtifacts [], verifyArtifactSemantics [], manifest
+  recompute matches, identity fields (experimentId / repo URL / observation
+  VALID/VALID / CONFIRMED_REGRESSION rule 5) correct.
+- Re-ran the SIX original Codex blocker reproductions against the clone build:
+  **all six REFUTED** (B1 2 distinct identities; B2 zero-test→INFRA; B3
+  traversal refused; B5 alias-injected + raw rejected; B6 empty→not-VALID; B4
+  by the 17-case provenance matrix in-suite).
+No new blocker surfaced during clean-room (H1 was found+fixed in the robustness
+pass BEFORE this run), so per §12.9 no restart was required.
+
+## Final status: READY FOR INDEPENDENT RE-AUDIT ROUND 3
+
+All six release blockers (B1–B6) are FIXED with reproduction → production
+change → regression + adversarial tests → mutation evidence (each layer shown
+load-bearing) → gates green, per the ledger rows above. Secondaries S1–S5 all
+FIXED. Seven novel robustness hypotheses executed; the one real gap they found
+(duplicate round indices) is fixed and tested. Suite 134→196 (+1 platform skip);
+typecheck clean; golden Axios proof 17→24/24 and byte-reproducible across runs.
+
+Honest, PRESERVED limitations (NOT blockers): no filesystem jail and no network
+egress sandbox (Tier C); manifest = content integrity, NOT authenticated
+provenance/signature (no trust root); POSIX sweep/env/tar + the Linux/CI legs
+are written and unit-constructed but UNEXECUTED on Linux this session (no
+Linux host; `npm ci`/tests/proof run only on push, which is prohibited) —
+stated in SECURITY.md "Platform status", not hidden. One historical fixture.
+This is a v0.1 verification core under hardening, not "Canary released".
