@@ -76,35 +76,57 @@ export function isInfraOutput(out: string): boolean {
 }
 
 /**
- * Audit F8 — isolation-flag injection must be impossible to dodge by npm's
- * own argv grammar. The old detector (`first token not starting with '-'`)
- * was shifted by VALUE-TAKING options: `$npm -u evil.npmrc install x`
- * "detected" `evil.npmrc` as the subcommand, silently skipping ALL isolation
- * flags. The contract now:
+ * Audit B5 (supersedes the F8 blacklist posture) — CANARY OWNS the
+ * package-manager command surface. Blacklisting npm aliases is a treadmill
+ * (`ins`, `ii`, `add`, `it`, `ait`, `dedupe`, … — any alias not enumerated is
+ * a silent no-injection hole, and the pre-F8 code only knew four). The policy
+ * is instead a CLOSED ALLOWLIST with fail-closed rejection:
  *
- *  1. subcommand = first non-option token, where every preceding option must
- *     be self-describing (`--key=value`) or a known valueless boolean — an
- *     unknown bare option THROWS instead of being guessed at (guessing in
- *     either direction is the bypass);
- *  2. isolation-conflicting npm/yarn config flags are rejected ANYWHERE
- *     before `--` (npm honors `--prefix`, `--userconfig`, `--registry`, ...
- *     in both positions, and Canary's trailing injection does not override
- *     keys it never injects, e.g. prefix);
- *  3. short options (`-u`, clusters) are rejected outright: every legitimate
- *     Canary spec form is long-form, so there is nothing to parse-loose;
- *  4. `exec|x|dlx|shell|explore` are rejected: they fetch and run THIRD-PARTY
- *     packages, where trailing injected flags would land after any `--`
- *     separator as dead weight and script isolation would evaporate.
+ *  1. only the `$npm` / `$yarn` tokens may invoke a package manager at all —
+ *     raw forms (`npm`, `npm.cmd`, `npx`, `yarn`, `node …/npm-cli.js`) are
+ *     REJECTED before execution, so a spec cannot smuggle an unpolicied
+ *     invocation past the guard;
+ *  2. the subcommand must be on the closed allowlist; ANYTHING ELSE
+ *     (including vetted-looking but unlisted aliases, `exec`, `publish`,
+ *     `link`, `rebuild`) is REJECTED as unsupported rather than run without
+ *     policy;
+ *  3. install/update family → Canary's isolation controls are SPLICED IN
+ *     IMMEDIATELY AFTER the subcommand (effective position — the old
+ *     end-append became dead weight the moment a user wrote `--`), and a `--`
+ *     separator is rejected in these families;
+ *  4. script/info families run without injection (own pinned scripts /
+ *     read-only queries); `--` passthrough only exists after such a
+ *     subcommand, where the subcommand is already positionally pinned;
+ *  5. the F8 grammar rules stay: short options rejected, isolation-
+ *     conflicting flags rejected in ANY position, unknown bare options before
+ *     the subcommand rejected (option names case-folded).
+ *
+ * Invariant (property-tested): IF an install-family command is accepted, the
+ * executed argv demonstrably carries --ignore-scripts, --userconfig, --cache,
+ * --registry in effective position right after the subcommand.
  */
-export const INSTALL_FAMILY: readonly string[] = ['install', 'i', 'ci', 'add'];
-export const FORBIDDEN_PM_SUBS: readonly string[] = ['exec', 'x', 'dlx', 'shell', 'explore', 'edit', 'link'];
+const NPM_INSTALL_SUBS = new Set([
+  'install', 'i', 'ii', 'ins', 'add', 'ci', 'cit', 'clean-install', 'ic',
+  'install-test', 'it', 'install-ci-test', 'ait', 'update', 'up', 'dedupe', 'dd',
+]);
+const NPM_SCRIPT_SUBS = new Set(['run', 'run-script', 'test']);
+const NPM_INFO_SUBS = new Set(['ls', 'll', 'view', 'show', 'info', 'help']);
+const YARN_INSTALL_SUBS = new Set(['install', 'add', 'i', 'a']);
+const YARN_SCRIPT_SUBS = new Set(['run', 'test']);
+
+/** The public registry Canary pins installs to (defeats host-global npmrc
+ *  registry overrides; --userconfig alone does not cover globalconfig). */
+export const NPM_REGISTRY_PIN = 'https://registry.npmjs.org/';
+
+/** @deprecated kept for API stability; equals the npm install-family set. */
+export const INSTALL_FAMILY: readonly string[] = [...NPM_INSTALL_SUBS];
 
 const NPM_CONFLICT_LONG = new Set([
   '--userconfig', '--globalconfig', '--cache', '--prefix', '--chdir', '--global',
   '--workspace', '--workspaces', '--ignore-scripts', '--foreground-scripts',
   '--script-shell', '--config', '--registry', '--dist-tag', '--tag', '--omit',
   '--include', '--proxy', '--https-proxy', '--noproxy', '--strict-ssl', '--ca',
-  '--cert', '--key', '--editor', '--node-version',
+  '--cert', '--key', '--editor', '--node-version', '--yes',
 ]);
 /** Bare-OK long options BEFORE the subcommand (provably valueless booleans). */
 const NPM_BARE_OK = new Set([
@@ -116,28 +138,81 @@ const NPM_BARE_OK = new Set([
 ]);
 const YARN_CONFLICT_LONG = new Set([
   '--cwd', '--use-yarnrc', '--ignore-scripts', '--ignore-path', '--registry',
-  '--cache-folder', '--config',
+  '--cache-folder', '--config', '--global',
 ]);
 const YARN_BARE_OK = new Set(['--silent', '--verbose', '--non-interactive', '--offline', '--version', '--help']);
 
-/** Throws CanaryError on any $npm/$yarn argv shape that could dodge isolation. */
-export function pmArgvGuard(cmd: readonly string[]): string | undefined {
+const RAW_PM_BASENAMES = new Set(['npm', 'npm.cmd', 'npm.exe', 'npx', 'npx.cmd', 'npx.exe', 'yarn', 'yarn.cmd', 'yarn.exe', 'yarnpkg']);
+/** Package names whose $bin: form resolves the pm CLI itself (B5 bypass). */
+const RAW_PM_PACKAGES = new Set(['npm', 'npx', 'yarn', 'yarnpkg']);
+const NODE_BASENAMES = new Set(['node', 'node.exe']);
+const NPM_SCRIPT_BASENAMES = new Set(['npm-cli.js', 'npx-cli.js', 'yarn.js', 'yarnpkg.js']);
+const basenameLower = (p: string): string => (p.split(/[\\/]/).pop() ?? '').toLowerCase();
+
+/** B5 rule 1: raw package-manager invocation forms are rejected outright. */
+export function assertCanonicalPmForm(cmd: readonly string[]): void {
+  if (cmd.length === 0) return;
+  const base = basenameLower(cmd[0]!);
+  if (base && RAW_PM_BASENAMES.has(base)) {
+    throw new CanaryError(
+      `spec command starts with a raw package-manager executable ('${cmd[0]}'): only the $npm/$yarn tokens may invoke package managers — raw forms bypass Canary's isolation-flag policy entirely`,
+      'raw-package-manager',
+    );
+  }
+  if (base && NODE_BASENAMES.has(base) && cmd.length > 1 && basenameLower(cmd[1]!) && NPM_SCRIPT_BASENAMES.has(basenameLower(cmd[1]!))) {
+    throw new CanaryError(
+      `spec command runs '${cmd[1]}' directly through node: use the $npm token so Canary can enforce its isolation policy`,
+      'raw-package-manager',
+    );
+  }
+}
+
+export interface PmPolicy {
+  sub: string;
+  /** index of the subcommand token within the SPEC argv */
+  subIdx: number;
+  family: 'install' | 'script' | 'info';
+}
+
+/**
+ * B5 rules 2–5: closed-allowlist parse of a $npm/$yarn spec command.
+ * Throws CanaryError on any shape Canary refuses to police; returns the
+ * pinned subcommand + its family otherwise.
+ */
+export function pmArgvPolicy(cmd: readonly string[]): PmPolicy {
   const npm = cmd[0] === '$npm';
   const conflict = npm ? NPM_CONFLICT_LONG : YARN_CONFLICT_LONG;
   const bareOk = npm ? NPM_BARE_OK : YARN_BARE_OK;
-  let sub: string | undefined;
+  const installSubs = npm ? NPM_INSTALL_SUBS : YARN_INSTALL_SUBS;
+  const scriptSubs = npm ? NPM_SCRIPT_SUBS : YARN_SCRIPT_SUBS;
+  const infoSubs = npm ? NPM_INFO_SUBS : new Set<string>();
+  let policy: PmPolicy | undefined;
   for (let k = 1; k < cmd.length; k++) {
     const tok = cmd[k]!;
-    if (tok === '--') break; // everything after is positional/script args
+    if (tok === '--') {
+      if (policy === undefined) {
+        throw new CanaryError(`spec command '${cmd.join(' ')}': '--' before the subcommand is not supported`, 'spec-dashdash-position');
+      }
+      if (policy.family === 'install') {
+        throw new CanaryError(
+          `spec command '${cmd.join(' ')}': '--' is not allowed for install-family commands — isolation flags appended after it would be dead weight (B5 bypass shape)`,
+          'spec-dashdash-install',
+        );
+      }
+      break; // script/info passthrough: remaining tokens are not npm's to parse
+    }
     if (!tok.startsWith('-')) {
-      if (sub === undefined) {
-        sub = tok;
-        if (FORBIDDEN_PM_SUBS.includes(tok)) {
+      if (policy === undefined) {
+        const norm = tok.toLowerCase();
+        const fam: PmPolicy['family'] | undefined =
+          installSubs.has(norm) ? 'install' : scriptSubs.has(norm) ? 'script' : infoSubs.has(norm) ? 'info' : undefined;
+        if (!fam) {
           throw new CanaryError(
-            `spec command '${cmd[0]} ${tok}' is not allowed: it fetches/runs outside the install-family isolation injection (v0.1 contract)`,
-            'spec-forbidden-subcommand',
+            `subcommand '${tok}' is not allowed for ${cmd[0]}: Canary executes only its closed allowlist (npm: install-family, run/run-script/test, ls/view/show/info/help; yarn: install/add, run/test) — unknown or unvetted aliases are rejected rather than run without isolation policy`,
+            'unsupported-subcommand',
           );
         }
+        policy = { sub: norm, subIdx: k, family: fam };
       }
       continue;
     }
@@ -148,25 +223,29 @@ export function pmArgvGuard(cmd: readonly string[]): string | undefined {
       );
     }
     const eq = tok.indexOf('=');
-    // Case-fold the option name for ALL set membership: the conflict/bare-ok
-    // sets are lowercase, and we refuse to bet the isolation guarantee on
-    // whether npm's option parser happens to be case-sensitive (red-team
-    // post-F8: `--Userconfig=evil` must not sneak through exact matching).
+    // Case-fold the option name for ALL set membership (red-team post-F8:
+    // `--Userconfig=evil` must not sneak through exact matching).
     const name = (eq === -1 ? tok : tok.slice(0, eq)).toLowerCase();
     if (conflict.has(name)) {
       throw new CanaryError(
-        `spec command contains isolation-conflicting flag '${name}': Canary pins userconfig/cache/scripts policy and registry/prefix/workspace resolution itself`,
+        `spec command contains isolation-conflicting flag '${name}': Canary pins userconfig/cache/scripts/registry policy and prefix/workspace resolution itself`,
         'spec-config-conflict',
       );
     }
-    if (eq === -1 && sub === undefined && !bareOk.has(name)) {
+    if (eq === -1 && policy === undefined && !bareOk.has(name)) {
       throw new CanaryError(
         `bare option '${name}' before the subcommand cannot be verified valueless — value-taking options before the subcommand skip isolation-flag injection; use '--flag=value' form or move options after the subcommand`,
         'spec-ambiguous-option',
       );
     }
   }
-  return sub;
+  if (policy === undefined) {
+    throw new CanaryError(
+      `spec command '${cmd.join(' ')}' has no recognizable ${cmd[0]} subcommand`,
+      'unsupported-subcommand',
+    );
+  }
+  return policy;
 }
 
 export class Recorder {
@@ -179,10 +258,12 @@ export class Recorder {
   }
 
   /**
-   * Expand spec tokens to concrete argv and ENFORCE isolation flags on any
-   * package-manager invocation whose subcommand is install-family
-   * (install|i|ci|add) — with the audit-F8 argv guard (pmArgvGuard) making
-   * silent detection-shift impossible and rejecting conflicting flags.
+   * Expand spec tokens to concrete argv and ENFORCE Canary's isolation policy
+   * on any package-manager command (audit B5). For install/update-family
+   * subcommands the isolation flags are spliced in IMMEDIATELY AFTER the
+   * subcommand (not appended at the end, which a user `--` would neutralise),
+   * and the subcommand is validated against a closed allowlist before the
+   * command is ever allowed to expand.
    */
   expandArgv(
     cmd: readonly string[],
@@ -190,8 +271,24 @@ export class Recorder {
     resolveBin: (pkg: string, key?: string) => string,
   ): string[] {
     const d = this.deps;
+    const tool = cmd[0];
+    // B5.1: raw package-manager forms are rejected for EVERY spec command,
+    // before the $npm/$yarn policy branch — otherwise a spec using a literal
+    // `npm install` (tool not `$npm`) would skip the guard entirely.
+    assertCanonicalPmForm(cmd);
+    const isPm = tool === '$npm' || tool === '$yarn';
+    let policy: PmPolicy | undefined;
+    if (isPm) {
+      policy = pmArgvPolicy(cmd);          // B5.2: closed-allowlist parse/rejection
+    }
+
+    // Expand every token, remembering the OUTPUT index each SPEC token lands
+    // at so the install-family flags can be inserted right after the
+    // subcommand's expanded position.
     const out: string[] = [];
-    for (const raw of cmd) {
+    const specToOut = new Map<number, number>();
+    cmd.forEach((raw, idx) => {
+      specToOut.set(idx, out.length);
       const t = raw
         .replaceAll('{dep}', subs.dep)
         .replaceAll('{candidate}', subs.candidate)
@@ -205,28 +302,32 @@ export class Recorder {
       else if (t.startsWith('$bin:')) {
         const s = t.slice(5);
         const i = s.lastIndexOf('/');
+        const pkg = (i === -1 ? s : s.slice(0, i)).toLowerCase();
+        // B5: $bin:npm (or npx/yarn) resolves the package-manager's own binary
+        // and would run WITHOUT the install-family injection — reject so the
+        // only pm path is the policed $npm/$yarn tokens.
+        if (RAW_PM_PACKAGES.has(pkg)) {
+          throw new CanaryError(
+            `spec command uses '$bin:${s}': resolving the package manager's own binary bypasses Canary's isolation policy — use the $npm/$yarn token`,
+            'raw-package-manager',
+          );
+        }
         out.push(process.execPath, i === -1 ? resolveBin(s) : resolveBin(s.slice(0, i), s.slice(i + 1)));
       } else out.push(t);
-    }
+    });
 
-    const tool = cmd[0];
-    if (tool === '$npm' || tool === '$yarn') {
-      // Audit F8: unambiguous subcommand detection + conflict/forbidden argv
-      // rejection (the old find(!startsWith('-')) could be shifted by a
-      // value-taking option and silently skip ALL isolation flags).
-      const sub = pmArgvGuard(cmd);
-      if (sub && INSTALL_FAMILY.includes(sub)) {
-        if (tool === '$npm') {
-          out.push(
-            '--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps',
+    if (policy && policy.family === 'install') {
+      // insert right after the expanded subcommand token (sub maps to exactly
+      // one out token: the bare subcommand word)
+      const insertAt = (specToOut.get(policy.subIdx) ?? out.length - 1) + 1;
+      const flags = tool === '$npm'
+        ? ['--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps',
             '--userconfig', path.join(d.ws.root, 'empty.npmrc'),
             '--cache', path.join(d.ws.root, 'npm-cache'),
-          );
-        } else {
-          out.push('--ignore-scripts', '--non-interactive',
-            '--cache-folder', path.join(d.ws.root, 'yarn-cache'));
-        }
-      }
+            '--registry', NPM_REGISTRY_PIN]
+        : ['--ignore-scripts', '--non-interactive', '--no-progress',
+            '--cache-folder', path.join(d.ws.root, 'yarn-cache')];
+      out.splice(insertAt, 0, ...flags);
     }
     return out;
   }

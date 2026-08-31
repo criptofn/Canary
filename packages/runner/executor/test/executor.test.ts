@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
-import { Recorder, roundEvidence, hasRunnerSummary, isInfraOutput } from '../src/index.js';
+import { Recorder, roundEvidence, hasRunnerSummary, isInfraOutput, pmArgvPolicy, assertCanonicalPmForm, NPM_REGISTRY_PIN } from '../src/index.js';
 import { sanitizedEnv, sanitizedEnvKeys } from '@canary-rn/support';
 import { classify, type RoundFact } from '@canary-rn/classification';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
@@ -377,5 +377,110 @@ describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', (
       assert.equal(r.fact.exitCode, -1);
       assert.ok(r.run.killedByTimeout);
     } finally { cleanup(); }
+  });
+});
+
+describe('audit B5 — canonical package-manager policy (closed allowlist)', () => {
+  const subs = { dep: 'x', baseline: '1', candidate: '2' };
+  const npmFlags = ['--ignore-scripts', '--userconfig', '--cache', '--registry'];
+
+  it('B5: install ALIASES (the pre-fix silent-skip) now receive full injection', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      for (const alias of ['install', 'i', 'ii', 'ins', 'add', 'ci', 'cit', 'clean-install', 'update', 'up', 'dedupe', 'install-test', 'it']) {
+        const out = rec.expandArgv(['$npm', alias, 'some-pkg@1'], subs, () => 'unused');
+        for (const f of npmFlags) assert.ok(out.includes(f), `${alias} missing ${f}: ${out.join(' ')}`);
+        assert.ok(out.includes(NPM_REGISTRY_PIN), `${alias} did not pin registry`);
+      }
+    } finally { cleanup(); }
+  });
+
+  it('B5: unknown/unvetted subcommands are REJECTED, not run without policy', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      for (const bad of ['exec', 'x', 'dlx', 'shell', 'explore', 'publish', 'link', 'rebuild', 'isnt', 'instal', 'run2']) {
+        assert.throws(
+          () => rec.expandArgv(['$npm', bad, 'pkg'], subs, () => 'unused'),
+          /not allowed/, `must reject: npm ${bad}`,
+        );
+      }
+    } finally { cleanup(); }
+  });
+
+  it('B5: RAW package-manager forms rejected for ANY command position', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const npmCli = path.join(NODE, '..', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      for (const cmd of [
+        ['npm', 'install', 'evil'], ['npm.cmd', 'i', 'evil'], ['NPM', 'add', 'evil'],
+        ['npx', 'evil'], ['yarn', 'add', 'evil'], ['yarnpkg', 'install'],
+        ['node', npmCli, 'install', 'evil'], ['node', 'npm-cli.js', 'add', 'evil'],
+      ]) {
+        assert.throws(
+          () => rec.expandArgv(cmd, subs, () => 'unused'),
+          /raw|package.manager|isolation policy/i, `must reject raw form: ${cmd.join(' ')}`,
+        );
+      }
+    } finally { cleanup(); }
+  });
+
+  it('B5: $bin:npm bypass is rejected; $bin:mocha still works', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      assert.throws(() => rec.expandArgv(['$bin:npm', 'install', 'evil'], subs, () => 'unused'),
+        /raw-package-manager|bypass/i);
+      assert.throws(() => rec.expandArgv(['$bin:yarn', 'add', 'evil'], subs, () => 'unused'),
+        /bypass|raw/i);
+      const ok = rec.expandArgv(['$bin:mocha'], subs, () => 'M:\\m.js');
+      assert.deepEqual(ok, [process.execPath, 'M:\\m.js']);
+    } finally { cleanup(); }
+  });
+
+  it('B5: user `--` in an install command is rejected (was the trailing-flag dead-weight bypass)', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      assert.throws(() => rec.expandArgv(['$npm', 'install', 'pkg', '--', 'x'], subs, () => 'unused'),
+        /not allowed for install-family|--/);
+      assert.throws(() => rec.expandArgv(['$npm', 'add', '--', 'pkg'], subs, () => 'unused'),
+        /install-family|--/);
+      // script family may use `--` passthrough and is NOT injected
+      const out = rec.expandArgv(['$npm', 'run', 'test', '--', 'foo'], subs, () => 'unused');
+      assert.ok(!out.includes('--ignore-scripts'), 'run-script must not get install flags');
+    } finally { cleanup(); }
+  });
+
+  it('B5 invariant (property): accepted install => isolation flags in EFFECTIVE position after the subcommand, none after a `--`', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const shapes: string[][] = [
+        ['$npm', 'install', 'pkg'],
+        ['$npm', 'i', '--no-save', 'pkg'],
+        ['$npm', 'ci'],
+        ['$npm', '--loglevel=silent', 'install', 'pkg'],
+        ['$npm', 'add', 'pkg', '@1.2.3'],
+        ['$npm', 'INSTALL', 'pkg'],
+      ];
+      for (const cmd of shapes) {
+        const out = rec.expandArgv(cmd, subs, () => 'unused');
+        const subIdx = out.findIndex((x) => ['install', 'i', 'ci', 'add', 'INSTALL'].includes(x));
+        assert.ok(subIdx > 0, `no subcommand in ${out.join(' ')}`);
+        const dash = out.indexOf('--', subIdx);
+        for (const f of npmFlags) {
+          const fi = out.indexOf(f);
+          assert.ok(fi > subIdx, `${f} not after subcommand: ${out.join(' ')}`);
+          assert.ok(dash === -1 || fi < dash, `${f} landed after '--' (dead position): ${out.join(' ')}`);
+        }
+        assert.ok(out.includes(NPM_REGISTRY_PIN));
+      }
+    } finally { cleanup(); }
+  });
+
+  it('B5: closed-allowlist families classified correctly by the policy parser', () => {
+    assert.equal(pmArgvPolicy(['$npm', 'install', 'x']).family, 'install');
+    assert.equal(pmArgvPolicy(['$npm', 'run', 'test']).family, 'script');
+    assert.equal(pmArgvPolicy(['$npm', 'ls', '--json']).family, 'info');
+    assert.equal(pmArgvPolicy(['$yarn', 'add', 'x']).family, 'install');
+    assert.throws(() => pmArgvPolicy(['$npm', 'nope']), /not allowed/);
+    assert.throws(() => assertCanonicalPmForm(['npm', 'i']), /raw/i);
   });
 });
