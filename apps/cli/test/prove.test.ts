@@ -36,7 +36,7 @@ function harness(): { dir: string; bundle: EvidenceBundle; cleanup: () => void }
     environment: { nodeVersion: 'v', npmVersion: 'n', packageManagerUsed: 'npm', platform: 'x', arch: 'y', toolchainOverrides: {} },
     commands: { prepare: [['a']], build: [], swap: ['b'], test: ['c'] },
     rounds: [mkRound('baseline', 1), mkRound('candidate', 1)],
-    treeComparison: { baselineTreeSha256: 'a'.repeat(64), candidateTreeSha256: 'b'.repeat(64), driftConfinedToDependency: true, resolvedVersions: { baseline: '1', candidate: '2' }, dependencyCopies: { baseline: 1, candidate: 1 } },
+    treeComparison: { baselineTreeSha256: 'a'.repeat(64), candidateTreeSha256: 'b'.repeat(64), driftConfinedToDependency: true, observationStatus: { baseline: 'VALID', candidate: 'VALID' }, resolvedVersions: { baseline: '1', candidate: '2' }, dependencyCopies: { baseline: 1, candidate: 1 } },
     classification: { label: 'CONFIRMED_REGRESSION', rule: 5, reason: 'ok', reproductionCount: 1 },
   } as EvidenceBundle;
   return { dir, bundle, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };

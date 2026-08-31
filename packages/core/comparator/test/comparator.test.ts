@@ -6,6 +6,8 @@ import {
   escapePkgKey,
   extractFailingTestNames,
   inDependencySubtree,
+  classifyTreeObservation,
+  dependencyInTree,
   parseSummaryCounts,
   streamsStable,
 } from '../src/index.js';
@@ -68,6 +70,42 @@ describe('diffTrees — the arms-equality proof', () => {
     const d = diffTrees({ axios: '0.27.2', lodash: '4.17.21' }, { axios: '1.0.0', lodash: '4.17.20' }, 'axios');
     assert.ok(!d.confined);
     assert.deepEqual(d.other, ['lodash']);
+  });
+
+  it('audit B6 exposes the vacuous-confinement hazard (empty trees report confined)', () => {
+    // This is WHY the observation status exists: diffTrees alone cannot tell
+    // "both arms identical & confined" from "both arms observed nothing".
+    const d = diffTrees({}, {}, 'axios');
+    assert.equal(d.confined, true); // <-- vacuously true; classifyTreeObservation guards it
+  });
+});
+
+describe('audit B6 — classifyTreeObservation (tree completeness)', () => {
+  const present = { axios: '0.27.2', 'follow-redirects': '1.15.0' };
+  it('a parsed, non-empty tree containing the dependency is VALID', () => {
+    assert.equal(classifyTreeObservation({
+      parsed: true, hasRootDeps: true, deps: present, dependencyPresent: dependencyInTree(present, 'axios'),
+    }), 'VALID');
+  });
+  it('empty tree (no data observed) is INVALID, not a proof of confinement', () => {
+    assert.equal(classifyTreeObservation({
+      parsed: true, hasRootDeps: true, deps: {}, dependencyPresent: false,
+    }), 'INVALID');
+  });
+  it('unparseable / no-root-deps is INVALID', () => {
+    assert.equal(classifyTreeObservation({ parsed: false, hasRootDeps: false, deps: {}, dependencyPresent: false }), 'INVALID');
+    assert.equal(classifyTreeObservation({ parsed: true, hasRootDeps: false, deps: present, dependencyPresent: true }), 'INVALID');
+  });
+  it('tree present but the studied dependency absent is INCOMPLETE', () => {
+    const noDep = { lodash: '4.17.21', chai: '4.3.6' };
+    assert.equal(classifyTreeObservation({
+      parsed: true, hasRootDeps: true, deps: noDep, dependencyPresent: dependencyInTree(noDep, 'axios'),
+    }), 'INCOMPLETE');
+  });
+  it('scoped dependency presence is detected via the escaped key (dependencyInTree)', () => {
+    const scoped = { '@scope%2Fpkg': '1.0.0', 'a/@scope%2Fpkg': '1.0.0' };
+    assert.ok(dependencyInTree(scoped, '@scope/pkg'));
+    assert.ok(!dependencyInTree(scoped, 'other'));
   });
 });
 

@@ -98,11 +98,20 @@
     "treeComparison": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["baselineTreeSha256", "candidateTreeSha256", "driftConfinedToDependency", "resolvedVersions", "dependencyCopies"],
+      "required": ["baselineTreeSha256", "candidateTreeSha256", "driftConfinedToDependency", "observationStatus", "resolvedVersions", "dependencyCopies"],
       "properties": {
         "baselineTreeSha256": { "$ref": "#/$defs/sha256" },
         "candidateTreeSha256": { "$ref": "#/$defs/sha256" },
         "driftConfinedToDependency": { "type": "boolean" },
+        "observationStatus": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["baseline", "candidate"],
+          "properties": {
+            "baseline": { "enum": ["VALID", "INCOMPLETE", "INVALID"] },
+            "candidate": { "enum": ["VALID", "INCOMPLETE", "INVALID"] }
+          }
+        },
         "resolvedVersions": {
           "type": "object",
           "additionalProperties": false,
@@ -113,7 +122,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["baseline", "candidate"],
-          "properties": { "baseline": { "type": "integer", "minimum": 1 }, "candidate": { "type": "integer", "minimum": 1 } }
+          "properties": { "baseline": { "type": "integer", "minimum": 0 }, "candidate": { "type": "integer", "minimum": 0 } }
         }
       }
     },

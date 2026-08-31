@@ -28,8 +28,8 @@ change (script run 2026-08-31; output recorded in the session and summarized):
 | B2 | Execution-validity taxonomy: zero-test and no-summary runs can never PASS; infra-shaped output at exit 0 never PASS (without misclassifying benign prose) | FIXED @ this commit |
 | B3 | Artifact paths canonical (derived from arm/round, not trusted strings) + resolved-path containment + ownership binding | FIXED @ d5512ea |
 | B4 | Evidence bound to bytes: manifest integrity digest, per-round fact replay against artifacts, report verifies-or-labels, proof asserts schema/experimentId/repo/environment/tarball | OPEN |
-| B5 | Canonical package-manager policy: closed subcommand allowlist (no alias blacklist), raw npm forms rejected, `--`-in-install rejected, isolation flags in effective position by construction | OPEN |
-| B6 | Tree observations typed TREE_VALID/INCOMPLETE/INVALID; only VALID supports trustful labels; principled rule for npm ls non-zero w/ known problems | OPEN |
+| B5 | Canonical package-manager policy: closed subcommand allowlist (no alias blacklist), raw npm forms rejected, `--`-in-install rejected, isolation flags in effective position by construction | FIXED @ a4bb6cf |
+| B6 | Tree observations typed VALID/INCOMPLETE/INVALID; only VALID supports trustful labels. Principled rule: a parsed non-empty tree CONTAINING the studied dependency is VALID regardless of npm ls exit/problems (Axios has known version-invalidity); `problems` recorded, never used to downgrade | FIXED @ this commit |
 
 ## Secondary round-2 findings
 
@@ -95,3 +95,48 @@ Tests: prove.test B3 suite (external-identical refusal, absolute refusal,
 cross-round both directions, baseline→candidate, canonical clean, missing+
 modified, symlink escape). Mutation: disabling the ownership check fails 5
 tests; restore 0. Suite 149→155(+1 skip); typecheck clean; proof PASS 17/17.
+
+### 2026-08-31 — B5 canonical package-manager policy @ a4bb6cf
+Root cause (reproduced): only install|i|ci|add triggered injection, so npm
+aliases `ins`/`ii`/`it` installed with NO isolation; raw `npm install` /
+`node npm-cli.js install` / `$bin:npm install` skipped the guard entirely;
+a user `--` made end-appended flags dead weight.
+Change: closed-allowlist design (no growing alias blacklist).
+assertCanonicalPmForm (runs for EVERY command): raw npm/npx/yarn/npm-cli.js
+and $bin:npm/yarn/npx rejected. pmArgvPolicy: subcommand must be in
+install/run-script/info allowlists or it is REJECTED (fail-closed → unknown
+aliases can't escape); install/update family gets isolation flags SPLICED
+IMMEDIATELY AFTER the subcommand (incl. a new --registry pin defeating
+host-global npmrc), and `--` is rejected for install-family. F8 grammar rules
+(short options, conflicts anywhere, case-folding) retained.
+Tests (+8): all aliases inject; unknown subs rejected; every raw form +
+$bin:npm rejected; `--`-in-install rejected while run-script `--` passes
+uninjected; PROPERTY invariant (accepted install → controls after subcommand,
+before any `--`); family classification. Mutation: removing raw-form check
+fails 1, neutralizing install-`--` throw fails 1, restore 0. Suite 155→162
+(+1 skip); typecheck clean; proof PASS 17/17 (byte-exact hashes held under the
+splice + registry pin).
+
+### 2026-08-31 — B6 dependency-tree completeness @ this commit
+Root cause (reproduced): diffTrees({},{},'axios') → confined:true, so an
+empty/partial tree observation (npm ls parse failure, or a tree not containing
+the studied dep) vacuously "proved" comparability and let a trustful verdict
+stand on no data.
+Change: classifyTreeObservation() returns VALID (parsed, non-empty, contains
+studied dep) / INCOMPLETE (parsed but dep absent) / INVALID (unparseable/
+empty). treeHash carries status per arm → bundle.treeComparison.
+observationStatus (schema-required). applyConfinementGuard gained rule 10
+(either arm != VALID → INCONCLUSIVE, takes precedence over rule 9),
+INFRA kept. validateBundle independently rejects a trustful label with a
+non-VALID observation and accepts rule 10 only when genuinely unjustified-to-
+trust (rejects fabricated rule 10).
+PRINCIPLED, not exitCode-based: npm ls `problems`/nonzero exit (the Axios
+fixture's known version-invalidity) is recorded but NEVER downgrades, because
+the studied dependency is present in a parsed tree. Verified: golden proof
+stays rule 5 (VALID), not rule 10.
+Tests: comparator (6, incl. the exposed vacuous-confinement property + scoped
+presence), classification (2 rule-10 cases + precedence), schema (4: trustful+
+INCOMPLETE/INVALID rejected, legit rule-10 accepted, fabricated rule-10
+rejected, status mandatory). Mutation: guard rule-10 branch disabled fails 2;
+validator status check disabled fails 1; restore 0. Suite 162→174 (+1 skip);
+build+typecheck clean; golden Axios proof PASS 17/17.

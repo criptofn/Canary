@@ -259,24 +259,25 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
   });
 });
 
-describe('audit F9 — applyConfinementGuard (rule 9, enforced not decorative)', () => {
+describe('audit F9/B6 — applyConfinementGuard (rules 9 + 10, enforced not decorative)', () => {
   const confirmedFacts: RoundFact[] = [
     arm('baseline', 1), arm('baseline', 2), arm('candidate', 1, false), arm('candidate', 2, false),
   ];
+  const VALID = { baselineStatus: 'VALID', candidateStatus: 'VALID' } as const;
 
   it('downgrades CONFIRMED_REGRESSION to INCONCLUSIVE rule 9 when drift is unconfined', () => {
     const cls = classify(confirmedFacts);
     assert.equal(cls.classification, 'CONFIRMED_REGRESSION'); // guard absent, rule 5
-    const g = applyConfinementGuard(cls, { confined: false, other: ['left-pad'], dependency: 'axios' });
+    const g = applyConfinementGuard(cls, { confined: false, other: ['left-pad'], dependency: 'axios', ...VALID });
     assert.equal(g.classification, 'INCONCLUSIVE');
     assert.equal(g.rule, 9);
     assert.match(g.reason, /left-pad/);
     assert.match(g.reason, /axios subtree/);
   });
 
-  it('is identity when drift IS confined (a legit CONFIRMED survives)', () => {
+  it('is identity when drift IS confined and both trees VALID (a legit CONFIRMED survives)', () => {
     const cls = classify(confirmedFacts);
-    const g = applyConfinementGuard(cls, { confined: true, other: [], dependency: 'axios' });
+    const g = applyConfinementGuard(cls, { confined: true, other: [], dependency: 'axios', ...VALID });
     assert.deepEqual(g, cls);
   });
 
@@ -285,7 +286,7 @@ describe('audit F9 — applyConfinementGuard (rule 9, enforced not decorative)',
       arm('baseline', 1), { ...arm('candidate', 1, false), hasRunnerSummary: false }, // rule-1 infra
     ]);
     assert.equal(infra.classification, 'INFRASTRUCTURE_FAILURE');
-    const g = applyConfinementGuard(infra, { confined: false, other: ['evil'], dependency: 'axios' });
+    const g = applyConfinementGuard(infra, { confined: false, other: ['evil'], dependency: 'axios', ...VALID });
     assert.equal(g.classification, 'INFRASTRUCTURE_FAILURE');
     assert.equal(g.rule, 1);
   });
@@ -293,17 +294,43 @@ describe('audit F9 — applyConfinementGuard (rule 9, enforced not decorative)',
   it('downgrades PASS and PRE_EXISTING_FAILURE too (any trustful verdict needs comparable arms)', () => {
     const passCls = classify([arm('baseline', 1), arm('candidate', 1), arm('candidate', 2)]);
     assert.equal(passCls.classification, 'PASS');
-    assert.equal(applyConfinementGuard(passCls, { confined: false, other: ['x'], dependency: 'axios' }).rule, 9);
+    assert.equal(applyConfinementGuard(passCls, { confined: false, other: ['x'], dependency: 'axios', ...VALID }).rule, 9);
 
     const preCls = classify([arm('baseline', 1, false), arm('candidate', 1, false)]);
     assert.equal(preCls.classification, 'PRE_EXISTING_FAILURE');
-    assert.equal(applyConfinementGuard(preCls, { confined: false, other: ['x'], dependency: 'axios' }).rule, 9);
+    assert.equal(applyConfinementGuard(preCls, { confined: false, other: ['x'], dependency: 'axios', ...VALID }).rule, 9);
+  });
+
+  it('audit B6: an empty/partial tree observation downgrades to INCONCLUSIVE rule 10 even when drift is confined', () => {
+    const cls = classify(confirmedFacts);
+    // confined:true (would pass rule 9) but the tree observation is INCOMPLETE
+    const g = applyConfinementGuard(cls, {
+      confined: true, other: [], dependency: 'axios',
+      baselineStatus: 'VALID', candidateStatus: 'INCOMPLETE',
+    });
+    assert.equal(g.classification, 'INCONCLUSIVE');
+    assert.equal(g.rule, 10);
+    assert.match(g.reason, /observation is not trustworthy/);
+    // INVALID on either side too
+    assert.equal(applyConfinementGuard(cls, {
+      confined: true, other: [], dependency: 'axios',
+      baselineStatus: 'INVALID', candidateStatus: 'VALID',
+    }).rule, 10);
+  });
+
+  it('audit B6: tree-invalidity takes precedence over unconfined drift (rule 10 not 9)', () => {
+    const cls = classify(confirmedFacts);
+    const g = applyConfinementGuard(cls, {
+      confined: false, other: ['evil'], dependency: 'axios',
+      baselineStatus: 'INVALID', candidateStatus: 'INVALID',
+    });
+    assert.equal(g.rule, 10);
   });
 
   it('guard removal would flip the outcome: identical facts, opposite confinement', () => {
     const cls = classify(confirmedFacts);
-    const confined = applyConfinementGuard(cls, { confined: true, other: [], dependency: 'axios' });
-    const unconfined = applyConfinementGuard(cls, { confined: false, other: ['evil-pkg'], dependency: 'axios' });
+    const confined = applyConfinementGuard(cls, { confined: true, other: [], dependency: 'axios', ...VALID });
+    const unconfined = applyConfinementGuard(cls, { confined: false, other: ['evil-pkg'], dependency: 'axios', ...VALID });
     assert.equal(confined.classification, 'CONFIRMED_REGRESSION');
     assert.equal(unconfined.classification, 'INCONCLUSIVE');
   });

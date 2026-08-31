@@ -19,7 +19,7 @@ const bundle = {
     normalizedStdoutSha256: '5e538c0b36ed83bc'.padEnd(64, '0'),
     normalizedStderrSha256: H, logPath: 'candidate-1.stdout.log', argv: ['node', 'mocha'], envKeys: ['PATH'],
   }],
-  treeComparison: { baselineTreeSha256: H, candidateTreeSha256: H, driftConfinedToDependency: true, resolvedVersions: { baseline: '0.27.2', candidate: '1.0.0' }, dependencyCopies: { baseline: 1, candidate: 1 } },
+  treeComparison: { baselineTreeSha256: H, candidateTreeSha256: H, driftConfinedToDependency: true, observationStatus: { baseline: 'VALID', candidate: 'VALID' }, resolvedVersions: { baseline: '0.27.2', candidate: '1.0.0' }, dependencyCopies: { baseline: 1, candidate: 1 } },
   classification: { label: 'CONFIRMED_REGRESSION', rule: 5, reason: 'all rounds failed', reproductionCount: 1 },
 } as unknown as EvidenceBundle;
 

@@ -15,7 +15,7 @@ import { downloadTarball } from '@canary-rn/github';
 import { staticFingerprint, withNpmVersion } from '@canary-rn/environment';
 import { Recorder, roundEvidence as execRoundEvidence, type ExecResult } from '@canary-rn/executor';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
-import { diffTrees, escapePkgKey, extractFailingTestNames, parseSummaryCounts, type DepTree } from '@canary-rn/comparator';
+import { diffTrees, escapePkgKey, extractFailingTestNames, parseSummaryCounts, classifyTreeObservation, dependencyInTree, type DepTree, type TreeStatus } from '@canary-rn/comparator';
 import { classify, applyConfinementGuard, type RoundFact } from '@canary-rn/classification';
 import { EVIDENCE_SCHEMA_VERSION, validateBundle, type EvidenceBundle, type RoundEvidence } from '@canary-rn/evidence-schema';
 import { sha256hex } from '@canary-rn/hashing';
@@ -140,7 +140,7 @@ export async function runExperiment(
       throw new InfraAbort('toolchain override failed');
     }
   }
-  const treeB = await treeHash(ws);
+  const treeB = await treeHash(ws, spec.dependency.package);
   const attB = await attestDependency(ws, spec.dependency.package);
   attB.copies = countDependencyCopies(treeB.deps, spec.dependency.package);
   // F3: the BASELINE arm's resolved dependency version must be attested from
@@ -175,7 +175,7 @@ export async function runExperiment(
   if (attC.version !== spec.dependency.candidate) {
     throw new InfraAbort(`candidate attestation failed: resolved ${attC.version}, spec claims ${spec.dependency.candidate}`);
   }
-  const treeC = await treeHash(ws);
+  const treeC = await treeHash(ws, spec.dependency.package);
   attC.copies = countDependencyCopies(treeC.deps, spec.dependency.package);
   const drift = diffTrees(treeB.deps, treeC.deps, spec.dependency.package);
   log(`  tree drift: ${drift.confined ? 'confined to dependency subtree' : `NOT confined (${drift.other.slice(0, 8).join(', ')})`}`);
@@ -192,12 +192,14 @@ export async function runExperiment(
 
   // [8] classify + bundle
   let cls = classify(rec.facts);
-  // F4: confinement is ENFORCED, not decorative — incomparable arms cannot
-  // yield a verdict (rule 9 = pipeline-level guard outside the decision
-  // table). Audit F9: extracted to pure applyConfinementGuard so the guard
-  // removal flips dedicated unit + pipeline tests.
+  // F4/B6: confinement is ENFORCED, not decorative — incomparable arms cannot
+  // yield a verdict. applyConfinementGuard (rule 9 = unconfined drift; rule 10
+  // = a dependency-tree observation too weak to prove confinement, audit B6)
+  // lives in the classification package and is unit + pipeline tested so its
+  // removal flips tests.
   cls = applyConfinementGuard(cls, {
     confined: drift.confined, other: drift.other, dependency: spec.dependency.package,
+    baselineStatus: treeB.status, candidateStatus: treeC.status,
   });
   const envFp = withNpmVersion(staticFingerprint(spec.environmentNotes?.toolchainOverrides ?? {}), await npmVersion());
   const bundle: EvidenceBundle = {
@@ -236,6 +238,10 @@ export async function runExperiment(
       baselineTreeSha256: treeB.hash,
       candidateTreeSha256: treeC.hash,
       driftConfinedToDependency: drift.confined,
+      // Audit B6: how complete each arm's tree OBSERVATION was; a trustful
+      // verdict requires both VALID (enforced by applyConfinementGuard and
+      // independently by validateBundle).
+      observationStatus: { baseline: treeB.status, candidate: treeC.status },
       resolvedVersions: { baseline: attB.version, candidate: attC.version },
       dependencyCopies: { baseline: attB.copies, candidate: attC.copies },
     },
@@ -312,18 +318,23 @@ async function attestDependency(
   }
 }
 
-async function treeHash(ws: WorkspaceLayout): Promise<{ hash: string; deps: DepTree }> {
+async function treeHash(ws: WorkspaceLayout, dependency: string): Promise<{
+  hash: string; deps: DepTree; status: TreeStatus;
+}> {
   const r = await runCommand({
     ws, nodeDir: NODE_DIR,
     argv: [NODE, NPM_CLI, 'ls', '--json', '--all', '--depth', '9999',
       '--userconfig', path.join(ws.root, 'empty.npmrc')],
     timeoutSecs: 120,
   });
-  let data: { dependencies?: Record<string, { version?: string; dependencies?: unknown }> };
+  let data: { dependencies?: Record<string, { version?: string; dependencies?: unknown }>; problems?: unknown };
+  let parsed = false;
   try {
     data = JSON.parse(r.stdout) as typeof data;
+    parsed = !!data && typeof data === 'object';
   } catch {
-    return { hash: 'invalid', deps: {} };
+    parsed = false;
+    data = {} as typeof data;
   }
   const flat: DepTree = {};
   const walk = (node: { dependencies?: Record<string, { version?: string; dependencies?: unknown }> }, prefix: string): void => {
@@ -333,10 +344,19 @@ async function treeHash(ws: WorkspaceLayout): Promise<{ hash: string; deps: DepT
       if (v.dependencies) walk(v as never, `${prefix}${escapePkgKey(k)}/`);
     }
   };
-  walk(data, '');
+  if (parsed) walk(data, '');
   const sortedKeys = Object.keys(flat).sort();
   const canonical = JSON.stringify(sortedKeys.map((k) => [k, flat[k]]));
-  return { hash: sha256hex(canonical), deps: flat };
+  // Audit B6: classify the OBSERVATION itself. A vacuous/empty tree or one
+  // missing the studied dependency cannot support a confinement proof, even
+  // though diffTrees of two empty trees would report `confined: true`.
+  const status = classifyTreeObservation({
+    parsed,
+    hasRootDeps: parsed && !!data.dependencies && typeof data.dependencies === 'object',
+    deps: flat,
+    dependencyPresent: parsed && dependencyInTree(flat, dependency),
+  });
+  return { hash: sha256hex(canonical), deps: flat, status };
 }
 
 function countDependencyCopies(deps: DepTree, dep: string): number {

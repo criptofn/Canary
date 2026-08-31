@@ -29,6 +29,45 @@ export function diffTrees(before: DepTree, after: DepTree, dependency: string): 
 }
 
 /**
+ * Health of a single-arm dependency-tree OBSERVATION (audit B6). A
+ * confinement proof is only as trustworthy as the trees it compares; a
+ * vacuous/empty observation previously made `diffTrees({},{})` report
+ * `confined: true`, silently "proving" comparability from no data.
+ *
+ *   INVALID    — nothing usable: no parsed tree (parse failure / no root
+ *                dependencies object) or a completely empty tree.
+ *   INCOMPLETE — a real tree, but the studied dependency is ABSENT from it,
+ *                so we are not observing the thing the swap actually changed
+ *                (a confinement claim would be unanchored).
+ *   VALID      — a non-empty parsed tree that contains the studied dependency.
+ *
+ * npm's `problems` array (version-invalidity) is passed in ONLY for the
+ * caller's transparency and deliberately does NOT change the status: `npm ls`
+ * exits non-zero for known, expected version-invalidity while still yielding a
+ * complete, comparable tree (the Axios fixture's documented case). The audit
+ * explicitly requires a principled rule over "exitCode/problems must be
+ * clean", so the presence of the studied dependency in a parsed non-empty tree
+ * is the signal.
+ */
+export type TreeStatus = 'VALID' | 'INCOMPLETE' | 'INVALID';
+
+export function dependencyInTree(deps: DepTree, dependency: string): boolean {
+  const esc = escapePkgKey(dependency);
+  return Object.keys(deps).some((k) => k === esc || k.endsWith('/' + esc));
+}
+
+export function classifyTreeObservation(o: {
+  parsed: boolean;
+  hasRootDeps: boolean;
+  deps: DepTree;
+  dependencyPresent: boolean;
+}): TreeStatus {
+  if (!o.parsed || !o.hasRootDeps || Object.keys(o.deps).length === 0) return 'INVALID';
+  if (!o.dependencyPresent) return 'INCOMPLETE';
+  return 'VALID';
+}
+
+/**
  * True if `key` names the dependency itself, a top-level-nested copy at any
  * depth, or a copy nested under the dependency's own subtree.
  *

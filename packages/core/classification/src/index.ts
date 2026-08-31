@@ -260,28 +260,53 @@ export interface Confinement {
   other: readonly string[];
   /** The studied dependency (raw spec name). */
   dependency: string;
+  /**
+   * Audit B6 — completeness of each arm's dependency-tree OBSERVATION.
+   * Mirrors comparator TreeStatus (declared locally so this package stays a
+   * leaf). A trustful verdict requires both arms 'VALID'.
+   */
+  baselineStatus: 'VALID' | 'INCOMPLETE' | 'INVALID';
+  candidateStatus: 'VALID' | 'INCOMPLETE' | 'INVALID';
 }
 
 /**
- * Rule 9 — CONFINEMENT IS ENFORCED, NOT DECORATIVE (audit F9; the guard that
- * used to live inline in the pipeline was untested, so deleting it changed
- * nothing in the suite). Arms whose dependency trees differ OUTSIDE the
- * studied dependency's subtree are not comparable: no verdict may be based
- * on them, so any trustful classification is downgraded to INCONCLUSIVE
- * rule 9. INFRASTRUCTURE_FAILURE keeps its own (higher-fidelity) reason.
+ * Rules 9 + 10 — CONFINEMENT AND OBSERVATION QUALITY ARE ENFORCED, NOT
+ * DECORATIVE (audits F9/B6; the guard that used to live inline in the pipeline
+ * was untested, so deleting it changed nothing in the suite).
  *
- * Pure and total; the evidence validator independently rejects trustful
- * labels under driftConfinedToDependency=false, so a bundle that skipped
- * this guard cannot validate either.
+ *  - Rule 10 (B6): if either arm's tree observation is not VALID (empty /
+ *    partial / missing the studied dependency), confinement cannot be proven
+ *    at all — a vacuous `diffTrees({},{})` would otherwise report confined and
+ *    certify a false verdict.
+ *  - Rule 9 (F9): drift outside the studied dependency's subtree means the arms
+ *    are not comparable.
+ *
+ * Both downgrade any trustful classification (PASS / CONFIRMED_REGRESSION /
+ * PRE_EXISTING_FAILURE / FLAKY / INCONCLUSIVE-with-a-different-rule) to
+ * INCONCLUSIVE; INFRASTRUCTURE_FAILURE keeps its own higher-fidelity reason.
+ * The evidence validator independently rejects trustful labels under a
+ * non-VALID observation or unconfined drift, so a bundle that skipped this
+ * guard cannot validate either.
  */
 export function applyConfinementGuard(
   cls: ClassificationResult, drift: Confinement,
 ): ClassificationResult {
-  if (drift.confined || cls.classification === 'INFRASTRUCTURE_FAILURE') return cls;
-  return {
-    ...cls,
-    classification: 'INCONCLUSIVE',
-    rule: 9,
-    reason: `tree drift outside ${drift.dependency} subtree (${drift.other.slice(0, 6).join(', ')}) — arms not comparable`,
-  };
+  if (cls.classification === 'INFRASTRUCTURE_FAILURE') return cls;
+  if (drift.baselineStatus !== 'VALID' || drift.candidateStatus !== 'VALID') {
+    return {
+      ...cls,
+      classification: 'INCONCLUSIVE',
+      rule: 10,
+      reason: `dependency-tree observation is not trustworthy (baseline=${drift.baselineStatus}, candidate=${drift.candidateStatus}) — confinement cannot be proven`,
+    };
+  }
+  if (!drift.confined) {
+    return {
+      ...cls,
+      classification: 'INCONCLUSIVE',
+      rule: 9,
+      reason: `tree drift outside ${drift.dependency} subtree (${drift.other.slice(0, 6).join(', ')}) — arms not comparable`,
+    };
+  }
+  return cls;
 }

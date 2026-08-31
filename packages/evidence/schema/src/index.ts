@@ -97,6 +97,11 @@ export interface EvidenceBundle {
     baselineTreeSha256: string;
     candidateTreeSha256: string;
     driftConfinedToDependency: boolean;
+    /** Audit B6 — completeness of each arm's tree observation. A trustful
+     *  verdict requires both 'VALID'; the pipeline's applyConfinementGuard
+     *  downgrades otherwise, and this validator independently refuses a
+     *  trustful label built on an incomplete/invalid observation. */
+    observationStatus: { baseline: string; candidate: string };
     /** Where each arm's test code actually resolves the dependency from
      *  and the version found there — attested, not claimed (red-team F3). */
     resolvedVersions: { baseline: string; candidate: string };
@@ -208,6 +213,12 @@ export function validateBundle(b: unknown): Issue[] {
   if (!rv || !isStr(rv.baseline) || !isStr(rv.candidate)) issues.push('treeComparison.resolvedVersions missing — arms were not attested');
   const dc = tc?.dependencyCopies as Record<string, unknown> | undefined;
   if (!dc || typeof dc.baseline !== 'number' || typeof dc.candidate !== 'number') issues.push('treeComparison.dependencyCopies missing');
+  // Audit B6: the tree-observation status is mandatory and must be a known value.
+  const TREE_STATUSES = new Set(['VALID', 'INCOMPLETE', 'INVALID']);
+  const os = tc?.observationStatus as Record<string, unknown> | undefined;
+  if (!os || !TREE_STATUSES.has(String(os.baseline)) || !TREE_STATUSES.has(String(os.candidate))) {
+    issues.push('treeComparison.observationStatus missing/invalid — tree completeness was not recorded (audit B6)');
+  }
 
   if (Array.isArray(rounds) && rounds.length > 0) {
     semanticChecks(
@@ -267,11 +278,17 @@ function semanticChecks(
   }
 
   // 3. A verdict that asks the reader to TRUST arm comparability cannot ship
-  //    with unconfined drift — the pipeline's rule-9 guard is verifiable here.
+  //    with unconfined drift OR a non-VALID tree observation — the pipeline's
+  //    rules 9/10 guard is verifiable here (audits F9 + B6).
   const label = cls.label as ClassificationLabel;
-  if (tc.driftConfinedToDependency === false &&
-    (label === 'CONFIRMED_REGRESSION' || label === 'PRE_EXISTING_FAILURE' || label === 'PASS')) {
+  const trustful = label === 'CONFIRMED_REGRESSION' || label === 'PRE_EXISTING_FAILURE' || label === 'PASS';
+  const osv = tc.observationStatus as Record<string, unknown> | undefined;
+  const treeValid = osv?.baseline === 'VALID' && osv?.candidate === 'VALID';
+  if (tc.driftConfinedToDependency === false && trustful) {
     issues.push(`classification ${label} is impossible with driftConfinedToDependency=false (rule-9 guard bypassed?)`);
+  }
+  if (!treeValid && trustful) {
+    issues.push(`classification ${label} is impossible with a non-VALID tree observation (baseline=${String(osv?.baseline)}, candidate=${String(osv?.candidate)}; rule-10/B6 guard bypassed?)`);
   }
 
   // 4. Re-derive the classification from the round facts using the SAME
@@ -298,11 +315,17 @@ function semanticChecks(
     ...(r.failingTestNames !== undefined ? { failingTestNames: r.failingTestNames as string[] } : {}),
   }));
   const derived = classify(facts);
-  const isRuleNineOverride =
-    label === 'INCONCLUSIVE' && cls.rule === 9 &&
-    tc.driftConfinedToDependency === false &&
-    derived.classification !== 'INFRASTRUCTURE_FAILURE';
-  if (!isRuleNineOverride && (derived.classification !== label || derived.rule !== cls.rule)) {
+  // A rule-9 (unconfined drift) or rule-10 (weak observation) downgrade to
+  // INCONCLUSIVE is legitimate ONLY when its external justification is present
+  // in the bundle; a fabricated INCONCLUSIVE rule 9/10 is rejected.
+  const isConfinementOverride =
+    label === 'INCONCLUSIVE' &&
+    derived.classification !== 'INFRASTRUCTURE_FAILURE' &&
+    (
+      (cls.rule === 9 && treeValid && tc.driftConfinedToDependency === false) ||
+      (cls.rule === 10 && !treeValid)
+    );
+  if (!isConfinementOverride && (derived.classification !== label || derived.rule !== cls.rule)) {
     issues.push(
       `classification contradicts its own round facts: bundle says ${String(cls.label)} rule ${String(cls.rule)}, ` +
       `re-derivation from these rounds yields ${derived.classification} rule ${derived.rule}`,
