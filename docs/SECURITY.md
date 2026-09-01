@@ -70,16 +70,27 @@ be a lie; here is the real picture.
   postinstall|prepare`) and project rc files (`.npmrc`/`.yarnrc`/`.yarnrc.yml`,
   matched case-INSENSITIVELY per audit F7, scanned recursively per red-team
   F10) in the pinned source abort the run BEFORE anything external executes.
-- **Isolation-flag injection that cannot be dodged** (audit F8→B5). Canary
-  OWNS the package-manager surface via a CLOSED ALLOWLIST, not an alias
-  blacklist: only the `$npm`/`$yarn` tokens may run a package manager (raw
-  `npm`/`npm-cli.js`/`$bin:npm` forms are rejected), the subcommand must be on
-  an allowlist (unknown aliases and `exec`/`dlx`/`shell`/`publish` are refused
-  rather than run unpolicied), and install-family isolation flags
-  (`--ignore-scripts`, cache/userconfig/registry pins) are spliced in
-  EFFECTIVE position right after the subcommand. A user `--` in an install is
-  rejected (it used to neutralise end-appended flags); short options and
-  isolation-conflicting flags in any position are rejected.
+- **Package-manager isolation that cannot be dodged — semantically, not
+  textually** (audit F8→B5→B5.1, hardened post-sol RB-1). Canary OWNS the
+  package-manager surface via CLOSED ALLOWLISTS at three levels: executables
+  (only `$npm`/`$yarn`/`$tsc`/`$bin:` tokens and literal `node`; raw
+  `npm`/`npm-cli.js`/`$bin:npm`, wrappers like `cmd /c npm`, and pnpm/bun/
+  corepack frontends are rejected fail-closed), subcommands (closed allowlist;
+  unknown aliases and `exec`/`dlx`/`shell`/`publish` refused), and — post-sol
+  — OPTIONS: every install-family option token must be an exact spelling from
+  a closed allowlist that is property-tested prefix-disjoint from the
+  protected config universe (npm applies abbreviations like `--ig`/`--userc`/
+  `--reg`, `--no-` negations and LAST-WINS ordering — probe-verified on npm
+  11.16 AND 11.19 — so exact-string denylists are bypassable by construction;
+  unknown and per-package config forms `--@scope:registry`/`//…:auth` are
+  refused everywhere). Canary's isolation flags
+  (`--ignore-scripts`, `--userconfig`, `--cache`, `--registry`) are APPENDED
+  AS THE ARGV SUFFIX, so npm's own last-wins semantics make the EFFECTIVE
+  protected configuration Canary's regardless of accepted spellings. A user
+  `--` in an install is rejected (nothing may follow the suffix block); short
+  options are rejected; in the script/info families any option whose resolved
+  key (case-folded, negation-stripped, prefix-expanded) touches a protected
+  key is refused.
 - **Content pinning.** Repo content arrives only as a tarball fetched by a
   full 40-hex commit SHA (codeload), never a branch, and its digest is recorded
   in the bundle.
@@ -88,15 +99,30 @@ be a lie; here is the real picture.
   *downgrades* the verdict to INCONCLUSIVE (rule 9); a non-VALID tree
   OBSERVATION (empty/partial/missing the studied dependency) downgrades it too
   (rule 10, audit B6) — enforced, not advisory. Zero-execution / no-summary /
-  infra-at-exit-0 rounds can never yield PASS (audit B2).
+  infra-at-exit-0 rounds can never yield PASS (audit B2). Post-sol RB-2 adds
+  the COVERAGE-CONSISTENCY pair: repetitions whose executed/observed totals
+  differ are FLAKY (rule 12), and PASS/CONFIRMED_REGRESSION/PRE_EXISTING_-
+  FAILURE additionally require the arms' totals to match (rule 13) — a suite
+  that collapses from 128 to 1 executed test can no longer produce any strong
+  verdict, while the legitimate 128→125+3 regression shape still confirms.
+  `validateBundle` enforces the same parity independently (rules 12/13 plus
+  ≥2 dense rounds per arm), so a resealed bundle refutes itself.
 - **Evidence integrity** (audit B3/B4). Artifact filenames are derived from a
   round's arm/round and must equal the canonical name, realpath-confined to the
   run dir (no `../`/absolute/cross-round swaps); a manifest digest makes any
   single-field rewrite without full recompute detectable (integrity, NOT
   authenticated provenance — no trust root); `prove`/`check`/`report` re-derive
   each round's summary, counts and failing-test identities FROM the artifact
-  BYTES, so the bundle cannot misdescribe what actually ran. `report` stamps
-  VERIFIED / UNVERIFIED and refuses unverified evidence as if it were trusted.
+  BYTES, so the bundle cannot misdescribe what actually ran. The structural
+  floor (which fields MUST exist, per-state trustful requirements, unknown
+  fields refused) is one machine-readable contract:
+  `packages/evidence/schema/src/contract.ts` generates
+  `schemas/evidence.schema.json` and drives the runtime validator — the two
+  cannot silently diverge (post-sol M-1). `report` stamps
+  **SELF-CONSISTENT / NOT SELF-CONSISTENT** (post-sol F1): exit 0 means the
+  evidence agrees with the artifacts on THIS machine; it explicitly does NOT
+  mean the committed proof was consulted — only `prove`/`check` assert that,
+  and the banner says so. Refused bundles are never rendered as trusted.
 - **Process containment.** Timeout kills the whole process tree; AND on every
   child exit (normal or killed) a descendant sweep runs (audit F5) so a runner
   helper that outlived its parent cannot leak ports/files into a later round.
@@ -181,7 +207,7 @@ F1–F15 recorded in docs/AUDIT-REMEDIATION-2026-08-30.md):
   scanning the spec argv for the package-manager subcommand, so
   `--loglevel install`, `ci`, `add`, and the `$yarn` path cannot silently
   skip them. (Superseded/extended by audit-F8: value-taking-option shift and
-  conflicting flags are now hard rejections — see below.)
+  conflicting flags are now hard rejections — see below; the option denylist itself was superseded by post-sol RB-1's closed allowlist + last-wins suffix.)
 - **RT-F7 — proof honesty.** Proof compares numeric summary counts and
   *extracted failing-test names* (not loose substrings), validates the
   bundle on read, and asserts against the current run's artifact directory
@@ -196,7 +222,7 @@ Full ledger with root causes, execution evidence and per-milestone commits:
 **docs/AUDIT-REMEDIATION-2026-08-30.md** (round 1),
 **docs/AUDIT-REMEDIATION-ROUND2-2026-08-31.md** (round 2) and
 **docs/AUDIT-REMEDIATION-ROUND3-2026-08-31.md** (round 3 + internal adversarial
-self-review). Headline outcomes, each covered by the current 320-test suite:
+self-review). Headline outcomes, each covered by the current 371-test suite:
 
 - **F1/F2/F13 — classification correctness.** A passing-summary-then-nonzero-
   exit can no longer produce CONFIRMED_REGRESSION (conservative INFRA);
@@ -248,11 +274,14 @@ adversarial + mutation evidence (ledger: AUDIT-REMEDIATION-ROUND2-2026-08-31.md)
 - **B4 — evidence bound to bytes.** A manifest digest (content integrity, NOT
   authenticated provenance) plus per-round re-derivation of summary/counts/
   identities FROM the artifact bytes, plus assertProof pinning identity/schema/
-  repo/commit/runtime, plus report verifying-or-labelling UNVERIFIED. The
+  repo/commit/runtime, plus report verifying-or-labelling the evidence
+  (banner wording since renamed SELF-CONSISTENT by post-sol F1). The
   bundle can no longer lie about what its bytes contain.
 - **B5 — package-manager closed allowlist.** Raw `npm`/`npm-cli.js`/`$bin:npm`
-  forms and unknown subcommands are rejected; install-family isolation flags are
-  spliced into effective position and a user `--` in an install is refused.
+  forms and unknown subcommands are rejected; install-family isolation flags
+  are in effective position and a user `--` in an install is refused.
+  (Option SPELLINGS were still denylisted by exact text at this point — the
+  post-sol RB-1 finding; now closed allowlist + last-wins suffix, above.)
 - **B6 — tree observation completeness.** EMPTY/partial dependency-tree
   observations no longer "prove" confinement; only a VALID observation (parsed,
   non-empty, contains the studied dependency) supports a trustful label.
@@ -295,31 +324,83 @@ Ledger: **docs/AUDIT-REMEDIATION-ROUND3-2026-08-31.md**. Headline outcomes:
   copy counts, status, anomalies and drift; ANY observation anomaly caps the
   status at INCOMPLETE; a trustful verdict requires retained snapshots with
   EMPTY anomaly lists; and npm ≥ 11.19's empty-`{}` rendering of
-  NOT-installed OPTIONAL deps is recognized as a complete observation (token-
-  anchored `problems` check keeps genuinely-missing deps failing closed).
+  NOT-installed OPTIONAL deps is recognized as a complete observation —
+  subject to the post-sol M-2 narrowing below.
 - **Secondaries:** post-summary fatal-crash signatures (`crashSignal`) and
   failed containment sweeps (`sweepFailed`) now invalidate a round via rule 1;
   fetch/extraction failures are INFRASTRUCTURE (exit 2), not misuse (exit 3);
   subtree containment uses full-path-segment semantics.
 
-**Honest integrity limits after round 3.** `sweepFailed` (and `killedByTimeout`
-beyond its exit-code correlation) are KERNEL observations the artifact bytes
-cannot carry — they are recorded, consumed by the decision table, and bound to
-the manifest, but not independently byte-re-derivable; a total forger who
-re-derives every bound field can still produce a self-consistent fabricated
-bundle. That residual is tamper-evidence + committed-proof anchoring, NOT
-authenticated provenance — restated here rather than hidden.
+### Post-sol round-4 remediation (RB-1/RB-2/M-1/M-2/F1, 2026-09-01)
+
+Ledger: **docs/AUDIT-REMEDIATION-ROUND4-POST-SOL-2026-09-01.md**. The final
+independent Sol review of the frozen candidate `a0baa0c` confirmed five
+items, each fixed structurally here:
+
+- **RB-1 — semantic package-manager policy.** The exact-string denylist could
+  not survive npm's own equivalence semantics (probe-verified on 11.16 and
+  11.19): unique-prefix abbreviations apply, `--no-` negations apply, the CLI
+  layer is last-wins, and the per-package family (`--@scope:registry`) retargets
+  resolution even against a global pin. Replaced by closed exact-spelling allow
+  lists + protected-suffix injection + resolution-based key banning (Tier A
+  above); Sol's four demonstrated forms are refused and a property test covers
+  every prefix/negation/case/`=` spelling of every protected key.
+- **RB-2 — suite collapse is not a verdict.** Classifier rules 12/13 and an
+  independent validator gate require stable-across-repetitions, comparable-
+  across-arms executed/observed totals for any strong verdict (no hard-coded
+  minimum; the Axios regression shape is preserved).
+- **M-1 — one evidence contract.** `contract.ts` now generates the published
+  schema and drives the runtime floor; the round-3 evidence fields
+  (`snapshots`, `observationAnomalies`, `crashSignal`, `sweepFailed`) are in
+  the published contract, the trustful tier is expressed in both views, and
+  deleting `commands`/`killedByTimeout`/`startedAt`/`durationMs` is now
+  refused at runtime (it was schema-only before).
+- **M-2 — empty-tree nodes need corroboration.** A `{}` node excuses itself
+  as an expected-absent optional only in a document whose problem channels
+  are well-formed and uncontradicted (R4-SR1 refinement: ELSPROBLEMS demands
+  problems, never the reverse — npm's extraneous-only trees are silent-stderr
+  by design); malformed channels, mentioned names, `missing:true`, the studied
+  dependency, and channel contradictions all fail closed. Both tree parsers
+  now bound traversal (200k nodes / depth 128) and read under realpath
+  confinement like round artifacts.
+- **F1 — report honesty.** The banner says SELF-CONSISTENT, never VERIFIED,
+  and states that committed-proof agreement is a prove/check-only property.
+
+Secondaries fixed in this round: host-fingerprint sampling under sanitized env
+(previously inherited the verifier's `NODE_OPTIONS`), lone-CR line-ending
+parity across fact matchers/parsers, tree-artifact symlink confinement, deep-
+tree budgets, and the string-`problems` producer/verifier differential.
+
+**Honest integrity limits after rounds 3–4.** `sweepFailed` (and
+`killedByTimeout` beyond its exit-code correlation) are KERNEL observations
+the artifact bytes cannot carry — recorded, consumed by the decision table,
+bound to the manifest, but not independently byte-re-derivable. Post-sol
+M-2 narrows but does not eliminate the CONTENT-forgery surface for tree
+observations: `{}`-as-optional is by construction indistinguishable in npm's
+own output from a required dep silently missing, so retained-bytes
+corroboration catches malformed/partial/contradicting documents but a forger
+who controls the artifact directory and authors mutually consistent
+stdout+stderr can still pose a complete tree (mitigated — not removed — by
+the proof-host argv re-derivation and the committed proof pins; the studied
+dependency can never be excused INTO presence). A total forger who re-derives
+every bound field can still produce a self-consistent fabricated bundle. That
+residual is tamper-evidence + committed-proof anchoring, NOT authenticated
+provenance — restated here rather than hidden. Coverage parity (RB-2) reasons
+from the experiment's own summaries; a suite that shrank BEFORE both arms ran
+carries no cross-arm signal and is anchored only by the committed proof.
 
 ## Platform status (audit F15 — no unproven cross-platform claims)
 
 - **Windows (win32/x64, Node 26):** the fully executed platform — entire
-  320-test suite (45 suites, 1 platform-conditional skip), including
+  371-test suite (52 suites, 1 platform-conditional skip), including
   real-subprocess lifecycle/env tests, and the golden Axios proof — 36
   assertions executed with ZERO skips on the designated proof host
-  (win32/x64/node v26.3.0/npm 11.16.0, reproduced twice in-session), 22
-  portable assertions executing on drifted hosts (verified on node v26.7.0 /
-  npm 11.19.0, which additionally exercises the npm-11.19 tree-representation
-  compatibility path end-to-end).
+  (win32/x64/node v26.3.0/npm 11.16.0; re-executed on the post-sol candidate
+  2026-09-01 with unchanged expectations), 22 portable assertions executing
+  and 6 host-exact skipping to an INCOMPLETE verdict on drifted hosts (fresh
+  full run verified on node v26.7.0 / npm 11.19.0 on 2026-09-01, which
+  additionally exercises the npm-11.19 empty-node tree representation
+  end-to-end under the narrowed M-2 rule).
 - **Linux (POSIX paths):** the offline test suite, POSIX branches of the
   process sweep and env observation, and the pipeline's tar path are WRITTEN
   but have NOT yet been executed on Linux (no Linux host in the remediation

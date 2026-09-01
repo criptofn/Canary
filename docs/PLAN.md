@@ -1,8 +1,10 @@
 # Canary Migration Plan — from Golden-Snapshot Prototype to Dependency Regression Detection
 
-Status: PLAN (no product code written yet)
-Date: 2026-08-30
-Owner decision required on items in §9 (one blocking).
+Status: IMPLEMENTED (v0.1 alpha / proof-of-concept — see the round-1..4 ledgers
+under docs/ and the golden fixture under fixtures/). This document is the
+original plan; where it and the shipped code disagree, THE CODE IS THE TRUTH
+and §6 below has been kept current with it.
+Date: 2026-08-30 (plan) · §6 updated 2026-09-01 to match the post-sol decision table
 
 ---
 
@@ -159,25 +161,32 @@ Infra markers are **regex allow-lists on runner facts** (npm/yarn ERESOLVE /
 ENOTFOUND / EAI_AGAIN, `ERR_MODULE_NOT_FOUND`, ava internal crash banner,
 timeout-kill sentinel, empty-output-without-summary) — never LLM judgment.
 
-Total rules, evaluated in order (all arms normalized to pass/fail/infra):
+Total rules, evaluated IN THE ORDER SHIPPED (`packages/core/classification`;
+every rule pinned by classify.test.ts):
 
-| # | Condition | Classification |
-|---|---|---|
-| 1 | any required arm is INFRA (after bounded retries) | INFRASTRUCTURE_FAILURE |
-| 2 | baseline runs not unanimous | FLAKY (baseline unstable — experiment invalid) |
-| 3 | baseline PASS ∧ candidate PASS (all reruns) | PASS |
-| 4 | baseline FAIL (unanimous) ∧ candidate FAIL | PRE_EXISTING_FAILURE |
-| 5 | baseline PASS ∧ candidate FAIL unanimous across all 5 reruns | **CONFIRMED_REGRESSION** |
-| 6 | baseline PASS ∧ candidate mixed (≥1 pass, ≥1 fail across reruns) | FLAKY |
-| 7 | degenerate-run guard: unanimous FAIL on both arms whose logs contain no test-runner summary at all | INFRASTRUCTURE_FAILURE (not CONFIRMED) |
-| 8 | otherwise | INCONCLUSIVE (never silently coerced) |
+| # | Condition | Classification | Since |
+|---|---|---|---|
+| 0 | either arm missing from the fact set | INCONCLUSIVE | plan |
+| 1 | ANY round is not a valid test execution: killed, crash signature, failed containment sweep, infra signature at any exit code, no runner summary, summary without machine-readable counts, zero EXECUTED tests (pending is not execution), exit≠0 claiming 0 failures, exit 0 masking failures | INFRASTRUCTURE_FAILURE | plan + audits F1/F5/B2 + R3-B1/B2 |
+| 2 | baseline exit codes disagree | FLAKY | plan |
+| 8 | within an arm, failing rounds' profiles (count + identityCoverage + identities) differ | FLAKY | audit F2 |
+| 11 | a failing round's parsed identities do not fully account for its reported failing count | INCONCLUSIVE | R3-B1 |
+| 12 | an arm's repetitions disagree on executed (passing+failing) or observed (+pending) totals | FLAKY | **post-sol RB-2** |
+| 13 | a STRONG verdict (3/4/5) whose arms' executed or observed totals differ — weaker or missing execution may never produce a stronger verdict | INCONCLUSIVE | **post-sol RB-2** |
+| 3 | baseline all-pass ∧ candidate all-pass (coverage comparable per 13) | PASS | plan |
+| 4 | baseline all-fail ∧ candidate all-fail (comparable per 13) | PRE_EXISTING_FAILURE | plan |
+| 5 | baseline all-pass ∧ candidate all-fail, profiles identical (comparable per 13) | **CONFIRMED_REGRESSION** | plan |
+| 6 | baseline fails while candidate does not uniformly fail | INCONCLUSIVE / FLAKY | plan |
+| 7 | baseline clean, candidate mixed | FLAKY | plan |
+| 9/10 | post-guard: tree drift outside the dependency subtree / non-VALID tree observation | any strong verdict downgraded to INCONCLUSIVE | audits F9/B6 |
 
-Lesson encoded from the Python prototype's first proof failure (all checks
-erroring identically still "verified clean"): rule 7 blocks the degenerate
-false-signal class by requiring substantive runner output on any failing arm.
-Candidate reruns preserve per-run evidence; unanimity is computed over
-exit codes; identical *test-name sets* failing across reruns is recorded as
-supporting evidence in the bundle (not required for v1 classification).
+The prototype lesson — "a green result over degenerate evidence is a failure"
+— survives as rule 1's no-summary / zero-executed guards; "5 reruns" from the
+original table is not a code rule (the planner enforces repeats ≥ 2 per arm,
+and the validator independently requires ≥ 2 DENSE rounds for trustful
+labels). Candidate reruns preserve per-run evidence; unanimity is computed
+over exit codes; identical suite-qualified failing-test identities across
+reruns are required (rule 8) and persisted in the bundle as first-class data.
 
 ## 7. Golden fixture — selection evidence and fallback ladder
 

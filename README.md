@@ -45,14 +45,15 @@ Reproduce it:
 ```bash
 npm ci            # lockfile-exact, reproducible install
 npm run build
-npm test          # 320 tests / 45 suites (offline; 1 skip when the OS denies symlink creation)
+npm test          # 371 tests / 52 suites (offline; 1 skip when the OS denies symlink creation)
 npm run prove     # fresh end-to-end run; PASS requires the committed proof host (36 assertions
                   # executed, zero skips). On any other runtime it honestly exits 2 (INCOMPLETE):
                   # the 22 portable assertions must all hold, the 6 host-exact ones are skipped,
                   # never silently passed.
-npm run report    # no args: renders the latest run's evidence (VERIFIED requires byte +
-                  # run-identity + tree-snapshot + classification re-derivation checks to pass
-                  # on THIS machine; otherwise the report says UNVERIFIED)
+npm run report    # no args: renders the latest run's evidence. Exit 0 means SELF-CONSISTENT:
+                  # byte + run-identity + tree-snapshot + classification re-derivation checks
+                  # passed ON THIS MACHINE — it does NOT mean the committed proof was consulted
+                  # (that is prove/check; post-sol F1). Otherwise NOT SELF-CONSISTENT, exit 3.
 ```
 
 Also demonstrated by this fixture: **Canary does not manufacture
@@ -70,10 +71,10 @@ node apps/cli/dist/src/main.js report [evidence.json] [out.html]  # defaults: la
 ```
 
 Exit codes: `0` proof holds fully (on the committed proof host) / regression
-confirmed · `1` a proof assertion diverged (or `run` classified PASS) ·
-`2` other classification / infra / proof INCOMPLETE (this runtime is not the
-proof host — host-exact assertions unverifiable, never a PASS pretense) ·
-`3` misuse, refused bundle, or an UNVERIFIED report.
+confirmed / self-consistent report · `1` a proof assertion diverged (or `run`
+classified PASS) · `2` other classification / infra / proof INCOMPLETE (this
+runtime is not the proof host — host-exact assertions unverifiable, never a
+PASS pretense) · `3` misuse, refused bundle, or a NOT-SELF-CONSISTENT report.
 
 ## Security contract — enforced at the process/env boundary, tiered elsewhere
 
@@ -89,18 +90,28 @@ Every downstream repository is **untrusted**. Enforced by
   `NODE_OPTIONS`, SSH agents, user npm auth are *structurally invisible*
   to external processes (deny-by-omission); Windows session-identity vars the
   OS loader injects are *neutralized* so observed == declared (proven by test)
-- `--ignore-scripts` on every install (flags spliced in *effective position*,
-  and package-manager commands go through a **closed subcommand allowlist** —
-  raw `npm`/`npm-cli.js` forms and `--`-bypass shapes are rejected, audit B5);
-  disposable workspace under `.canary-runs/`; caches and HOME redirected inside
-- **evidence is bound to reality, not just self-consistent** (audit B1–B4):
-  failing-test identities are suite-qualified (no leaf-title collapse); a
-  zero-test / no-summary / infra-at-exit-0 run can never become PASS; every
+- `--ignore-scripts` on every install — semantically un-losable: package
+  managers run only through **closed allowlists at three levels** (executable,
+  subcommand, and since post-sol RB-1, exact option spellings — npm's
+  abbreviations, negations and last-wins ordering make textual denylists
+  bypassable, so Canary's isolation flags are appended as the argv *suffix*
+  and npm's own last-wins makes them the effective config); raw
+  `npm`/`npm-cli.js` forms, wrapper-mediated execution and `--`-bypass shapes
+  are rejected (audits B5/B5.1, post-sol RB-1); disposable workspace under
+  `.canary-runs/`; caches and HOME redirected inside
+- **evidence is bound to reality, not just self-consistent** (audit B1–B4,
+  post-sol RB-2/M-1): failing-test identities are suite-qualified (no
+  leaf-title collapse); a zero-test / no-summary / infra-at-exit-0 run can
+  never become PASS; **suite collapse is never a verdict** — strong verdicts
+  require stable-across-repetitions and comparable-across-arms test-execution
+  coverage (classifier rules 12/13 + an independent validator gate); every
   artifact path is derived from its round (traversal/ownership rejected) and
   confined to the run dir; a manifest digest makes single-field rewrites
-  detectable; and `prove`/`check`/`report` re-derive each round's summary,
-  counts and failing-test identities **from the artifact bytes**, so the
-  bundle cannot lie about what actually ran
+  detectable; the bundle's structural floor and the published JSON schema are
+  **one generated contract** (`packages/evidence/schema/src/contract.ts`);
+  and `prove`/`check`/`report` re-derive each round's summary, counts and
+  failing-test identities **from the artifact bytes**, so the bundle cannot
+  lie about what actually ran
 - no publish, no push, no external auth, ever
 - if a *Tier-A (code-enforced)* bound can't hold: `INFRASTRUCTURE_FAILURE`,
   before executing
@@ -125,7 +136,7 @@ packages/registry-npm/          (reserved — npm resolution adapter, next miles
 packages/github/                pinned-SHA tarball fetch
 packages/ai/                    optional explain-only adapter (noop shipped)
 fixtures/axios-0.27-to-1.0/     golden fixture: spec + committed proof expectations
-schemas/evidence.schema.json    published evidence contract
+schemas/evidence.schema.json    published evidence contract (GENERATED from packages/evidence/schema/src/contract.ts — the single source of truth)
 docs/                           ADR-001 · PLAN · SECURITY
 archive/python-golden-prototype/ superseded first prototype (concepts preserved in TS)
 archive/prototype-scripts/      superseded M0/ladder harnesses (now the CLI)

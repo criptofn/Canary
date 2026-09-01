@@ -58,6 +58,16 @@ baseline ×2 → swap → candidate ×3) produced:
   ZERO skips on the designated proof host (win32/x64, node v26.3.0, npm
   11.16.0); on other hosts every portable assertion (22) still executes and
   the run reports INCOMPLETE (exit 2) instead of claiming PASS
+- post-sol re-verification (2026-09-01, candidate branch `post-sol-remediation`):
+  the same 36/36 proof reproduced on the canonical toolchain (official zip,
+  SHA-256 `ec6d0f6b…` verified) with ZERO expectation changes under the new
+  RB-1 argv policy (flags now appended as suffix), RB-2 coverage rules (the
+  arms execute identically: 128 vs 125+3), M-1 contract (real evidence passes
+  the generated schema's floor) and M-2 tree semantics (the fixture's 3 real
+  `{}` nodes per arm on both npm 11.16 and 11.19 are corroborated-optional →
+  anomaly-free). The drifted host (node v26.7.0 / npm 11.19.0) still yields
+  INCOMPLETE exit 2 with all 22 portable assertions holding — host mismatch
+  cannot produce proof PASS.
 - dependency versions **attested at runtime** from the fixture's own module
   resolver (both arms), nested copies counted and recorded in the bundle
 - sample evidence artifacts: not committed (they are generated run outputs
