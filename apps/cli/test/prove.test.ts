@@ -27,6 +27,14 @@ function harness(): { dir: string; bundle: EvidenceBundle; cleanup: () => void }
       normalizedStdoutSha256: write(`${label}.stdout.norm`, `norm-out-${label}`),
       normalizedStderrSha256: write(`${label}.stderr.norm`, `norm-err-${label}`),
       logPath: `${label}.stdout.log`, argv: ['node', 'x'], envKeys: ['PATH'],
+      // Post-GLM G: every round retains an observation stream too (5th file).
+      // These synthetic rounds had no injection — the honest shape is ABSENT
+      // over an empty byte stream (framesSha256 = digest of the empty file).
+      executionObservation: {
+        status: 'ABSENT', absentKind: 'no-injection',
+        observedFailingIdentities: [],
+        framesSha256: write(`${label}.attest.ndjson`, ''), frameCount: 0,
+      },
     };
   };
   const bundle = {
@@ -111,6 +119,15 @@ describe('verifyArtifacts — audit B3 (path confinement + ownership)', () => {
     fs.mkdirSync(outside, { recursive: true });
     return { dir, outside, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
   }
+  // Post-GLM G: the artifact tuple grew 4 → 5 — every round retains
+  // <arm>-<round>.attest.ndjson and carries its executionObservation. These
+  // B3 cases isolate path CONFINEMENT/ownership, so the observation is the
+  // honest ABSENT shape of an offline non-mocha round: nothing injected,
+  // empty retained bytes, framesSha256 == hash of nothing.
+  const ABSENT_OBS = {
+    status: 'ABSENT', absentKind: 'not-mocha-bin',
+    observedFailingIdentities: [], framesSha256: sha256hex(''), frameCount: 0,
+  };
   const roundBase = (arm: 'baseline' | 'candidate', n: number): Record<string, unknown> => ({
     arm, round: n, exitCode: arm === 'baseline' ? 0 : 1, killedByTimeout: false,
     hasRunnerSummary: true, infraSignal: false,
@@ -118,6 +135,7 @@ describe('verifyArtifacts — audit B3 (path confinement + ownership)', () => {
     rawStdoutSha256: '0'.repeat(64), rawStderrSha256: '0'.repeat(64),
     normalizedStdoutSha256: '0'.repeat(64), normalizedStderrSha256: '0'.repeat(64),
     logPath: `${arm}-${n}.stdout.log`, argv: ['x'], envKeys: ['PATH'],
+    executionObservation: { ...ABSENT_OBS },
   });
   const bundleOf = (rounds: Record<string, unknown>[]): EvidenceBundle =>
     ({ rounds } as unknown as EvidenceBundle);
@@ -126,6 +144,7 @@ describe('verifyArtifacts — audit B3 (path confinement + ownership)', () => {
     for (const suf of ['.stdout.log', '.stderr.log', '.stdout.norm', '.stderr.norm']) {
       fs.writeFileSync(path.join(dir, label + suf), content, 'utf8');
     }
+    fs.writeFileSync(path.join(dir, label + '.attest.ndjson'), '', 'utf8'); // empty pipe == ABSENT round
     return { rawStdoutSha256: h, rawStderrSha256: h, normalizedStdoutSha256: h, normalizedStderrSha256: h };
   };
 
@@ -213,7 +232,7 @@ describe('verifyArtifacts — audit B3 (path confinement + ownership)', () => {
       fs.writeFileSync(path.join(outside, 'secret-stdout.log'), content, 'utf8');
       // canonical basename, but the file is a symlink to outside
       fs.symlinkSync(path.join(outside, 'secret-stdout.log'), path.join(dir, 'baseline-1.stdout.log'));
-      for (const suf of ['.stderr.log', '.stdout.norm', '.stderr.norm']) {
+      for (const suf of ['.stderr.log', '.stdout.norm', '.stderr.norm', '.attest.ndjson']) {
         fs.writeFileSync(path.join(dir, 'baseline-1' + suf), '', 'utf8');
       }
       const r = {

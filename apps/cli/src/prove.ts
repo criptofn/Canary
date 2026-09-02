@@ -10,10 +10,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { diffTrees, extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
-import { hasRunnerSummary, isInfraOutput, hasCrashSignature, Recorder } from '@canary-rn/executor';
+import {
+  hasRunnerSummary, isInfraOutput, hasCrashSignature, Recorder,
+  validateObservation, OBSERVER_PRELOAD_SOURCE, observerPreloadPath, type ExpansionPlan,
+} from '@canary-rn/executor';
 import { sha256File } from '@canary-rn/hashing';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
-import { classify, applyConfinementGuard, type RoundFact } from '@canary-rn/classification';
+import { classify, applyConfinementGuard, type ExecutionObservation, type RoundFact } from '@canary-rn/classification';
 import { sanitizedEnv, sanitizedEnvKeys, type WorkspaceLayout } from '@canary-rn/support';
 import { deriveArmTreeFacts } from './verify-tree.js';
 
@@ -377,12 +380,21 @@ export function verifyArtifacts(artifactsDir: string, bundle: EvidenceBundle): s
       issues.push(`${at}: logPath '${String(r.logPath)}' does not match its own identity (expected '${expectedLogPath}') — traversal/absolute path/cross-round ownership mismatch`);
       continue; // never read the claimed path; the canonical name is authoritative
     }
+    // Post-GLM G: the tuple grew 4 → 5. Every round — injected or not — retains
+    // `<arm>-<round>.attest.ndjson` (empty when the pipe carried nothing), so
+    // the recorded framesSha256 is bound to bytes exactly like the other four.
+    // No `.attest.norm` variant: the NDJSON IS the canonical bytes.
+    const obs = r.executionObservation as ExecutionObservation | undefined;
+    if (obs === undefined) {
+      issues.push(`${at}: executionObservation absent — every round must carry its observation and retain ${label}.attest.ndjson (post-GLM G); observation bytes cannot be bound`);
+    }
     const want: Array<[string, string]> = [
       [`${label}.stdout.log`, r.rawStdoutSha256],
       [`${label}.stderr.log`, r.rawStderrSha256],
       [`${label}.stdout.norm`, r.normalizedStdoutSha256],
       [`${label}.stderr.norm`, r.normalizedStderrSha256],
     ];
+    if (obs !== undefined) want.push([`${label}.attest.ndjson`, obs.framesSha256]);
     for (const [file, hash] of want) {
       const p = path.join(rootAbs, file); // file is a bare derived basename (no separators)
       const lex = withinDir(rootAbs, p);
@@ -434,10 +446,25 @@ function withinDir(root: string, abs: string): { ok: boolean; why: string } {
  *
  * Returns issues; empty = every round's recorded facts are reproduced from
  * disk. Reads only canonical `${arm}-${round}.stdout.log`/`.stderr.log`.
+ *
+ * Post-GLM G adds two more byte-boundities, both host-gated like argv
+ * re-derivation: (1) each round's executionObservation must equal the result
+ * of re-running the SHARED capture validator over the retained
+ * `<arm>-<round>.attest.ndjson` bytes with Canary-re-derived inputs; (2) the
+ * retained observer preload under wsRoot must byte-match the current
+ * OBSERVER_PRELOAD_SOURCE (what Canary injected is checkable, not assumed).
+ * Without a `ctx` (the report flow has no spec handle) these are not
+ * evaluable here — verifyArtifacts still binds the frame bytes to their
+ * recorded digest on every host.
  */
-export function verifyArtifactSemantics(artifactsDir: string, bundle: EvidenceBundle): string[] {
+export function verifyArtifactSemantics(
+  artifactsDir: string,
+  bundle: EvidenceBundle,
+  ctx?: ProveReplayContext,
+): string[] {
   const issues: string[] = [];
   const rootAbs = path.resolve(artifactsDir);
+  const replays = new Map(replayObservations(artifactsDir, bundle, ctx).map((x) => [x.label, x]));
   const read = (name: string): string | null => {
     const p = path.join(rootAbs, name);
     const lex = withinDir(rootAbs, p);
@@ -483,6 +510,28 @@ export function verifyArtifactSemantics(artifactsDir: string, bundle: EvidenceBu
     const recNames = [...(r.failingTestNames ?? [])].sort();
     if (JSON.stringify(recNames) !== JSON.stringify(names)) {
       issues.push(`${at}: failingTestNames ${JSON.stringify(recNames)} disagree with the ${JSON.stringify(names)} extracted from the artifact bytes`);
+    }
+    const rep = replays.get(label);
+    if (rep) {
+      issues.push(...rep.issues);
+      if (rep.replay) issues.push(...diffObservation(at, r.executionObservation as ExecutionObservation | undefined, rep.replay));
+    }
+  }
+  // (2) The injected bytes themselves: the preload lives under wsRoot (NOT
+  // artifactsDir — panel I), so it is outside the manifest of canonical
+  // artifacts and bound here instead. Divergence from the CURRENT source means
+  // capture and verification disagree about what Canary injects — loud fail by
+  // design; bumping OBSERVER_VERSION without a re-run makes old evidence
+  // unprovable rather than quietly re-interpretable.
+  if (proveReplayEvaluable(bundle, ctx)) {
+    const wsRoot = path.resolve(path.dirname(rootAbs));
+    const preloadPath = observerPreloadPath({ root: wsRoot, fixture: path.join(wsRoot, 'fixture') });
+    let pre: string | null = null;
+    try { pre = fs.readFileSync(preloadPath, 'utf8'); } catch { pre = null; }
+    if (pre === null) {
+      issues.push(`retained observer preload missing (${preloadPath}) — the injected --require bytes cannot be bound to Canary source`);
+    } else if (pre !== OBSERVER_PRELOAD_SOURCE) {
+      issues.push('retained observer preload bytes differ from the current OBSERVER_PRELOAD_SOURCE — what was injected at capture is not what this build injects (re-run required; never re-interpret old evidence)');
     }
   }
   return issues;
@@ -568,9 +617,20 @@ export function verifyRunIdentity(artifactsDir: string, bundle: EvidenceBundle):
  * assertProof; the signal fields are read as recorded, matching how
  * validateBundle re-derives.
  */
-export function verifyClassificationDerivation(artifactsDir: string, bundle: EvidenceBundle): string[] {
+export function verifyClassificationDerivation(
+  artifactsDir: string,
+  bundle: EvidenceBundle,
+  ctx?: ProveReplayContext,
+): string[] {
   const issues: string[] = [];
   const rootAbs = path.resolve(artifactsDir);
+  // Post-GLM G: the gate reads executionObservation, so a re-derived-from-bytes
+  // observation must feed classify() wherever one can honestly be re-derived
+  // (proof host + committed spec). Elsewhere the recorded field flows through —
+  // exactly how exitCode/sweepFailed already work — and host-exact conclusions
+  // stay skipped, so the drifted-host posture (portable hold → INCOMPLETE)
+  // never changes because of the channel.
+  const replays = new Map(replayObservations(artifactsDir, bundle, ctx).map((x) => [x.label, x]));
   const read = (name: string): string | null => {
     const p = path.join(rootAbs, name);
     const lex = withinDir(rootAbs, p);
@@ -589,6 +649,8 @@ export function verifyClassificationDerivation(artifactsDir: string, bundle: Evi
     }
     const combined = so + se;
     const counts = parseSummaryCounts(combined);
+    const rep = replays.get(label);
+    if (rep) issues.push(...rep.issues);
     facts.push({
       arm: r.arm,
       round: r.round,
@@ -599,6 +661,7 @@ export function verifyClassificationDerivation(artifactsDir: string, bundle: Evi
       reportedFailing: counts.failing,
       reportedPending: counts.pending,
       failingTestNames: extractFailingTestNames(combined).sort(),
+      executionObservation: rep?.replay ?? (r.executionObservation as ExecutionObservation | undefined),
       // crashSignal is byte-observable → re-derived here, not trusted from the
       // record, so a resealed false cannot launder a crashed round into trust.
       ...(hasCrashSignature(combined) ? { crashSignal: true } : {}),
@@ -670,27 +733,179 @@ function fixtureResolveBin(fixtureDir: string): (pkg: string, key?: string) => s
 }
 
 /**
- * Expected argv for EVERY measurement round, re-derived from the committed
- * spec by the TRUSTED expansion code (Recorder.expandArgv with placeholder /
- * $npm / $yarn / $tsc / $bin: handling and install-family flag splicing) —
- * the VALUE pipeline-generated argv from the evidence. The inputs are the
- * spec file, the retained workspace, and this process's node resolution; a
- * resealed r.argv that dropped flags or swapped the executable diverges.
+ * Expected argv (AND injection plan) for EVERY measurement round, re-derived
+ * from the committed spec by the TRUSTED expansion code — post-GLM this flows
+ * through Recorder.expandArgvWithPlan, the SAME function the pipeline used at
+ * capture time, so the injection decision (pinned-bytes mocha at the canonical
+ * path ⇒ trailing `--require <preload>`) is re-made identically from the
+ * RETAINED fixture rather than re-implemented. Consequences:
+ *  - on the proof host, expected argv includes the injected --require iff the
+ *    retained runner tree still matches the pin — a resealed r.argv that
+ *    dropped flags or swapped the executable diverges, and so does dropping
+ *    or ADDING the observation channel;
+ *  - a post-run swap of FIXTURE/node_modules/mocha makes the re-derived argv
+ *    and the re-derived plan diverge from what was recorded — prove then FAILS
+ *    loudly. That drift detection is a FEATURE (panel G), not a bug: the tree
+ *    the claim was made about must still be the tree on disk.
  */
-export function deriveExpectedRoundArgv(spec: TrustedRunSpec, wsRoot: string): string[] {
+export function deriveExpectedRoundArgv(spec: TrustedRunSpec, wsRoot: string): { argv: string[]; plan: ExpansionPlan } {
   const fixture = path.join(wsRoot, 'fixture');
   const rec = new Recorder({
     ws: { root: wsRoot, fixture },
     nodeDir: path.dirname(process.execPath),
     npmCli: proofNpmCli(),
-    artifactsDir: wsRoot, // irrelevant to expandArgv
+    artifactsDir: wsRoot, // irrelevant to expansion
     pipeline: [],
   });
-  return rec.expandArgv(
+  return rec.expandArgvWithPlan(
     spec.commands.test,
     { dep: spec.dependency.package, baseline: spec.dependency.baseline, candidate: spec.dependency.candidate },
     fixtureResolveBin(fixture),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Post-GLM G — observation replay. The retained `<arm>-<round>.attest.ndjson`
+// bytes are re-run through the SHARED capture validator (one implementation,
+// never three) with inputs Canary re-derives itself: the expansion plan from
+// deriveExpectedRoundArgv (injected / absentKind / expected* / the re-hashed
+// fixture tree), the text channel from the digest-bound stdout/stderr bytes,
+// the exit code from the round. Recorded-vs-rederived equality of
+// status/counts/identities/hashes is then required — the same three-way
+// re-derivation contract the text facts obey, extended to the execution
+// channel. Host-gated exactly like argv re-derivation (paths and node
+// resolution are machine-local; off the proof host these checks skip and the
+// verdict downgrades to INCOMPLETE, never PASS).
+// ---------------------------------------------------------------------------
+
+/** Supplied by prove/check flows that hold the committed spec + proof + an
+ *  actual runtime sample; the report flow has no handle on the spec and
+ *  passes nothing — the replay is then simply not evaluable here. */
+export interface ProveReplayContext {
+  spec: TrustedRunSpec | undefined;
+  proof: ProofExpectation | undefined;
+  runtime: HostFingerprint;
+}
+
+export function proveReplayEvaluable(bundle: EvidenceBundle, ctx: ProveReplayContext | undefined): boolean {
+  return ctx?.spec !== undefined && ctx.proof !== undefined
+    && proofHostContext(bundle, ctx.proof, ctx.runtime).onProofHost;
+}
+
+interface ObservationReplay {
+  label: string;
+  /** Re-derived from retained bytes; null when not evaluable here (portable
+   *  hold) or when the inputs needed for a re-derivation are unreadable. */
+  replay: ExecutionObservation | null;
+  issues: string[];
+}
+
+function extractHelloPid(raw: string): number | undefined {
+  for (const line of raw.split('\n')) {
+    if (!line.startsWith('{"k":"hello"')) continue;
+    try {
+      const f = JSON.parse(line) as { pid?: unknown };
+      if (typeof f.pid === 'number') return f.pid;
+    } catch { /* malformed frames fail validation downstream anyway */ }
+  }
+  return undefined;
+}
+
+/** Fields compared between recorded and re-derived observation. invalidReason
+ *  is deliberately NOT in the list: a flood-cut stream dies structurally at
+ *  replay (the retained prefix has no clean bye / has a partial line) with a
+ *  different reason string than the capture's `flood-truncated` — the STATUS
+ *  equality is the security property, the reason prose is not. */
+const OBSERVATION_REPLAY_FIELDS = [
+  'status', 'frameCount', 'framesSha256', 'observedFailingIdentities', 'observedCounts',
+  'expectedMochaVersion', 'observedMochaVersion', 'expectedRunnerTreeSha256', 'observedRunnerTreeSha256',
+  'absentKind', 'strayFd3Bytes', 'strayFd3Sha256',
+] as const;
+
+function diffObservation(at: string, rec: ExecutionObservation | undefined, rep: ExecutionObservation): string[] {
+  const issues: string[] = [];
+  for (const k of OBSERVATION_REPLAY_FIELDS) {
+    const a = rec === undefined ? undefined : (rec as unknown as Record<string, unknown>)[k];
+    const b = (rep as unknown as Record<string, unknown>)[k];
+    if (JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)) {
+      issues.push(`${at}: executionObservation.${k} records ${JSON.stringify(a ?? null)} but the retained bytes re-derived through the shared validator say ${JSON.stringify(b ?? null)} — resealed observation, tampered frame bytes, or post-run runner-tree drift (prove failing loudly on drift is the documented feature)`);
+    }
+  }
+  return issues;
+}
+
+function replayObservations(
+  artifactsDir: string,
+  bundle: EvidenceBundle,
+  ctx: ProveReplayContext | undefined,
+): ObservationReplay[] {
+  const rootAbs = path.resolve(artifactsDir);
+  const wsRoot = path.resolve(path.dirname(rootAbs));
+  const evaluable = proveReplayEvaluable(bundle, ctx);
+  let derived: { argv: string[]; plan: ExpansionPlan } | undefined;
+  let deriveWhy = '';
+  if (evaluable) {
+    try {
+      derived = deriveExpectedRoundArgv(ctx!.spec!, wsRoot);
+    } catch (e) {
+      deriveWhy = String(e);
+    }
+  }
+  const read = (name: string): string | null => {
+    const p = path.join(rootAbs, name);
+    if (!withinDir(rootAbs, p).ok) return null;
+    try { return fs.readFileSync(p, 'utf8'); } catch { return null; }
+  };
+  const out: ObservationReplay[] = [];
+  for (const r of bundle.rounds) {
+    const label = `${r.arm}-${r.round}`;
+    const at = `round ${r.arm}#${r.round}`;
+    if (!evaluable || derived === undefined) {
+      out.push({
+        label, replay: null,
+        issues: evaluable
+          ? [`${at}: observation replay impossible — committed-spec re-expansion threw: ${deriveWhy}`]
+          : [],
+      });
+      continue;
+    }
+    const attest = read(`${label}.attest.ndjson`);
+    const so = read(`${label}.stdout.log`);
+    const se = read(`${label}.stderr.log`);
+    if (attest === null || so === null || se === null) {
+      out.push({ label, replay: null, issues: [`${at}: cannot read retained ${attest === null ? 'observation' : 'stdout/stderr'} bytes for observation replay`] });
+      continue;
+    }
+    const combined = so + se;
+    const counts = parseSummaryCounts(combined);
+    const plan = derived.plan;
+    const replay = validateObservation({
+      raw: attest,
+      injected: plan.injected,
+      absentKind: plan.absentKind ?? 'no-injection',
+      // Capture's flood cap cannot be re-applied here — the retained bytes ARE
+      // its output; a cut stream lacks its bye frame and dies structurally in
+      // the validator, so re-flagging by length buys nothing and could
+      // mislabel an exactly-full legitimate stream. (See header comment.)
+      truncated: false,
+      exitCode: r.exitCode,
+      // The spawn-pid cross-check is LIVE-only: the parent knows child.pid at
+      // spawn, but the bundle keeps no independent copy (panel E fixed the
+      // field layout without one), so the replay inherits the bytes' own pid.
+      // The check defends the live pipe (co-tenant frame injection), not the
+      // sealed archive — a forger who already controls these bytes also
+      // controls the recorded claim they are checked against.
+      childPid: extractHelloPid(attest) ?? 0,
+      expectedMochaVersion: plan.expectedMochaVersion,
+      expectedRunnerTreeSha256: plan.expectedRunnerTreeSha256,
+      observedRunnerTreeSha256: plan.observedRunnerTreeSha256,
+      textCounts: { passing: counts.passing, failing: counts.failing, pending: counts.pending },
+      hasSummary: hasRunnerSummary(combined),
+      textFailingNames: extractFailingTestNames(combined),
+    });
+    out.push({ label, replay, issues: [] });
+  }
+  return out;
 }
 
 /**
@@ -744,7 +959,7 @@ export function hostBoundEvidenceChecks(
     let expected: string[] | undefined;
     let why = '';
     try {
-      expected = deriveExpectedRoundArgv(spec, wsRoot);
+      expected = deriveExpectedRoundArgv(spec, wsRoot).argv;
     } catch (e) {
       why = String(e);
     }

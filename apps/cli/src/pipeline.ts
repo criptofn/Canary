@@ -8,12 +8,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { runCommand, sanitizedEnv, type WorkspaceLayout } from '@canary-rn/support';
+import { runCommand, sanitizedEnv, CanaryError, type WorkspaceLayout } from '@canary-rn/support';
 import { validateSpec, type ExperimentSpec } from '@canary-rn/planner';
 import { auditFixtureDir, expectedExtractedDir } from '@canary-rn/workspace';
 import { downloadTarball } from '@canary-rn/github';
 import { staticFingerprint, withNpmVersion } from '@canary-rn/environment';
-import { Recorder, roundEvidence as execRoundEvidence, type ExecResult } from '@canary-rn/executor';
+import {
+  Recorder, roundEvidence as execRoundEvidence, ensureObserverPreload,
+  type ExecResult, type ExpansionPlan,
+} from '@canary-rn/executor';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
 import { diffTrees, escapePkgKey, extractFailingTestNames, parseSummaryCounts, classifyTreeObservation, dependencyInTree, type DepTree, type TreeStatus } from '@canary-rn/comparator';
 import { classify, applyConfinementGuard, type RoundFact } from '@canary-rn/classification';
@@ -51,8 +54,28 @@ export interface PipelineDeps {
   extract?: (tgzPath: string, wsRoot: string, repo: string, sha: string) => void;
 }
 
+/**
+ * Public entry: runs the experiment, translating Canary's own POLICY
+ * refusals (CanaryError — e.g. a $bin:mocha argv that tries to load its own
+ * --require, or a spec flag that collides with Canary's protected config)
+ * into InfraAbort: the operator-visible outcome of a refused run is
+ * INFRASTRUCTURE_FAILURE (exit 2), an honest infra-equivalent degrade —
+ * never a PASS-adjacent verdict and never an unclassified crash.
+ */
 export async function runExperiment(
   specRaw: unknown, repoRoot: string, quiet = false, deps: PipelineDeps = {},
+): Promise<PipelineResult> {
+  try {
+    return await runExperimentInner(specRaw, repoRoot, quiet, deps);
+  } catch (e) {
+    if (e instanceof InfraAbort || (e instanceof Error && e.name === 'InfraAbort')) throw e;
+    if (e instanceof CanaryError) throw new InfraAbort(`spec refused by Canary policy: ${e.message}`);
+    throw e;
+  }
+}
+
+async function runExperimentInner(
+  specRaw: unknown, repoRoot: string, quiet: boolean, deps: PipelineDeps,
 ): Promise<PipelineResult> {
   const log = quiet ? () => undefined : (m: string): void => { console.log(m); };
   const validation = validateSpec(specRaw);
@@ -91,6 +114,10 @@ export async function runExperiment(
   });
   const subs = { dep: spec.dependency.package, baseline: spec.dependency.baseline, candidate: spec.dependency.candidate };
   const execArgv = (cmd: readonly string[]): string[] => rec.expandArgv(cmd, subs, resolveBin);
+  // Measurement rounds expand WITH the injection plan (post-GLM): the plan is
+  // recorded per round, and prove re-derives it through the same call.
+  const execTestArgv = (): { argv: string[]; plan: ExpansionPlan } =>
+    rec.expandArgvWithPlan(spec.commands.test, subs, resolveBin);
 
   // [1] fetch pinned content
   const { repo, commit } = spec.downstream;
@@ -140,9 +167,21 @@ export async function runExperiment(
   log('[2] pre-execution audit');
   const audit = auditFixtureDir(FIXTURE, spec.dependency.package);
   if (!audit.ok) {
-    throw new Error(`audit refused: ${audit.violations.map((v) => `${v.code}: ${v.detail}`).join('; ')}`);
+    const msg = `audit refused: ${audit.violations.map((v) => `${v.code}: ${v.detail}`).join('; ')}`;
+    // Post-GLM AM-2: a SHIPPED node_modules is not a spec problem — real
+    // tarballs in scope never contain one, and finding it means the
+    // acquisition chain (or a stub seam) delivered content the audit tier
+    // exists to quarantine. InfraAbort (exit 2), not MISUSE (exit 3).
+    if (audit.violations.some((v) => v.code === 'node-modules-shipped')) throw new InfraAbort(msg);
+    throw new Error(msg);
   }
   log(`  ${audit.package.name}@${audit.package.version}; declared ${spec.dependency.package}=${audit.declaredDependency ?? 'none'}; hooks/rc clean`);
+
+  // Observer preload lives under wsRoot (NOT artifactsDir — it is not a
+  // canonical artifact), written once here; round() re-verifies bytes before
+  // every injected spawn, so a later tamper self-heals or aborts. prove
+  // re-derives the same path from wsRoot.
+  ensureObserverPreload(ws);
 
   // [3] prepare + toolchain overrides (identical for both arms)
   log('[3] prepare');
@@ -177,7 +216,8 @@ export async function runExperiment(
   log(`[5] baseline arm x${spec.repeats.baseline}`);
   const baseEv: RoundEvidence[] = [];
   for (let i = 1; i <= spec.repeats.baseline; i++) {
-    const r = await rec.round('baseline', i, execArgv(spec.commands.test), spec.timeoutSecs?.test ?? 600);
+    const ex = execTestArgv();
+    const r = await rec.round('baseline', i, ex.argv, spec.timeoutSecs?.test ?? 600, ex.plan);
     baseEv.push(execRoundEvidence(r, r.fact));
   }
 
@@ -204,7 +244,12 @@ export async function runExperiment(
   const candEv: RoundEvidence[] = [];
   let firstCand: (ExecResult & { fact: RoundFact }) | undefined;
   for (let i = 1; i <= spec.repeats.candidate; i++) {
-    const r = await rec.round('candidate', i, execArgv(spec.commands.test), spec.timeoutSecs?.test ?? 600);
+    // Recomputed per round: the mocha tree can change between arms (a
+    // prepare-created double is caught at expansion by AM-1 — hash miss ⇒
+    // no injection ⇒ ABSENT ⇒ gate), and re-deriving each time means the
+    // bundle's per-round plan always describes THAT round's spawn.
+    const ex = execTestArgv();
+    const r = await rec.round('candidate', i, ex.argv, spec.timeoutSecs?.test ?? 600, ex.plan);
     candEv.push(execRoundEvidence(r, r.fact));
     firstCand ??= r;
   }

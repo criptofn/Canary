@@ -97,6 +97,21 @@ async function cmdProve(specPath: string, proofPath: string, rerun: boolean): Pr
     console.error('refusing to prove against an invalid bundle:', ev.issues);
     return 3;
   }
+  // Round-3 blocker 3 + post-GLM G: the ACTUAL runtime is sampled UP FRONT now
+  // — host-exactness decides the replay of the execution-observation channel
+  // (verifyArtifactSemantics / verifyClassificationDerivation) exactly like it
+  // decides the argv/env host-bound checks below. If reality cannot even be
+  // sampled, host-bound claims are unverifiable: explicit downgrade (exit 2),
+  // not a pass, not a byte-mismatch failure invented from unsound inputs.
+  let runtime: HostFingerprint;
+  try {
+    runtime = actualHostFingerprint();
+  } catch (e) {
+    console.error('refusing to certify host-exact claims: cannot sample the actual runtime (npm --version)');
+    console.error(String(e));
+    return 2;
+  }
+  const replayCtx = { spec, proof, runtime };
   // Audit F4: the bundle is worthless unless the artifacts on disk still hash
   // to what it records. Verify BEFORE asserting against expectations.
   const tamper = verifyArtifacts(ev.artifactsDir, ev.bundle);
@@ -107,7 +122,7 @@ async function cmdProve(specPath: string, proofPath: string, rerun: boolean): Pr
   }
   // Audit B4: the digests matching their bytes is not enough — the round facts
   // that DRIVE the classification must be reproduced FROM those bytes.
-  const semantic = verifyArtifactSemantics(ev.artifactsDir, ev.bundle);
+  const semantic = verifyArtifactSemantics(ev.artifactsDir, ev.bundle, replayCtx);
   if (semantic.length) {
     console.error('refusing to prove: recorded round facts do not match the artifact bytes');
     for (const s of semantic) console.error('  ' + s);
@@ -139,7 +154,7 @@ async function cmdProve(specPath: string, proofPath: string, rerun: boolean): Pr
   // reproductionCount) must be reproducible from the artifact bytes plus the
   // retained tree snapshots — re-running classify() and the confinement guard
   // independently, never trusting the bundle's own recorded round facts.
-  const derivation = verifyClassificationDerivation(ev.artifactsDir, ev.bundle);
+  const derivation = verifyClassificationDerivation(ev.artifactsDir, ev.bundle, replayCtx);
   if (derivation.length) {
     console.error('refusing to prove: the recorded classification does not follow from the evidence bytes');
     for (const d of derivation) console.error('  ' + d);
@@ -149,18 +164,7 @@ async function cmdProve(specPath: string, proofPath: string, rerun: boolean): Pr
     const p = path.join(ev.artifactsDir, `${round}-1.stdout.log`);
     return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
   };
-  // Round-3 blocker 3: host-exactness is decided by the ACTUAL runtime
-  // performing this verification — never by the evidence's own mutable
-  // environment block. If reality cannot even be sampled, host-bound claims
-  // are unverifiable: explicit downgrade (exit 2), not a pass.
-  let runtime: HostFingerprint;
-  try {
-    runtime = actualHostFingerprint();
-  } catch (e) {
-    console.error('refusing to certify host-exact claims: cannot sample the actual runtime (npm --version)');
-    console.error(String(e));
-    return 2;
-  }
+  // (runtime was sampled up front — post-GLM G replay gating; see above.)
   const checks = assertProof(ev.bundle, proof, {
     candidateStdout: readLog('candidate'),
     baselineStdout: readLog('baseline'),

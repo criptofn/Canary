@@ -15,9 +15,15 @@
  *    the type system literally cannot express an AI-authored verdict.
  */
 
-import { classify, type RoundFact } from '@canary-rn/classification';
+import {
+  classify, STRONG_EXECUTION_LABELS, type RoundFact, type ExecutionObservation,
+} from '@canary-rn/classification';
+import { KNOWN_RUNNER_RELEASES } from '@canary-rn/support';
 import { canonicalJson, sha256hex } from '@canary-rn/hashing';
 import { structuralIssues } from './contract.js';
+
+/** sha256 of zero bytes — the frames hash of a round that carried no frames. */
+const EMPTY_SHA256 = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
 
 // Post-sol M-1: the structural contract (shared source of truth for BOTH the
@@ -69,6 +75,16 @@ export interface RoundEvidence {
   /** Post-exit containment sweep could not confirm zero survivors (round-3
    *  secondary: isolation unknown => execution invalid). */
   sweepFailed?: boolean | undefined;
+  /**
+   * Post-GLM observation hardening — Canary's OWN execution record for this
+   * round (contract panel E): what Canary injected, what the in-process
+   * observer watched, and how the two channels agreed. REQUIRED on every
+   * round; a subject-side bundle can carry it but cannot MAKE it VALID —
+   * prove re-runs the shared validator over the retained .attest.ndjson
+   * bytes and byte-compares. Missing means old bundle (refused); ABSENT
+   * means Canary observed nothing, which structurally caps the label.
+   */
+  executionObservation: ExecutionObservation;
   startedAt: string;
   durationMs: number;
   rawStdoutSha256: string;
@@ -409,6 +425,40 @@ function semanticChecks(
         issues.push(`${at}: ${key} must be boolean when present`);
       }
     }
+    // Post-GLM panel E: the observation object's cross-field iff-rules —
+    // the layout JSON Schema can only half-express, owned by this layer.
+    const o = r.executionObservation as Record<string, unknown> | undefined;
+    if (o && typeof o === 'object') {
+      const st = o.status;
+      const has = (k: string): boolean => o[k] !== undefined;
+      if (st === 'VALID') {
+        if (!has('observedCounts') || !has('observedMochaVersion') || !has('expectedMochaVersion')
+          || !has('expectedRunnerTreeSha256') || !has('observedRunnerTreeSha256')) {
+          issues.push(`${at}: executionObservation VALID must carry counts + expected/observed version + expected/observed tree sha (panel E iff)`);
+        }
+        if (has('invalidReason') || has('absentKind') || has('strayFd3Bytes')) {
+          issues.push(`${at}: executionObservation VALID must not carry invalidReason/absentKind/stray fields`);
+        }
+      } else if (st === 'INVALID') {
+        if (!has('invalidReason')) issues.push(`${at}: executionObservation INVALID requires invalidReason`);
+        if (has('observedCounts') || has('absentKind') || has('strayFd3Bytes')) {
+          issues.push(`${at}: executionObservation INVALID must not carry counts/absentKind/stray fields`);
+        }
+      } else if (st === 'ABSENT') {
+        if (!has('absentKind')) issues.push(`${at}: executionObservation ABSENT requires absentKind ("why Canary attempted nothing")`);
+        if (has('observedCounts') || has('invalidReason') || has('observedMochaVersion')) {
+          issues.push(`${at}: executionObservation ABSENT must not carry counts/invalidReason/observedMochaVersion`);
+        }
+        if (o.strayFd3Bytes === true && !has('strayFd3Sha256')) issues.push(`${at}: strayFd3Bytes=true requires strayFd3Sha256`);
+        if (has('strayFd3Sha256') && o.strayFd3Bytes !== true) issues.push(`${at}: strayFd3Sha256 requires strayFd3Bytes=true`);
+        if (has('expectedMochaVersion') || has('expectedRunnerTreeSha256')) {
+          issues.push(`${at}: ABSENT means NO injection was attempted — expected* fields contradict it`);
+        }
+      }
+      if ((o.framesSha256 === EMPTY_SHA256) !== (o.frameCount === 0)) {
+        issues.push(`${at}: executionObservation.framesSha256 (empty-bytes hash?) disagrees with frameCount — bytes/counter desync`);
+      }
+    }
     // Round-3 blocker 1: a FAILING round of a trustful bundle must fully
     // account for its reported failures with parsed identities. This is an
     // independent coverage gate — it does not lean on the classifier's own
@@ -514,6 +564,45 @@ function semanticChecks(
     }
   }
 
+  // 3d. Post-GLM panel H — INDEPENDENT execution-observation mirror. This
+  // restates the classifier's gate (observationGateIssue) from the bundle's
+  // own recorded fields, keyed on the NEW STRONG_EXECUTION_LABELS constant —
+  // NOT the retention-tier TRUSTFUL_LABELS (two tiers, two constants, never
+  // conflated). Deliberately restated instead of relying on the re-derivation
+  // below: a future decision-table edit must not silently weaken the floor —
+  // the same "guard that changing it changes nothing" lesson rules 9/10 encode.
+  if ((STRONG_EXECUTION_LABELS as readonly string[]).includes(String(label))) {
+    for (const r of rounds) {
+      const at = `round ${String(r.arm)}#${String(r.round)}`;
+      const o = r.executionObservation as Record<string, unknown> | undefined;
+      if (!o || typeof o !== 'object' || o.status !== 'VALID') {
+        issues.push(`${at}: ${String(label)} claims an execution outcome but executionObservation is ${o && typeof o === 'object' ? String(o.status) : 'missing'} — strong labels require a VALID Canary observation on EVERY round (panel H mirror)`);
+        continue;
+      }
+      const nz = (v: unknown): number => (typeof v === 'number' && v >= 0 ? v : 0);
+      const oc = o.observedCounts as Record<string, number> | undefined;
+      if (!oc || oc.passing !== nz(r.reportedPassing) || oc.failing !== nz(r.reportedFailing) || oc.pending !== nz(r.reportedPending)) {
+        issues.push(`${at}: ${String(label)} but observed counts disagree with text counts under ?? 0 semantics — the cross-channel gate was bypassed?`);
+      }
+      const obsIds = [...new Set((o.observedFailingIdentities as string[] | undefined) ?? [])].sort().join('\n');
+      const txtIds = [...new Set((r.failingTestNames as string[] | undefined) ?? [])].sort().join('\n');
+      if (obsIds !== txtIds) issues.push(`${at}: ${String(label)} but observed failing identities disagree with text identities — the cross-channel gate was bypassed?`);
+      if (oc && typeof r.exitCode === 'number' && (oc.failing === 0 ? r.exitCode !== 0 : r.exitCode === 0)) {
+        issues.push(`${at}: ${String(label)} but watched failures (${oc.failing}) contradict exit code ${r.exitCode} — panel D invariant violated`);
+      }
+      // AM-1 by construction: a VALID round must name the pinned release the
+      // injection decision used, and BOTH tree hashes must equal the pin.
+      const emv = o.expectedMochaVersion as string | undefined;
+      const pin = (KNOWN_RUNNER_RELEASES['mocha'] ?? []).find((p) => p.version === emv);
+      if (!pin || o.expectedRunnerTreeSha256 !== pin.treeSha256 || o.observedRunnerTreeSha256 !== pin.treeSha256) {
+        issues.push(`${at}: ${String(label)} but the runner identity is not a Canary-pinned release (expectedMochaVersion=${String(emv)}) — strong verdicts require pinned runner BYTES (panel H/AM-1)`);
+      }
+      if (typeof o.framesSha256 !== 'string' || !HEX64.test(o.framesSha256)) {
+        issues.push(`${at}: ${String(label)} but framesSha256 is not 64-hex — no retained frame stream to verify against`);
+      }
+    }
+  }
+
   // 4. Re-derive the classification from the round facts using the SAME
   //    decision table that produced it. This only runs when the bundle
   //    carries every input the classifier consumed (infraSignal present on
@@ -543,6 +632,12 @@ function semanticChecks(
     ...(r.failingTestNames !== undefined ? { failingTestNames: r.failingTestNames as string[] } : {}),
     ...(r.crashSignal !== undefined ? { crashSignal: r.crashSignal === true } : {}),
     ...(r.sweepFailed !== undefined ? { sweepFailed: r.sweepFailed === true } : {}),
+    // Re-derivation must see the SAME gate inputs classify() consumed at
+    // capture; without this line every re-derived strong label would die at
+    // rule 14 (missing observation ⇒ ABSENT) and the check would be noise.
+    ...(r.executionObservation !== undefined && r.executionObservation !== null && typeof r.executionObservation === 'object'
+      ? { executionObservation: r.executionObservation as ExecutionObservation }
+      : {}),
   }));
   const derived = classify(facts);
   // A rule-9 (unconfined drift) or rule-10 (weak observation) downgrade to

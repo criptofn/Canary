@@ -13,6 +13,18 @@
  *     digests recomputed), and FULLY COHERENT reseals of the tree side —
  *     including an honest boundary documentation: what the tree layer alone
  *     cannot see, and which layer catches it instead.
+ *
+ * Post-GLM migration (this file's subject is RETAINED BYTES, so it grew with
+ * the two shipped hardenings):
+ *   - AM-2: the stub no longer SHIPS node_modules (audit refuses that); the
+ *     fake tree is staged and materialized by the prepare step.
+ *   - Finding A / G: the CONFIRMED_REGRESSION scenarios run through the REAL
+ *     observation channel ($bin:mocha + hash-pinned double), and the per-round
+ *     artifact tuple is now FIVE files — <arm>-<round>.attest.ndjson binds
+ *     each executionObservation to bytes. Tamper/reseal coverage extended to
+ *     the observation level: a resealed observation whose bytes do not back it,
+ *     or an observation stripped from a sealed bundle, is now REFUSED (the old
+ *     "reseal everything ⇒ clean" reach ends exactly at the observation).
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -22,8 +34,11 @@ import { after, describe, it } from 'node:test';
 
 import { sha256hex } from '@canary-rn/hashing';
 import { integrityFor, validateBundle, type EvidenceBundle, type TreeSnapshotRef } from '@canary-rn/evidence-schema';
+import { KNOWN_RUNNER_RELEASES } from '@canary-rn/support';
 import { runExperiment } from '../src/pipeline.js';
+import { verifyArtifacts } from '../src/prove.js';
 import { reflattenNpmLs, recountCopies, deriveConfined, verifyTreeSnapshots } from '../src/verify-tree.js';
+import { writeStagedPayload, stageCommands, MOCHA_TEST_ARGV, widgetSpec, swapScript, WIDGET_PKGS, assertDoubleObservation } from './stub-harness.js';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-b6-'));
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -32,6 +47,22 @@ const reSeal = (b: EvidenceBundle): EvidenceBundle => {
   b.integrity = integrityFor(b);
   return b;
 };
+
+// The canary-double pin: synthetic trustful bundles in section 3 must name a
+// REAL pinned runner identity (panel H/AM-1: strong labels without pinned
+// runner bytes die at validateBundle, exactly as they should).
+const DOUBLE_PIN = (KNOWN_RUNNER_RELEASES.mocha ?? []).find((p) => p.origin === 'canary-double')!;
+const validObs = (passing: number, failing: number, ids: readonly string[]): Record<string, unknown> => ({
+  status: 'VALID',
+  observedFailingIdentities: [...ids],
+  framesSha256: sha256hex('synthetic-frame-stream'),
+  frameCount: 2,
+  observedCounts: { passing, failing, pending: 0 },
+  expectedMochaVersion: DOUBLE_PIN.version,
+  observedMochaVersion: DOUBLE_PIN.version,
+  expectedRunnerTreeSha256: DOUBLE_PIN.treeSha256,
+  observedRunnerTreeSha256: DOUBLE_PIN.treeSha256,
+});
 
 // ---------------------------------------------------------------------------
 // 1. reflatten unit behavior (hand-crafted npm-ls shapes)
@@ -158,26 +189,26 @@ describe('reflattenNpmLs — independent re-derivation of the tree observation',
 const FAKE_SHA = 'a'.repeat(40);
 const FAKE_BLOB = { bytes: Buffer.alloc(0), sha256: 'b'.repeat(64) };
 
+/**
+ * Post-GLM AM-2/Finding A shape (see stub-harness header): the fake
+ * node_modules is STAGED outside the reserved name and materialized by the
+ * prepare step; test.js runs under the pinned Canary mocha double via
+ * $bin:mocha so the CONFIRMED_REGRESSION this suite tampers with is EARNED
+ * through the real observation channel, not printed text. The tree therefore
+ * carries mocha (extraneous) alongside widget — every hand-forged canonical
+ * flatten below re-derives from the tampered raw bytes rather than hardcoding
+ * a one-entry list, keeping the "fully coherent tree-side reseal" premise
+ * intact over the richer tree.
+ */
 function makeStub(dir: string): void {
   const w = (p: string, s: string): void => {
     fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, s, 'utf8');
   };
   w(path.join(dir, 'package.json'), JSON.stringify({ name: 'downstream', version: '1.0.0', dependencies: { widget: '1.0.0' } }));
-  w(path.join(dir, 'node_modules', 'widget', 'package.json'), JSON.stringify({ name: 'widget', version: '1.0.0', main: 'index.js' }));
-  w(path.join(dir, 'node_modules', 'widget', 'index.js'), 'module.exports={v:"1"}');
-  // PASSES under widget@1.0.0; fails (mocha-shaped, one identity) under @2.0.0.
-  w(path.join(dir, 'test.js'), [
-    "const v = require('./node_modules/widget/package.json').version;",
-    "if (v !== '2.0.0') { console.log('  2 passing (1ms)'); process.exit(0); }",
-    "console.log('  1 passing (1ms)'); console.log('  1 failing'); console.log('');",
-    "console.log('  1) widget suite'); console.log('       candidate breaks widget:');",
-    "process.exit(1);",
-  ].join('\n'));
-  w(path.join(dir, 'swap.js'), [
-    "const fs = require('fs');",
-    "const p='./node_modules/widget/package.json'; const j=JSON.parse(fs.readFileSync(p)); j.version='2.0.0'; fs.writeFileSync(p, JSON.stringify(j));",
-  ].join('\n'));
+  writeStagedPayload(dir, WIDGET_PKGS);
+  w(path.join(dir, 'test.js'), widgetSpec());
+  w(path.join(dir, 'swap.js'), swapScript(false));
 }
 
 async function offlineRun(): Promise<{ artifactsDir: string; bundle: EvidenceBundle }> {
@@ -189,9 +220,9 @@ async function offlineRun(): Promise<{ artifactsDir: string; bundle: EvidenceBun
     dependency: { package: 'widget', baseline: '1.0.0', candidate: '2.0.0' },
     downstream: { repo: 'stub/downstream', commit: FAKE_SHA },
     commands: {
-      prepare: [['node', '-e', "console.log('prepared')"]],
+      prepare: stageCommands({ mocha: true }),
       swap: ['node', 'swap.js', '{candidate}'],
-      test: ['node', 'test.js'],
+      test: [...MOCHA_TEST_ARGV],
     },
     repeats: { baseline: 2, candidate: 2 },
     timeoutSecs: { install: 120, test: 120 },
@@ -233,6 +264,17 @@ describe('retained tree snapshots — real pipeline bytes, independent verifier'
     // and the canonical artifact binds the tree hash the bundle reports.
     const canonC = fs.readFileSync(path.join(artifactsDir, snaps!.candidate.canonicalLog), 'utf8');
     assert.equal(sha256hex(canonC), tc.candidateTreeSha256);
+    // Post-GLM G: the round tuple is FIVE files — every round's execution
+    // observation is bound to retained <arm>-<round>.attest.ndjson bytes,
+    // and verifyArtifacts (which now hashes that fifth file too) re-hashes
+    // the whole tuple clean.
+    for (const r of bundle.rounds) {
+      assert.ok(fs.existsSync(path.join(artifactsDir, `${r.arm}-${r.round}.attest.ndjson`)),
+        `${r.arm}-${r.round}.attest.ndjson must be retained (5-file tuple)`);
+    }
+    assert.deepEqual(verifyArtifacts(artifactsDir, bundle), [],
+      'the 5-file tuple (raw, raw-err, norm, norm-err, attest) must re-hash clean');
+    assertDoubleObservation(bundle.rounds);
   });
 
   it('naive tamper of retained raw bytes (no reseal) is caught', async () => {
@@ -273,7 +315,11 @@ describe('retained tree snapshots — real pipeline bytes, independent verifier'
     bytes.dependencies.widget!.version = '9.9.9';
     const newRaw = JSON.stringify(bytes);
     fs.writeFileSync(rawPath, newRaw);
-    const canonical = JSON.stringify([['widget', '9.9.9']]);
+    // Post-GLM: the tree carries the injected double + staged extras, so a
+    // coherent attacker re-derives canonical from the tampered bytes instead
+    // of hardcoding a one-entry list (same premise, honest over the fuller tree).
+    const re = reflattenNpmLs(newRaw);
+    const canonical = JSON.stringify(Object.entries(re.flat).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
     fs.writeFileSync(path.join(artifactsDir, s.canonicalLog), canonical);
     s.rawStdoutSha256 = sha256hex(newRaw);
     s.canonicalSha256 = sha256hex(canonical);
@@ -296,7 +342,11 @@ describe('retained tree snapshots — real pipeline bytes, independent verifier'
     bytes.dependencies.widget!.version = '9.9.9';
     const newRaw = JSON.stringify(bytes);
     fs.writeFileSync(rawPath, newRaw);
-    const canonical = JSON.stringify([['widget', '9.9.9']]);
+    // (as above) re-derive canonical honestly from the tampered bytes so the
+    // tree layer sees a fully coherent side — the lie survives only as the
+    // version VALUE, which the attestation invariant then kills:
+    const re = reflattenNpmLs(newRaw);
+    const canonical = JSON.stringify(Object.entries(re.flat).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
     fs.writeFileSync(path.join(artifactsDir, s.canonicalLog), canonical);
     s.rawStdoutSha256 = sha256hex(newRaw);
     s.canonicalSha256 = sha256hex(canonical);
@@ -370,6 +420,58 @@ describe('retained tree snapshots — real pipeline bytes, independent verifier'
     assert.ok(issues.some((i) => /drift: snapshots not retained for both arms — confinement claim is unverifiable/.test(i)));
     assert.ok(validateBundle(forged).some((i) => /requires a retained treeComparison/.test(i)));
   });
+
+  // -------------------------------------------------------------------------
+  // Post-GLM G — the SAME adversarial tiers, aimed at the OBSERVATION bytes:
+  // the 5th file of the per-round tuple and the executionObservation it binds.
+  // -------------------------------------------------------------------------
+  it('post-GLM G: naive tamper/deletion of the retained attest bytes is caught by verifyArtifacts', async () => {
+    const { artifactsDir, bundle } = await offlineRun();
+    assert.deepEqual(verifyArtifacts(artifactsDir, bundle), [], 'untouched tuple must verify clean first');
+    fs.appendFileSync(path.join(artifactsDir, 'baseline-1.attest.ndjson'), ' ');
+    fs.rmSync(path.join(artifactsDir, 'candidate-1.attest.ndjson'));
+    const issues = verifyArtifacts(artifactsDir, bundle);
+    assert.equal(issues.length, 2, JSON.stringify(issues));
+    assert.ok(issues.some((i) => /TAMPERED artifact baseline-1\.attest\.ndjson/.test(i)),
+      'observation bytes must be digest-bound like the other four files');
+    assert.ok(issues.some((i) => /artifact missing: candidate-1\.attest\.ndjson/.test(i)),
+      'quietly deleting the observation bytes is a refusal, not a pass');
+  });
+
+  it('post-GLM G: a resealed framesSha256 the retained bytes do not back is caught ONLY by the bytes binding', async () => {
+    const { artifactsDir, bundle } = await offlineRun();
+    const forged = structuredClone(bundle) as EvidenceBundle;
+    const r = forged.rounds.find((x) => x.arm === 'candidate' && x.round === 1)!;
+    (r.executionObservation as unknown as { framesSha256: string }).framesSha256 =
+      sha256hex('frames no attacker ever captured');
+    reSeal(forged);
+    // The lie is internally coherent (valid hex64, frameCount agrees, counts
+    // still match the text channel) — bundle-level layers cannot see bytes.
+    assert.deepEqual(validateBundle(forged), [],
+      `the resealed observation must be self-consistent: ${validateBundle(forged).join('; ')}`);
+    const issues = verifyArtifacts(artifactsDir, forged);
+    assert.ok(issues.some((i) => /TAMPERED artifact candidate-1\.attest\.ndjson/.test(i)),
+      `framesSha256 must answer to the retained frame bytes: ${JSON.stringify(issues)}`);
+  });
+
+  it('post-GLM G: reseal-everything-but-the-observation is REFUSED (the pre-G "clean 4-file resealed tuple" premise is forbidden by design)', async () => {
+    // Pre-post-GLM-G, an attacker who recomputed every digest could at worst
+    // be caught by the layers that read the four round files. Stripping the
+    // observations and resealing used to yield an (observation-blind) clean
+    // verify — now EVERY round must carry its observation and its retained
+    // attest bytes, so this forgery dies at two independent layers.
+    const { artifactsDir, bundle } = await offlineRun();
+    const forged = structuredClone(bundle) as EvidenceBundle;
+    for (const r of forged.rounds) delete (r as unknown as Record<string, unknown>).executionObservation;
+    reSeal(forged);
+    const v = validateBundle(forged);
+    assert.ok(v.some((i) => /executionObservation/.test(i)),
+      `schema floor + panel H mirror must refuse the stripped tuple: ${v.join('; ')}`);
+    const a = verifyArtifacts(artifactsDir, forged);
+    assert.equal(a.length, forged.rounds.length, JSON.stringify(a));
+    assert.ok(a.every((i) => /executionObservation absent — every round must carry its observation and retain \S+-\d+\.attest\.ndjson \(post-GLM G\)/.test(i)),
+      `every round must name its own observation-level refusal: ${JSON.stringify(a)}`);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -388,6 +490,10 @@ describe('validateBundle — round-3 B6 snapshot/anomaly/version gates', () => {
       startedAt: '2026-08-31T00:00:00Z', durationMs: 10,
       rawStdoutSha256: H, rawStderrSha256: H, normalizedStdoutSha256: H, normalizedStderrSha256: H,
       logPath: `${arm}-${n}.stdout.log`, argv: ['node', 'x'], envKeys: ['PATH'],
+      // Post-GLM Finding A: executionObservation is REQUIRED on every round
+      // (contract floor) and a strong label additionally requires it VALID,
+      // count/identity-matched to the text, pinned by runner bytes (panel H).
+      executionObservation: arm === 'candidate' ? validObs(4, 1, ['t']) : validObs(5, 0, []),
     });
     const snap = (arm: string): Record<string, unknown> => ({
       rawStdoutLog: `tree-${arm}.treels.raw.log`, rawStdoutSha256: H,
@@ -466,5 +572,45 @@ describe('validateBundle — round-3 B6 snapshot/anomaly/version gates', () => {
     delete (b.treeComparison as Record<string, unknown>).observationAnomalies;
     assert.deepEqual(validateBundle(seal(b)), [],
       `honest rule-10 downgrade without snapshots must validate: ${validateBundle(seal(b)).join('; ')}`);
+  });
+
+  // Post-GLM Finding A floor — the observation tier is INDEPENDENT of the
+  // tree tier: a strong label dies without VALID pinned observations even
+  // when the whole tree side is perfect, and an honest non-strong bundle may
+  // carry an ABSENT observation (the run attempted nothing).
+  it('trustful label with rounds observation-ABSENT is rejected (rule-14 mirror, panel H)', () => {
+    const b = baseTrustfulBundle();
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      r.executionObservation = {
+        status: 'ABSENT', absentKind: 'not-mocha-bin',
+        observedFailingIdentities: [], framesSha256: sha256hex(''), frameCount: 0,
+      };
+    }
+    const issues = validateBundle(seal(b));
+    assert.ok(issues.some((i) => /strong labels require a VALID Canary observation on EVERY round \(panel H mirror\)/.test(i)),
+      JSON.stringify(issues));
+    assert.ok(issues.some((i) => /yields INCONCLUSIVE rule 14/.test(i)),
+      `the re-derivation must route the label down too: ${issues.join('; ')}`);
+  });
+
+  it('trustful label with a VALID observation naming an UNPINNED runner is rejected (panel H/AM-1)', () => {
+    const b = baseTrustfulBundle();
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      const o = r.executionObservation as Record<string, unknown>;
+      o.expectedMochaVersion = '99.99.99';
+      o.observedMochaVersion = '99.99.99';
+    }
+    const issues = validateBundle(seal(b));
+    assert.ok(issues.some((i) => /not a Canary-pinned release/.test(i)), JSON.stringify(issues));
+  });
+
+  it('trustful label whose observed counts DISAGREE with the text channel is rejected (cross-channel gate cannot be bypassed)', () => {
+    const b = baseTrustfulBundle();
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      const o = r.executionObservation as { observedCounts: { passing: number } };
+      o.observedCounts.passing = 99;
+    }
+    const issues = validateBundle(seal(b));
+    assert.ok(issues.some((i) => /observed counts disagree with text counts/.test(i)), JSON.stringify(issues));
   });
 });

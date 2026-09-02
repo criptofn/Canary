@@ -1,0 +1,11 @@
+{
+  "name": "mocha",
+  "version": "0.0.0-canary-double",
+  "description": "Canary-authored minimal mocha-API-compatible runner for OFFLINE tests of the execution-observation channel. Not a mocha reimplementation; it is pinned by content hash in KNOWN_RUNNER_RELEASES (origin 'canary-double') so offline e2e tests can exercise the REAL injection mechanism without a network install.",
+  "main": "index.js",
+  "bin": {
+    "mocha": "bin/mocha.js"
+  },
+  "license": "MIT",
+  "private": true
+}

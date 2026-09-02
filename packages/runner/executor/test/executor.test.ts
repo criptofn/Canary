@@ -5,8 +5,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
 
-import { Recorder, roundEvidence, hasRunnerSummary, isInfraOutput, hasCrashSignature, pmArgvPolicy, assertCanonicalPmForm, assertSupportedSpecExecutable, NPM_REGISTRY_PIN, SPEC_LITERAL_EXECUTABLES, NPM_PROTECTED_CONFIG_KEYS, NPM_INSTALL_OPTION_ALLOW, YARN_PROTECTED_CONFIG_KEYS, YARN_INSTALL_OPTION_ALLOW, resolveOptionToken } from '../src/index.js';
-import { sanitizedEnv, sanitizedEnvKeys } from '@canary-rn/support';
+import { Recorder, roundEvidence, hasRunnerSummary, isInfraOutput, hasCrashSignature, pmArgvPolicy, assertCanonicalPmForm, assertSupportedSpecExecutable, NPM_REGISTRY_PIN, SPEC_LITERAL_EXECUTABLES, NPM_PROTECTED_CONFIG_KEYS, NPM_INSTALL_OPTION_ALLOW, YARN_PROTECTED_CONFIG_KEYS, YARN_INSTALL_OPTION_ALLOW, resolveOptionToken, observerPreloadPath, OBSERVER_PRELOAD_SOURCE, type ExpansionPlan } from '../src/index.js';
+import { sanitizedEnv, sanitizedEnvKeys, KNOWN_RUNNER_RELEASES } from '@canary-rn/support';
 import { classify, type RoundFact } from '@canary-rn/classification';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
 
@@ -35,6 +35,73 @@ function freshRecorder(run?: (o: import('@canary-rn/support').RunOptions) => Pro
     rec: new Recorder({ ws, nodeDir: NODE_DIR, npmCli: path.join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js'), artifactsDir: art, pipeline, ...(run ? { run } : {}) }),
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
+}
+
+// ---------------------------------------------------------------------------
+// POST-GLM observation hardening — executor-level helpers for the REAL
+// execution-observation channel.
+//
+// Strong labels (PASS / CONFIRMED_REGRESSION / FLAKY / PRE_EXISTING_FAILURE)
+// are gated by classifier rule 14: every round must carry a VALID execution
+// observation from Canary's own observer. Offline, the ONLY runner whose
+// bytes hit the pin table (KNOWN_RUNNER_RELEASES, origin 'canary-double') is
+// the Canary mocha double shipped in apps/cli/test/fixtures/mocha-double.
+// The executor package must NOT import from apps/cli, so the fixture bytes
+// are read-copied here with fs at runtime — no project reference, no import,
+// and the injection goes through the REAL expandArgvWithPlan decision + the
+// REAL preload (OBSERVER_PRELOAD_SOURCE). Nothing below fabricates channel
+// bytes: VALID only ever comes from an actually-observed run.
+// ---------------------------------------------------------------------------
+const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..', '..', '..'); // dist/test -> dist -> executor -> runner -> packages -> repo root
+const MOCHA_DOUBLE_SRC = path.join(REPO_ROOT, 'apps', 'cli', 'test', 'fixtures', 'mocha-double');
+const DOUBLE_VERSION = '0.0.0-canary-double';
+const SUBS = { dep: 'x', baseline: '1', candidate: '2' };
+
+/** fs-copy the double into a package dir (tamper=true appends a comment to
+ *  index.js, shifting treeSha256 off the pin — the honest 'unpinned' path). */
+function copyDouble(dest: string, tamper = false): void {
+  fs.cpSync(MOCHA_DOUBLE_SRC, dest, { recursive: true });
+  if (tamper) fs.appendFileSync(path.join(dest, 'index.js'), '\n// test-tamper: shifts treeSha256 off the pin\n');
+}
+
+/** Resolver mirroring pipeline.resolveBin for the double under `baseDir`
+ *  (canonical location = ws.fixture; other bases emulate hoisting). */
+function doubleResolver(baseDir: string): (pkg: string, key?: string) => string {
+  return (pkg: string): string => {
+    assert.equal(pkg, 'mocha');
+    return path.join(baseDir, 'node_modules', 'mocha', 'bin', 'mocha.js');
+  };
+}
+
+/** A mocha spec for the double: ALWAYS 5 executed tests (post-sol RB-2 rule
+ *  13 needs the arms' executed totals comparable); when failing=true the 5th
+ *  (leaf 'handles baseURL correctly') throws — suite-qualified identity
+ *  mirrors the pre-hardening prose fixtures. Byte-deterministic (the double
+ *  prints no timings). */
+function suiteSpec(title: string, failing: boolean): string {
+  const lines = [
+    "const { describe, it } = require('mocha');",
+    `describe(${JSON.stringify(title)}, () => {`,
+    "  it('one', () => {});",
+    "  it('two', () => {});",
+    "  it('three', () => {});",
+    "  it('four', () => {});",
+  ];
+  lines.push(failing
+    ? "  it('handles baseURL correctly', () => { throw new TypeError('nope'); });"
+    : "  it('five', () => {});");
+  lines.push('});');
+  return lines.join('\n');
+}
+
+/** Expand a $bin:mocha command and run it as a real round with the plan. */
+async function mochaRound(
+  rec: Recorder, ws: { root: string; fixture: string },
+  arm: 'baseline' | 'candidate', round: number, specFile: string,
+): Promise<Awaited<ReturnType<Recorder['round']>> & { plan: ExpansionPlan }> {
+  const { argv, plan } = rec.expandArgvWithPlan(['$bin:mocha', specFile], SUBS, doubleResolver(ws.fixture));
+  const res = await rec.round(arm, round, argv, 60, plan);
+  return { ...res, plan };
 }
 
 describe('Recorder.expandArgv — token expansion + enforced isolation', () => {
@@ -336,23 +403,38 @@ describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', (
     } finally { cleanup(); }
   });
 
-  it('audit B1 e2e: same leaf title, different SUITE across candidate rounds -> FLAKY', async () => {    const { rec, cleanup } = freshRecorder();
+  it('audit B1 e2e: same leaf title, different SUITE across candidate rounds -> FLAKY', async () => {
+    // Post-GLM Finding A: FLAKY is a STRONG_EXECUTION label — with these
+    // facts now carrying real executionObservation, prose-only rounds would
+    // be downgraded by rule 14 (pinned separately below). The rounds run the
+    // PINNED Canary mocha double through the REAL injection, so the identity
+    // divergence Canary classifies is one it WATCHED, not one it parsed.
+    const { rec, cleanup, ws } = freshRecorder();
     try {
-      const failLog = (suite: string): string => [
-        'console.log("  10 passing (1ms)");',
-        'console.log("  1 failing");',
-        `console.log("  1) ${suite}");`,
-        'console.log("       handles baseURL correctly:");',
-        'console.log("     TypeError: nope");',
-        'process.exit(1);',
-      ].join('');
-      const rA = await rec.round('candidate', 1, [NODE, '-e', failLog('passThrough tests (requires Node)')], 30);
-      const rB = await rec.round('candidate', 2, [NODE, '-e', failLog('onNoMatch=passthrough option tests (requires Node)')], 30);
-      // distinct canonical identities despite identical leaf titles
+      copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'));
+      fs.writeFileSync(path.join(ws.fixture, 'base.spec.js'), suiteSpec('base suite', false));
+      fs.writeFileSync(path.join(ws.fixture, 'cand-a.spec.js'), suiteSpec('passThrough tests (requires Node)', true));
+      fs.writeFileSync(path.join(ws.fixture, 'cand-b.spec.js'), suiteSpec('onNoMatch=passthrough option tests (requires Node)', true));
+      const rBase = await mochaRound(rec, ws, 'baseline', 1, 'base.spec.js');
+      const rA = await mochaRound(rec, ws, 'candidate', 1, 'cand-a.spec.js');
+      const rB = await mochaRound(rec, ws, 'candidate', 2, 'cand-b.spec.js');
+      // distinct canonical identities despite identical leaf titles — and
+      // each was both PRINTED and WATCHED (observation == text, per round)
+      assert.deepEqual(rA.fact.failingTestNames, ['passThrough tests (requires Node) > handles baseURL correctly']);
+      assert.deepEqual(rB.fact.failingTestNames, ['onNoMatch=passthrough option tests (requires Node) > handles baseURL correctly']);
       assert.notDeepEqual(rA.fact.failingTestNames, rB.fact.failingTestNames);
+      for (const r of [rBase, rA, rB]) {
+        const o = r.fact.executionObservation;
+        assert.ok(o && o.status === 'VALID',
+          `${r.fact.arm}#${r.fact.round}: double run must VALID-attest (got ${o ? `${o.status}/${o.invalidReason ?? o.absentKind}` : 'missing'})`);
+        assert.deepEqual(o.observedCounts, {
+          passing: r.fact.reportedPassing ?? 0, failing: r.fact.reportedFailing ?? 0, pending: r.fact.reportedPending ?? 0,
+        });
+        assert.deepEqual([...o.observedFailingIdentities].sort(), [...(r.fact.failingTestNames ?? [])].sort());
+      }
       // ...and classification sees the divergence: never CONFIRMED_REGRESSION
       const facts = [
-        armBase(), rA.fact, rB.fact,
+        rBase.fact, rA.fact, rB.fact,
       ];
       const cls = classify(facts);
       assert.equal(cls.classification, 'FLAKY');
@@ -361,23 +443,44 @@ describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', (
   });
 
   it('audit B1 e2e: identical SUITE-QUALIFIED identity across rounds stays CONFIRM-eligible', async () => {
-    const { rec, cleanup } = freshRecorder();
+    // Post-GLM Finding A: the confirm is now EARNED, not printed — every
+    // round runs the pinned double with Canary's real injection, so rule 14
+    // passes on watched execution. 5 executed tests per round keeps the arms
+    // coverage-comparable (post-sol RB-2 rule 13: 5 passing baseline vs
+    // 4+1 candidate; an earlier "10 passing" stub encoded exactly the
+    // non-comparability rule 13 refuses).
+    const { rec, cleanup, ws, art } = freshRecorder();
     try {
-      const failLog = [
-        // 4 passing + 1 failing keeps the candidate EXECUTED total (5)
-        // comparable with the baseline arm's 5 (post-sol RB-2 rule 13
-        // refuses strong verdicts over incomparable coverage — an earlier
-        // "10 passing" stub here encoded exactly that non-comparability).
-        'console.log("  4 passing (1ms)");',
-        'console.log("  1 failing");',
-        'console.log("  1) passThrough tests (requires Node)");',
-        'console.log("       handles baseURL correctly:");',
-        'process.exit(1);',
-      ].join('');
-      const rA = await rec.round('candidate', 1, [NODE, '-e', failLog], 30);
-      const rB = await rec.round('candidate', 2, [NODE, '-e', failLog], 30);
+      copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'));
+      fs.writeFileSync(path.join(ws.fixture, 'base.spec.js'), suiteSpec('base suite', false));
+      fs.writeFileSync(path.join(ws.fixture, 'fail.spec.js'), suiteSpec('passThrough tests (requires Node)', true));
+      // The injection SHAPE the classifier's trust depends on: Canary's
+      // --require <preload> is appended LAST to the expanded argv, and the
+      // plan's expected version comes from the PIN, not the subject.
+      const expand = rec.expandArgvWithPlan(['$bin:mocha', 'fail.spec.js'], SUBS, doubleResolver(ws.fixture));
+      assert.equal(expand.plan.injected, true);
+      assert.deepEqual(expand.argv.slice(-2), ['--require', observerPreloadPath(ws)]);
+      assert.equal(expand.plan.expectedMochaVersion, DOUBLE_VERSION);
+      const b1 = await mochaRound(rec, ws, 'baseline', 1, 'base.spec.js');
+      const b2 = await mochaRound(rec, ws, 'baseline', 2, 'base.spec.js');
+      const rA = await mochaRound(rec, ws, 'candidate', 1, 'fail.spec.js');
+      const rB = await mochaRound(rec, ws, 'candidate', 2, 'fail.spec.js');
       assert.deepEqual(rA.fact.failingTestNames, rB.fact.failingTestNames);
-      const cls = classify([armBase(), rA.fact, rB.fact]);
+      assert.deepEqual(rA.fact.failingTestNames, ['passThrough tests (requires Node) > handles baseURL correctly']);
+      for (const r of [b1, b2, rA, rB]) {
+        assert.ok(r.plan.injected, 'every round of a confirmed run was injected');
+        const o = r.fact.executionObservation;
+        assert.ok(o && o.status === 'VALID',
+          `${r.fact.arm}#${r.fact.round}: expected VALID, got ${o ? `${o.status}/${o.invalidReason ?? o.absentKind}` : 'missing'}`);
+      }
+      // the fifth canonical per-round artifact + Canary's own preload bytes
+      const frames = fs.readFileSync(path.join(art, 'candidate-1.attest.ndjson'), 'utf8');
+      assert.match(frames, /"k":"hello"/, 'retained frames must carry the watched lifecycle');
+      assert.match(frames, /"k":"pass"/);
+      assert.match(frames, /"k":"fail"/);
+      assert.match(frames, /"k":"bye"/);
+      assert.equal(fs.readFileSync(observerPreloadPath(ws), 'utf8'), OBSERVER_PRELOAD_SOURCE);
+      const cls = classify([b1.fact, b2.fact, rA.fact, rB.fact]);
       assert.equal(cls.classification, 'CONFIRMED_REGRESSION');
       assert.equal(cls.rule, 5);
     } finally { cleanup(); }
@@ -728,6 +831,127 @@ describe('round-3 secondary — crash & sweep signals reach the classification',
     assert.doesNotThrow(() => assertSupportedSpecExecutable(['node', 'x.js']));
     assert.doesNotThrow(() => assertSupportedSpecExecutable(['$npm', 'install']), 'token forms bypass the literal check');
     assert.throws(() => assertSupportedSpecExecutable(['cmd', '/c', 'npm', 'i']), /wrapper|interpreter/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST-GLM AM-1 / Finding A — the executor-level INJECTION DECISION MATRIX.
+// Recorder.expandArgvWithPlan is the ONLY path to a strong label: injection
+// proceeds only when (name, version, treeHash) hits a Canary-repo pin AND the
+// package sits at the canonical <fixture>/node_modules/<pkg> anchor; a miss
+// means NO injection at all — the round records an ABSENT observation and
+// rule 14 makes strong labels structurally unreachable. Every case here is
+// tested at the DECISION (expansion) plus, where the claim is about the
+// channel, a REAL subprocess run (never a hand-built observation).
+// ---------------------------------------------------------------------------
+describe('observation hardening — expandArgvWithPlan injection decision', () => {
+  const doublePin = (KNOWN_RUNNER_RELEASES.mocha ?? []).find((p) => p.version === DOUBLE_VERSION);
+
+  it('the double fixture is actually pinned (fails if the pin table drifted)', () => {
+    assert.ok(doublePin, 'no KNOWN_RUNNER_RELEASES entry for the canary double');
+    assert.equal(doublePin.origin, 'canary-double');
+  });
+
+  it('pinned bytes at the canonical anchor: injected, --require appended LAST, plan from the PIN', () => {
+    const { rec, cleanup, ws } = freshRecorder();
+    try {
+      copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'));
+      const { argv, plan } = rec.expandArgvWithPlan(['$bin:mocha', 'test.js'], SUBS, doubleResolver(ws.fixture));
+      assert.equal(plan.injected, true);
+      assert.equal(plan.absentKind, null);
+      assert.deepEqual(argv.slice(-2), ['--require', observerPreloadPath(ws)], 'preload must be the final pair');
+      assert.ok((argv[1] ?? '').endsWith(path.join('node_modules', 'mocha', 'bin', 'mocha.js')), argv.join(' '));
+      assert.equal(plan.expectedMochaVersion, doublePin?.version);
+      assert.equal(plan.expectedRunnerTreeSha256, doublePin?.treeSha256);
+      assert.equal(plan.observedRunnerTreeSha256, doublePin?.treeSha256);
+    } finally { cleanup(); }
+  });
+
+  it('unpinned bytes at the canonical anchor: NO injection, runner-identity-unpinned + observed hash recorded', () => {
+    const { rec, cleanup, ws } = freshRecorder();
+    try {
+      copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'), true); // tree hash off the pin
+      const { argv, plan } = rec.expandArgvWithPlan(['$bin:mocha', 'test.js'], SUBS, doubleResolver(ws.fixture));
+      assert.equal(plan.injected, false);
+      assert.equal(plan.absentKind, 'runner-identity-unpinned');
+      assert.ok(!argv.includes('--require'), `unpinned bytes must not get the preload: ${argv.join(' ')}`);
+      // expected* fields only exist when injection was ATTEMPTED (panel E)…
+      assert.equal(plan.expectedMochaVersion, undefined);
+      assert.equal(plan.expectedRunnerTreeSha256, undefined);
+      // …but "what bytes were there" is still Canary-derived and recorded.
+      assert.ok(plan.observedRunnerTreeSha256 && plan.observedRunnerTreeSha256 !== doublePin?.treeSha256);
+    } finally { cleanup(); }
+  });
+
+  it('pinned bytes OUTSIDE the canonical anchor (hoisted): not injectable', () => {
+    const { rec, cleanup, ws } = freshRecorder();
+    try {
+      copyDouble(path.join(ws.root, 'hoisted', 'node_modules', 'mocha'));
+      const { argv, plan } = rec.expandArgvWithPlan(
+        ['$bin:mocha', 'test.js'], SUBS, doubleResolver(path.join(ws.root, 'hoisted')));
+      assert.equal(plan.injected, false, 'a hoisted install is never injectable (panel I)');
+      assert.equal(plan.absentKind, 'runner-identity-unpinned');
+      assert.equal(plan.expectedMochaVersion, undefined);
+      assert.ok(plan.observedRunnerTreeSha256 === doublePin?.treeSha256, 'bytes match the pin; LOCATION does not');
+      assert.ok(!argv.includes('--require'));
+    } finally { cleanup(); }
+  });
+
+  it('a subject-supplied --require/-r in a mocha argv is refused fail-closed', () => {
+    const { rec, cleanup, ws } = freshRecorder();
+    try {
+      copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'));
+      const reason = (cmd: string[]): string => {
+        try { rec.expandArgv(cmd, SUBS, doubleResolver(ws.fixture)); return 'no-throw'; }
+        catch (e) { return (e as { reasonCode?: string }).reasonCode ?? 'threw-without-code'; }
+      };
+      for (const cmd of [
+        ['$bin:mocha', '--require', 'evil.js', 'test.js'],
+        ['$bin:mocha', '-r', 'evil.js', 'test.js'],
+        ['$bin:mocha', 'test.js', '--require=evil.js'],
+      ]) {
+        assert.equal(reason(cmd), 'subject-require-refused', `must refuse: ${cmd.join(' ')}`);
+      }
+    } finally { cleanup(); }
+  });
+
+  it('non-mocha commands: no injection attempted, absentKind not-mocha-bin', () => {
+    const { rec, cleanup } = freshRecorder();
+    try {
+      const { plan } = rec.expandArgvWithPlan(['node', 'test.js'], SUBS, () => 'unused');
+      assert.equal(plan.injected, false);
+      assert.equal(plan.absentKind, 'not-mocha-bin');
+    } finally { cleanup(); }
+  });
+
+  it('the ABSENT path end-to-end: an unpinned double runs REAL rounds and rule 14 refuses the strong label', async () => {
+    // Honest consequence check: same specs as the CONFIRM case, but the
+    // runner bytes are off-pin — Canary never injects, the fd-3 pipe stays
+    // empty, both rounds are ABSENT, and the decision table (which would
+    // otherwise say rule 5) is forced to INCONCLUSIVE/14.
+    const { rec, cleanup, ws, art } = freshRecorder();
+    try {
+      copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'), true);
+      fs.writeFileSync(path.join(ws.fixture, 'base.spec.js'), suiteSpec('base suite', false));
+      fs.writeFileSync(path.join(ws.fixture, 'fail.spec.js'), suiteSpec('passThrough tests (requires Node)', true));
+      const b = await mochaRound(rec, ws, 'baseline', 1, 'base.spec.js');
+      const c = await mochaRound(rec, ws, 'candidate', 1, 'fail.spec.js');
+      assert.equal(b.plan.injected, false);
+      assert.equal(b.fact.executionObservation?.status, 'ABSENT');
+      assert.equal(b.fact.executionObservation?.absentKind, 'runner-identity-unpinned');
+      assert.equal(c.fact.executionObservation?.status, 'ABSENT');
+      // the real text channel still parsed the run (the rounds DID execute) —
+      // which is exactly why the gate must bite on the observation channel:
+      assert.equal(c.fact.reportedFailing, 1);
+      assert.deepEqual(c.fact.failingTestNames, ['passThrough tests (requires Node) > handles baseURL correctly']);
+      assert.equal(fs.readFileSync(path.join(art, 'candidate-1.attest.ndjson'), 'utf8'), '',
+        'no injection => no frames on the tripwire pipe');
+      const cls = classify([b.fact, c.fact]);
+      assert.equal(cls.classification, 'INCONCLUSIVE');
+      assert.equal(cls.rule, 14);
+      assert.match(cls.reason, /execution unattested/);
+      assert.match(cls.reason, /previously rule 5 CONFIRMED_REGRESSION/);
+    } finally { cleanup(); }
   });
 });
 

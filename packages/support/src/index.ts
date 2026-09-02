@@ -15,6 +15,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Readable } from 'node:stream';
 
 export interface WorkspaceLayout {
   /** Disposable run root (everything lives under it). */
@@ -91,6 +92,14 @@ export interface RunOptions {
   argv: [string, ...string[]];
   cwd?: string;
   timeoutSecs?: number;
+  /**
+   * Observation hardening: open a FOURTH stdio slot (child fd 3) as a pipe
+   * and return its bytes in `observation`. Used ONLY for measurement rounds
+   * where Canary injected its own observer into the child — the channel is
+   * inherited by the spawned process, never by the subject's own tools.
+   * 'close' waits for every stdio stream, so no post-exit race exists.
+   */
+  observeChildFd3?: boolean;
 }
 
 export interface RunOutcome {
@@ -112,6 +121,10 @@ export interface RunOutcome {
    */
   sweptPids?: number[] | undefined;
   sweepFailed?: boolean | undefined;
+  /** Raw fd-3 bytes when observeChildFd3 was set (NDJSON frames; '' if none). */
+  observation?: string | undefined;
+  /** True if fd-3 bytes exceeded MAX_OBS_CHARS and were cut (⇒ INVALID later). */
+  observationTruncated?: boolean | undefined;
 }
 
 /**
@@ -139,13 +152,14 @@ export async function runCommand(o: RunOptions): Promise<RunOutcome> {
         shell: false,
         windowsHide: true,
         detached: process.platform !== 'win32',
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: o.observeChildFd3 ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
       });
     } catch (e) {
       resolve({
         exitCode: -1, killedByTimeout: false, stdout: '',
         stderr: String((e as Error).message ?? e), durationMs: Date.now() - start,
         argv: [...o.argv], envKeys,
+        ...(o.observeChildFd3 ? { observation: '' } : {}),
       });
       return;
     }
@@ -153,11 +167,55 @@ export async function runCommand(o: RunOptions): Promise<RunOutcome> {
     const spawnedAtMs = Date.now();
     let stdout = '';
     let stderr = '';
+    let obs = '';
+    let obsTruncated = false;
     let killed = false;
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (d: string) => { stdout = cap(stdout + d); });
     child.stderr?.on('data', (d: string) => { stderr = cap(stderr + d); });
+    // NOTE (panel I implementation trap): stdio spec ['ignore','pipe','pipe',
+    // 'pipe'] makes CHILD fd 3 the fourth entry — on the PARENT side these
+    // pipes occupy fds 2/3/4, but child.stdio[] is indexed by CHILD fd, so
+    // child.stdio[3] is the observation read-stream. Never hardcode the
+    // parent's raw fd number here.
+    // The parent end of a 'pipe' stdio entry is a node:stream.Readable at
+    // runtime (the ChildProcess typings only promise NodeJS.ReadableStream,
+    // which lacks destroy()/destroyed — the members the bye-shortcut and the
+    // bounded post-exit window need). One narrowing cast, documented.
+    let f3stream: Readable | undefined;
+    if (o.observeChildFd3) {
+      const f3 = child.stdio[3];
+      if (f3 && 'on' in f3) {
+        f3stream = f3 as unknown as Readable;
+        f3stream.setEncoding('utf8');
+        f3stream.on('data', (d: string) => {
+          if (obsTruncated) return;
+          const room = MAX_OBS_CHARS - obs.length;
+          if (d.length > room) { obs += d.slice(0, Math.max(0, room)); obsTruncated = true; } else obs += d;
+          // BYE-SHORTCUT: once the terminator arrives as the LAST COMPLETE
+          // line (trailing \n required — a chunk boundary mid-frame must not
+          // cut a legitimate bye, and junk after bye means no shortcut: the
+          // validator's bye-last rule rejects those bytes anyway), destroy
+          // our read end so `close` cannot be delayed by an fd-3 holder that
+          // outlived the runner.
+          if (/\{"k":"bye"[^\n]*\n$/.test(obs)) {
+            try { f3stream?.destroy(); } catch { /* already ended */ }
+          }
+        });
+      }
+    }
+
+    // POST-EXIT BOUNDED WINDOW (panel I): the child is gone but fd 3 never
+    // delivered a complete bye — a descendant is holding the pipe open, or
+    // the preload died mid-write. Keep draining for a bounded window, then
+    // cut the read end so `close` resolves. No bye ⇒ the validator sees
+    // hello-bye-boundary/flood ⇒ INVALID regardless: this window trades a
+    // 600s hang for a 2s delay, it cannot forge or rescue anything.
+    child.on('exit', () => {
+      if (!f3stream || f3stream.destroyed) return;
+      setTimeout(() => { try { f3stream?.destroy(); } catch { /* already ended */ } }, POST_EXIT_DRAIN_MS);
+    });
 
     const timer = setTimeout(() => {
       killed = true;
@@ -170,6 +228,7 @@ export async function runCommand(o: RunOptions): Promise<RunOutcome> {
       resolve({
         exitCode: -1, killedByTimeout: false, stdout, stderr,
         durationMs: Date.now() - start, argv: [...o.argv], envKeys,
+        ...(o.observeChildFd3 ? { observation: obs, observationTruncated: obsTruncated } : {}),
       });
     });
     child.on('close', (code, signal) => {
@@ -188,12 +247,19 @@ export async function runCommand(o: RunOptions): Promise<RunOutcome> {
         durationMs: Date.now() - start,
         argv: [...o.argv], envKeys,
         childPid, sweptPids: sweep.killed, sweepFailed: sweep.failed,
+        ...(o.observeChildFd3 ? { observation: obs, observationTruncated: obsTruncated } : {}),
       });
     });
   });
 }
 
 const MAX_STREAM_CHARS = 64 * 1024 * 1024;
+// FD-3 observation frames are tiny by construction (one short JSON line per
+// lifecycle event); 4 MiB is orders of magnitude beyond any honest suite, so
+// exceeding it means flood/truncation — the validator turns that INVALID.
+const MAX_OBS_CHARS = 4 * 1024 * 1024;
+/** Drain window after child exit when no `bye` has arrived (panel I). */
+const POST_EXIT_DRAIN_MS = 2000;
 function cap(s: string): string {
   return s.length > MAX_STREAM_CHARS ? s.slice(0, MAX_STREAM_CHARS) : s;
 }
@@ -354,6 +420,8 @@ export const ExitCode = {
   OTHER_CLASSIFICATION: 2,
   MISUSE: 3,
 } as const;
+
+export * from './knownRunners.js';
 
 export class CanaryError extends Error {
   constructor(

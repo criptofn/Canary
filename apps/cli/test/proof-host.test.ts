@@ -29,29 +29,33 @@ import {
 } from '../src/prove.js';
 import { verifyTreeSnapshots } from '../src/verify-tree.js';
 import { sha256hex } from '@canary-rn/hashing';
+import { writeStagedPayload, stageCommands, MOCHA_TEST_ARGV, widgetSpec, swapScript, WIDGET_PKGS } from './stub-harness.js';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-b3-'));
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 const FAKE_SHA = 'a'.repeat(40);
 const RUNTIME: HostFingerprint = actualHostFingerprint();
 
+/**
+ * Post-GLM migration (AM-2 + Finding A): the fixture no longer SHIPS
+ * node_modules (the audit refuses that); the fake tree is staged and
+ * materialized by the prepare step, and the CONFIRMED_REGRESSION these
+ * tests gate is earned through the REAL observation channel ($bin:mocha on
+ * the hash-pinned Canary double). The HOST-EXACTNESS semantics this file
+ * pins are untouched: proofHost is declared as the recording machine, the
+ * gate order is unchanged, and the per-round tuple's fifth file
+ * (<arm>-<round>.attest.ndjson) is bound by verifyArtifacts on every host —
+ * the observation REPLAY stays host-gated exactly like argv re-derivation.
+ */
 function writeStub(dir: string): void {
   const w = (p: string, s: string): void => {
     fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, s, 'utf8');
   };
   w(path.join(dir, 'package.json'), JSON.stringify({ name: 'downstream', version: '1.0.0', dependencies: { widget: '1.0.0' } }));
-  w(path.join(dir, 'node_modules', 'widget', 'package.json'), JSON.stringify({ name: 'widget', version: '1.0.0', main: 'index.js' }));
-  w(path.join(dir, 'node_modules', 'widget', 'index.js'), 'module.exports={}');
-  w(path.join(dir, 'test.js'), [
-    "const v=require('./node_modules/widget/package.json').version;",
-    "if (v !== '2.0.0') { console.log('  2 passing (1ms)'); process.exit(0); }",
-    "console.log('  1 passing (1ms)'); console.log('  1 failing'); console.log('');",
-    "console.log('  1) widget suite'); console.log('       candidate breaks widget:');",
-    "process.exit(1);",
-  ].join('\n'));
-  w(path.join(dir, 'swap.js'),
-    "const fs=require('fs');const p='./node_modules/widget/package.json';const j=JSON.parse(fs.readFileSync(p));j.version='2.0.0';fs.writeFileSync(p,JSON.stringify(j));");
+  writeStagedPayload(dir, WIDGET_PKGS);
+  w(path.join(dir, 'test.js'), widgetSpec());
+  w(path.join(dir, 'swap.js'), swapScript(false));
 }
 
 async function realRun(): Promise<{ bundle: EvidenceBundle; artifactsDir: string; proof: ProofExpectation; spec: TrustedRunSpec }> {
@@ -61,7 +65,12 @@ async function realRun(): Promise<{ bundle: EvidenceBundle; artifactsDir: string
   const spec = {
     schema: 2, id: 'host-b3', dependency: { package: 'widget', baseline: '1.0.0', candidate: '2.0.0' },
     downstream: { repo: 'stub/downstream', commit: FAKE_SHA },
-    commands: { prepare: [['node', '-e', "''"]], swap: ['node', 'swap.js', '{candidate}'], test: ['node', 'test.js'] },
+    // Post-GLM AM-2 + Finding A: staged payload materialized by prepare (the
+    // double INCLUDED — these scenarios all reach CONFIRMED_REGRESSION, which
+    // is unreachable without the real observation channel), and the committed
+    // spec's test argv is what hostBoundEvidenceChecks re-expands, so it must
+    // be the same $bin:mocha the recorder saw.
+    commands: { prepare: stageCommands({ mocha: true }), swap: ['node', 'swap.js', '{candidate}'], test: [...MOCHA_TEST_ARGV] },
     repeats: { baseline: 2, candidate: 2 }, timeoutSecs: { install: 120, test: 120 },
   } satisfies TrustedRunSpec & Record<string, unknown>;
   // B4: the fetch seam declares the REAL digest of its bytes — the prove gate

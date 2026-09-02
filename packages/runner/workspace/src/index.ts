@@ -11,7 +11,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export interface AuditViolation {
-  code: 'lifecycle-hook-present' | 'config-file-injection-risk' | 'manifest-unreadable' | 'manifest-invalid';
+  code:
+    | 'lifecycle-hook-present' | 'config-file-injection-risk'
+    | 'manifest-unreadable' | 'manifest-invalid'
+    // Post-GLM panel AM-2: the audit runs on the FRESHLY CHECKED-OUT tree
+    // (pipeline step [2], before install/prepare), so a node_modules present
+    // at audit time was SHIPPED by the subject. Refused, not scanned — see
+    // auditFixtureDir.
+    | 'node-modules-shipped';
   detail: string;
 }
 
@@ -64,13 +71,26 @@ export function auditPackageManifestText(text: string, dependency: string): Audi
 }
 
 export function auditFixtureDir(fixtureDir: string, dependency: string): AuditResult {
+  // AM-2 (post-GLM panel): the acquisition chain produces a FRESH checkout at
+  // this point — install and prepare run only after this gate. A node_modules
+  // directory here therefore arrived WITH the subject's source: pre-planted
+  // runner bytes the audit tier exists to quarantine. Refusing it keeps the
+  // invariant "every node_modules byte in the workspace was created post-audit
+  // by Canary's own pipeline", which is what lets per-round expansion re-hash
+  // the runner tree and mean it. Honest scope note: belt-and-braces ONLY — a
+  // prepare script can still CREATE a double at runtime, and AM-1 (pinned
+  // bytes gate injection, packages/support/src/knownRunners.ts) is what
+  // actually closes that. Callers treat this code as InfraAbort, not MISUSE.
+  const shippedNm: AuditViolation[] = fs.existsSync(path.join(fixtureDir, 'node_modules'))
+    ? [{ code: 'node-modules-shipped', detail: 'fixture ships node_modules/ at audit time (runner bytes must arrive via Canary\'s install, never the repo tree)' }]
+    : [];
   let text: string;
   try {
     text = fs.readFileSync(path.join(fixtureDir, 'package.json'), 'utf8');
   } catch {
     return {
       ok: false,
-      violations: [{ code: 'manifest-unreadable', detail: 'no readable package.json at fixture root' }],
+      violations: [...shippedNm, { code: 'manifest-unreadable', detail: 'no readable package.json at fixture root' }],
       package: { name: '?', version: '?' },
       declaredDependency: null,
     };
@@ -78,6 +98,7 @@ export function auditFixtureDir(fixtureDir: string, dependency: string): AuditRe
   const result = auditPackageManifestText(text, dependency);
   const foundRc = findRcFiles(fixtureDir);
   const violations = [
+    ...shippedNm,
     ...result.violations,
     ...foundRc.map((f) => ({
       code: 'config-file-injection-risk' as const,

@@ -1,0 +1,10 @@
+# KNOWN_RUNNER_RELEASES pins the mocha double by canonical CONTENT HASH
+# (treeSha256 over the exact bytes). git's eol normalization (core.autocrlf
+# on a Windows checkout) would silently change those bytes and miss the pin —
+# which fails CLOSED, but turns every offline test on that host into a
+# mystery. Force LF so checkout bytes == hash bytes on every platform.
+apps/cli/test/fixtures/mocha-double/** text eol=lf
+
+# The published contract is diffed field-by-field against contract.ts output;
+# LF keeps the committed artifact byte-identical on every platform.
+schemas/evidence.schema.json text eol=lf

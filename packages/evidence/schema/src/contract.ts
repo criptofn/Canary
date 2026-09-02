@@ -96,6 +96,28 @@ export const BUNDLE_CONTRACT: Field = obj('always', {
     failingTestNames: { req: 'optional', arr: s() },
     crashSignal: { req: 'optional', kind: 'bool' },
     sweepFailed: { req: 'optional', kind: 'bool' },
+    // Post-GLM observation hardening (panel E): Canary's OWN per-round
+    // execution record. REQUIRED on every round of every bundle — an honest
+    // run always carries it (ABSENT with a reason when Canary did not inject;
+    // old bundles failing here is the intended fail-closed direction).
+    // Cross-field iff-rules are SEMANTIC (validateBundle): VALID⇔counts+
+    // versions+tree-sha; INVALID⇔invalidReason; ABSENT⇔absentKind;
+    // strayFd3Sha256⇔strayFd3Bytes. JSON Schema presence cannot express them.
+    executionObservation: obj('always', {
+      status: { req: 'always', kind: 'enum', values: ['VALID', 'ABSENT', 'INVALID'] },
+      observedFailingIdentities: { req: 'always', arr: s() },
+      framesSha256: hex64(),
+      frameCount: int0(),
+      observedCounts: obj('optional', { passing: int0(), failing: int0(), pending: int0() }),
+      expectedMochaVersion: s('optional'),
+      observedMochaVersion: s('optional'),
+      expectedRunnerTreeSha256: hex64('optional'),
+      observedRunnerTreeSha256: hex64('optional'),
+      invalidReason: s('optional'),
+      absentKind: { req: 'optional', kind: 'enum', values: ['not-mocha-bin', 'no-injection', 'runner-identity-unpinned'] },
+      strayFd3Bytes: bool('optional'),
+      strayFd3Sha256: hex64('optional'),
+    }),
     startedAt: iso(),
     durationMs: int0(),
     rawStdoutSha256: hex64(),

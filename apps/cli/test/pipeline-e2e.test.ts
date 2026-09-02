@@ -25,6 +25,7 @@ import { runExperiment, InfraAbort } from '../src/pipeline.js';
 import { validateBundle, structuralIssues, type EvidenceBundle } from '@canary-rn/evidence-schema';
 import { assertProof, actualHostFingerprint, verifyArtifacts, verifyRunIdentity, verifyClassificationDerivation, type ProofExpectation } from '../src/prove.js';
 import { sha256hex } from '@canary-rn/hashing';
+import { writeStagedPayload, stageCommands, MOCHA_TEST_ARGV, widgetSpec, swapScript, WIDGET_PKGS, assertDoubleObservation } from './stub-harness.js';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-e2e-'));
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -37,10 +38,18 @@ const FAKE_BYTES = Buffer.from('canary-offline-fake-tarball-bytes');
 const FAKE_BLOB = { bytes: FAKE_BYTES, sha256: sha256hex(FAKE_BYTES) };
 
 /**
- * A downstream repo whose test.js PASSES under widget@1 and FAILS (with a
- * mocha-style summary) under widget@2. `driftSwap` additionally bumps an
- * unrelated dep (left-pad) so the candidate tree drifts OUTSIDE the studied
- * dependency subtree.
+ * A downstream repo whose test.js PASSES under widget@1 and FAILS (a REAL
+ * executed failure under the pinned Canary mocha double) under widget@2.
+ * `driftSwap` additionally bumps an unrelated dep (left-pad) so the candidate
+ * tree drifts OUTSIDE the studied dependency subtree.
+ *
+ * Post-GLM AM-2: the fake node_modules is STAGED (stub-payload/) and
+ * materialized by the prepare step — a fixture that ships node_modules is
+ * refused at audit. Post-GLM Finding A: strong labels require attested
+ * execution, so the test command runs through $bin:mocha and prepare
+ * injects the hash-pinned double (the only offline runner KNOWN_RUNNER_
+ * RELEASES accepts) — these bundles carry real VALID observations produced
+ * by the actual injection mechanism, not forged text.
  */
 function makeStub(dir: string, opts: { driftSwap: boolean }): void {
   const w = (p: string, s: string): void => {
@@ -50,31 +59,9 @@ function makeStub(dir: string, opts: { driftSwap: boolean }): void {
   w(path.join(dir, 'package.json'), JSON.stringify({
     name: 'downstream', version: '1.0.0', dependencies: { widget: '1.0.0' },
   }));
-  w(path.join(dir, 'node_modules', 'widget', 'package.json'),
-    JSON.stringify({ name: 'widget', version: '1.0.0', main: 'index.js' }));
-  w(path.join(dir, 'node_modules', 'widget', 'index.js'), 'module.exports={v:"1"}');
-  w(path.join(dir, 'node_modules', 'left-pad', 'package.json'),
-    JSON.stringify({ name: 'left-pad', version: '1.0.0', main: 'index.js' }));
-  w(path.join(dir, 'node_modules', 'left-pad', 'index.js'), 'module.exports={}');
-  w(path.join(dir, 'test.js'), [
-    "const v = require('./node_modules/widget/package.json').version;",
-    "if (v !== '2.0.0') { console.log('  2 passing (1ms)'); process.exit(0); }",
-    "console.log('  1 passing (1ms)');",
-    "console.log('  1 failing');",
-    "console.log('');",
-    "console.log('  1) widget suite');",
-    "console.log('       candidate breaks widget:');",
-    "console.log('     Error: widget 2 changed behavior');",
-    "process.exit(1);",
-  ].join('\n'));
-  // swap.js: bump widget; when driftSwap, also bump an UNRELATED dep.
-  const swapLines = [
-    "const fs = require('fs');",
-    "const bump = (n) => { const p = './node_modules/' + n + '/package.json'; const j = JSON.parse(fs.readFileSync(p)); j.version = '2.0.0'; fs.writeFileSync(p, JSON.stringify(j)); };",
-    "bump('widget');",
-  ];
-  if (opts.driftSwap) swapLines.push("bump('left-pad');");
-  w(path.join(dir, 'swap.js'), swapLines.join('\n'));
+  writeStagedPayload(dir, WIDGET_PKGS);
+  w(path.join(dir, 'test.js'), widgetSpec());
+  w(path.join(dir, 'swap.js'), swapScript(opts.driftSwap));
 }
 
 function specFor(): unknown {
@@ -83,11 +70,11 @@ function specFor(): unknown {
     dependency: { package: 'widget', baseline: '1.0.0', candidate: '2.0.0' },
     downstream: { repo: 'stub/downstream', commit: FAKE_SHA },
     commands: {
-      prepare: [['node', '-e', "console.log('prepared')"]],
+      prepare: stageCommands({ mocha: true }),
       // {candidate} is required by the planner (the swap must name the version
       // it installs); swap.js ignores the arg but the token proves intent.
       swap: ['node', 'swap.js', '{candidate}'],
-      test: ['node', 'test.js'],
+      test: [...MOCHA_TEST_ARGV],
     },
     repeats: { baseline: 2, candidate: 2 },
     timeoutSecs: { install: 120, test: 120 },
@@ -131,6 +118,10 @@ describe('audit M8 — offline pipeline end-to-end', () => {
     assert.ok(cand.failingTestNames && cand.failingTestNames.length >= 1,
       'candidate round must persist failing-test identities');
     assert.equal(cand.reportedFailing, 1);
+    // Post-GLM Finding A: this rule-5 was EARNED, not printed — every round
+    // carries a VALID Canary observation of the pinned double executing the
+    // very counts and identities the text claims.
+    assertDoubleObservation(bundle.rounds);
     // And a well-formed proof expectation passes assertProof against the logs.
     const baseHashes = bundle.rounds.filter((r) => r.arm === 'baseline').map((r) => r.normalizedStdoutSha256);
     const candHashes = bundle.rounds.filter((r) => r.arm === 'candidate').map((r) => r.normalizedStdoutSha256);

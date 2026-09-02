@@ -3,8 +3,15 @@
  *
  * This function is TOTAL, PURE, and DETERMINISTIC. It consumes only run
  * facts produced by the executor. Nothing probabilistic, nothing LLM-driven.
- * The security of Canary's whole claim rests here: the label is a function
- * of exit codes and structural output properties, and of nothing else.
+ * The security of Canary's whole claim rests here — and since the post-GLM
+ * observation hardening it rests on TWO channels, precisely because the old
+ * one was alone insufficient: the text channel (exit codes, structural output
+ * properties) says what the subject PRINTED, and the execution-observation
+ * channel says what Canary WATCHED happen inside a pinned-bytes runner it
+ * injected. Strong and execution-claim labels (STRONG_EXECUTION_LABELS)
+ * require every round of both arms to carry a VALID observation whose counts
+ * and identities agree with the text; without that, rule 14 sends the
+ * verdict to INCONCLUSIVE. Printed text is a claim; a claim is not proof.
  */
 
 export type Classification =
@@ -66,13 +73,79 @@ export interface RoundFact {
    *  is not a valid test execution (round-3 secondary: failed sweep was
    *  recorded internally but omitted from evidence/classification). */
   sweepFailed?: boolean | undefined;
+  /**
+   * POST-GLM OBSERVATION HARDENING — Canary's OWN record of execution for
+   * this round (see packages/runner/executor/src/observation.ts for what the
+   * channel is and what it honestly proves). REQUIRED on every round in the
+   * evidence contract; typed optional here so classification stays total over
+   * hand-built test facts — a MISSING observation is treated exactly like
+   * ABSENT, never like VALID. STRONG_EXECUTION_LABELS (PASS, CONFIRMED_
+   * REGRESSION, PRE_EXISTING_FAILURE, FLAKY) are only reachable when EVERY
+   * round of BOTH arms carries status VALID whose observedCounts/
+   * observedFailingIdentities agree with the text-parsed fields (gate below;
+   * rule 14 is the downgrade). The name deliberately avoids the loaded words
+   * "attestation" (tree/env host checks) and "observation" (tree status).
+   */
+  executionObservation?: ExecutionObservation | undefined;
+}
+
+export type ObservationStatus = 'VALID' | 'ABSENT' | 'INVALID';
+
+/** Why an ABSENT observation is absent — all three mean "no injection". */
+export type AbsentKind = 'not-mocha-bin' | 'no-injection' | 'runner-identity-unpinned';
+
+export interface ObservedCounts {
+  passing: number;
+  failing: number;
+  pending: number;
+}
+
+/**
+ * Per-round execution observation (contract shape — executor captures,
+ * bundle persists, prove re-derives; ONE shared field layout).
+ *
+ * Cross-field iff-rules (enforced by the evidence semantic layer):
+ *  - VALID  ⇔ observedCounts, observedMochaVersion, expectedRunnerTreeSha256 present
+ *  - INVALID ⇔ invalidReason present
+ *  - ABSENT ⇔ absentKind present; strayFd3Bytes only here; strayFd3Sha256 only with stray
+ *  - expectedMochaVersion present iff injection was ATTEMPTED (pinned match)
+ *  - observedRunnerTreeSha256 present iff a mocha package was LOCATED
+ *  - 'injected' is never a field: status VALID is the injection fact (ABSENT
+ *    and INVALID distinguish "never attempted" from "attempted, failed").
+ */
+export interface ExecutionObservation {
+  status: ObservationStatus;
+  /** Always present: [] when no VALID stream produced failures. Sorted,
+   *  deduped canonical ' > ' titlePath identities Canary WATCHED fail. */
+  observedFailingIdentities: readonly string[];
+  /** sha256 of the retained fd-3 bytes (empty-file hash when nothing arrived). */
+  framesSha256: string;
+  /** Number of NDJSON frames in the retained bytes. */
+  frameCount: number;
+  observedCounts?: ObservedCounts;
+  /** Pinned-release version the observer was injected against (Canary truth). */
+  expectedMochaVersion?: string;
+  /** hello.mochaVersion as emitted by the in-process observer. */
+  observedMochaVersion?: string;
+  /** Pin-table hash the injection decision used (Canary-repo value). */
+  expectedRunnerTreeSha256?: string;
+  /** Hash Canary computed over the resolved package directory at expansion. */
+  observedRunnerTreeSha256?: string;
+  invalidReason?: string;
+  absentKind?: AbsentKind;
+  /** ABSENT-only tripwire: bytes arrived on an un-injected fd-3 pipe — a
+   *  protocol-emulation attempt; recorded, never credited as observation. */
+  strayFd3Bytes?: boolean;
+  strayFd3Sha256?: string;
 }
 
 export interface ClassificationResult {
   classification: Classification;
-  /** Number of the decision-table rule that fired (0..13; 9/10 are the
+  /** Number of the decision-table rule that fired (0..14; 9/10 are the
    *  confinement guard, 11 the identity-coverage gate, 12/13 the post-sol
-   *  RB-2 coverage-consistency pair). */
+   *  RB-2 coverage-consistency pair, 14 the post-GLM execution-observation
+   *  gate — strong/execution-claim labels downgraded for missing or
+   *  contradicted observation). */
   rule: number;
   reason: string;
   details: {
@@ -241,7 +314,121 @@ function failingProfileStable(rs: readonly RoundFact[]): boolean {
   return failing.every((r) => failureProfile(r) === first);
 }
 
+/**
+ * Labels that CLAIM execution facts (as opposed to TRUSTFUL_LABELS, the
+ * bundle-retention tier in the evidence contract — two tiers, two constants,
+ * never conflated). FLAKY is included: a flaky verdict still asserts "tests
+ * ran, with differing results". Weak honest labels (INCONCLUSIVE,
+ * INFRASTRUCTURE_FAILURE) never claim execution, so they stay ungated.
+ */
+export const STRONG_EXECUTION_LABELS: readonly Classification[] = [
+  'PASS', 'CONFIRMED_REGRESSION', 'PRE_EXISTING_FAILURE', 'FLAKY',
+];
+
+/**
+ * The execution-observation GATE — the single shared predicate (exported so
+ * the evidence mirror states the same rule, and prove replays it).
+ * Returns null when satisfied, else a deterministic reason string (first
+ * offending round in bundle order + which condition failed).
+ *
+ *  (1) every round of both arms has status VALID (a missing observation is
+ *      ABSENT: subject prose can never stand in for it);
+ *  (2) per round observedCounts == text counts under `?? 0` semantics —
+ *      REQUIRED by audit-F1's mocha-omits-zero-lines behavior: a golden
+ *      "128 passing" round has text failing=undefined vs observed failing=0
+ *      and the two channels must AGREE, not merely "not contradict";
+ *  (3) Set(observedFailingIdentities) == Set(failingTestNames ?? []);
+ *  (4) no exit-code contradiction: failing==0 with exit!=0 means the process
+ *      died outside the tests Canary watched (and with VALID, printed-zero
+ *      text is pinned to INFRA by ungated rule 1); failing>0 with exit==0 is
+ *      a masked failure — kept here as defense-in-depth even though agreement
+ *      routes it via rule 1 today. exit==-1 (killed) never gets a VALID
+ *      status past capture, and rule 1 fires before any gated rule anyway.
+ */
+export function observationGateIssue(rounds: readonly RoundFact[]): string | null {
+  for (const r of rounds) {
+    const o = r.executionObservation;
+    if (!o || o.status !== 'VALID') {
+      return `round ${r.arm}#${r.round} has executionObservation=${o ? o.status : 'missing'} — strong labels require a VALID Canary observation on every round`;
+    }
+    const oc = o.observedCounts;
+    if (!oc) return `round ${r.arm}#${r.round} is VALID without observedCounts`;
+    if (
+      oc.passing !== (r.reportedPassing ?? 0)
+      || oc.failing !== (r.reportedFailing ?? 0)
+      || oc.pending !== (r.reportedPending ?? 0)
+    ) {
+      return `round ${r.arm}#${r.round}: observed ${oc.passing}/${oc.failing}/${oc.pending} disagrees with text ${(r.reportedPassing ?? 0)}/${(r.reportedFailing ?? 0)}/${(r.reportedPending ?? 0)}`;
+    }
+    // Malformed-but-present observations (bundles are cast from disk, not
+    // constructed by the type system) are a GATE REFUSAL, never a crash:
+    // fail-closed means returning rule 14, not throwing at a caller that
+    // cannot classify at all.
+    if (!Array.isArray(o.observedFailingIdentities)) {
+      return `round ${r.arm}#${r.round} is VALID but observedFailingIdentities is not an array — malformed observation cannot gate`;
+    }
+    const a = [...new Set(o.observedFailingIdentities)].sort().join('\n');
+    const b = [...new Set(r.failingTestNames ?? [])].sort().join('\n');
+    if (a !== b) return `round ${r.arm}#${r.round}: observed failing identities disagree with text-parsed identities`;
+    if (oc.failing === 0 && r.exitCode !== 0) return `round ${r.arm}#${r.round}: zero observed failures but exit=${r.exitCode} (died outside watched tests)`;
+    if (oc.failing > 0 && r.exitCode === 0) return `round ${r.arm}#${r.round}: ${oc.failing} observed failures but exit=0 (masked failure)`;
+  }
+  return null;
+}
+
+/** Boolean form of the gate (panel B names it as the shared predicate; the
+ *  reason string is observationGateIssue, which classify() embeds in rule 14). */
+export function observationSatisfied(rounds: readonly RoundFact[]): boolean {
+  return observationGateIssue(rounds) === null;
+}
+
+/**
+ * When the gate holds, the two channels AGREE, so the identity/coverage math
+ * switches to the ATTESTED values — one canonical source per round (panel
+ * decision B: computed BEFORE any table rule from raw fields, so all three
+ * re-derivation sites — capture, validateBundle, verifyClassificationDerivation
+ * — see the same normalized facts). The switch only ever normalizes
+ * duplicate-text-name edges (profiles join raw arrays; attested identities
+ * are deduped), which is exactly why it is non-circular.
+ */
+function attestedView(r: RoundFact): RoundFact {
+  const o = r.executionObservation!;
+  return {
+    ...r,
+    reportedPassing: o.observedCounts!.passing,
+    reportedFailing: o.observedCounts!.failing,
+    reportedPending: o.observedCounts!.pending,
+    failingTestNames: [...(o.observedFailingIdentities ?? [])].sort(),
+  };
+}
+
+/** Post-GLM public entry: gate + channel normalization + rule 14 routing. */
 export function classify(rounds: readonly RoundFact[]): ClassificationResult {
+  const gate = observationGateIssue(rounds);
+  const view = gate === null ? rounds.map(attestedView) : rounds;
+  const inner = classifyTable(view);
+  if (gate === null || !STRONG_EXECUTION_LABELS.includes(inner.classification)) return inner;
+  // Routing (panel B): rules 3/4/5 (strong) AND all five FLAKY producers
+  // (2, 6-flaky-arm, 7, 8, 12) downgrade to INCONCLUSIVE rule 14. Rules 0/1,
+  // 6's INCONCLUSIVE arm, 11 and 13 are already weak and pass through.
+  return {
+    classification: 'INCONCLUSIVE',
+    rule: 14,
+    reason: `execution unattested / channel contradicted: ${gate} — no strong or execution-claim label without a Canary-observed, pinned-runner execution on every round (previously rule ${inner.rule} ${inner.classification})`,
+    details: {
+      baselinePass: view.filter((r) => r.arm === 'baseline').every(pass),
+      baselineUnanimous: unanimous(view.filter((r) => r.arm === 'baseline')),
+      candidateUnanimous: unanimous(view.filter((r) => r.arm === 'candidate')),
+      candidateRuns: view.filter((r) => r.arm === 'candidate').length,
+      candidateFailures: view.filter((r) => r.arm === 'candidate' && !pass(r)).length,
+      degenerate: false,
+    },
+  };
+}
+
+/** The shipped decision table (rules 0..13), untouched semantics; operates on
+ *  the normalized facts handed to it by classify(). */
+function classifyTable(rounds: readonly RoundFact[]): ClassificationResult {
   const baseline = rounds.filter((r) => r.arm === 'baseline');
   const candidate = rounds.filter((r) => r.arm === 'candidate');
 

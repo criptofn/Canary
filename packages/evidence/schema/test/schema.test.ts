@@ -20,6 +20,8 @@ function snapshotRef(arm: 'baseline' | 'candidate'): Record<string, unknown> {
   };
 }
 
+const GOLDEN_MOCHA_SHA = '68a0a02c18285db7d7aaa323b7e325c7402ca01c5020331bb370b687fbdea8c3';
+
 function goodBundle(): Record<string, unknown> {
   const round = (arm: 'baseline' | 'candidate', n: number) => ({
     arm, round: n, exitCode: arm === 'baseline' ? 0 : 3,
@@ -34,6 +36,29 @@ function goodBundle(): Record<string, unknown> {
     ...(arm === 'candidate'
       ? { reportedPassing: 2, reportedFailing: 3, failingTestNames: ['a test', 'b test', 'c test'] }
       : { reportedPassing: 5 }),
+    // Post-GLM panel E/H mirror: the classifier's gate (and this validator's
+    // independent mirror of it) refuse a strong label without a VALID Canary
+    // observation on every round — counts/identities agreeing with the text
+    // channel, runner identity equal to a Canary-pinned release, retained
+    // frame bytes. goodBundle is the canonical HONEST strong bundle, so its
+    // observation is what a real double/golden run records.
+    executionObservation: arm === 'candidate'
+      ? {
+          status: 'VALID',
+          observedCounts: { passing: 2, failing: 3, pending: 0 },
+          observedFailingIdentities: ['a test', 'b test', 'c test'],
+          expectedMochaVersion: '10.8.2', observedMochaVersion: '10.8.2',
+          expectedRunnerTreeSha256: GOLDEN_MOCHA_SHA, observedRunnerTreeSha256: GOLDEN_MOCHA_SHA,
+          framesSha256: 'e'.repeat(64), frameCount: 9,
+        }
+      : {
+          status: 'VALID',
+          observedCounts: { passing: 5, failing: 0, pending: 0 },
+          observedFailingIdentities: [],
+          expectedMochaVersion: '10.8.2', observedMochaVersion: '10.8.2',
+          expectedRunnerTreeSha256: GOLDEN_MOCHA_SHA, observedRunnerTreeSha256: GOLDEN_MOCHA_SHA,
+          framesSha256: 'e'.repeat(64), frameCount: 8,
+        },
     startedAt: '2026-08-30T00:00:00Z', durationMs: 120,
     rawStdoutSha256: H, rawStderrSha256: H,
     normalizedStdoutSha256: H, normalizedStderrSha256: H,
@@ -128,7 +153,16 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
     for (const r of b.rounds as Record<string, unknown>[]) {
       // reportedPassing 5 keeps the arms comparable (post-sol RB-2) so the
       // refusal tested here is the label/round contradiction, not coverage.
-      if (r.arm === 'candidate') { r.exitCode = 0; r.reportedPassing = 5; delete r.reportedFailing; delete r.failingTestNames; }
+      // Post-GLM H: BOTH channels must coherently say PASS — an observation
+      // still screaming 3 failures would be caught by the cross-channel gate
+      // (rule 14), not by the contradiction this test isolates. The lie here
+      // is the LABEL; every round fact, observed or printed, says PASS.
+      if (r.arm === 'candidate') {
+        r.exitCode = 0; r.reportedPassing = 5; delete r.reportedFailing; delete r.failingTestNames;
+        const o = r.executionObservation as Record<string, unknown>;
+        o.observedCounts = { passing: 5, failing: 0, pending: 0 };
+        o.observedFailingIdentities = [];
+      }
     }
     assert.ok(validateBundle(b).some((e) => /re-derivation from these rounds yields PASS rule 3/.test(e)),
       String(validateBundle(b)));
@@ -137,8 +171,12 @@ describe('validateBundle — semantic integrity (audit F3)', () => {
   it('rejects a CONFIRMED_REGRESSION built from rounds whose failure identities differ (must re-derive FLAKY rule 8)', () => {
     const b = goodBundle();
     // goodBundle carries two candidate rounds; diverging #2's identities
-    // makes the failing profiles disagree across repetitions.
+    // makes the failing profiles disagree across repetitions. The observation
+    // channel diverges TOO — the isolated lie is profile-instability (rule 8),
+    // not a cross-channel contradiction (rule 14 would preempt it).
     ((b.rounds as Record<string, unknown>[])[3]!).failingTestNames = ['other test', 'b test', 'c test'];
+    ((b.rounds as Record<string, unknown>[])[3]!.executionObservation as Record<string, unknown>)
+      .observedFailingIdentities = ['other test', 'b test', 'c test'];
     assert.ok(validateBundle(b).some((e) => /yields FLAKY rule 8/.test(e)), String(validateBundle(b)));
   });
 

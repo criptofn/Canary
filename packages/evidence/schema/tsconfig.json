@@ -2,5 +2,5 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": { "outDir": "dist", "rootDir": "." },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  "references": [{ "path": "../../core/classification" }, { "path": "../hashing" }]
+  "references": [{ "path": "../../core/classification" }, { "path": "../hashing" }, { "path": "../../support" }]
 }

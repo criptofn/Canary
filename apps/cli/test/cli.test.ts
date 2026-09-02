@@ -6,6 +6,14 @@
  * `node` scripts). Pins the contract documented in main.ts's header:
  *   check → exit 0 while the proof holds; 3 when artifacts are tampered;
  *   report → exit 3 on a fabricated bundle; version → 0; no args → 3.
+ *
+ * Post-GLM migration (same idiom as pipeline-e2e.test.ts): the stub fixture
+ * STAGES its fake node_modules (AM-2 refuses a fixture that SHIPS one), the
+ * prepare step materializes it after the audit AND lands the hash-pinned
+ * Canary mocha double, and the test command runs through $bin:mocha — so the
+ * CONFIRMED_REGRESSION bundle the CLI consumes carries REAL VALID
+ * observations (rule 14 makes prose-only runs structurally unable to earn a
+ * strong label). The exit-code/rendering assertions themselves are unchanged.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,6 +24,10 @@ import { after, describe, it } from 'node:test';
 
 import { runExperiment } from '../src/pipeline.js';
 import { sha256hex } from '@canary-rn/hashing';
+import {
+  writeStagedPayload, stageCommands, MOCHA_TEST_ARGV, widgetSpec, swapScript,
+  WIDGET_PKGS, assertDoubleObservation,
+} from './stub-harness.js';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..', '..', '..'); // dist/test -> dist -> cli -> apps -> repo root
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
@@ -30,23 +42,17 @@ const NODE = process.execPath;
 const cli = (repoRoot: string, args: string[]) =>
   spawnSync(NODE, [CLI, ...args], { cwd: repoRoot, encoding: 'utf8', timeout: 120_000 });
 
+/** Post-AM-2 stub: fake deps are STAGED (stub-payload/) and the generated
+ *  prepare stager materializes them + the Canary mocha double after the
+ *  audit; test.js is a real mocha spec (widget@1 green, widget@2 fails
+ *  exactly 'candidate breaks widget'). */
 function writeStub(stub: string): void {
-  fs.mkdirSync(path.join(stub, 'node_modules', 'widget'), { recursive: true });
+  fs.mkdirSync(stub, { recursive: true });
   fs.writeFileSync(path.join(stub, 'package.json'),
     JSON.stringify({ name: 'downstream', version: '1.0.0', dependencies: { widget: '1.0.0' } }));
-  fs.writeFileSync(path.join(stub, 'node_modules', 'widget', 'package.json'),
-    JSON.stringify({ name: 'widget', version: '1.0.0', main: 'index.js' }));
-  fs.writeFileSync(path.join(stub, 'node_modules', 'widget', 'index.js'), 'module.exports={}');
-  fs.writeFileSync(path.join(stub, 'test.js'), [
-    "const v = require('./node_modules/widget/package.json').version;",
-    "if (v !== '2.0.0') { console.log('  2 passing (1ms)'); process.exit(0); }",
-    "console.log('  1 passing (1ms)'); console.log('  1 failing'); console.log('');",
-    "console.log('  1) widget suite'); console.log('       candidate breaks widget:');",
-    "process.exit(1);",
-  ].join('\n'));
-  fs.writeFileSync(path.join(stub, 'swap.js'),
-    "const fs=require('fs');const p='./node_modules/widget/package.json';" +
-    "const j=JSON.parse(fs.readFileSync(p));j.version='2.0.0';fs.writeFileSync(p,JSON.stringify(j));");
+  writeStagedPayload(stub, WIDGET_PKGS);
+  fs.writeFileSync(path.join(stub, 'test.js'), widgetSpec());
+  fs.writeFileSync(path.join(stub, 'swap.js'), swapScript(false));
 }
 
 /** Offline confirmed-regression run staged as a repoRoot with spec + proof. */
@@ -59,9 +65,11 @@ async function stage(): Promise<{ repoRoot: string; specPath: string; artifactsD
     dependency: { package: 'widget', baseline: '1.0.0', candidate: '2.0.0' },
     downstream: { repo: 'stub/downstream', commit: FAKE_SHA },
     commands: {
-      prepare: [['node', '-e', "''"]],
+      // stage + land the pinned double (post-audit), then run the spec
+      // through $bin:mocha so every round carries a real VALID observation.
+      prepare: stageCommands({ mocha: true }),
       swap: ['node', 'swap.js', '{candidate}'],
-      test: ['node', 'test.js'],
+      test: [...MOCHA_TEST_ARGV],
     },
     repeats: { baseline: 2, candidate: 2 },
     timeoutSecs: { install: 120, test: 120 },
@@ -74,6 +82,9 @@ async function stage(): Promise<{ repoRoot: string; specPath: string; artifactsD
     extract: (_t, wsRoot) => fs.cpSync(stub, path.join(wsRoot, `downstream-${FAKE_SHA}`), { recursive: true }),
   });
   assert.equal(result.bundle.classification.label, 'CONFIRMED_REGRESSION');
+  // the CLI scenarios below all reason about this bundle, so its strong label
+  // must be EARNED (rule 14): every round VALID-attested by the pinned double.
+  assertDoubleObservation(result.bundle.rounds);
   const specPath = path.join(repoRoot, 'stub-cli.json');
   fs.writeFileSync(specPath, JSON.stringify(spec, null, 2));
   const b = result.bundle;

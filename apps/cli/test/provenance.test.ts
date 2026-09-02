@@ -19,6 +19,21 @@
  * to independent sources too (retained fixture.tgz + proof pin; committed
  * spec + trusted expansion on the proof host). The old loop below keeps the
  * naive assertions; the B4 matrix adds the RESEALED replays.
+ *
+ * Post-GLM (AM-2 + Finding A) migration: every scenario here depends on a
+ * REAL CONFIRMED_REGRESSION base run, so the stub now runs through the
+ * genuine observation channel — fake deps are STAGED and materialized by
+ * prepare (a fixture that ships node_modules is refused at audit), and the
+ * test command executes under the hash-pinned Canary mocha double via
+ * $bin:mocha. The bundles therefore carry VALID executionObservations
+ * produced by the actual injection mechanism, and the per-round artifact
+ * tuple is five files (each round's .attest.ndjson rides along — the
+ * observation bytes verifyArtifacts binds and verifyClassificationDerivation
+ * replays). No assertion was relaxed: where the new cross-channel mirror
+ * (validateBundle panel H) changes WHICH lie the forger must tell to keep a
+ * case testing byte re-derivation honest, the mutation is deepened and the
+ * case's expected catching layer is unchanged (see the identity-reseal
+ * case's comment).
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -35,6 +50,10 @@ import {
 } from '../src/prove.js';
 import { verifyTreeSnapshots } from '../src/verify-tree.js';
 import { sha256hex } from '@canary-rn/hashing';
+import {
+  writeStagedPayload, stageCommands, MOCHA_TEST_ARGV, widgetSpec, swapScript,
+  WIDGET_PKGS, assertDoubleObservation,
+} from './stub-harness.js';
 
 // Round-3 B3: the gate mirrors cmdProve — host-exactness is judged by the
 // ACTUAL runtime, sampled once (these tests run on the recording machine).
@@ -44,20 +63,16 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-prov-'));
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 const FAKE_SHA = 'a'.repeat(40);
 
+/** Post-GLM shape: the fake deps are STAGED (AM-2 — shipping node_modules is
+ *  refused at audit) and the double lands via prepare; test.js is the real
+ *  widgetSpec and swap.js REALLY bumps widget to 2.0.0 (the candidate
+ *  attestation refuses a tree that never moved). */
 function writeStub(dir: string): void {
-  fs.mkdirSync(path.join(dir, 'node_modules', 'widget'), { recursive: true });
+  fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'downstream', version: '1.0.0', dependencies: { widget: '1.0.0' } }));
-  fs.writeFileSync(path.join(dir, 'node_modules', 'widget', 'package.json'), JSON.stringify({ name: 'widget', version: '1.0.0', main: 'index.js' }));
-  fs.writeFileSync(path.join(dir, 'node_modules', 'widget', 'index.js'), 'module.exports={}');
-  fs.writeFileSync(path.join(dir, 'test.js'), [
-    "const v=require('./node_modules/widget/package.json').version;",
-    "if (v !== '2.0.0') { console.log('  2 passing (1ms)'); process.exit(0); }",
-    "console.log('  1 passing (1ms)'); console.log('  1 failing'); console.log('');",
-    "console.log('  1) widget suite'); console.log('       candidate breaks widget:');",
-    "process.exit(1);",
-  ].join('\n'));
-  fs.writeFileSync(path.join(dir, 'swap.js'),
-    "const fs=require('fs');const p='./node_modules/widget/package.json';const j=JSON.parse(fs.readFileSync(p));j.version='2.0.0';fs.writeFileSync(p,JSON.stringify(j));");
+  writeStagedPayload(dir, WIDGET_PKGS);
+  fs.writeFileSync(path.join(dir, 'test.js'), widgetSpec());
+  fs.writeFileSync(path.join(dir, 'swap.js'), swapScript(false));
 }
 
 async function realRun(): Promise<{ bundle: EvidenceBundle; artifactsDir: string; proof: ProofExpectation; spec: TrustedRunSpec }> {
@@ -69,7 +84,7 @@ async function realRun(): Promise<{ bundle: EvidenceBundle; artifactsDir: string
   const spec = {
     schema: 2, id: 'prov', dependency: { package: 'widget', baseline: '1.0.0', candidate: '2.0.0' },
     downstream: { repo: 'stub/downstream', commit: FAKE_SHA },
-    commands: { prepare: [['node', '-e', "''"]], swap: ['node', 'swap.js', '{candidate}'], test: ['node', 'test.js'] },
+    commands: { prepare: stageCommands({ mocha: true }), swap: ['node', 'swap.js', '{candidate}'], test: [...MOCHA_TEST_ARGV] },
     repeats: { baseline: 2, candidate: 2 }, timeoutSecs: { install: 120, test: 120 },
   } satisfies TrustedRunSpec & Record<string, unknown>;
   // The fetch stub must declare the REAL digest of its bytes: the pipeline
@@ -81,6 +96,10 @@ async function realRun(): Promise<{ bundle: EvidenceBundle; artifactsDir: string
   });
   assert.equal(result.bundle.classification.label, 'CONFIRMED_REGRESSION', 'pristine run must confirm');
   const b = result.bundle;
+  // Post-GLM Finding A: the rule-5 was EARNED — every round carries a VALID
+  // Canary observation of the pinned double agreeing with the text channel.
+  // Every forgery below reseals a bundle that legitimately holds these.
+  assertDoubleObservation(b.rounds);
   const hashes = (arm: 'baseline' | 'candidate') => b.rounds.filter((r) => r.arm === arm).map((r) => r.normalizedStdoutSha256);
   const proof: ProofExpectation = {
     schema: 1, experimentId: 'prov', evidenceSchema: 1,
@@ -169,7 +188,20 @@ describe('audit B4 — provenance forgery matrix (which layer refuses)', () => {
     assert.match(g.detail, /coverage guard/);
   });
   it('rewriting failing-test identities is caught by byte re-derivation (resealed)', async () => {
-    const g = await forge((b) => { for (const c of b.rounds) if (c.arm === 'candidate') c.failingTestNames = ['a consistent wrong name']; }, true);
+    // Post-GLM deepening: the forger must now lie on BOTH bundle channels —
+    // rewrite the text identities AND launder the recorded observation's
+    // identities to match — or validateBundle's panel-H cross-channel mirror
+    // refuses the bundle itself (a weaker resealed lie dies even earlier;
+    // the 'one round forged' case below shows that). With the laundered pair
+    // the bundle is fully self-consistent, so only the retained BYTES — the
+    // stdout/stderr artifact (and the frame stream behind framesSha256) —
+    // can refute it. Same premise, same catching layer, same assertion.
+    const g = await forge((b) => {
+      for (const c of b.rounds) if (c.arm === 'candidate') {
+        c.failingTestNames = ['a consistent wrong name'];
+        (c.executionObservation as unknown as { observedFailingIdentities: string[] }).observedFailingIdentities = ['a consistent wrong name'];
+      }
+    }, true);
     assert.equal(g.layer, 'verifyArtifactSemantics', JSON.stringify(g));
     assert.match(g.detail, /failingTestNames/, JSON.stringify(g));
   });

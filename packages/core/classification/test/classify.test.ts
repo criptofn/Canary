@@ -1,7 +1,45 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { applyConfinementGuard, classify, identityCoverage, infraCause, type RoundFact } from '../src/index.js';
+import { applyConfinementGuard, classify, observationSatisfied, observationGateIssue, identityCoverage, infraCause, type RoundFact } from '../src/index.js';
+
+/**
+ * Post-GLM: attach a VALID executionObservation that AGREES with the fact's
+ * text channel (counts and identities derived FROM the text, so the
+ * cross-channel agreement the gate demands holds by construction). Tests
+ * that still expect a STRONG label (PASS / CONFIRMED_REGRESSION /
+ * PRE_EXISTING_FAILURE / FLAKY) must run their facts through this — prose
+ * alone can no longer reach those labels. Tests that exercise the gate
+ * itself deliberately do NOT.
+ *
+ * The version/tree/frame-digest fields are placeholder constants: the
+ * classifier gate reads status + counts + identities + exit only. Proving
+ * those values is the job of the capture validator and the schema mirror,
+ * tested at their own layers with real bytes.
+ */
+function attested(f: RoundFact): RoundFact {
+  const counts = {
+    passing: f.reportedPassing ?? 0,
+    failing: f.reportedFailing ?? 0,
+    pending: f.reportedPending ?? 0,
+  };
+  return {
+    ...f,
+    executionObservation: {
+      status: 'VALID',
+      frameCount: 2 + counts.passing + counts.failing + counts.pending,
+      framesSha256: 'c'.repeat(64),
+      observedCounts: counts,
+      observedFailingIdentities: [...new Set(f.failingTestNames ?? [])].sort(),
+      expectedMochaVersion: '10.8.2',
+      observedMochaVersion: '10.8.2',
+      expectedRunnerTreeSha256: 'd'.repeat(64),
+      observedRunnerTreeSha256: 'd'.repeat(64),
+    },
+  };
+}
+/** classify() over fully-attested facts — the strong-verdict path. */
+const classifyAttested = (facts: RoundFact[]) => classify(facts.map(attested));
 
 /** Build a healthy test round (runner summary present, no infra noise).
  *  Failing rounds carry a parseable failing count: post-audit-F1 semantics
@@ -24,13 +62,13 @@ function arm(kind: 'baseline' | 'candidate', round: number, pass = true): RoundF
 
 describe('classify — decision table (docs/PLAN.md section 6)', () => {
   it('rule 3: baseline unanimous pass + candidate unanimous pass -> PASS', () => {
-    const r = classify([arm('baseline', 1), arm('baseline', 2), arm('candidate', 1), arm('candidate', 2)]);
+    const r = classifyAttested([arm('baseline', 1), arm('baseline', 2), arm('candidate', 1), arm('candidate', 2)]);
     assert.equal(r.classification, 'PASS');
     assert.equal(r.rule, 3);
   });
 
   it('rule 5: baseline passes, all candidate rounds fail -> CONFIRMED_REGRESSION', () => {
-    const r = classify([
+    const r = classifyAttested([
       arm('baseline', 1), arm('baseline', 2),
       arm('candidate', 1, false), arm('candidate', 2, false), arm('candidate', 3, false),
     ]);
@@ -40,7 +78,7 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
   });
 
   it('rule 4: baseline fails with real summaries + candidate fails -> PRE_EXISTING_FAILURE', () => {
-    const r = classify([arm('baseline', 1, false), arm('baseline', 2, false), arm('candidate', 1, false)]);
+    const r = classifyAttested([arm('baseline', 1, false), arm('baseline', 2, false), arm('candidate', 1, false)]);
     assert.equal(r.classification, 'PRE_EXISTING_FAILURE');
     assert.equal(r.rule, 4);
   });
@@ -72,13 +110,13 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
   });
 
   it('rule 2: split baseline -> FLAKY (experiment invalid)', () => {
-    const r = classify([arm('baseline', 1), arm('baseline', 2, false), arm('candidate', 1, false)]);
+    const r = classifyAttested([arm('baseline', 1), arm('baseline', 2, false), arm('candidate', 1, false)]);
     assert.equal(r.classification, 'FLAKY');
     assert.equal(r.rule, 2);
   });
 
   it('rule 7: clean baseline, mixed candidate -> FLAKY, not CONFIRMED', () => {
-    const r = classify([
+    const r = classifyAttested([
       arm('baseline', 1),
       arm('candidate', 1, false), arm('candidate', 2), arm('candidate', 3, false),
     ]);
@@ -158,7 +196,7 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
   });
 
   it('audit B2 positive control: a valid zero-failure run (N>0 passing, exit 0) still PASSES', () => {
-    const r = classify([arm('baseline', 1), arm('baseline', 2), arm('candidate', 1), arm('candidate', 2)]);
+    const r = classifyAttested([arm('baseline', 1), arm('baseline', 2), arm('candidate', 1), arm('candidate', 2)]);
     assert.equal(r.classification, 'PASS');
     assert.equal(r.rule, 3);
   });
@@ -183,7 +221,7 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
   });
 
   it('audit F2: candidate rounds failing DIFFERENT counts -> FLAKY rule 8, not CONFIRMED_REGRESSION', () => {
-    const r = classify([
+    const r = classifyAttested([
       arm('baseline', 1), arm('baseline', 2),
       { ...arm('candidate', 1, false), reportedFailing: 3, failingTestNames: ['a', 'b', 'c'] },
       { ...arm('candidate', 2, false), reportedFailing: 5, failingTestNames: ['a', 'b', 'c', 'd', 'e'] },
@@ -193,7 +231,7 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
   });
 
   it('audit F2: same count but DIFFERENT failing-test identities -> FLAKY rule 8', () => {
-    const r = classify([
+    const r = classifyAttested([
       arm('baseline', 1), arm('baseline', 2),
       { ...arm('candidate', 1, false), reportedFailing: 2, failingTestNames: ['alpha', 'beta'] },
       { ...arm('candidate', 2, false), reportedFailing: 2, failingTestNames: ['alpha', 'gamma'] },
@@ -222,7 +260,7 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
         'passes multipart/form-data with the right boundary',
       ],
     });
-    const r = classify([
+    const r = classifyAttested([
       arm('baseline', 1), arm('baseline', 2), golden(1), golden(2), golden(3),
     ]);
     assert.equal(r.classification, 'CONFIRMED_REGRESSION');
@@ -230,7 +268,7 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
   });
 
   it('audit F2: profile comparison is order-independent (sorted identities)', () => {
-    const r = classify([
+    const r = classifyAttested([
       arm('baseline', 1), arm('baseline', 2),
       // reportedPassing 3 keeps executed=5 comparable across arms (post-sol RB-2)
       { ...arm('candidate', 1, false), reportedPassing: 3, reportedFailing: 2, failingTestNames: ['beta', 'alpha'] },
@@ -240,7 +278,7 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
   });
 
   it('audit F2: unstable baseline failure identities block PRE_EXISTING_FAILURE -> FLAKY', () => {
-    const r = classify([
+    const r = classifyAttested([
       { ...arm('baseline', 1, false), reportedFailing: 1, failingTestNames: ['x'] },
       { ...arm('baseline', 2, false), reportedFailing: 1, failingTestNames: ['y'] },
       { ...arm('candidate', 1, false), reportedFailing: 1, failingTestNames: ['y'] },
@@ -267,16 +305,18 @@ describe('classify — decision table (docs/PLAN.md section 6)', () => {
     const facts: RoundFact[] = [
       arm('baseline', 1), arm('candidate', 1, false), arm('candidate', 2, false),
     ];
-    const a = classify(facts);
-    const b = classify(facts);
+    const a = classifyAttested(facts);
+    const b = classifyAttested(facts);
     assert.deepEqual(a, b);
   });
 });
 
 describe('audit F9/B6 — applyConfinementGuard (rules 9 + 10, enforced not decorative)', () => {
+  // attested here: every test in this block needs the PRE-guard verdict to
+  // be the strong one the guard then operates on.
   const confirmedFacts: RoundFact[] = [
     arm('baseline', 1), arm('baseline', 2), arm('candidate', 1, false), arm('candidate', 2, false),
-  ];
+  ].map(attested);
   const VALID = { baselineStatus: 'VALID', candidateStatus: 'VALID' } as const;
 
   it('downgrades CONFIRMED_REGRESSION to INCONCLUSIVE rule 9 when drift is unconfined', () => {
@@ -306,11 +346,11 @@ describe('audit F9/B6 — applyConfinementGuard (rules 9 + 10, enforced not deco
   });
 
   it('downgrades PASS and PRE_EXISTING_FAILURE too (any trustful verdict needs comparable arms)', () => {
-    const passCls = classify([arm('baseline', 1), arm('candidate', 1), arm('candidate', 2)]);
+    const passCls = classifyAttested([arm('baseline', 1), arm('candidate', 1), arm('candidate', 2)]);
     assert.equal(passCls.classification, 'PASS');
     assert.equal(applyConfinementGuard(passCls, { confined: false, other: ['x'], dependency: 'axios', ...VALID }).rule, 9);
 
-    const preCls = classify([arm('baseline', 1, false), arm('candidate', 1, false)]);
+    const preCls = classifyAttested([arm('baseline', 1, false), arm('candidate', 1, false)]);
     assert.equal(preCls.classification, 'PRE_EXISTING_FAILURE');
     assert.equal(applyConfinementGuard(preCls, { confined: false, other: ['x'], dependency: 'axios', ...VALID }).rule, 9);
   });
@@ -421,14 +461,14 @@ describe('round-3 blocker 1 — identity coverage gates trustful verdicts', () =
   it('genuinely distinct root failures stay distinct (rule 8 FLAKY, not coverage, not CONFIRMED)', () => {
     // Post-fix the parser yields one identity per root failure; identical
     // rounds still CONFIRM (below), differing rounds are FLAKY (here).
-    const r = classify([
+    const r = classifyAttested([
       arm('baseline', 1), arm('baseline', 2),
       failRound('candidate', 1, 2, ['root alpha', 'root beta']),
       failRound('candidate', 2, 2, ['root alpha', 'root gamma']),
     ]);
     assert.equal(r.classification, 'FLAKY');
     assert.equal(r.rule, 8);
-    const same = classify([
+    const same = classifyAttested([
       arm('baseline', 1), arm('baseline', 2),
       failRound('candidate', 1, 2, ['root alpha', 'root beta']),
       failRound('candidate', 2, 2, ['root beta', 'root alpha']),
@@ -438,7 +478,7 @@ describe('round-3 blocker 1 — identity coverage gates trustful verdicts', () =
   });
 
   it('fully-accounted root-level identities CONFIRM (conservatism must not break real proofs)', () => {
-    const r = classify([
+    const r = classifyAttested([
       arm('baseline', 1), arm('baseline', 2),
       failRound('candidate', 1, 3, ['root alpha', 'suite B > inner test', 'suite C > other']),
       failRound('candidate', 2, 3, ['root alpha', 'suite B > inner test', 'suite C > other']),
@@ -516,7 +556,7 @@ describe('round-3 blocker 2 — pending tests are NOT executed assertions', () =
       arm, round, exitCode: 0, hasRunnerSummary: true, infraSignal: false,
       reportedPassing: 1, reportedFailing: 0, reportedPending: 99,
     });
-    const r = classify([light('baseline', 1), light('baseline', 2), light('candidate', 1), light('candidate', 2)]);
+    const r = classifyAttested([light('baseline', 1), light('baseline', 2), light('candidate', 1), light('candidate', 2)]);
     assert.equal(r.classification, 'PASS');
   });
 
@@ -612,7 +652,7 @@ describe('post-sol RB-2 — coverage consistency gates strong verdicts', () => {
   });
 
   it('Sol case 2: baseline repetitions 128 then 1 (both exit 0) is NOT PASS', () => {
-    const r = classify([b(1, 128), b(2, 1), cPass(1, 1), cPass(2, 1)]);
+    const r = classifyAttested([b(1, 128), b(2, 1), cPass(1, 1), cPass(2, 1)]);
     assert.equal(r.classification, 'FLAKY');
     assert.equal(r.rule, 12);
     assert.match(r.reason, /repetitions differ in observed test coverage/);
@@ -632,7 +672,7 @@ describe('post-sol RB-2 — coverage consistency gates strong verdicts', () => {
 
   // ---- the invariant must NOT break legitimate verdicts ----
   it('Axios golden shape (128 passing -> 125 passing / 3 failing) STILL classifies CONFIRMED_REGRESSION rule 5', () => {
-    const r = classify([
+    const r = classifyAttested([
       b(1, 128), b(2, 128),
       cFail(1, 125, 3), cFail(2, 125, 3), cFail(3, 125, 3),
     ]);
@@ -641,13 +681,13 @@ describe('post-sol RB-2 — coverage consistency gates strong verdicts', () => {
   });
 
   it('a passing->failing move at stable totals is a regression, not a coverage gap', () => {
-    const r = classify([b(1, 10), b(2, 10), cFail(1, 8, 2), cFail(2, 8, 2)]);
+    const r = classifyAttested([b(1, 10), b(2, 10), cFail(1, 8, 2), cFail(2, 8, 2)]);
     assert.equal(r.classification, 'CONFIRMED_REGRESSION');
     assert.equal(r.rule, 5);
   });
 
   it('one executed test on BOTH arms, stable across repetitions, still PASSES (no hard-coded minimum)', () => {
-    const r = classify([b(1, 1), b(2, 1), cPass(1, 1), cPass(2, 1)]);
+    const r = classifyAttested([b(1, 1), b(2, 1), cPass(1, 1), cPass(2, 1)]);
     assert.equal(r.classification, 'PASS');
     assert.equal(r.rule, 3);
   });
@@ -666,7 +706,7 @@ describe('post-sol RB-2 — coverage consistency gates strong verdicts', () => {
   });
 
   it('rule 12 fires on candidate-side instability too (one repeat loses a test, both exit 0)', () => {
-    const r = classify([b(1, 5), b(2, 5), cPass(1, 5), cPass(2, 4)]);
+    const r = classifyAttested([b(1, 5), b(2, 5), cPass(1, 5), cPass(2, 4)]);
     assert.equal(r.classification, 'FLAKY');
     assert.equal(r.rule, 12);
   });
@@ -685,7 +725,7 @@ describe('post-sol RB-2 — coverage consistency gates strong verdicts', () => {
   });
 
   it('weak outputs are never inflated by the new rules: mixed candidate with a coverage gap stays FLAKY (rule 7), infra wins over coverage (rule 1)', () => {
-    const mixed = classify([b(1, 5), b(2, 5), cPass(1, 5), cFail(2, 0, 1)]);
+    const mixed = classifyAttested([b(1, 5), b(2, 5), cPass(1, 5), cFail(2, 0, 1)]);
     assert.ok(['FLAKY'].includes(mixed.classification), mixed.classification);
     assert.notEqual(mixed.rule, 5);
     const infraFirst = classify([b(1, 5), b(2, 5), cPass(1, 5, 120), { ...cPass(2, 5, 120), infraSignal: true }]);
@@ -709,7 +749,131 @@ describe('post-sol RB-2 — coverage consistency gates strong verdicts', () => {
     // run facts alone; the committed proof (pinned summary/counts) is the
     // external anchor. This test pins the boundary of rule 13 — no
     // hard-coded minimum is smuggled back in.
-    const r = classify([b(1, 1), b(2, 1), cPass(1, 1), cPass(2, 1)]);
+    const r = classifyAttested([b(1, 1), b(2, 1), cPass(1, 1), cPass(2, 1)]);
     assert.equal(r.classification, 'PASS');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST-GLM OBSERVATION HARDENING — THE EXECUTION-OBSERVATION GATE (rule 14).
+// The audited hole at THIS layer: every execution fact the table consumes was
+// PARSED FROM SUBJECT STDOUT, so prose alone could produce PASS /
+// CONFIRMED_REGRESSION / PRE_EXISTING_FAILURE / FLAKY. The gate makes strong
+// labels structurally unreachable unless every round carries a VALID
+// Canary-observation agreeing with the text. These unit tests pin the gate's
+// mechanics; the end-to-end reproducer (a real CLI run of the exact GLM
+// forgery) lives in apps/cli/test/execution-authority.test.ts.
+// ---------------------------------------------------------------------------
+describe('post-GLM — execution-observation gate (rule 14)', () => {
+  it('the GLM shape: unanimous "passing" prose with NO observation -> INCONCLUSIVE rule 14, never PASS', () => {
+    // Classifier-level twin of `node -e console.log('128 passing (1s)')`:
+    // text-perfect healthy rounds, zero Canary-observed execution.
+    const r = classify([arm('baseline', 1), arm('baseline', 2), arm('candidate', 1), arm('candidate', 2)]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 14);
+    assert.match(r.reason, /executionObservation=missing/);
+    assert.match(r.reason, /previously rule 3 PASS/);
+  });
+
+  it('a VALID observation that LIES about counts is caught (text 5/0/0 vs observed 42/0/0)', () => {
+    const liar = attested(arm('candidate', 1));
+    liar.executionObservation!.observedCounts = { passing: 42, failing: 0, pending: 0 };
+    const r = classify([attested(arm('baseline', 1)), attested(arm('baseline', 2)), liar]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 14);
+    assert.match(r.reason, /observed 42\/0\/0 disagrees with text 5\/0\/0/);
+  });
+
+  it('a VALID observation whose failing identities differ from the text is caught', () => {
+    const liar = attested(arm('candidate', 1, false));
+    liar.executionObservation!.observedFailingIdentities = ['invented > lie'];
+    const r = classify([attested(arm('baseline', 1)), attested(arm('baseline', 2)), liar]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 14);
+    assert.match(r.reason, /observed failing identities disagree/);
+    assert.match(r.reason, /previously rule 5 CONFIRMED_REGRESSION/);
+  });
+
+  it('FLAKY is gated too: a split baseline WITHOUT observation is rule 14, not FLAKY', () => {
+    // "Tests ran, with differing results" is still an execution claim.
+    const r = classify([arm('baseline', 1), arm('baseline', 2, false), arm('candidate', 1, false)]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 14);
+    assert.match(r.reason, /previously rule 2 FLAKY/);
+  });
+
+  it('PRE_EXISTING_FAILURE is gated: fail/fail/fail prose is rule 14 (the guard also gates the honest direction)', () => {
+    const r = classify([arm('baseline', 1, false), arm('baseline', 2, false), arm('candidate', 1, false)]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 14);
+    assert.match(r.reason, /previously rule 4 PRE_EXISTING_FAILURE/);
+  });
+
+  it('status ABSENT is not "weak-but-fine": an explicit ABSENT observation gates like a missing one', () => {
+    const f = attested(arm('candidate', 1));
+    f.executionObservation!.status = 'ABSENT';
+    const r = classify([attested(arm('baseline', 1)), attested(arm('baseline', 2)), f]);
+    assert.equal(r.rule, 14);
+    assert.match(r.reason, /executionObservation=ABSENT/);
+  });
+
+  it('the gate reports the FIRST offending round in bundle order (deterministic reason)', () => {
+    const issue = observationGateIssue([arm('baseline', 1), arm('baseline', 2), arm('candidate', 1)])!;
+    assert.match(issue, /^round baseline#1 has executionObservation=missing/);
+  });
+
+  it('observationGateIssue: both exit-contradiction directions fail a VALID observation', () => {
+    // masked: watched failures > 0 but the runner exited 0.
+    const masked = attested({ ...arm('candidate', 1, false), exitCode: 0 });
+    assert.match(observationGateIssue([masked])!, /1 observed failures but exit=0 \(masked failure\)/);
+    // died outside: nothing observed failing but a nonzero exit.
+    const died = attested({ ...arm('candidate', 1), exitCode: 7 });
+    assert.match(observationGateIssue([died])!, /zero observed failures but exit=7 \(died outside watched tests\)/);
+    // control: the same facts with exit codes that agree pass the predicate.
+    assert.equal(observationGateIssue([attested(arm('candidate', 1)), attested(arm('candidate', 2, false))]), null);
+  });
+
+  it('observationSatisfied agrees with the gate on both paths', () => {
+    assert.equal(observationSatisfied([]), true); // vacuous — classify() rules this rule 0, not 14
+    assert.equal(observationSatisfied([arm('baseline', 1)]), false);
+    assert.equal(observationSatisfied([attested(arm('baseline', 1)), attested(arm('candidate', 1))]), true);
+  });
+
+  it('a VALID observation whose identity array is missing/malformed is a REFUSAL, not a crash', () => {
+    // Hostile-data path: bundles arrive cast from disk (validateBundle and the
+    // prove replay both hand classify() RoundFact-shaped RECORDS, not
+    // constructor-checked objects). A malformed field must produce rule 14 —
+    // the gate CANNOT be crashed into silence. Regression: this threw
+    // TypeError ("observedFailingIdentities is not iterable") from inside
+    // attestedView until the panel-K battery's deletion-matrix caught it.
+    const broken = {
+      ...attested(arm('baseline', 1)),
+      executionObservation: (() => {
+        const o = attested(arm('baseline', 1)).executionObservation as unknown as Record<string, unknown>;
+        delete o.observedFailingIdentities;
+        return o;
+      })(),
+    } as unknown as RoundFact;
+    const gate = observationGateIssue([broken]);
+    assert.ok(gate, 'malformed VALID observation must not satisfy the gate');
+    assert.match(gate, /observedFailingIdentities is not an array/);
+    const r = classify([broken, attested(arm('candidate', 1))]);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 14);
+    // and observationSatisfied stays a total function on hostile input:
+    assert.equal(observationSatisfied([broken]), false);
+  });
+
+  it('weak paths are NOT gated: rule 0/rule 1 keep their rule numbers without any observation', () => {
+    // An empty-ish bundle must report "missing arms" (rule 0), not claim the
+    // gate fired — the gate downgrades claims, it never fabricates structure.
+    const r0 = classify([arm('baseline', 1)]);
+    assert.equal(r0.rule, 0);
+    const degenerate = (kind: 'baseline' | 'candidate', round: number): RoundFact => ({
+      arm: kind, round, exitCode: 1, hasRunnerSummary: false, infraSignal: false,
+    });
+    const r1 = classify([degenerate('baseline', 1), degenerate('candidate', 1)]);
+    assert.equal(r1.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(r1.rule, 1);
   });
 });

@@ -188,6 +188,7 @@
           "arm",
           "durationMs",
           "envKeys",
+          "executionObservation",
           "exitCode",
           "hasRunnerSummary",
           "killedByTimeout",
@@ -246,6 +247,97 @@
           },
           "sweepFailed": {
             "type": "boolean"
+          },
+          "executionObservation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "frameCount",
+              "framesSha256",
+              "observedFailingIdentities",
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "VALID",
+                  "ABSENT",
+                  "INVALID"
+                ]
+              },
+              "observedFailingIdentities": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "framesSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "frameCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "observedCounts": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "failing",
+                  "passing",
+                  "pending"
+                ],
+                "properties": {
+                  "passing": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "failing": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "pending": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "expectedMochaVersion": {
+                "type": "string",
+                "minLength": 1
+              },
+              "observedMochaVersion": {
+                "type": "string",
+                "minLength": 1
+              },
+              "expectedRunnerTreeSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "observedRunnerTreeSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "invalidReason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "absentKind": {
+                "enum": [
+                  "not-mocha-bin",
+                  "no-injection",
+                  "runner-identity-unpinned"
+                ]
+              },
+              "strayFd3Bytes": {
+                "type": "boolean"
+              },
+              "strayFd3Sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
           },
           "startedAt": {
             "type": "string",

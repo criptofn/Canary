@@ -12,11 +12,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runCommand, CanaryError, type RunOptions, type RunOutcome, type WorkspaceLayout } from '@canary-rn/support';
+import {
+  runCommand, CanaryError, locateRunnerPackage, findRunnerPin,
+  type RunOptions, type RunOutcome, type WorkspaceLayout,
+} from '@canary-rn/support';
 import { normalize, type Normalizer } from '@canary-rn/normalizers';
 import { sha256hex } from '@canary-rn/hashing';
 import { extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
-import type { RoundFact } from '@canary-rn/classification';
+import type { AbsentKind, ExecutionObservation, RoundFact } from '@canary-rn/classification';
+import { validateObservation } from './observation.js';
+import {
+  OBSERVER_MOCHA_ANCHOR_REL, ensureObserverPreload, observerPreloadPath,
+} from './observer-preload.js';
+
+export { validateObservation, OBSERVER_VERSION, type ValidateInput } from './observation.js';
+export {
+  OBSERVER_PRELOAD_BASENAME, OBSERVER_PRELOAD_SOURCE, OBSERVER_MOCHA_ANCHOR_REL,
+  observerPreloadPath, ensureObserverPreload,
+} from './observer-preload.js';
 
 export interface ExecutorDeps {
   ws: WorkspaceLayout;
@@ -558,6 +571,38 @@ export function pmArgvPolicy(cmd: readonly string[]): PmPolicy {
   return policy;
 }
 
+/**
+ * The injection decision for one expanded command (panel I). `absentKind`
+ * explains an ABSENT round when injection was NOT attempted — every field
+ * here is Canary-derived (pin-table values + bytes Canary hashed), and the
+ * bundle records it verbatim per round; prove re-derives it through the same
+ * expandArgvWithPlan over the retained fixture.
+ */
+export interface ExpansionPlan {
+  injected: boolean;
+  absentKind: AbsentKind | null;
+  expectedMochaVersion?: string | undefined;
+  expectedRunnerTreeSha256?: string | undefined;
+  observedRunnerTreeSha256?: string | undefined;
+}
+
+/**
+ * mocha's --require in the forms that ACTUALLY load a module (panel I):
+ * the exact flag, every unambiguous abbreviation (yargs resolves --req..
+ * --requir to it), and the -r shorthand (attached or separate). The check
+ * is over-strict on lookalikes (unknown-option typos die too) — acceptable
+ * because the alternative is a preload set that is not provably closed.
+ * Case-sensitive by design: mocha's option names are lowercase, and
+ * --REQUIRE is an unknown option mocha itself rejects (round fails, no
+ * silent load).
+ */
+export function isRequireToken(tok: string): boolean {
+  const head = tok.split('=')[0]!;
+  if (/^--req(u(i(r(e)?)?)?)?$/.test(head)) return true;
+  if (head.startsWith('-') && !head.startsWith('--') && /^-r/.test(head)) return true;
+  return false;
+}
+
 export class Recorder {
   private counts = new Map<string, number>();
   readonly facts: RoundFact[] = [];
@@ -568,19 +613,30 @@ export class Recorder {
   }
 
   /**
-   * Expand spec tokens to concrete argv and ENFORCE Canary's isolation policy
-   * on any package-manager command (audit B5, post-sol RB-1). For install/-
-   * update-family subcommands the isolation flags are APPENDED LAST (npm's
-   * CLI layer is last-wins, probe-verified), the option surface is a closed
-   * exact-spelling allowlist prefix-disjoint from the protected keys, and
-   * the subcommand is validated against a closed allowlist before the
-   * command is ever allowed to expand.
+   * Expand spec tokens AND make the execution-observation injection decision
+   * (post-GLM panel AM-1/I — the ONLY path to a strong label):
+   *  - the `$bin:mocha` package is located + canonically hashed on disk;
+   *  - injection proceeds ONLY if (name, version, treeHash) hits a
+   *    Canary-repo pin AND the package sits at the canonical fixture path
+   *    (the same anchor the preload uses — a hoisted install is not
+   *    injectable, "SUPPORTED TRUSTED MOCHA ADAPTER" honesty);
+   *  - miss ⇒ natural argv, `absentKind: 'runner-identity-unpinned'`;
+   *  - the subject's own `--require`/`-r` token (or unambiguous abbreviation)
+   *    in a mocha command ⇒ CanaryError → InfraAbort → INFRASTRUCTURE_
+   *    FAILURE: the set of modules mocha loads at start MUST stay closed to
+   *    Canary's injection, or "Canary injected exactly one observer" is false;
+   *  - hit ⇒ `['--require', <preload>]` appended LAST (RB-1's last-wins
+   *    spirit; mocha's --require is repeatable, position cannot override a
+   *    loaded module, so refusal above is what keeps this sound).
+   * The returned plan is recorded per round into the bundle; prove flows
+   * deriveExpectedRoundArgv through THIS method, so injection parity between
+   * capture and verification is structural, not a re-implementation.
    */
-  expandArgv(
+  expandArgvWithPlan(
     cmd: readonly string[],
     subs: { dep: string; baseline: string; candidate: string },
     resolveBin: (pkg: string, key?: string) => string,
-  ): string[] {
+  ): { argv: string[]; plan: ExpansionPlan } {
     const d = this.deps;
     const tool = cmd[0];
     // B5.1: raw package-manager forms are rejected for EVERY spec command,
@@ -605,11 +661,14 @@ export class Recorder {
     // structurally Canary's no matter how an accepted user token was
     // spelled or positioned.
     const out: string[] = [];
+    let mochaBin: string | undefined;
+    const requireClaims: string[] = [];
     cmd.forEach((raw) => {
       const t = raw
         .replaceAll('{dep}', subs.dep)
         .replaceAll('{candidate}', subs.candidate)
         .replaceAll('{baseline}', subs.baseline);
+      if (isRequireToken(raw) || isRequireToken(t)) requireClaims.push(t);
       if (t === '$npm') out.push(process.execPath, d.npmCli);
       else if (t === '$yarn') {
         // npm-exec bootstrap of the pinned yarn itself must not run scripts (F6)
@@ -629,7 +688,9 @@ export class Recorder {
             'raw-package-manager',
           );
         }
-        out.push(process.execPath, i === -1 ? resolveBin(s) : resolveBin(s.slice(0, i), s.slice(i + 1)));
+        const binPath = i === -1 ? resolveBin(s) : resolveBin(s.slice(0, i), s.slice(i + 1));
+        if (pkg === 'mocha' && mochaBin === undefined) mochaBin = binPath;
+        out.push(process.execPath, binPath);
       } else out.push(t);
     });
 
@@ -647,11 +708,66 @@ export class Recorder {
             '--cache-folder', path.join(d.ws.root, 'yarn-cache')];
       out.push(...flags);
     }
-    return out;
+
+    // ── Execution-observation injection decision (panel AM-1/I) ─────────
+    // Unpinned bytes ⇒ NO injection at all ⇒ the round is ABSENT evidence
+    // with the reason recorded — strong labels become structurally
+    // unreachable without Canary ever attempting an observation (the honest
+    // failure mode of a double / an unpinned mocha / a hoisted install).
+    const plan: ExpansionPlan = { injected: false, absentKind: 'not-mocha-bin' };
+    if (mochaBin !== undefined) {
+      if (requireClaims.length > 0) {
+        throw new CanaryError(
+          `mocha spec argv carries Canary's protected preload flag (${requireClaims.join(', ')}): --require/-r in a $bin:mocha command would open the preload set beyond Canary's own observer — refusing the round fail-closed`,
+          'subject-require-refused',
+        );
+      }
+      const located = locateRunnerPackage(mochaBin, 'mocha');
+      if (located) plan.observedRunnerTreeSha256 = located.treeSha256;
+      const canonical = path.resolve(d.ws.fixture, ...OBSERVER_MOCHA_ANCHOR_REL);
+      const pin = located ? findRunnerPin(located) : null;
+      if (located && pin && located.dir === canonical) {
+        out.push('--require', observerPreloadPath(d.ws));
+        plan.injected = true;
+        plan.absentKind = null;
+        // ONLY the PIN's version ever becomes expectedMochaVersion: the
+        // subject's package.json string was used to LOCATE the entry, and a
+        // miss records nothing from it (panel E: expected* ⇒ injection
+        // attempted; a subject-claimed version may never ride into a bundle
+        // on an ABSENT round as if Canary had trusted it).
+        plan.expectedMochaVersion = pin.version;
+        plan.expectedRunnerTreeSha256 = pin.treeSha256;
+      } else {
+        plan.absentKind = 'runner-identity-unpinned';
+      }
+    }
+    return { argv: out, plan };
   }
 
-  /** Execute one labeled step, write artifacts, return streams. Not a test round. */
-  async step(label: string, argv: string[], timeoutSecs = 600): Promise<ExecResult> {    const n = (this.counts.get(label) ?? 0) + 1;
+  /**
+   * Expand spec tokens to concrete argv and ENFORCE Canary's isolation policy
+   * on any package-manager command (audit B5, post-sol RB-1). For install/-
+   * update-family subcommands the isolation flags are APPENDED LAST (npm's
+   * CLI layer is last-wins, probe-verified), the option surface is a closed
+   * exact-spelling allowlist prefix-disjoint from the protected keys, and
+   * the subcommand is validated against a closed allowlist before the
+   * command is ever allowed to expand.
+   * (argv-only view of expandArgvWithPlan — non-observation callers.)
+   */
+  expandArgv(
+    cmd: readonly string[],
+    subs: { dep: string; baseline: string; candidate: string },
+    resolveBin: (pkg: string, key?: string) => string,
+  ): string[] {
+    return this.expandArgvWithPlan(cmd, subs, resolveBin).argv;
+  }
+
+  /** Execute one labeled step, write artifacts, return streams. Not a test
+   *  round. `observe` opens the fd-3 observation pipe (rounds only —
+   *  panel A: every MEASUREMENT round gets it, injected or not; steps never
+   *  do, so the tripwire semantics stay scoped to measurement). */
+  async step(label: string, argv: string[], timeoutSecs = 600, observe = false): Promise<ExecResult> {
+    const n = (this.counts.get(label) ?? 0) + 1;
     this.counts.set(label, n);
     const uniq = n === 1 ? label : `${label}-${n}`;
     const run = await (this.deps.run ?? runCommand)({
@@ -659,6 +775,7 @@ export class Recorder {
       nodeDir: this.deps.nodeDir,
       argv: argv as [string, ...string[]],
       timeoutSecs,
+      ...(observe ? { observeChildFd3: true } : {}),
     });
     const combined = run.stdout + run.stderr;
     const normOut = normalize(run.stdout, this.deps.pipeline);
@@ -670,15 +787,41 @@ export class Recorder {
     return { label: uniq, run, combined, normOut, normErr };
   }
 
-  /** Execute and record a measurement round of one arm. */
+  /** Execute and record a measurement round of one arm, including Canary's
+   *  OWN execution observation (post-GLM Finding A). The fd-3 pipe is opened
+   *  on EVERY round (panel A tripwire: bytes on an un-injected round are
+   *  recorded as an emulation attempt, never credited); the plan handed in
+   *  from expandArgvWithPlan decides ABSENT-vs-attempted. Retained raw frames
+   *  become `<arm>-<round>.attest.ndjson` — the fifth canonical artifact,
+   *  re-validated byte-for-byte by prove through the SAME validator. */
   async round(
     arm: 'baseline' | 'candidate', index: number, argv: string[], timeoutSecs = 600,
+    plan?: ExpansionPlan,
   ): Promise<ExecResult & { fact: RoundFact }> {
-    const res = await this.step(`${arm}-${index}`, argv, timeoutSecs);
+    if (plan?.injected) ensureObserverPreload(this.deps.ws); // rewrite-on-tamper; throws CanaryError on persistent mismatch
+    const res = await this.step(`${arm}-${index}`, argv, timeoutSecs, true);
     const counts = parseSummaryCounts(res.combined);
     const crashed = hasCrashSignature(res.combined);
     const sweepFailed = res.run.sweepFailed === true;
+    const textFailingNames = extractFailingTestNames(res.combined).sort();
+    const framesRaw = res.run.observation ?? '';
+    fs.writeFileSync(path.join(this.deps.artifactsDir, `${res.label}.attest.ndjson`), framesRaw);
+    const executionObservation: ExecutionObservation = validateObservation({
+      raw: framesRaw,
+      injected: plan?.injected === true,
+      absentKind: plan ? plan.absentKind ?? 'no-injection' : 'no-injection',
+      truncated: res.run.observationTruncated === true,
+      exitCode: res.run.exitCode,
+      childPid: res.run.childPid,
+      ...(plan?.expectedMochaVersion !== undefined ? { expectedMochaVersion: plan.expectedMochaVersion } : {}),
+      ...(plan?.expectedRunnerTreeSha256 !== undefined ? { expectedRunnerTreeSha256: plan.expectedRunnerTreeSha256 } : {}),
+      ...(plan?.observedRunnerTreeSha256 !== undefined ? { observedRunnerTreeSha256: plan.observedRunnerTreeSha256 } : {}),
+      textCounts: counts,
+      hasSummary: hasRunnerSummary(res.combined),
+      textFailingNames,
+    });
     const fact: RoundFact = {
+      executionObservation,
       arm,
       round: index,
       exitCode: res.run.exitCode,
@@ -694,7 +837,9 @@ export class Recorder {
       // Audit F13: failing-test identities are FIRST-CLASS evidence. Sorted
       // so that profile comparison is order-independent; classification uses
       // them (audit F2), the bundle persists them, the report renders them.
-      failingTestNames: extractFailingTestNames(res.combined).sort(),
+      // SAME array the cross-channel agreement check consumed (post-GLM: one
+      // evidence contract, no second parse).
+      failingTestNames: textFailingNames,
       // Round-3 secondaries: a post-summary fatal crash (byte-observable) and
       // an incomplete containment sweep (kernel-observable) now reach the
       // decision table via infraCause rule 1 instead of riding silently into
@@ -720,6 +865,7 @@ export interface RoundEvidenceOut {
   failingTestNames?: string[] | undefined;
   crashSignal?: boolean | undefined;
   sweepFailed?: boolean | undefined;
+  executionObservation: ExecutionObservation;
   startedAt: string;
   durationMs: number;
   rawStdoutSha256: string;
@@ -753,6 +899,16 @@ export function roundEvidence(res: ExecResult, fact: RoundFact): RoundEvidenceOu
     // integrity-only. Documented in SECURITY.md "Honest integrity limits".)
     ...(fact.crashSignal ? { crashSignal: true } : {}),
     ...(fact.sweepFailed ? { sweepFailed: true } : {}),
+    // Contract panel E: required on every round; round() always attaches it.
+    // The fallback is unreachable-by-construction today and deliberately
+    // ABSENT-shaped (never optimistic) if some future caller forgets.
+    executionObservation: fact.executionObservation ?? {
+      status: 'ABSENT',
+      absentKind: 'no-injection',
+      observedFailingIdentities: [],
+      framesSha256: sha256hex(''),
+      frameCount: 0,
+    },
     startedAt: new Date().toISOString(),
     durationMs: res.run.durationMs,
     rawStdoutSha256: sha256hex(res.run.stdout),
