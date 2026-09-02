@@ -12,15 +12,24 @@
  * THIS repo moves the decision to Canary-derived data: unpinned bytes ⇒ no
  * injection ⇒ observation ABSENT ⇒ strong labels structurally unreachable.
  *
- * TRUST POSTURE (docs/exec-authority.md keeps the long form): this is TOFU by
+ * TRUST POSTURE (docs/EXECUTION-AUTHORITY.md keeps the long form): this is TOFU by
  * code review, not signature verification — no cryptographic trust root
  * exists, and this file does not pretend otherwise. The hash proves the bytes
  * ARE THE BYTES WE REVIEWED; who those bytes came from is registry trust we
  * state honestly.
  *
- * Adding support for a new runner version = one entry: install it via npm
- * from the pinned registry, run treeSha256 over the package directory (the
- * proof-host test does exactly this and fails CI on drift), paste.
+ * Adding support for a new runner version = one entry AND its review
+ * manifest: download the exact tarball from the pinned registry, verify it
+ * against the registry's declared dist.integrity, generate a per-file
+ * manifest (same walk rules as treeSha256) under
+ * packages/support/test/fixtures/runner-manifests/, and pin the hash that
+ * manifest recomputes to. known-runners-manifest.test.ts fails offline if
+ * table and reviewed bytes diverge — a one-off "paste what the probe
+ * printed" without a committed manifest is how a stale hash once shipped
+ * (2f4a706 recorded 68a0a02c… for mocha@10.8.2, which matches no install;
+ * the golden proof correctly degraded to INCONCLUSIVE, never a false PASS).
+ * The live golden proof end-to-end-checks the pin against what the fixture
+ * actually resolves.
  */
 
 import fs from 'node:fs';
@@ -41,9 +50,11 @@ export const KNOWN_RUNNER_RELEASES: Readonly<Record<string, readonly KnownRunner
   mocha: [
     {
       version: '10.8.2',
-      treeSha256: '68a0a02c18285db7d7aaa323b7e325c7402ca01c5020331bb370b687fbdea8c3',
+      treeSha256: '4b811f5a8bc5848bbef919adb49d8bfc10d6774e98215acd2e78713ae34cdb58',
       origin: 'npm',
-      note: 'golden fixture (ctimmerm/axios-mock-adapter b88044…) runner; npm-installed tree',
+      note: 'golden fixture (ctimmerm/axios-mock-adapter b88044…) runner; review manifest ' +
+        'runner-manifests/mocha-10.8.2.npm.txt (official tarball, registry sha512 verified); ' +
+        'golden-era tree and a clean npm install hash identically',
     },
     {
       version: '0.0.0-canary-double',

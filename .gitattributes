@@ -8,3 +8,9 @@ apps/cli/test/fixtures/mocha-double/** text eol=lf
 # The published contract is diffed field-by-field against contract.ts output;
 # LF keeps the committed artifact byte-identical on every platform.
 schemas/evidence.schema.json text eol=lf
+
+# Review manifests are recomputed field-by-field by
+# support/known-runners-manifest.test.ts; the digests are line-anchored, so
+# an autocrlf checkout (adding \r before the sha) would break parsing. Force
+# LF so the committed reviewed-bytes record survives every platform.
+packages/support/test/fixtures/runner-manifests/** text eol=lf

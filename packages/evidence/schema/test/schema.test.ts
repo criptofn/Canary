@@ -20,7 +20,12 @@ function snapshotRef(arm: 'baseline' | 'candidate'): Record<string, unknown> {
   };
 }
 
-const GOLDEN_MOCHA_SHA = '68a0a02c18285db7d7aaa323b7e325c7402ca01c5020331bb370b687fbdea8c3';
+// Synthetic bundle fixture: only internal self-consistency (expected==observed)
+// matters to the validator, but keep it equal to the live pin table's
+// mocha@10.8.2 hash (verified 2026-09-02 against the official registry
+// tarball; see packages/support/test/fixtures/runner-manifests/) so a
+// re-pinning never silently diverges this "honest golden-shaped" bundle.
+const GOLDEN_MOCHA_SHA = '4b811f5a8bc5848bbef919adb49d8bfc10d6774e98215acd2e78713ae34cdb58';
 
 function goodBundle(): Record<string, unknown> {
   const round = (arm: 'baseline' | 'candidate', n: number) => ({
