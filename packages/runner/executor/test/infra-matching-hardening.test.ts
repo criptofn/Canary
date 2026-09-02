@@ -45,7 +45,7 @@ describe('FINDING B — infra matching is case/encoding symmetric (must-match di
   it('hard patterns fire in any case (module/ERESOLVE/SyntaxError shapes)', () => {
     for (const v of [
       'Cannot find module', 'CANNOT FIND MODULE', 'cannot Find Module',
-      'err_resolve', 'ERESOLVE', 'eresolve',
+      'eReSoLvE', 'ERESOLVE', 'eresolve', // (commit-1 battery typo: 'err_resolve' is not a case variant of ERESOLVE — no fold maps it; corrected to a true one)
       'ERR_MODULE_NOT_FOUND', 'err_module_not_found',
       'SyntaxError: Unexpected token', 'SYNTAXERROR: unexpected TOKEN',
       'Error Command failed', 'error command FAILED',
@@ -62,7 +62,7 @@ describe('FINDING B — infra matching is case/encoding symmetric (must-match di
   it('ANSI-wrapped signatures still fire (real colored npm output)', () => {
     assert.equal(isInfraOutput(ansi('npm error') + ' code E404'), true);
     assert.equal(isInfraOutput(ansi('NPM ERROR') + ' code E404'), true);
-    assert.equal(isInfraOutput(ansi('Cannot find module')) + " '@x/y'", true);
+    assert.equal(isInfraOutput(ansi('Cannot find module') + " '@x/y'"), true);
     assert.equal(isInfraOutput('prefix ' + ansi('npm') + ' ' + ansi('error') + ' EACCES'), true);
   });
 

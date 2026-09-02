@@ -64,9 +64,22 @@ export interface ExecResult {
  * view, and prove.ts re-derives through these same functions (parity).
  */
 const toLf = (out: string): string => out.replace(/\r\n?/g, '\n');
+/**
+ * Post-GLM Finding B: ANSI/CSI decorations are ALSO stripped at matcher entry
+ * (same view-only contract as toLf — artifacts stay byte-exact; prove.ts
+ * re-derives through these functions, so parity holds automatically). Real
+ * npm/mocha color their output; the base matchers were ANSI-blind in BOTH
+ * directions, which is a hole twice over: a colored genuine failure line
+ * escaped the line-anchored crash and summary matchers (ESC is not \s), and a
+ * colored pass-glyph TITLE escaped the PASS_GLYPH skip (false infrastructure).
+ * Stripping before splitting is per-line-equivalent: CSI parameters
+ * ([0-9;]*) can never contain \n, so no sequence crosses a line boundary.
+ */
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+const view = (out: string): string => toLf(out.replace(ANSI_RE, ''));
 const SUMMARY_LINE = /^\s*(?:\d+ (?:tests? )?(?:passed|failed)|\d+ (?:passing|failing)|Tests:\s*\d+ passed)\b/m;
 export function hasRunnerSummary(out: string): boolean {
-  return SUMMARY_LINE.test(toLf(out));
+  return SUMMARY_LINE.test(view(out));
 }
 
 /**
@@ -83,11 +96,18 @@ export function hasRunnerSummary(out: string): boolean {
  * a runner progress glyph (√/✓/✗/×). This is the balance the audit demands:
  * "recognized infrastructure-failure output must not become PASS" while
  * "ordinary test text must not become false infrastructure".
+ *
+ * Post-GLM Finding B: the HARD tier folds case. The base set was
+ * case-SENSITIVE, so "NPM ERROR code E404" (demonstrated) hid a genuine
+ * infrastructure failure behind capitalization alone. Every pattern here is
+ * an exact tool-error PHRASE whose case variants carry no plausible benign
+ * prose meaning that is not already a test title — and titles are protected
+ * by the PASS_GLYPH/PROGRESS_GLYPH line skip, which is ANSI-stripped too.
  */
 export const INFRA_PATTERNS: readonly RegExp[] = [
-  /ERR_MODULE_NOT_FOUND/, /Cannot find module/, /ReferenceError: require is not defined/,
-  /ERR_REQUIRE_ESM/, /ERESOLVE/, /ETARGET/, /npm error/, /npm ERR!/, /error Command failed/,
-  /SyntaxError: Unexpected token/,
+  /ERR_MODULE_NOT_FOUND/i, /Cannot find module/i, /ReferenceError: require is not defined/i,
+  /ERR_REQUIRE_ESM/i, /ERESOLVE/i, /ETARGET/i, /npm error/i, /npm ERR!/i, /error Command failed/i,
+  /SyntaxError: Unexpected token/i,
 ];
 /**
  * PASS_GLYPH: lines reporting a PASSING test (√/✓). Their text is TEST prose
@@ -110,8 +130,10 @@ export function isInfraOutput(out: string): boolean {
   // passing test whose TITLE quotes an error phrase ("√ throws on Cannot
   // find module") conservatively false-INFRA'd the entire round. They are now
   // line-scoped and skip pass-glyph lines; genuine error/stack lines never
-  // start with a pass glyph.
-  const lines = toLf(out).split('\n');
+  // start with a pass glyph. Finding B: the glyph skip is evaluated on the
+  // ANSI-stripped view — colored real-mocha output indents then wraps the
+  // glyph in escape sequences, and the ESC byte used to defeat ^\s*[√✓].
+  const lines = view(out).split('\n');
   if (INFRA_PATTERNS.some((re) => lines.some((line) => !PASS_GLYPH.test(line) && re.test(line)))) return true;
   return lines.some((line) =>
     !PROGRESS_GLYPH.test(line) && SOFT_CODE.test(line) && SOFT_SHAPE.test(line));
@@ -141,7 +163,7 @@ export function isInfraOutput(out: string): boolean {
 const CRASH_LINE =
   /FATAL ERROR:.*\bheap\b|JavaScript heap out of memory|Segmentation fault|core dumped|abort\(\) called|\bSIGSEGV\b|\bSIGABRT\b|^\s*#\s*Fatal error in[ ,]/i;
 export function hasCrashSignature(out: string): boolean {
-  return toLf(out).split('\n').some((line) => !PASS_GLYPH.test(line) && CRASH_LINE.test(line));
+  return view(out).split('\n').some((line) => !PASS_GLYPH.test(line) && CRASH_LINE.test(line));
 }
 
 /**
