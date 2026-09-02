@@ -513,7 +513,12 @@ end-to-end attack matrix), `packages/support/test/
 known-runners-manifest.test.ts` (pins recomputed from committed review
 manifests; canary-double explicitly manifest-free), `packages/runner/
 executor/test/infra-matching-hardening.test.ts`, extended classify/schema/
-prove/verify-tree suites. The golden proof's 36 expectations and `proof.json`
+prove/verify-tree suites. Post-GLM F5 (canary-double origin gate: the
+double's public in-repo bytes earn execution authority only behind an
+in-process test grant the production CLI never passes) is pinned in
+`packages/support/test/known-runners-manifest.test.ts` (F5 posture matrix),
+`packages/runner/executor/test/executor.test.ts`, and the F5 untrusted-/
+trusted-pair in `apps/cli/test/attested-channel.test.ts`. The golden proof's 36 expectations and `proof.json`
 were NOT re-anchored: the legitimate path passes through the real mechanism
 (pinned 10.8.2 on the proof host) or degrades honestly off-host.
 

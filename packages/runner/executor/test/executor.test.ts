@@ -20,7 +20,13 @@ const armCandidatePass = (round = 1): RoundFact => ({
   arm: 'candidate', round, exitCode: 0, hasRunnerSummary: true, infraSignal: false, reportedPassing: 5,
 });
 
-function freshRecorder(run?: (o: import('@canary-rn/support').RunOptions) => Promise<import('@canary-rn/support').RunOutcome>) {
+function freshRecorder(
+  run?: (o: import('@canary-rn/support').RunOptions) => Promise<import('@canary-rn/support').RunOutcome>,
+  // post-GLM F5: the double needs an explicit authority grant to serve as an
+  // execution authority; this offline harness is its ONLY designated holder.
+  // Tests asserting the UNTRUSTED posture must leave this false.
+  trustedDouble = false,
+) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-exec-'));
   const ws = { root, fixture: path.join(root, 'fixture') };
   fs.mkdirSync(ws.fixture, { recursive: true });
@@ -32,7 +38,7 @@ function freshRecorder(run?: (o: import('@canary-rn/support').RunOptions) => Pro
   }));
   return {
     ws, art,
-    rec: new Recorder({ ws, nodeDir: NODE_DIR, npmCli: path.join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js'), artifactsDir: art, pipeline, ...(run ? { run } : {}) }),
+    rec: new Recorder({ ws, nodeDir: NODE_DIR, npmCli: path.join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js'), artifactsDir: art, pipeline, ...(run ? { run } : {}), ...(trustedDouble ? { allowCanaryDoubleOrigin: true } : {}) }),
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
 }
@@ -409,7 +415,7 @@ describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', (
     // be downgraded by rule 14 (pinned separately below). The rounds run the
     // PINNED Canary mocha double through the REAL injection, so the identity
     // divergence Canary classifies is one it WATCHED, not one it parsed.
-    const { rec, cleanup, ws } = freshRecorder();
+    const { rec, cleanup, ws } = freshRecorder(undefined, true);
     try {
       copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'));
       fs.writeFileSync(path.join(ws.fixture, 'base.spec.js'), suiteSpec('base suite', false));
@@ -449,7 +455,7 @@ describe('Recorder.step/round — real subprocess, real artifacts (no mocks)', (
     // coverage-comparable (post-sol RB-2 rule 13: 5 passing baseline vs
     // 4+1 candidate; an earlier "10 passing" stub encoded exactly the
     // non-comparability rule 13 refuses).
-    const { rec, cleanup, ws, art } = freshRecorder();
+    const { rec, cleanup, ws, art } = freshRecorder(undefined, true);
     try {
       copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'));
       fs.writeFileSync(path.join(ws.fixture, 'base.spec.js'), suiteSpec('base suite', false));
@@ -852,8 +858,29 @@ describe('observation hardening — expandArgvWithPlan injection decision', () =
     assert.equal(doublePin.origin, 'canary-double');
   });
 
-  it('pinned bytes at the canonical anchor: injected, --require appended LAST, plan from the PIN', () => {
+  it('post-GLM F5: the canary double is UNSELECTABLE by default — pinned bytes, no execution authority', () => {
+    // The double's bytes AND observation seams are public in this repo, so
+    // an untrusted spec can stage exactly these bytes at the canonical
+    // anchor with its own prepare step. Pin MATCH is not enough: origin
+    // 'canary-double' earns injection only behind an explicit in-process
+    // authority grant that the production pipeline never makes.
     const { rec, cleanup, ws } = freshRecorder();
+    try {
+      copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'));
+      const { argv, plan } = rec.expandArgvWithPlan(['$bin:mocha', 'test.js'], SUBS, doubleResolver(ws.fixture));
+      assert.equal(plan.injected, false, 'double bytes must NOT earn injection without explicit double authority');
+      assert.equal(plan.absentKind, 'runner-identity-unpinned');
+      assert.ok(!argv.includes('--require'), `untrusted bytes must not get the preload: ${argv.join(' ')}`);
+      assert.equal(plan.expectedMochaVersion, undefined);
+      assert.equal(plan.expectedRunnerTreeSha256, undefined);
+      assert.equal(plan.observedRunnerTreeSha256, doublePin?.treeSha256, '"what bytes were there" is still recorded');
+    } finally { cleanup(); }
+  });
+
+  it('pinned bytes at the canonical anchor: injected, --require appended LAST, plan from the PIN', () => {
+    // TRUSTED posture: the offline harness explicitly grants double authority
+    // (post-GLM F5) — this is the test-only channel the double exists for.
+    const { rec, cleanup, ws } = freshRecorder(undefined, true);
     try {
       copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'));
       const { argv, plan } = rec.expandArgvWithPlan(['$bin:mocha', 'test.js'], SUBS, doubleResolver(ws.fixture));
@@ -916,7 +943,7 @@ describe('observation hardening — expandArgvWithPlan injection decision', () =
   });
 
   it('post-GLM F1: an off-position $bin:mocha token is refused, never credited', () => {
-    const { rec, cleanup, ws } = freshRecorder();
+    const { rec, cleanup, ws } = freshRecorder(undefined, true); // positive twin needs the F5 grant
     try {
       copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'));
       const reason = (cmd: string[]): string => {

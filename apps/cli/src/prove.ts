@@ -17,7 +17,7 @@ import {
 import { sha256File } from '@canary-rn/hashing';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
 import { classify, applyConfinementGuard, type ExecutionObservation, type RoundFact } from '@canary-rn/classification';
-import { sanitizedEnv, sanitizedEnvKeys, type WorkspaceLayout } from '@canary-rn/support';
+import { sanitizedEnv, sanitizedEnvKeys, KNOWN_RUNNER_RELEASES, type WorkspaceLayout } from '@canary-rn/support';
 import { deriveArmTreeFacts } from './verify-tree.js';
 
 export interface SummaryExpectation { passing: number; failing?: number | undefined }
@@ -786,8 +786,14 @@ function fixtureResolveBin(fixtureDir: string): (pkg: string, key?: string) => s
  *    and the re-derived plan diverge from what was recorded — prove then FAILS
  *    loudly. That drift detection is a FEATURE (panel G), not a bug: the tree
  *    the claim was made about must still be the tree on disk.
+ * `opts.allowCanaryDoubleOrigin` (post-GLM F5): the origin gate applies to
+ * re-derivation exactly as to capture — see recordedClaimsCanaryDouble for
+ * how prove supplies it without owning an authority channel.
  */
-export function deriveExpectedRoundArgv(spec: TrustedRunSpec, wsRoot: string): { argv: string[]; plan: ExpansionPlan } {
+export function deriveExpectedRoundArgv(
+  spec: TrustedRunSpec, wsRoot: string,
+  opts: { allowCanaryDoubleOrigin?: boolean } = {},
+): { argv: string[]; plan: ExpansionPlan } {
   const fixture = path.join(wsRoot, 'fixture');
   const rec = new Recorder({
     ws: { root: wsRoot, fixture },
@@ -795,12 +801,38 @@ export function deriveExpectedRoundArgv(spec: TrustedRunSpec, wsRoot: string): {
     npmCli: proofNpmCli(),
     artifactsDir: wsRoot, // irrelevant to expansion
     pipeline: [],
+    allowCanaryDoubleOrigin: opts.allowCanaryDoubleOrigin === true,
   });
   return rec.expandArgvWithPlan(
     spec.commands.test,
     { dep: spec.dependency.package, baseline: spec.dependency.baseline, candidate: spec.dependency.candidate },
     fixtureResolveBin(fixture),
   );
+}
+
+/**
+ * post-GLM F5 — prove-side injection parity WITHOUT an authority channel.
+ * `check`/`prove` run as production CLI processes, which (by the F5 design)
+ * can never grant double authority — yet the offline suite's committed
+ * evidence was captured THROUGH the double with that grant, and re-deriving
+ * its argv without it would diverge from the recorded `--require` (parity is
+ * structural, see deriveExpectedRoundArgv). Resolution: honor the claim the
+ * RETAINED EVIDENCE ALREADY MAKES. expectedMochaVersion is Canary-written
+ * from the PIN at capture — if it names the double pin, capture held the
+ * grant. This is sound because prove EXECUTES NOTHING: re-derivation with
+ * the claim can only ever reproduce the decision; the attacker's own capture
+ * (no grant) is all-ABSENT ⇒ no double claim ⇒ absent-posture re-derivation
+ * ⇒ absent-parity, and a RESEALED double claim meets the argv re-derivation
+ * and the replay diff — dropping `--require` from recorded argv, or forging
+ * VALID frames without the injected lifecycle, fails loudly. npm-pinned
+ * evidence (the golden) never claims the double, so its posture is identical
+ * in both worlds.
+ */
+function recordedClaimsCanaryDouble(bundle: EvidenceBundle): boolean {
+  const doubleVersions = new Set(
+    (KNOWN_RUNNER_RELEASES.mocha ?? []).filter((p) => p.origin === 'canary-double').map((p) => p.version),
+  );
+  return bundle.rounds.some((r) => doubleVersions.has(r.executionObservation.expectedMochaVersion ?? ''));
 }
 
 // ---------------------------------------------------------------------------
@@ -885,7 +917,7 @@ function replayObservations(
   let deriveWhy = '';
   if (evaluable) {
     try {
-      derived = deriveExpectedRoundArgv(ctx!.spec!, wsRoot);
+      derived = deriveExpectedRoundArgv(ctx!.spec!, wsRoot, { allowCanaryDoubleOrigin: recordedClaimsCanaryDouble(bundle) });
     } catch (e) {
       deriveWhy = String(e);
     }
@@ -998,7 +1030,7 @@ export function hostBoundEvidenceChecks(
     let expected: string[] | undefined;
     let why = '';
     try {
-      expected = deriveExpectedRoundArgv(spec, wsRoot).argv;
+      expected = deriveExpectedRoundArgv(spec, wsRoot, { allowCanaryDoubleOrigin: recordedClaimsCanaryDouble(ev) }).argv;
     } catch (e) {
       why = String(e);
     }

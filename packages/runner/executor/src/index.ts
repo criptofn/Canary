@@ -39,6 +39,16 @@ export interface ExecutorDeps {
   pipeline: readonly Normalizer[];
   yarnPin?: string;
   run?: (o: RunOptions) => Promise<RunOutcome>;
+  /**
+   * post-GLM F5: in-process TEST AUTHORITY to select the 'canary-double'
+   * runner pin for observation injection. The double's bytes are public
+   * in-repo, so a pin MATCH is not sufficient for execution authority —
+   * only this explicit grant (set by the offline test harnesses through
+   * PipelineDeps) may. It is NOT reachable from spec files, env, or argv;
+   * the production CLI constructs Recorder without it, so an untrusted
+   * spec staging double bytes at the canonical anchor earns NO injection.
+   */
+  allowCanaryDoubleOrigin?: boolean;
 }
 
 export interface ExecResult {
@@ -641,7 +651,12 @@ export class Recorder {
    *  - injection proceeds ONLY if (name, version, treeHash) hits a
    *    Canary-repo pin AND the package sits at the canonical fixture path
    *    (the same anchor the preload uses — a hoisted install is not
-   *    injectable, "SUPPORTED TRUSTED MOCHA ADAPTER" honesty);
+   *    injectable, "SUPPORTED TRUSTED MOCHA ADAPTER" honesty) AND the pin's
+   *    ORIGIN may serve as an execution authority (post-GLM F5: the public
+   *    'canary-double' bytes require the explicit in-process
+   *    deps.allowCanaryDoubleOrigin grant — an untrusted spec that stages
+   *    them at the anchor earns the same 'runner-identity-unpinned' ABSENT
+   *    path, with observedRunnerTreeSha256 still recorded);
    *  - miss ⇒ natural argv, `absentKind: 'runner-identity-unpinned'`;
    *  - the subject's own `--require`/`-r` token (or unambiguous abbreviation)
    *    in a mocha command ⇒ CanaryError → InfraAbort → INFRASTRUCTURE_
@@ -762,7 +777,9 @@ export class Recorder {
       const located = locateRunnerPackage(mochaBin, 'mocha');
       if (located) plan.observedRunnerTreeSha256 = located.treeSha256;
       const canonical = path.resolve(d.ws.fixture, ...OBSERVER_MOCHA_ANCHOR_REL);
-      const pin = located ? findRunnerPin(located) : null;
+      // F5: origin-gated lookup — the public canary-double needs the explicit
+      // in-process grant; npm pins are selectable in both postures.
+      const pin = located ? findRunnerPin(located, { allowCanaryDoubleOrigin: d.allowCanaryDoubleOrigin === true }) : null;
       if (located && pin && located.dir === canonical) {
         out.push('--require', observerPreloadPath(d.ws));
         plan.injected = true;

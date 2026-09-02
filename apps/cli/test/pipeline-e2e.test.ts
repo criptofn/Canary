@@ -89,6 +89,7 @@ async function offlineRun(driftSwap: boolean): Promise<
   makeStub(stub, { driftSwap });
   const proj = 'downstream';
   const result = await runExperiment(specFor(), repoRoot, true, {
+    allowCanaryDoubleOrigin: true, // post-GLM F5: offline harness holds the double authority
     fetch: async () => ({ ...FAKE_BLOB }),
     extract: (_tgz, wsRoot) => {
       const target = path.join(wsRoot, `${proj}-${FAKE_SHA}`);

@@ -227,6 +227,7 @@ async function offlineRun(): Promise<{ artifactsDir: string; bundle: EvidenceBun
     repeats: { baseline: 2, candidate: 2 },
     timeoutSecs: { install: 120, test: 120 },
   }, repoRoot, true, {
+    allowCanaryDoubleOrigin: true, // post-GLM F5: offline harness holds the double authority
     fetch: async () => ({ ...FAKE_BLOB }),
     extract: (_tgz, wsRoot) => {
       fs.cpSync(stub, path.join(wsRoot, `downstream-${FAKE_SHA}`), { recursive: true });

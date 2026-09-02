@@ -52,6 +52,16 @@ export interface PipelineDeps {
    * root and must populate WS/<repo-proj>-<sha>/ as real tar extraction does.
    */
   extract?: (tgzPath: string, wsRoot: string, repo: string, sha: string) => void;
+  /**
+   * post-GLM F5: TEST-ONLY execution authority to select the canary-double
+   * runner pin for observation injection. The double exists ONLY for the
+   * offline suite and its bytes are public in-repo (see knownRunners.ts),
+   * so a spec that stages them at the canonical anchor must NOT earn
+   * injection — authority lives in this in-process channel, never in the
+   * spec. The production CLI (main.ts) constructs no PipelineDeps, so a
+   * spec file can never reach this grant.
+   */
+  allowCanaryDoubleOrigin?: boolean;
 }
 
 /**
@@ -111,6 +121,7 @@ async function runExperimentInner(
   }));
   const rec = new Recorder({
     ws, nodeDir: NODE_DIR, npmCli: NPM_CLI, artifactsDir: ART, pipeline,
+    allowCanaryDoubleOrigin: deps.allowCanaryDoubleOrigin === true,
   });
   const subs = { dep: spec.dependency.package, baseline: spec.dependency.baseline, candidate: spec.dependency.candidate };
   const execArgv = (cmd: readonly string[]): string[] => rec.expandArgv(cmd, subs, resolveBin);

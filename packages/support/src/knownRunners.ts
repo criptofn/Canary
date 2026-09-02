@@ -145,10 +145,29 @@ export function locateRunnerPackage(binAbsPath: string, expectedName: string): L
 }
 
 /** Look up a located package in the pin table: BOTH version and hash must
- *  match one entry (AM-1 — a version string alone never earns trust). */
-export function findRunnerPin(located: LocatedRunnerPackage): KnownRunnerRelease | null {
+ *  match one entry (AM-1 — a version string alone never earns trust).
+ *
+ *  post-GLM F5 — ORIGIN IS AN EXECUTION-AUTHORITY BOUNDARY, not metadata.
+ *  The 'canary-double' pin's bytes are PUBLIC in this repo and its
+ *  observation seams are exactly what an attacker knows best, so a
+ *  (version, treeSha256) match alone let an untrusted spec stage those
+ *  bytes at the canonical anchor in its own prepare step and earn observer
+ *  injection through a runner it fully controls. Selecting a canary-double
+ *  pin therefore requires the explicit ctx.allowCanaryDoubleOrigin grant —
+ *  the in-process test-authority channel (ExecutorDeps/PipelineDeps, the
+ *  same channel as fetch/extract), which the production CLI never passes.
+ *  npm-origin pins are selectable in BOTH postures; the golden proof path
+ *  is unaffected. A refused double records the same absentKind
+ *  'runner-identity-unpinned': "pinned but not an execution authority" is
+ *  the same natural-argv path, and observedRunnerTreeSha256 is still
+ *  recorded (bytes-observed is trust-independent). */
+export function findRunnerPin(
+  located: LocatedRunnerPackage,
+  ctx: { allowCanaryDoubleOrigin?: boolean } = {},
+): KnownRunnerRelease | null {
   const pin = (KNOWN_RUNNER_RELEASES[located.name] ?? []).find(
-    (p) => p.version === located.version && p.treeSha256 === located.treeSha256,
+    (p) => p.version === located.version && p.treeSha256 === located.treeSha256
+      && (p.origin !== 'canary-double' || ctx.allowCanaryDoubleOrigin === true),
   );
   return pin ?? null;
 }

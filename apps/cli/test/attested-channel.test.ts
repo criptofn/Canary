@@ -263,6 +263,9 @@ async function pipelineRun(stub: string, test: readonly string[] = MOCHA_TEST_AR
     repeats: { baseline: 2, candidate: 2 },
     timeoutSecs: { install: 120, test: 120 },
   }, repoRoot, true, {
+    // post-GLM F5: this offline harness is the canary double's designated
+    // execution authority — the grant lives HERE, never in a spec file.
+    allowCanaryDoubleOrigin: true,
     fetch: async () => ({ ...FAKE_BLOB }),
     extract: (_tgz, wsRoot) => {
       fs.cpSync(stub, path.join(wsRoot, `downstream-${FAKE_SHA}`), { recursive: true });
@@ -501,6 +504,67 @@ describe('post-GLM F4 — infra prose cannot mask an attested regression', () =>
       assert.equal(r.infraSignal, true, 'fixture must still trip the text signature or this proves nothing');
       assert.equal(r.executionObservation.status, 'VALID');
     }
+    assertDoubleObservation(bundle.rounds);
+    assert.equal(bundle.classification.label, 'CONFIRMED_REGRESSION', bundle.classification.reason);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// POST-GLM F5 (P1) — THE CANARY DOUBLE IS NOT AN EXECUTION AUTHORITY.
+// The double's bytes are PUBLIC in-repo (apps/cli/test/fixtures/mocha-double)
+// and its observation seams are exactly the seams an attacker knows best.
+// findRunnerPin matched (version, treeSha256) only — origin-blind — so ANY
+// untrusted spec could fs-copy the double onto the canonical
+// <fixture>/node_modules/mocha anchor in its OWN prepare step (the same
+// mechanism this test file's harness uses) and earn Canary's observer
+// injection — strong labels included — through a runner it fully controls.
+// The canonical-path check was never a trust boundary: node_modules/mocha is
+// exactly where a real install lands. Repair: origin 'canary-double' is
+// selectable ONLY behind an explicit in-process authority flag the
+// production CLI never passes — the PipelineDeps/ExecutorDeps seam channel,
+// the same trust channel as fetch/extract.
+// ───────────────────────────────────────────────────────────────────────────
+describe('post-GLM F5 — an untrusted spec cannot select the canary double', () => {
+  it('double bytes staged by the spec itself: NO injection, every round ABSENT, INCONCLUSIVE rule 14', async () => {
+    const stub = realStub();
+    w(path.join(stub, 'test.js'), widgetSpec());
+    w(path.join(stub, 'swap.js'), swapScript(false));
+    const repoRoot = fs.mkdtempSync(path.join(TMP, 'repo-'));
+    // Byte-identical to pipelineRun(): same spec, same staging, same argv.
+    // The ONLY difference is who holds the authority — and here nobody does.
+    const bundle = await runExperiment({
+      schema: 2, id: 'f5-untrusted',
+      dependency: { package: 'widget', baseline: '1.0.0', candidate: '2.0.0' },
+      downstream: { repo: 'stub/downstream', commit: FAKE_SHA },
+      commands: {
+        prepare: stageCommands({ mocha: true }),
+        swap: ['node', 'swap.js', '{candidate}'],
+        test: [...MOCHA_TEST_ARGV],
+      },
+      repeats: { baseline: 2, candidate: 2 },
+      timeoutSecs: { install: 120, test: 120 },
+    }, repoRoot, true, {
+      fetch: async () => ({ ...FAKE_BLOB }),
+      extract: (_tgz, wsRoot) => { fs.cpSync(stub, path.join(wsRoot, `downstream-${FAKE_SHA}`), { recursive: true }); },
+    }).then((r) => r.bundle);
+    for (const r of bundle.rounds) {
+      const o = r.executionObservation;
+      assert.equal(o.status, 'ABSENT', `${r.arm}#${r.round}: the double must not earn execution authority`);
+      assert.equal(o.absentKind, 'runner-identity-unpinned', `${r.arm}#${r.round}`);
+      assert.equal(o.expectedMochaVersion, undefined, 'no expected* may ride a round Canary never injected into');
+      assert.equal(o.observedRunnerTreeSha256, DOUBLE_PIN!.treeSha256, '"what bytes were there" stays Canary-derived and recorded');
+    }
+    assert.ok(!STRONG.has(bundle.classification.label), `double-staged spec reached ${bundle.classification.label}`);
+    assert.equal(bundle.classification.rule, 14);
+  });
+
+  it('trusted control: with the in-process grant the SAME spec earns VALID + a strong verdict', async () => {
+    const stub = realStub();
+    w(path.join(stub, 'test.js'), widgetSpec());
+    w(path.join(stub, 'swap.js'), swapScript(false));
+    // Byte-for-byte the run above — the ONLY difference is that pipelineRun()
+    // holds the allowCanaryDoubleOrigin grant. Authority, not bytes, decides.
+    const bundle = await pipelineRun(stub);
     assertDoubleObservation(bundle.rounds);
     assert.equal(bundle.classification.label, 'CONFIRMED_REGRESSION', bundle.classification.reason);
   });

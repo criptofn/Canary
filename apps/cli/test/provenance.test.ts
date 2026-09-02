@@ -91,6 +91,7 @@ async function realRun(): Promise<{ bundle: EvidenceBundle; artifactsDir: string
   // retains fixture.tgz and verifyRunIdentity re-hashes it (round-3 B4-A).
   const bytes = Buffer.from('canary-provenance-stub-tarball');
   const result = await runExperiment(spec, repoRoot, true, {
+    allowCanaryDoubleOrigin: true, // post-GLM F5: offline harness holds the double authority
     fetch: async () => ({ bytes, sha256: sha256hex(bytes) }),
     extract: (_t, ws) => fs.cpSync(stub, path.join(ws, `downstream-${FAKE_SHA}`), { recursive: true }),
   });

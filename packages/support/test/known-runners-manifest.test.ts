@@ -24,7 +24,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { describe, it } from 'node:test';
 
-import { KNOWN_RUNNER_RELEASES } from '../src/index.js';
+import { KNOWN_RUNNER_RELEASES, findRunnerPin } from '../src/index.js';
 
 // dist/test -> dist -> package root -> test/fixtures (rootDir is the package root)
 const FIXTURES = path.resolve(import.meta.dirname, '..', '..', 'test', 'fixtures', 'runner-manifests');
@@ -78,5 +78,34 @@ describe('KNOWN_RUNNER_RELEASES — npm pins equal their reviewed manifests (off
           `${pkg}@${p.version}: origin '${p.origin}' must not also carry an npm manifest (two sources of truth)`);
       }
     }
+  });
+});
+
+// Post-GLM F5: the double's bytes are PUBLIC in-repo, so (version, treeSha256)
+// alone cannot decide execution authority — ORIGIN gates the lookup. These
+// unit tests pin the gate itself; the executor/pipeline e2es pin its wiring.
+describe('post-GLM F5 — findRunnerPin: origin is an execution-authority gate', () => {
+  const pins = KNOWN_RUNNER_RELEASES.mocha ?? [];
+  const double = pins.find((p) => p.origin === 'canary-double');
+  const npmPin = pins.find((p) => p.origin === 'npm');
+  assert.ok(double && npmPin, 'table must carry both origins for the gate to mean anything');
+  // findRunnerPin never reads `dir` — the lookup is table-vs-(version, hash, origin).
+  const located = (pin: { version: string; treeSha256: string }) => ({
+    dir: 'node_modules/mocha', name: 'mocha', version: pin.version, treeSha256: pin.treeSha256,
+  });
+
+  it('double bytes are UNSELECTABLE by default: pinned hash, zero execution authority', () => {
+    assert.equal(findRunnerPin(located(double!)), null);
+    assert.equal(findRunnerPin(located(double!), {}), null);
+    assert.equal(findRunnerPin(located(double!), { allowCanaryDoubleOrigin: false }), null);
+  });
+
+  it('only the explicit in-process grant selects the double', () => {
+    assert.equal(findRunnerPin(located(double!), { allowCanaryDoubleOrigin: true })?.version, double!.version);
+  });
+
+  it('npm pins stay selectable in BOTH postures — the gate is origin-scoped, not blanket', () => {
+    assert.equal(findRunnerPin(located(npmPin!))?.version, npmPin!.version);
+    assert.equal(findRunnerPin(located(npmPin!), { allowCanaryDoubleOrigin: true })?.version, npmPin!.version);
   });
 });

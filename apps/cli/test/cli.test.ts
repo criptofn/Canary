@@ -78,6 +78,7 @@ async function stage(): Promise<{ repoRoot: string; specPath: string; artifactsD
   // the prove/check gate re-hashes the retained fixture.tgz (verifyRunIdentity).
   const blob = Buffer.from('canary-cli-stub-tarball');
   const result = await runExperiment(spec, repoRoot, true, {
+    allowCanaryDoubleOrigin: true, // post-GLM F5: offline harness holds the double authority
     fetch: async () => ({ bytes: blob, sha256: sha256hex(blob) }),
     extract: (_t, wsRoot) => fs.cpSync(stub, path.join(wsRoot, `downstream-${FAKE_SHA}`), { recursive: true }),
   });

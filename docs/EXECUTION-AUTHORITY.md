@@ -100,7 +100,24 @@ the whole channel is stated in §7.
   mocha release = one added line to the pin table.
 - **Pinned releases today (TOFU):** `mocha@10.8.2` and
   `mocha@0.0.0-canary-double` (Canary's own offline test double,
-  byte-identical to its fixture under `.gitattributes` `text eol=lf`). The
+  byte-identical to its fixture under `.gitattributes` `text eol=lf`).
+  **ORIGIN IS PART OF THE TRUST DECISION (post-GLM F5):** the double's bytes
+  are public in-repo and its observation seams are the seams an attacker
+  knows best, so `(version, treeSha256)` alone never confers execution
+  authority — `findRunnerPin` selects a `canary-double` pin ONLY behind an
+  explicit in-process grant (`allowCanaryDoubleOrigin`, the
+  PipelineDeps/ExecutorDeps seam channel: the same trust channel as
+  fetch/extract), which the production CLI never passes and spec files, env,
+  and argv cannot reach. An untrusted spec staging these exact bytes at the
+  canonical anchor gets the same `runner-identity-unpinned` ABSENT round as
+  any unpinned runner — `observedRunnerTreeSha256` still records what bytes
+  were there (byte observation is trust-independent), and no `expected*`
+  field rides a round Canary never injected into. Prove-side replay parity
+  needs no authority channel: `recordedClaimsCanaryDouble` honors the claim
+  the retained evidence already makes (a double-named `expectedMochaVersion`
+  can only exist if capture held the grant). npm-origin pins stay selectable
+  in BOTH postures — the gate is origin-scoped, and the golden proof path is
+  structurally unaffected. The
   npm pin's hash is anchored **offline**: the committed review manifest
   `packages/support/test/fixtures/runner-manifests/mocha-10.8.2.npm.txt`
   records the official registry tarball's per-file digests (tarball sha256 +
@@ -365,4 +382,5 @@ recorded as a known gap until then.
 | would-be-PRE_EXISTING containment (swallowed regression, disjoint sets, honest PEF preserved, CR untouched, passing-side substitution boundary codified) | `packages/core/classification/test/classify.test.ts` (round-5 describe) |
 | 5-file tuple binding; reseal-everything-but-observation refused; byte-tamper refusals; argv re-derivation parity | `apps/cli/test/prove.test.ts`, `verify-tree` suite |
 | host-exactness is BYTES: same-machine trojan (identical metadata, foreign executable digest) → INCOMPLETE never PASS; proofHost without exec-digest pin → refused FAIL; sampler digest == sha256(process.execPath) | `apps/cli/test/proof-host.test.ts` (post-GLM F2 describe) |
+| the double's PUBLIC bytes are not an execution authority: pin-table posture matrix (default refuses the double, grant selects it, npm pins selectable in both), untrusted-capture e2e (spec-staged double bytes → every round ABSENT, INCONCLUSIVE rule 14), trusted-control twin (same bytes + grant → VALID + CONFIRMED_REGRESSION) | `packages/support/test/known-runners-manifest.test.ts` + `packages/runner/executor/test/executor.test.ts` + `apps/cli/test/attested-channel.test.ts` (post-GLM F5 describes) |
 | golden never re-anchored: 37 assertions on the committed proof host, `proof.json` byte-identical EXCEPT the authorized post-GLM F2 additive `nodeExecSha256` re-pin (spec + evidence fixtures untouched, by rule) | `fixtures/axios-0.27-to-1.0/specs/` |
