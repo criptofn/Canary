@@ -29,10 +29,28 @@ audit; every fix is regression-first and lands with permanent tests.
 ## Regression-first record
 
 - F1/F4 reds were confirmed against frozen `a87ae7f` by the panel's
-  adversarial verification step before any fix; additionally every guard
-  added here is re-proven RED-or-dead by the branch's mutation battery (each
-  named guard deleted one at a time → its battery goes RED → `git checkout
-  -- .` restore; no mutation exists in any committed tree).
+  adversarial verification step before any fix.
+- **Guard-removal battery (PASS 3) — 10/10 CONFIRMED-RED:** each guard was
+  neutralized in a type-valid way (one-line mutation: gate→null; `false`-
+  condition / `Number('mutant') < 0`-condition to skip a block while keeping
+  flow-narrowing; hash char-flip; constant-list element drop) and its named
+  battery went RED, then `git checkout -- .` restored — **no mutation exists
+  in any committed tree.** M1 gate (classify 98 + exec-authority 8 red
+  marks); M2 panel-H block (schema 4); M3 prove attest-bytes binding
+  (verify-tree 6 — see below); M4 matcher view→identity (ANSI/LF battery 11);
+  M5 pin ignores tree hash (executor 6 + attested-channel 6 — the tampered-
+  double e2e catches it, i.e. a version-only pin would have INJECTED the
+  observer into non-canonical bytes); M6 rule-13 containment (classify 6);
+  M7 mirror containment restatement (schema 4); M8 classifier list loses
+  FLAKY (classify 13); M9 pin/manifest divergence (both pin batteries 4+4);
+  M10 mirror list loses FLAKY (equivalence test, 4).
+  Two battery lessons recorded honestly: (i) a `false &&`-prefixed condition
+  silently removes TS flow-narrowing and fails the BUILD, not the battery —
+  an untype-valid mutation proves nothing; (ii) M3 initially GREEN against
+  `prove.test.js` because the discriminating test lives in
+  `verify-tree.test.ts` ("caught ONLY by the bytes binding") — the guard is
+  protected, the first battery targeted the wrong file. A battery's file
+  choice is itself a claim that needs mutation-checking.
 - P1's red is the strongest kind: the canonical golden proof running
   INCONCLUSIVE on the exact pinned toolchain pre-fix (attestation ABSENT —
   version matched, hash did not), exit 0 post-fix.
