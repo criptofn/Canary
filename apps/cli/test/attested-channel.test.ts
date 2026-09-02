@@ -478,6 +478,34 @@ describe('post-GLM F1 — off-position runner token earns no execution credit', 
   });
 });
 
+// ───────────────────────────────────────────────────────────────────────────
+// POST-GLM F4 (P1) — untrusted text cannot VETO attested execution evidence.
+// infraCause ran ungated over the attested view, so a recognized infra
+// KEYWORD in stdout (a failing test titled "… (ERR_REQUIRE_ESM)" prints its
+// title with no pass glyph) downgraded a fully-VALID, channel-agreeing
+// regression to INFRASTRUCTURE_FAILURE rule 1: prose outranked the watched
+// lifecycle. Fail-closed precedence now: on the attested view the
+// infraSignal-only clause is suppressed; killed/crash/sweep facts stay.
+// ───────────────────────────────────────────────────────────────────────────
+describe('post-GLM F4 — infra prose cannot mask an attested regression', () => {
+  it('a VALID round whose stdout trips the infra signature still yields CONFIRMED_REGRESSION', async () => {
+    const stub = realStub();
+    w(path.join(stub, 'test.js'), widgetSpec().replace('candidate breaks widget', 'candidate breaks widget (ERR_REQUIRE_ESM)'));
+    w(path.join(stub, 'swap.js'), swapScript(false));
+    const bundle = await pipelineRun(stub);
+    // The premise must be REAL, not vacuous: candidate rounds genuinely carry
+    // the text-side infra flag AND a VALID observation.
+    const cands = bundle.rounds.filter((r) => r.arm === 'candidate');
+    assert.ok(cands.length > 0);
+    for (const r of cands) {
+      assert.equal(r.infraSignal, true, 'fixture must still trip the text signature or this proves nothing');
+      assert.equal(r.executionObservation.status, 'VALID');
+    }
+    assertDoubleObservation(bundle.rounds);
+    assert.equal(bundle.classification.label, 'CONFIRMED_REGRESSION', bundle.classification.reason);
+  });
+});
+
 /** pipelineRun() twin for the fake-mocha scenarios (prepare injects NOTHING;
  *  the fake mocha in the staged payload is the subject's own runner bytes). */
 async function pipelineRunWithFake(stub: string): Promise<EvidenceBundle> {

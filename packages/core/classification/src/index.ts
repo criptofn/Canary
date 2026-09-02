@@ -399,6 +399,17 @@ function attestedView(r: RoundFact): RoundFact {
     reportedFailing: o.observedCounts!.failing,
     reportedPending: o.observedCounts!.pending,
     failingTestNames: [...(o.observedFailingIdentities ?? [])].sort(),
+    // Post-GLM F4 (fail-closed precedence): once every round is ATTESTED —
+    // a VALID pinned-runner observation agreeing with the text — an
+    // infra-flavored KEYWORD in untrusted stdout ("ECONNREFUSED" asserted on
+    // by a test, npm-shaped prose in tool output) may not veto the attested
+    // evidence and bury a confirmed regression as INFRA rule 1. The veto
+    // survives everywhere the attestation does not reach: exit -1, failed
+    // sweep, and crash signatures stay in infraCause unconditionally (they
+    // are trusted process/forensic facts or round-3 hardening prose-only
+    // can never override). Text-derived facts NEVER upgrade a verdict —
+    // this only removes prose's power to suppress one.
+    infraSignal: false,
   };
 }
 

@@ -84,7 +84,15 @@ the whole channel is stated in §7.
   `<pkg>/node_modules/**` and the root `.package-lock.json`; a symlink
   anywhere throws → treated as a pin miss) and compares `(name, version,
   hash)` against `KNOWN_RUNNER_RELEASES` (`packages/support/src/knownRunners.ts`).
-- **Injection is the whole gate:** only on a pin hit does Canary append
+- **Injection is the whole gate:** injection credit additionally requires the
+  token to OCCUPY THE EXECUTED RUNNER POSITION (post-GLM F1): expanded argv
+  must be `[execPath, <pinned bin>, …]`, i.e. `$bin:mocha` must be spec argv[0].
+  A trailing token is inert script argv — `['node','-e',<forger>,'$bin:mocha',…]`
+  runs the forger, and the appended `--require` lands in the script's own
+  argv — so an off-position token is refused fail-closed
+  (`mocha-bin-not-executed` → InfraAbort), the same posture as
+  `subject-require-refused`: subject-controlled argv is refused, not parsed.
+  Then, and only on a pin hit, Canary appends
   `--require <canaryPreloadPath>` **last** inside argv, for a Canary-authored
   preload written outside the artifacts dir. **Miss ⇒ no injection at all ⇒
   ABSENT ⇒ strong labels structurally unreachable.** Unpinned is never an
@@ -198,6 +206,17 @@ arm, 11 and 13 are already weak and pass through ungated. FLAKY is gated
 because it still *claims execution* ("tests ran, with differing results");
 `TRUSTFUL_LABELS` (bundle-retention tier) and `STRONG_EXECUTION_LABELS`
 (execution-claim tier) are two constants, never conflated.
+
+**Channel precedence (post-GLM F4):** once the gate holds — every round
+VALID and channel-agreeing — an infra-flavored KEYWORD in untrusted stdout
+cannot veto the attested evidence: `attestedView` neutralizes the
+`infraSignal`-only clause of rule 1, so an honest failing test titled
+"(ERR_REQUIRE_ESM)" cannot bury a CONFIRMED_REGRESSION as
+INFRASTRUCTURE_FAILURE. Signal death, crash signatures, and failed
+containment sweeps stay in rule 1 unconditionally — they are trusted
+process/forensic facts, or (crash) round-3 hardening prose can never
+override. Text NEVER upgrades a verdict; this only removes prose's power
+to suppress one.
 
 ## 6. Integrity ≠ provenance ≠ authenticated provenance
 

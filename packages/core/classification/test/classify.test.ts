@@ -864,6 +864,35 @@ describe('post-GLM — execution-observation gate (rule 14)', () => {
     assert.equal(observationSatisfied([broken]), false);
   });
 
+  it('post-GLM F4: infra TEXT signature alone cannot veto an attested execution (precedence)', () => {
+    // The masking shape: every round carries a VALID Canary observation that
+    // agrees with its text, AND stdout contains a recognized infra keyword
+    // (a real possibility: tests routinely assert on strings like
+    // "ECONNREFUSED"). Ungated rule 1 let the UNTRUSTED channel veto the
+    // ATTESTED one and bury a confirmed regression as INFRASTRUCTURE_FAILURE.
+    const noise = (f: RoundFact): RoundFact => ({ ...f, infraSignal: true });
+    const r = classify([
+      noise(attested(arm('baseline', 1))), noise(attested(arm('baseline', 2))),
+      attested(arm('candidate', 1, false)), attested(arm('candidate', 2, false)),
+    ]);
+    assert.equal(r.classification, 'CONFIRMED_REGRESSION', `attested evidence must win: ${r.reason}`);
+    assert.equal(r.rule, 5);
+    // Twins that MUST keep vetoing: text-derived facts the attested channel
+    // cannot explain away — signal death and the sweep forensics.
+    const killed = attested({ ...arm('candidate', 1, false), exitCode: -1 });
+    assert.match(infraCause({ ...killed, infraSignal: true }) ?? '', /killed or signal death/);
+    const swept = attested({ ...arm('candidate', 1), sweepFailed: true });
+    assert.match(infraCause({ ...swept, infraSignal: true }) ?? '', /containment sweep/);
+  });
+
+  it('post-GLM F4 twin: WITHOUT attestation the same prose still yields rule 1 INFRA', () => {
+    // The fix suppresses the text veto only on the attested view; prose-only
+    // experiments keep every weak-label path byte-identical.
+    const r = classify([arm('baseline', 1), arm('baseline', 2), { ...arm('candidate', 1, false), infraSignal: true }]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(r.rule, 1);
+  });
+
   it('weak paths are NOT gated: rule 0/rule 1 keep their rule numbers without any observation', () => {
     // An empty-ish bundle must report "missing arms" (rule 0), not claim the
     // gate fired — the gate downgrades claims, it never fabricates structure.
