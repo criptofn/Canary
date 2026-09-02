@@ -40,7 +40,7 @@ import { KNOWN_RUNNER_RELEASES } from '@canary-rn/support';
 import { sha256hex } from '@canary-rn/hashing';
 import {
   writeStagedPayload, stageCommands, MOCHA_TEST_ARGV, widgetSpec, swapScript,
-  WIDGET_PKGS, STAGING_REL, DOUBLE_VERSION,
+  WIDGET_PKGS, STAGING_REL, DOUBLE_VERSION, assertDoubleObservation,
 } from './stub-harness.js';
 import type { EvidenceBundle } from '@canary-rn/evidence-schema';
 
@@ -249,7 +249,7 @@ function w(p: string, s: string): void {
   fs.writeFileSync(p, s, 'utf8');
 }
 
-async function pipelineRun(stub: string): Promise<EvidenceBundle> {
+async function pipelineRun(stub: string, test: readonly string[] = MOCHA_TEST_ARGV): Promise<EvidenceBundle> {
   const repoRoot = fs.mkdtempSync(path.join(TMP, 'repo-'));
   const result = await runExperiment({
     schema: 2, id: 'panel-k',
@@ -258,7 +258,7 @@ async function pipelineRun(stub: string): Promise<EvidenceBundle> {
     commands: {
       prepare: stageCommands({ mocha: true }),
       swap: ['node', 'swap.js', '{candidate}'],
-      test: [...MOCHA_TEST_ARGV],
+      test: [...test],
     },
     repeats: { baseline: 2, candidate: 2 },
     timeoutSecs: { install: 120, test: 120 },
@@ -415,6 +415,66 @@ describe('panel K layer 2 — the pipeline end-to-end refuses unattested executi
     // INFRASTRUCTURE_FAILURE — EITHER way it is structurally not strong.
     assert.ok(!STRONG.has(bundle.classification.label), `mid-run abort reached ${bundle.classification.label}`);
     assert.equal(bundle.classification.label, 'INFRASTRUCTURE_FAILURE');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// POST-GLM F1 (P0) — an OFF-POSITION $bin:mocha token earns NO execution
+// credit. Audit attack: with the pinned double at the canonical anchor, a
+// spec whose runner token is not the executed program — e.g.
+// ['node','-e',FORGERY,'$bin:mocha','test.js'] — expanded to argv where the
+// appended `--require <preload>` lands in the -e script's OWN argv and is
+// never loaded. Yet the capture-time decision saw only token+pin+canonical
+// and claimed injected=true; the child then wrote hello/pass/bye frames on
+// fd 3 ITSELF: the pid check passes because the frame writer IS the spawned
+// child, mochaVersion is visible in its own package.json, the printed
+// summary agrees — VALID observation, strong verdict, ZERO runner execution.
+//
+// Fixed contract (docs/EXECUTION-AUTHORITY.md): injection credit requires
+// the canonical pinned runner to OCCUPY THE EXECUTED RUNNER POSITION — the
+// expanded argv is [execPath, <pinned bin>, …], i.e. the token must be spec
+// argv[0]. An inert/off-position token is REFUSED fail-closed
+// (CanaryError → InfraAbort → exit 2), the subject-require-refused
+// precedent: subject-controlled argv is refused, not parsed. The positive
+// control pins that the honest form still earns VALID + a strong verdict.
+// ───────────────────────────────────────────────────────────────────────────
+const F1_FORGERY = [
+  "const fs = require('fs');",
+  "const F = (o) => fs.writeSync(3, JSON.stringify(o) + '\\n');",
+  `F({ k: 'hello', pid: process.pid, mochaVersion: ${JSON.stringify(DOUBLE_VERSION)}, observerVersion: ${JSON.stringify(OBSERVER_VERSION)}, node: process.version });`,
+  "F({ k: 'pass', id: 'widget suite > loads the dependency', file: 'test.js' });",
+  "F({ k: 'pass', id: 'widget suite > candidate breaks widget', file: 'test.js' });",
+  "F({ k: 'bye', counts: { pass: 2, fail: 0, pending: 0 } });",
+  "console.log('  2 passing');",
+  'process.exit(0);',
+].join('\n');
+
+describe('post-GLM F1 — off-position runner token earns no execution credit', () => {
+  const OFF_POSITION: Array<[string, readonly string[]]> = [
+    ['forging `node -e` with the token trailing', ['node', '-e', F1_FORGERY, '$bin:mocha', 'test.js']],
+    ['forging prelude script with the token after it', ['node', 'forgery.js', '$bin:mocha', 'test.js']],
+  ];
+  for (const [name, testArgv] of OFF_POSITION) {
+    it(`refused fail-closed: ${name}`, async () => {
+      const stub = realStub();
+      w(path.join(stub, 'test.js'), widgetSpec());
+      w(path.join(stub, 'swap.js'), swapScript(false));
+      w(path.join(stub, 'forgery.js'), F1_FORGERY);
+      await assert.rejects(
+        pipelineRun(stub, testArgv),
+        (e: unknown) => e instanceof InfraAbort && /executed runner position/.test((e as Error).message),
+        'an inert runner token must be refused, never credited',
+      );
+    });
+  }
+
+  it('positive control: the executed-position token still earns VALID and a strong verdict', async () => {
+    const stub = realStub();
+    w(path.join(stub, 'test.js'), widgetSpec());
+    w(path.join(stub, 'swap.js'), swapScript(false));
+    const bundle = await pipelineRun(stub);
+    assertDoubleObservation(bundle.rounds);
+    assert.equal(bundle.classification.label, 'CONFIRMED_REGRESSION', bundle.classification.reason);
   });
 });
 

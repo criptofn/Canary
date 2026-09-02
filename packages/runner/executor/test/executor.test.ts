@@ -915,6 +915,31 @@ describe('observation hardening — expandArgvWithPlan injection decision', () =
     } finally { cleanup(); }
   });
 
+  it('post-GLM F1: an off-position $bin:mocha token is refused, never credited', () => {
+    const { rec, cleanup, ws } = freshRecorder();
+    try {
+      copyDouble(path.join(ws.fixture, 'node_modules', 'mocha'));
+      const reason = (cmd: string[]): string => {
+        try { rec.expandArgv(cmd, SUBS, doubleResolver(ws.fixture)); return 'no-throw'; }
+        catch (e) { return (e as { reasonCode?: string }).reasonCode ?? 'threw-without-code'; }
+      };
+      // Pinned bytes at the canonical anchor — the ONLY missing precondition
+      // is that the token does not EXECUTE: each expanded argv runs something
+      // else and leaves $bin:mocha as inert script argument.
+      for (const cmd of [
+        ['node', '-e', 'process.exit(0)', '$bin:mocha', 'test.js'],
+        ['node', 'forgery.js', '$bin:mocha', 'test.js'],
+        ['node', '$bin:mocha', 'test.js'], // exec-path is a spec string here
+      ]) {
+        assert.equal(reason(cmd), 'mocha-bin-not-executed', `must refuse: ${cmd.join(' ')}`);
+      }
+      // Positive twin: the same bytes, token in the executed position → credit.
+      const { plan } = rec.expandArgvWithPlan(['$bin:mocha', 'test.js'], SUBS, doubleResolver(ws.fixture));
+      assert.equal(plan.injected, true);
+      assert.equal(plan.expectedMochaVersion, doublePin?.version);
+    } finally { cleanup(); }
+  });
+
   it('non-mocha commands: no injection attempted, absentKind not-mocha-bin', () => {
     const { rec, cleanup } = freshRecorder();
     try {

@@ -638,6 +638,9 @@ export class Recorder {
    * Expand spec tokens AND make the execution-observation injection decision
    * (post-GLM panel AM-1/I — the ONLY path to a strong label):
    *  - the `$bin:mocha` package is located + canonically hashed on disk;
+   *  - the token must be in the EXECUTED runner position (expanded argv[0] ==
+   *    execPath, argv[1] == the mocha bin — post-GLM F1: an off-position token
+   *    is inert script argv and is REFUSED, never credited);
    *  - injection proceeds ONLY if (name, version, treeHash) hits a
    *    Canary-repo pin AND the package sits at the canonical fixture path
    *    (the same anchor the preload uses — a hoisted install is not
@@ -684,6 +687,7 @@ export class Recorder {
     // spelled or positioned.
     const out: string[] = [];
     let mochaBin: string | undefined;
+    let mochaBinAt = -1; // argv index where the $bin:mocha pair was pushed (-1 = no token)
     const requireClaims: string[] = [];
     cmd.forEach((raw) => {
       const t = raw
@@ -711,7 +715,7 @@ export class Recorder {
           );
         }
         const binPath = i === -1 ? resolveBin(s) : resolveBin(s.slice(0, i), s.slice(i + 1));
-        if (pkg === 'mocha' && mochaBin === undefined) mochaBin = binPath;
+        if (pkg === 'mocha' && mochaBin === undefined) { mochaBin = binPath; mochaBinAt = out.length; }
         out.push(process.execPath, binPath);
       } else out.push(t);
     });
@@ -738,6 +742,20 @@ export class Recorder {
     // failure mode of a double / an unpinned mocha / a hoisted install).
     const plan: ExpansionPlan = { injected: false, absentKind: 'not-mocha-bin' };
     if (mochaBin !== undefined) {
+      // F1 (post-GLM audit): the token earns execution credit ONLY when it is
+      // the executed runner — index 0 means the spawned process IS
+      // [execPath, mochaBin, ...args]. A trailing token (`node -e <forger>
+      // $bin:mocha test.js`) is inert script argv: the pin hit would credit
+      // injection into a process that never runs mocha, and a spec-controlled
+      // forger could satisfy the fd-3 protocol with zero runner execution.
+      // Same posture as 'subject-require-refused': subject-controlled argv that
+      // misrepresents what executes is refused, not parsed.
+      if (mochaBinAt !== 0) {
+        throw new CanaryError(
+          `spec command's $bin:mocha token is not in the executed runner position (it sits behind other argv, so the spawned process is not mocha): crediting it would let a spec-controlled process earn the observer verdict without the pinned runner ever executing — refusing the round fail-closed`,
+          'mocha-bin-not-executed',
+        );
+      }
       if (requireClaims.length > 0) {
         throw new CanaryError(
           `mocha spec argv carries Canary's protected preload flag (${requireClaims.join(', ')}): --require/-r in a $bin:mocha command would open the preload set beyond Canary's own observer — refusing the round fail-closed`,
