@@ -528,20 +528,42 @@ function classifyTable(rounds: readonly RoundFact[]): ClassificationResult {
   const cAllPass = candidate.every(pass);
   const cAllFail = candidate.every((r) => !pass(r));
 
-  // Rule 13 (post-sol RB-2): cross-arm COMPARABILITY gates STRONG verdicts
-  // only. PASS / CONFIRMED_REGRESSION / PRE_EXISTING_FAILURE claim the arms
-  // measured the same experiment; a summary whose executed or observed
-  // totals differ across arms means tests silently disappeared from (or
-  // appeared in) execution — that is exactly the weaker-or-missing
-  // execution that may never produce the stronger verdict (Sol cases 1, 3,
-  // 4). A legitimate regression (passing -> failing at stable totals, the
-  // Axios shape 128 -> 125+3) passes this gate untouched.
+  // Rule 13 (post-sol RB-2; extended post-GLM round-5 F1): cross-arm
+  // COMPARABILITY gates STRONG verdicts only. PASS / CONFIRMED_REGRESSION /
+  // PRE_EXISTING_FAILURE claim the arms measured the same experiment; a
+  // summary whose executed or observed totals differ across arms means tests
+  // silently disappeared from (or appeared in) execution — that is exactly
+  // the weaker-or-missing execution that may never produce the stronger
+  // verdict (Sol cases 1, 3, 4). A legitimate regression (passing -> failing
+  // at stable totals, the Axios shape 128 -> 125+3) passes untouched.
+  //
+  // The same-experiment invariant implemented here is CARDINALITY PLUS
+  // FAILING-SET CONTAINMENT, not full identity correspondence. In the
+  // attested view failingTestNames ARE Canary-observed identities, so
+  // PRE_EXISTING_FAILURE ("every candidate failure was already failing under
+  // baseline") is contradicted by containment violations: a watched
+  // pass->fail transition (regression) must never be swallowed into
+  // "pre-existing", and disjoint failing sets ({A} vs {B}) describe no
+  // comparable transition at all. Renamed/added PASSING tests at equal
+  // totals (suite-composition substitution) remain inside the stated F3/
+  // §8.1 ceiling — binding identity strings across two package versions
+  // needs a semantic root Canary does not have, and enforcing it would deny
+  // strong verdicts to legitimate test renames.
   const wouldBeStrong =
     (bPass && (cAllPass || cAllFail)) || (!bPass && cAllFail);
   if (wouldBeStrong && (bCov.executed !== cCov.executed || bCov.observed !== cCov.observed)) {
     return mk('INCONCLUSIVE', 13,
       `test coverage differs between arms (baseline executed/observed ${covText(bCov)}, candidate ${covText(cCov)}) — weaker or missing test execution must not produce a stronger verdict; a legitimate regression keeps the executed total stable and moves tests from passing to failing`,
       { baselinePass: bPass, baselineUnanimous: bUnanim, candidateUnanimous: false });
+  }
+  if (wouldBeStrong && !bPass) {
+    const baseFailing = new Set(baseline.flatMap((r) => r.failingTestNames ?? []));
+    const extra = [...new Set(candidate.flatMap((r) => r.failingTestNames ?? []).filter((x) => !baseFailing.has(x)))].sort();
+    if (extra.length > 0) {
+      return mk('INCONCLUSIVE', 13,
+        `candidate fails ${extra.length} identity/identities not failing in baseline (${extra.join(', ')}) — PRE_EXISTING_FAILURE requires failing-set containment; a watched pass->fail transition may never be swallowed and disjoint failing sets describe no comparable transition (post-GLM F1)`,
+        { baselinePass: bPass, baselineUnanimous: bUnanim, candidateUnanimous: false });
+    }
   }
 
   // Rule 3: clean + clean -> PASS.

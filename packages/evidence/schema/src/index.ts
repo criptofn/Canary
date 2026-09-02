@@ -16,8 +16,24 @@
  */
 
 import {
-  classify, STRONG_EXECUTION_LABELS, type RoundFact, type ExecutionObservation,
+  classify, type RoundFact, type ExecutionObservation,
 } from '@canary-rn/classification';
+
+/**
+ * The mirror's OWN copy of the strong-label list (post-GLM round-5 F2).
+ * Imported before that — while the docs claimed "three sites, own constants,
+ * weakening one leaves two" — a single edit to the classifier's array
+ * silently disabled enforcement sites 1 AND 2 together. Independence needs
+ * its own bytes: this list is what panel H keys on, and
+ * schema.test.ts pins STRONG_MIRROR_LABELS == STRONG_EXECUTION_LABELS as a
+ * deliberate, tested coupling (shrinking EITHER list without shrinking both
+ * fails CI; the third site, prove's byte binding, keys on no label list at
+ * all). Same two-tier posture as TRUSTFUL_LABELS in contract.ts — the
+ * pattern always was the point; STRONG just never got it.
+ */
+export const STRONG_MIRROR_LABELS: readonly string[] = [
+  'PASS', 'CONFIRMED_REGRESSION', 'PRE_EXISTING_FAILURE', 'FLAKY',
+];
 import { KNOWN_RUNNER_RELEASES } from '@canary-rn/support';
 import { canonicalJson, sha256hex } from '@canary-rn/hashing';
 import { structuralIssues } from './contract.js';
@@ -509,6 +525,11 @@ function semanticChecks(
   //     by the rules above/re-derivation).
   // Tests silently disappearing between arms are NOT equivalent to a stable
   // passing->failing transition, and may never anchor a strong verdict.
+  // Precisely (post-GLM F1 wording): the cross-arm same-experiment invariant
+  // enforced here and in classify() is CARDINALITY PLUS FAILING-SET
+  // CONTAINMENT for PRE_EXISTING_FAILURE-shaped verdicts (restated at 3d) —
+  // not identity correspondence; renamed/added PASSING tests at equal totals
+  // stay inside the documented F3/§8.1 substitution ceiling.
   if (trustful) {
     const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
     const totals = (r: Record<string, unknown>) => {
@@ -566,12 +587,14 @@ function semanticChecks(
 
   // 3d. Post-GLM panel H — INDEPENDENT execution-observation mirror. This
   // restates the classifier's gate (observationGateIssue) from the bundle's
-  // own recorded fields, keyed on the NEW STRONG_EXECUTION_LABELS constant —
-  // NOT the retention-tier TRUSTFUL_LABELS (two tiers, two constants, never
+  // own recorded fields, keyed on STRONG_MIRROR_LABELS — this package's own
+  // copy of the strong set (equivalence with the classifier's constant is a
+  // pinned, tested decision — see the constant's docblock), NOT the
+  // retention-tier TRUSTFUL_LABELS (two tiers, two constants, never
   // conflated). Deliberately restated instead of relying on the re-derivation
   // below: a future decision-table edit must not silently weaken the floor —
   // the same "guard that changing it changes nothing" lesson rules 9/10 encode.
-  if ((STRONG_EXECUTION_LABELS as readonly string[]).includes(String(label))) {
+  if (STRONG_MIRROR_LABELS.includes(String(label))) {
     for (const r of rounds) {
       const at = `round ${String(r.arm)}#${String(r.round)}`;
       const o = r.executionObservation as Record<string, unknown> | undefined;
@@ -599,6 +622,26 @@ function semanticChecks(
       }
       if (typeof o.framesSha256 !== 'string' || !HEX64.test(o.framesSha256)) {
         issues.push(`${at}: ${String(label)} but framesSha256 is not 64-hex — no retained frame stream to verify against`);
+      }
+    }
+    // Post-GLM round-5 F1 restatement: PRE_EXISTING_FAILURE claims EVERY
+    // candidate failure was already failing under baseline. Keyed on the
+    // LABEL (not on a recomputed routing), so a decision-table edit that
+    // removes the classifier-side containment check cannot silently make
+    // the claim again: candidate observed failing identities not present in
+    // the baseline union contradict the label's own reason text with
+    // Canary-observed facts — a watched pass->fail transition may never be
+    // swallowed, disjoint failing sets describe no comparable transition.
+    if (String(label) === 'PRE_EXISTING_FAILURE') {
+      const ids = (r: Record<string, unknown>): string[] => {
+        const o = r.executionObservation as Record<string, unknown> | undefined;
+        const obs = o?.observedFailingIdentities;
+        return Array.isArray(obs) ? obs as string[] : Array.isArray(r.failingTestNames) ? r.failingTestNames as string[] : [];
+      };
+      const baseFailing = new Set(rounds.filter((r) => r.arm === 'baseline').flatMap(ids));
+      const extra = [...new Set(rounds.filter((r) => r.arm === 'candidate').flatMap(ids).filter((x) => !baseFailing.has(x)))].sort();
+      if (extra.length > 0) {
+        issues.push(`classification PRE_EXISTING_FAILURE but candidate fails ${extra.length} identity/identities not failing in baseline (${extra.join(', ')}) — failing-set containment violated; the classifier's rule-13 extension was bypassed?`);
       }
     }
   }

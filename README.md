@@ -45,7 +45,7 @@ Reproduce it:
 ```bash
 npm ci            # lockfile-exact, reproducible install
 npm run build
-npm test          # 423 tests / 60 suites (offline; 1 skip when the OS denies symlink creation)
+npm test          # 438 tests / 64 suites (offline; 1 skip when the OS denies symlink creation)
 npm run prove     # fresh end-to-end run; PASS requires the committed proof host (36 assertions
                   # executed, zero skips). On any other runtime it honestly exits 2 (INCOMPLETE):
                   # the 22 portable assertions must all hold, the 6 host-exact ones are skipped,
@@ -104,7 +104,9 @@ Every downstream repository is **untrusted**. Enforced by
   (no leaf-title collapse); a zero-test / no-summary / infra-at-exit-0 run can
   never become PASS; **suite collapse is never a verdict** — strong verdicts
   require stable-across-repetitions and comparable-across-arms test-execution
-  coverage (classifier rules 12/13 + an independent validator gate); **a
+  coverage, and "comparable" includes failing-set containment (a candidate
+  failure the baseline never saw fail is never "pre-existing"; classifier
+  rules 12/13 + an independent validator gate); **a
   strong verdict additionally requires that Canary WATCHED the execution** —
   a byte-pinned runner with a Canary-injected in-process observer, whose
   private-channel lifecycle counts agree with the text summary on every round

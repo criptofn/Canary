@@ -182,9 +182,9 @@ before the 9/10 confinement guard applies:
 | 8 | within an arm, failing rounds' profiles (count + identityCoverage + identities) differ | FLAKY | audit F2 |
 | 11 | a failing round's parsed identities do not fully account for its reported failing count | INCONCLUSIVE | R3-B1 |
 | 12 | an arm's repetitions disagree on executed (passing+failing) or observed (+pending) totals | FLAKY | **post-sol RB-2** |
-| 13 | a STRONG verdict (3/4/5) whose arms' executed or observed totals differ — weaker or missing execution may never produce a stronger verdict | INCONCLUSIVE | **post-sol RB-2** |
+| 13 | a STRONG verdict (3/4/5) whose arms' executed or observed totals differ — weaker or missing execution may never produce a stronger verdict — **or** a would-be PRE_EXISTING_FAILURE whose candidate fails ≥1 identity baseline never saw fail (failing-set containment: a watched pass→fail transition is never swallowed; disjoint sets are non-comparable) | INCONCLUSIVE | **post-sol RB-2 / post-GLM F1** |
 | 3 | baseline all-pass ∧ candidate all-pass (coverage comparable per 13) | PASS | plan |
-| 4 | baseline all-fail ∧ candidate all-fail (comparable per 13) | PRE_EXISTING_FAILURE | plan |
+| 4 | baseline all-fail ∧ candidate all-fail ∧ candidate failing identities ⊆ baseline's (comparable per 13) | PRE_EXISTING_FAILURE | plan |
 | 5 | baseline all-pass ∧ candidate all-fail, profiles identical (comparable per 13) | **CONFIRMED_REGRESSION** | plan |
 | 6 | baseline fails while candidate does not uniformly fail | INCONCLUSIVE / FLAKY | plan |
 | 7 | baseline clean, candidate mixed | FLAKY | plan |
@@ -201,8 +201,11 @@ reruns are required (rule 8) and persisted in the bundle as first-class data.
 Post-GLM: when the observation gate holds, the identity/coverage math reads
 the ATTESTED counts/identities — the channels are equal by the gate's own
 condition, so the observed record (not the text) is the canonical source for
-the table; malformed disk-carried observations are a gate REFUSAL (rule 14),
-never a crash.
+the table (rule 13's F1 containment constraint is thereby evaluated on
+Canary-observed failing identities, the only execution facts with authority);
+malformed disk-carried observations are a gate REFUSAL (rule 14), never a
+crash. On the un-attested path containment can at most pre-empt a producer
+rule — any surviving strong or FLAKY label is downgraded to rule 14 anyway.
 
 ## 7. Golden fixture — selection evidence and fallback ladder
 

@@ -877,3 +877,150 @@ describe('post-GLM — execution-observation gate (rule 14)', () => {
     assert.equal(r1.rule, 1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Post-GLM round 5 — F1: failing-set containment for PRE_EXISTING_FAILURE
+// (a watched pass->fail transition may never be swallowed by the "already
+// broken" label), and F4: rule-14 routing pinned for EVERY named FLAKY
+// producer (§11 promised "all strong + FLAKY producers"; before this, a
+// gate exemption for producers 6/7/8/12 survived the whole suite).
+// ---------------------------------------------------------------------------
+
+/** A round with exact channels — used where arm()'s fixed shapes cannot hit
+ *  a specific producer. */
+function fact(
+  armName: 'baseline' | 'candidate', round: number,
+  opts: { passing: number; failing?: string[]; exit: number },
+): RoundFact {
+  const failing = opts.failing ?? [];
+  return {
+    arm: armName, round, exitCode: opts.exit, hasRunnerSummary: true, infraSignal: false,
+    reportedPassing: opts.passing,
+    ...(failing.length > 0 ? { reportedFailing: failing.length, failingTestNames: failing } : {}),
+  };
+}
+
+describe('post-GLM round 5 F1 — PRE_EXISTING requires failing-set containment', () => {
+  it('a candidate failure Canary never saw fail in baseline is NOT pre-existing — INCONCLUSIVE 13 (never a swallowed regression)', () => {
+    // The GLM-round-5 scenario: B passes in baseline (watched), fails in
+    // candidate — the old table labeled this PRE_EXISTING_FAILURE, a verdict
+    // contradicted by Canary's own retained bytes. Baseline {A} vs candidate
+    // {A,B} keeps executed totals equal (1+1 vs 0+2 — the compensated-
+    // disappearance shape), so cardinality alone cannot see it; only
+    // failing-set IDENTITY containment catches this.
+    const facts = [
+      fact('baseline', 1, { passing: 1, failing: ['s > A'], exit: 1 }),
+      fact('baseline', 2, { passing: 1, failing: ['s > A'], exit: 1 }),
+      fact('candidate', 1, { passing: 0, failing: ['s > A', 's > B'], exit: 1 }),
+      fact('candidate', 2, { passing: 0, failing: ['s > A', 's > B'], exit: 1 }),
+    ];
+    const r = classifyAttested(facts);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 13);
+    assert.match(r.reason, /s > B/);
+    assert.match(r.reason, /containment/);
+  });
+
+  it('disjoint failing sets ({A} baseline vs {B} candidate) at equal totals describe no comparable transition — INCONCLUSIVE 13', () => {
+    const facts = [
+      fact('baseline', 1, { passing: 1, failing: ['s > A'], exit: 1 }),
+      fact('baseline', 2, { passing: 1, failing: ['s > A'], exit: 1 }),
+      fact('candidate', 1, { passing: 1, failing: ['s > B'], exit: 1 }),
+      fact('candidate', 2, { passing: 1, failing: ['s > B'], exit: 1 }),
+    ];
+    const r = classifyAttested(facts);
+    assert.equal(r.classification, 'INCONCLUSIVE');
+    assert.equal(r.rule, 13);
+    assert.match(r.reason, /s > B/);
+  });
+
+  it('an honest PRE_EXISTING_FAILURE (identical failing sets) keeps rule 4 — containment must not over-block', () => {
+    const facts = [
+      fact('baseline', 1, { passing: 1, failing: ['s > A'], exit: 1 }),
+      fact('baseline', 2, { passing: 1, failing: ['s > A'], exit: 1 }),
+      fact('candidate', 1, { passing: 1, failing: ['s > A'], exit: 1 }),
+      fact('candidate', 2, { passing: 1, failing: ['s > A'], exit: 1 }),
+    ];
+    const r = classifyAttested(facts);
+    assert.equal(r.classification, 'PRE_EXISTING_FAILURE');
+    assert.equal(r.rule, 4);
+  });
+
+  it('CONFIRMED_REGRESSION is untouched by containment (baseline has zero failing identities)', () => {
+    const r = classifyAttested([
+      fact('baseline', 1, { passing: 2, exit: 0 }),
+      fact('baseline', 2, { passing: 2, exit: 0 }),
+      fact('candidate', 1, { passing: 1, failing: ['s > X'], exit: 1 }),
+      fact('candidate', 2, { passing: 1, failing: ['s > X'], exit: 1 }),
+    ]);
+    assert.equal(r.classification, 'CONFIRMED_REGRESSION');
+    assert.equal(r.rule, 5);
+  });
+
+  it('DOCUMENTED CEILING: version-gated passing-test substitution still PASSes (F3/§8.1) — equality of cardinality + failing sets is the exact invariant', () => {
+    // A subject whose suite is version-gated (`if baseline it('A') else
+    // it('A2')`, A2 trivially real) yields identical VALID counts with
+    // DIFFERENT passing identities — and passing identities are not in the
+    // bundle contract, by decision: binding identity strings across two
+    // package versions needs a semantic root Canary does not have, and
+    // enforcing pass-set equality would deny strong verdicts to legitimate
+    // test renames. This test PINS that boundary (codified in
+    // EXECUTION-AUTHORITY §8): containment was deliberately NOT extended
+    // here. If a future design persists observedPassingIdentities, THIS is
+    // the test that flips.
+    const r = classifyAttested([
+      fact('baseline', 1, { passing: 2, exit: 0 }),
+      fact('baseline', 2, { passing: 2, exit: 0 }),
+      fact('candidate', 1, { passing: 2, exit: 0 }),
+      fact('candidate', 2, { passing: 2, exit: 0 }),
+    ]);
+    assert.equal(r.classification, 'PASS');
+    assert.equal(r.rule, 3);
+  });
+});
+
+describe('post-GLM round 5 F4 — rule 14 downgrades EVERY FLAKY producer (6/7/8/12)', () => {
+  // §11 promised "rule-14 routing for all strong + FLAKY producers"; only
+  // producers 2/3/4/5 had routing tests, so deleting the gate for the other
+  // four passed the whole suite (round-5 finding 4, mutation-proven). Each
+  // shape below reaches its producer on the TEXT channel (verified via the
+  // attested twin), then must come out rule 14 without observation.
+  const cases: Array<[string, RoundFact[], RegExp]> = [
+    ['producer rule 6 (non-unanimous candidate under failing baseline)', [
+      fact('baseline', 1, { passing: 4, failing: ['s > q'], exit: 1 }),
+      fact('baseline', 2, { passing: 4, failing: ['s > q'], exit: 1 }),
+      fact('candidate', 1, { passing: 4, failing: ['s > q'], exit: 1 }),
+      fact('candidate', 2, { passing: 5, exit: 0 }), // executed totals stay 5 both rounds (rule 12 clean)
+    ], /previously rule 6 FLAKY/],
+    ['producer rule 7 (clean baseline, mixed candidate)', [
+      fact('baseline', 1, { passing: 5, exit: 0 }),
+      fact('baseline', 2, { passing: 5, exit: 0 }),
+      fact('candidate', 1, { passing: 4, failing: ['s > q'], exit: 1 }),
+      fact('candidate', 2, { passing: 5, exit: 0 }),
+    ], /previously rule 7 FLAKY/],
+    ['producer rule 8 (failing rounds within an arm differ in identity)', [
+      fact('baseline', 1, { passing: 4, failing: ['s > a'], exit: 1 }),
+      fact('baseline', 2, { passing: 4, failing: ['s > b'], exit: 1 }),
+      fact('candidate', 1, { passing: 5, exit: 0 }),
+      fact('candidate', 2, { passing: 5, exit: 0 }),
+    ], /previously rule 8 FLAKY/],
+    ['producer rule 12 (repetitions differ in coverage totals)', [
+      fact('baseline', 1, { passing: 5, exit: 0 }),
+      fact('baseline', 2, { passing: 3, exit: 0 }),
+      fact('candidate', 1, { passing: 5, exit: 0 }),
+      fact('candidate', 2, { passing: 5, exit: 0 }),
+    ], /previously rule 12 FLAKY/],
+  ];
+  for (const [name, facts, expected] of cases) {
+    it(`un-attested ${name} -> INCONCLUSIVE 14, never FLAKY`, () => {
+      // first prove the shape genuinely reaches the producer (attested twin)
+      const attestedRun = classifyAttested(facts);
+      assert.equal(attestedRun.classification, 'FLAKY', `shape does not produce FLAKY when attested: ${JSON.stringify(attestedRun)}`);
+      // then the gate: same facts, no observation
+      const r = classify(facts);
+      assert.equal(r.classification, 'INCONCLUSIVE');
+      assert.equal(r.rule, 14);
+      assert.match(r.reason, expected);
+    });
+  }
+});

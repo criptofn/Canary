@@ -179,6 +179,37 @@ describe('panel K layer 1 — the validator refuses hostile frame streams', () =
     assert.equal(validateObservation(baseInput({ raw: stream([hello(), { k: 'certified', ok: true }, bye({ pass: 0, fail: 0, pending: 0 })]) })).invalidReason, 'unknown-frame-kind');
     assert.equal(validateObservation(baseInput({ raw: stream(good), hasSummary: false })).invalidReason, 'no-summary');
   });
+
+  // Round-5 F3: EXECUTION-AUTHORITY §11 row 2 names unparseable frames,
+  // adapter-error and masked exit among the permanently-pinned validator
+  // attacks — as of 5b34858 those branches were live but reached by NO test
+  // anywhere (every existing raw was built by stream()/JSON.stringify, and
+  // no battery paired watched failures with exit 0). Pinned now: the
+  // battery is the promise. (frame-not-object included: the §11 wording
+  // "unparseable" subsumes it, and it is a distinct branch.)
+  it('(xi) garbage lines, non-object frames, adapter-error and masked exit each condemn the round', () => {
+    const good = stream([hello(), pass('a'), bye({ pass: 1, fail: 0, pending: 0 })]);
+    // a valid stream with one junk line appended still fails closed — the
+    // tail bytes are not exempt just because hello/bye look right.
+    assert.equal(validateObservation(baseInput({ raw: good + 'this is not json\n', textCounts: { passing: 1 } })).invalidReason, 'unparseable-frame');
+    // syntactically JSON, semantically not a frame.
+    assert.equal(validateObservation(baseInput({ raw: good + '5\n', textCounts: { passing: 1 } })).invalidReason, 'frame-not-object');
+    // our own observer reporting failure is NEVER credit: like reject, it
+    // evidences a broken adapter, not execution.
+    const adapter = validateObservation(baseInput({
+      raw: stream([hello(), pass('a'), { k: 'adapter-error', err: 'hook threw' }, bye({ pass: 1, fail: 0, pending: 0 })]),
+      textCounts: { passing: 1 },
+    }));
+    assert.equal(adapter.status, 'INVALID');
+    assert.equal(adapter.invalidReason, 'adapter-error');
+    // masked failure: Canary WATCHED a test fail, the runner exited 0 —
+    // the exit channel is lying about the watched lifecycle.
+    const masked = validateObservation(baseInput({
+      raw: stream([hello(), pass('a'), fail('s > z'), bye({ pass: 1, fail: 1, pending: 0 })]),
+      exitCode: 0, textCounts: { passing: 1, failing: 1 }, textFailingNames: ['s > z'],
+    }));
+    assert.equal(masked.invalidReason, 'exit-contradiction-masked');
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────────

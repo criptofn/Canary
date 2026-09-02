@@ -256,7 +256,7 @@ Full ledger with root causes, execution evidence and per-milestone commits:
 **docs/AUDIT-REMEDIATION-ROUND2-2026-08-31.md** (round 2) and
 **docs/AUDIT-REMEDIATION-ROUND3-2026-08-31.md** (round 3 + internal adversarial
 self-review). Headline outcomes, each covered by the then-current 371-test
-suite (baseline now 423; see the Post-GLM section below):
+suite (baseline now 438; see the Post-GLM section below):
 
 - **F1/F2/F13 — classification correctness.** A passing-summary-then-nonzero-
   exit can no longer produce CONFIRMED_REGRESSION (conservative INFRA);
@@ -382,7 +382,9 @@ items, each fixed structurally here:
 - **RB-2 — suite collapse is not a verdict.** Classifier rules 12/13 and an
   independent validator gate require stable-across-repetitions, comparable-
   across-arms executed/observed totals for any strong verdict (no hard-coded
-  minimum; the Axios regression shape is preserved).
+  minimum; the Axios regression shape is preserved). Post-GLM F1 extended
+  "comparable" from cardinality to failing-set containment: a would-be
+  PRE_EXISTING_FAILURE may not fail an identity the baseline never saw fail.
 - **M-1 — one evidence contract.** `contract.ts` now generates the published
   schema and drives the runtime floor; the round-3 evidence fields
   (`snapshots`, `observationAnomalies`, `crashSignal`, `sweepFailed`) are in
@@ -459,23 +461,69 @@ limits and the four items that are unfixable without a crypto root) is
   disk-carried observations as a gate REFUSAL (rule 14), never a TypeError —
   the gate is total over hostile data (proven by test).
 
+**Round 5 (self-falsification passes + adversarial panel, same branch).** Six
+candidate findings survived refutation; two (the stale-pin class) were
+already closed by commit `a87ae7f`, four became fixes:
+
+- **F1 — containment for PRE_EXISTING_FAILURE.** Rule 13 additionally
+  rejects a would-be PRE_EXISTING_FAILURE whose candidate fails ≥1 identity
+  baseline never saw fail: a watched pass→fail transition is never swallowed
+  into "already broken", and disjoint failing sets ({A} vs {B}) describe no
+  comparable transition. Cardinality alone cannot see the compensated shape
+  (baseline 1P+1F vs candidate 0P+2F keeps totals equal). The mirror
+  (`validateBundle`) restates it; honest identical-failing-set PEFs and CRs
+  are pinned to keep flowing (no over-block). Passing-side substitution at
+  equal totals remains the deliberate F3 ceiling — documented and codified
+  by a permanent test.
+- **F2 — the mirror's "own constant" is now real.** Until this commit the
+  schema mirror IMPORTED `STRONG_EXECUTION_LABELS`, so the "keyed on its own
+  constant" phrasing above was aspirational. `STRONG_MIRROR_LABELS` is now a
+  genuinely independent declaration in the schema package with a test
+  pinning set-equality to the classifier's list: neither silent drift nor
+  silent divergence.
+- **F3 — §11 row truth.** Four validator branches named as permanently
+  pinned (unparseable frame, non-object frame, `adapter-error`, masked-exit
+  contradiction) were live but tested nowhere; they now have a layer-1 test.
+- **F4 — rule-14 routing completeness.** Producers 6/7/8/12 had no routing
+  test, so deleting the gate for exactly those four passed the whole suite.
+  All four are now pinned, each with an attested-twin test proving the fact
+  shape genuinely reaches its producer.
+- **The stale-pin incident (root of the two pre-closed findings).** The
+  `mocha@10.8.2` tree pin recorded at probe time (`68a0a02c…`) matched
+  NOTHING — no install, no tarball, ever produced it. The true registry
+  bytes hash `4b811f5a…`, confirmed three independent ways (golden-era
+  fixture tree, clean `npm install --ignore-scripts`, official tarball whose
+  sha512 equals the registry `dist.integrity`). Fail-closure held throughout
+  — the golden proof degraded to INCONCLUSIVE, never a false PASS — but the
+  claimed guard (a proof-host test) did not exist, so the fix is
+  architectural, not "re-record the hash": a committed review manifest
+  anchors the pin offline and a test recomputes `treeSha256` from the
+  tarball's per-file bytes. One accepted panel kill: a frame-valid,
+  zero-frame stream fooling the panel-H mirror is vacuous (a smart forger
+  emits `hello`+`bye`; the mirror has no frame bytes to bind) — that is the
+  §8 total-forgery ceiling, not a finding.
+
 Permanent batteries: `apps/cli/test/execution-authority.test.ts` (exact GLM
 reproducer verbatim), `apps/cli/test/attested-channel.test.ts` (validator +
-end-to-end attack matrix), `packages/runner/executor/test/
-infra-matching-hardening.test.ts`, extended classify/schema/prove/verify-tree
-suites. The golden proof's 36 expectations and `proof.json` were NOT
-re-anchored: the legitimate path passes through the real mechanism (pinned
-10.8.2 on the proof host) or degrades honestly off-host.
+end-to-end attack matrix), `packages/support/test/
+known-runners-manifest.test.ts` (pins recomputed from committed review
+manifests; canary-double explicitly manifest-free), `packages/runner/
+executor/test/infra-matching-hardening.test.ts`, extended classify/schema/
+prove/verify-tree suites. The golden proof's 36 expectations and `proof.json`
+were NOT re-anchored: the legitimate path passes through the real mechanism
+(pinned 10.8.2 on the proof host) or degrades honestly off-host.
 
 Suite baseline moved **371/52/370/0/1 → 423/60/422/0/1** (tests/suites/
-pass/fail/skip) at commit `eb61f61`; the one skip remains the platform-
-conditional symlink test. The demonstrated class cannot recur silently: the
-counterexamples are now part of the permanent test contract.
+pass/fail/skip) at commit `eb61f61`, then **425/61/424/0/1** with the pin
+review-manifest anchor (`a87ae7f`), then **438/64/437/0/1** with the round-5
+fixes; the one skip remains the platform-conditional symlink test. The
+demonstrated class cannot recur silently: the counterexamples are now part
+of the permanent test contract.
 
 ## Platform status (audit F15 — no unproven cross-platform claims)
 
 - **Windows (win32/x64, Node 26):** the fully executed platform — entire
-  423-test suite (60 suites, 1 platform-conditional skip), including
+  438-test suite (64 suites, 1 platform-conditional skip), including
   real-subprocess lifecycle/env tests, and the golden Axios proof — 36
   assertions executed with ZERO skips on the designated proof host
   (win32/x64/node v26.3.0/npm 11.16.0; re-executed on the post-sol candidate

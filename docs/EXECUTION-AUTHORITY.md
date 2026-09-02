@@ -90,11 +90,19 @@ the whole channel is stated in §7.
   ABSENT ⇒ strong labels structurally unreachable.** Unpinned is never an
   error — the subject simply cannot earn strength. Any supported future
   mocha release = one added line to the pin table.
-- **Pinned releases today (TOFU):** `mocha@10.8.2` (the golden host's
-  registry-install bytes) and `mocha@0.0.0-canary-double` (Canary's own
-  offline test double, byte-identical to its fixture under `.gitattributes`
-  `text eol=lf`). The table is **trust-on-first-use**: human-reviewed
-  additions, **no cryptographic trust root — we say so plainly** (§6).
+- **Pinned releases today (TOFU):** `mocha@10.8.2` and
+  `mocha@0.0.0-canary-double` (Canary's own offline test double,
+  byte-identical to its fixture under `.gitattributes` `text eol=lf`). The
+  npm pin's hash is anchored **offline**: the committed review manifest
+  `packages/support/test/fixtures/runner-manifests/mocha-10.8.2.npm.txt`
+  records the official registry tarball's per-file digests (tarball sha256 +
+  registry sha512 integrity in its header), and a test recomputes
+  `treeSha256` from those bytes and demands equality with the pin — so a
+  mis-recorded hash (the round-5 `68a0a02c` incident, which matched nothing)
+  cannot survive review. A hash can still be *faithfully recorded for a
+  malicious release*: human review of the manifest is what guards that, not
+  code. The table is **trust-on-first-use**: human-reviewed additions,
+  **no cryptographic trust root — we say so plainly** (§6).
 - **The channel:** every measurement spawn pipes child fd 3 back to the
   parent (even un-injected ones — an unrequested write to fd 3 is *adapter
   emulation* and is retained forensically as `strayFd3Bytes`/
@@ -122,9 +130,14 @@ the whole channel is stated in §7.
 - **Independence, thrice over:** the gate lives inside `classify()` (pure, so
   all three re-derivation sites agree); `validateBundle`
   (`packages/evidence/schema/`) restates it from the bundle's own fields,
-  keyed on its own copy of the strong-label constant, and additionally
+  keyed on `STRONG_MIRROR_LABELS` — its **own copy** of the strong-label
+  constant (declared independently in the schema package; equality with the
+  classifier's `STRONG_EXECUTION_LABELS` is pinned by a test, so the mirror
+  can neither silently drift nor silently diverge); and additionally
   requires VALID rounds to name a pin-table release with both expected and
-  observed runner hashes equal to the pin (`panel H`); `verifyArtifacts`
+  observed runner hashes equal to the pin, and restates the
+  PRE_EXISTING_FAILURE failing-set containment of rule 13 (§5)
+  (`panel H`); `verifyArtifacts`
   (`apps/cli/src/prove.ts`) binds the per-round bytes — the artifact tuple
   grew 4 → 5 with `<arm>-<round>.attest.ndjson`, and `framesSha256` is bound
   to those bytes like every other digest. A bundle that reseals everything
@@ -167,7 +180,7 @@ table runs; then rules 9/10 confinement guard on the post-gate result.
 | 1 | any required round is not a valid test run (killed / crash sig / sweep fail / infra sig / no summary / no machine-readable counts / zero executed / exit-vs-summary contradiction) | INFRASTRUCTURE_FAILURE |
 | 2 | baseline rounds disagree | FLAKY ⟶ gated |
 | 3 | baseline clean + candidate clean | PASS ⟶ gated |
-| 4 | broken before, broken after | PRE_EXISTING_FAILURE ⟶ gated |
+| 4 | broken before, broken after, **and** every candidate failing identity was already failing in baseline (rule-13 containment) | PRE_EXISTING_FAILURE ⟶ gated |
 | 5 | baseline clean, all candidate rounds fail identically | CONFIRMED_REGRESSION ⟶ gated |
 | 6 | baseline fails + candidate not uniformly failing | FLAKY (gated) / INCONCLUSIVE (passes through) |
 | 7 | baseline clean, candidate mixed | FLAKY ⟶ gated |
@@ -176,7 +189,7 @@ table runs; then rules 9/10 confinement guard on the post-gate result.
 | 10 | either arm's tree observation not VALID (guard, after table) | INCONCLUSIVE |
 | 11 | failing round under-accounts its identities (partial parse) | INCONCLUSIVE |
 | 12 | repetitions of an arm differ in executed/observed coverage | FLAKY ⟶ gated |
-| 13 | arms' coverage totals differ under a would-be-strong result (suite collapse is never a verdict) | INCONCLUSIVE |
+| 13 | arms' coverage totals differ under a would-be-strong result (suite collapse is never a verdict), **or** a would-be PRE_EXISTING_FAILURE whose candidate fails identities baseline never saw fail (post-GLM F1: a watched pass→fail transition is never swallowed, and disjoint failing sets describe no comparable transition) | INCONCLUSIVE |
 | 14 | **post-GLM:** execution unattested / channel contradicted — strong or execution-claim label without VALID observation on every round (reason embeds "previously rule N LABEL") | INCONCLUSIVE |
 
 Gating direction is **fail-closed only**: the gate can turn a strong label
@@ -221,7 +234,13 @@ claims anything.
 > mocha process can read the preload from the workspace, neutralize its
 > hooks, and emit a fully protocol-faithful frame stream indistinguishable
 > from a real run (8a/8a′); a suite can execute trivially-real tests under
-> renamed identities (F3); subject code can truncate or hold the channel
+> renamed identities (F3) — the ceiling is deliberately **passing-side
+> only**: rule 13's containment demands every candidate *failing* identity
+> was already failing under baseline, so substitution can never swallow a
+> watched pass→fail transition into PRE_EXISTING_FAILURE, and binding
+> *passing* identities across two package versions would deny strong
+> verdicts to legitimate test renames (the boundary is codified by a
+> permanent test in `classify.test.ts`); subject code can truncate or hold the channel
 > (detected as INVALID/ABSENT — fail-closed, never forged); file replacement
 > between the pinned-hash check and exec, and total offline forgery of the
 > bundle, remain the pre-existing integrity-only ceiling. Weaker or
@@ -307,7 +326,8 @@ recorded as a known gap until then.
 | end-to-end: plain-node stub PASS pretense; unpinned double claiming strength; **forged frames from an unpinned fake** (ABSENT + stray-bytes forensics, zero credit); `--require` in spec argv; mid-run `process.exit` | `apps/cli/test/attested-channel.test.ts` layer 2 |
 | injection-decision matrix (pinned→inject-last; unpinned→ABSENT; hoisted→not injectable; subject `-r`/`--require` forms; non-mocha bins) + tampered-double e2e | `packages/runner/executor/test/executor.test.ts` |
 | case/ANSI symmetry, must-match AND false-positive directions | `packages/runner/executor/test/infra-matching-hardening.test.ts` |
-| gate total on malformed disk data; rule-14 routing for all strong + FLAKY producers; identity-set refusal | `packages/core/classification/test/classify.test.ts` |
-| schema mirror independence + deletion matrix | `packages/evidence/schema/test/schema.test.ts` |
+| gate total on malformed disk data; rule-14 routing for ALL strong + FLAKY producers (2–8, 12; each un-attested case carries an attested-twin test proving the shape genuinely reaches its producer, so the routing assertion cannot rot into testing a dead path); identity-set refusal | `packages/core/classification/test/classify.test.ts` |
+| schema mirror: own-copy strong-label constant with test-pinned classifier equivalence, rule-13 containment restatement, refusal + honest-shape acceptance (no over-block), deletion matrix | `packages/evidence/schema/test/schema.test.ts` |
+| would-be-PRE_EXISTING containment (swallowed regression, disjoint sets, honest PEF preserved, CR untouched, passing-side substitution boundary codified) | `packages/core/classification/test/classify.test.ts` (round-5 describe) |
 | 5-file tuple binding; reseal-everything-but-observation refused; byte-tamper refusals; argv re-derivation parity | `apps/cli/test/prove.test.ts`, `verify-tree` suite |
 | golden never re-anchored: 36 assertions on the committed proof host, `proof.json` byte-identical | `fixtures/axios-0.27-to-1.0/specs/` (untouched by this hardening, by rule) |

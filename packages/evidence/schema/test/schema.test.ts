@@ -5,8 +5,9 @@ import { describe, it } from 'node:test';
 
 import {
   validateBundle, integrityFor, EVIDENCE_SCHEMA_VERSION,
-  buildPublishedSchema, structuralIssues, BUNDLE_CONTRACT,
+  buildPublishedSchema, structuralIssues, BUNDLE_CONTRACT, STRONG_MIRROR_LABELS,
 } from '../src/index.js';
+import { STRONG_EXECUTION_LABELS } from '@canary-rn/classification';
 
 const H = 'a'.repeat(64);
 const SHA40 = 'b8804442837556a2c7673caeb2925688991b610c';
@@ -479,5 +480,60 @@ describe('post-sol M-1 — contract.ts is the single source of truth', () => {
     (b.rounds as Record<string, unknown>[]).splice(0, 1);
     const issues = validateBundle(seal(b));
     assert.ok(issues.some((e) => /contiguous 1\.\./.test(e)), issues.join('; '));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Post-GLM round 5 — F2: the panel-H mirror keys on an OWN copy of the
+// strong-label set (equivalence with the classifier's constant is pinned,
+// so one edit can no longer disable two enforcement sites at once), and
+// F1: validateBundle independently restates PRE_EXISTING_FAILURE
+// failing-set containment (a decision-table regression cannot silently
+// re-enable a swallowed pass->fail transition).
+// ---------------------------------------------------------------------------
+describe('post-GLM round 5 — mirror constant independence + containment restatement', () => {
+  it('STRONG_MIRROR_LABELS is a distinct copy of the classifier strong set with pinned equivalence', () => {
+    assert.notStrictEqual(STRONG_MIRROR_LABELS, STRONG_EXECUTION_LABELS,
+      'the mirror must not key on the classifier\'s array instance — a single edit would then weaken enforcement sites 1 AND 2 simultaneously (round-5 F2)');
+    assert.deepEqual([...STRONG_MIRROR_LABELS].sort(), [...STRONG_EXECUTION_LABELS].sort(),
+      'mirror copy drifted from the classifier strong-label set — shrink BOTH deliberately or neither');
+  });
+
+  /** Make goodBundle a fully coherent fail/fail experiment with the given
+   *  failing identities per arm: text AND observation agree on every round,
+   *  executed totals stay equal across arms — so the ONLY possible refusal
+   *  is the cross-arm one under test. */
+  function makeFailing(b: Record<string, unknown>, baseIds: string[], candIds: string[]) {
+    for (const r of b.rounds as Record<string, unknown>[]) {
+      const ids = r.arm === 'baseline' ? baseIds : candIds;
+      r.exitCode = 1;
+      r.reportedPassing = 5 - ids.length;
+      r.reportedFailing = ids.length;
+      r.failingTestNames = ids;
+      const o = r.executionObservation as Record<string, unknown>;
+      o.observedCounts = { passing: 5 - ids.length, failing: ids.length, pending: 0 };
+      o.observedFailingIdentities = [...ids].sort();
+    }
+  }
+  const setCls = (b: Record<string, unknown>, patch: Record<string, unknown>) => {
+    b.classification = { ...(b.classification as Record<string, unknown>), ...patch };
+  };
+
+  it('refuses PRE_EXISTING_FAILURE whose candidate fails identities baseline did not (containment at 3d)', () => {
+    const b = goodBundle();
+    setCls(b, { label: 'PRE_EXISTING_FAILURE', rule: 4 });
+    makeFailing(b, ['a test'], ['z test']); // disjoint: z never failed in baseline
+    const issues = validateBundle(seal(b));
+    assert.ok(issues.some((e) => /containment violated/.test(e)), issues.join('; '));
+    // Independently, the re-derivation refuses the label too — BOTH sites fire:
+    assert.ok(issues.some((e) => /yields INCONCLUSIVE rule 13/.test(e)), issues.join('; '));
+  });
+
+  it('accepts an honest PRE_EXISTING_FAILURE (identical failing sets across arms) — no over-blocking', () => {
+    const b = goodBundle();
+    setCls(b, { label: 'PRE_EXISTING_FAILURE', rule: 4 });
+    makeFailing(b, ['a test'], ['a test']);
+    assert.deepEqual(validateBundle(seal(b)), [],
+      'a coherent same-failing-tests experiment must validate clean — containment must not reject legitimate pre-existing failures');
   });
 });
