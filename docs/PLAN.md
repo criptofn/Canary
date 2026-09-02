@@ -156,13 +156,23 @@ self-auditing against its raw logs.
 
 ## 6. Classification — deterministic decision function
 
-Inputs: per-arm exit codes (authoritative), normalized logs, infra markers.
+Inputs: per-arm exit codes, normalized logs, infra markers — and, since the
+post-GLM observation hardening, the **execution-observation channel**: a
+per-round record of what a Canary-injected observer WATCHED inside a
+byte-pinned runner (claim contract: docs/EXECUTION-AUTHORITY.md). Printed
+text enters as a CLAIM to be cross-checked, never as proof of execution; exit
+codes are authoritative about process death, not about tests.
 Infra markers are **regex allow-lists on runner facts** (npm/yarn ERESOLVE /
 ENOTFOUND / EAI_AGAIN, `ERR_MODULE_NOT_FOUND`, ava internal crash banner,
-timeout-kill sentinel, empty-output-without-summary) — never LLM judgment.
+timeout-kill sentinel, empty-output-without-summary) — never LLM judgment;
+case-folded and ANSI-stripped at matcher entry (view-only, post-GLM B).
 
 Total rules, evaluated IN THE ORDER SHIPPED (`packages/core/classification`;
-every rule pinned by classify.test.ts):
+every rule pinned by classify.test.ts). The rule-14 gate is not in the row
+order below: `classify()` computes `observationGateIssue` over raw per-round
+fields FIRST, runs the table (reading ATTESTED counts/identities when the
+gate holds), and re-routes any gated result that failed the gate to rule 14 —
+before the 9/10 confinement guard applies:
 
 | # | Condition | Classification | Since |
 |---|---|---|---|
@@ -178,6 +188,7 @@ every rule pinned by classify.test.ts):
 | 5 | baseline all-pass ∧ candidate all-fail, profiles identical (comparable per 13) | **CONFIRMED_REGRESSION** | plan |
 | 6 | baseline fails while candidate does not uniformly fail | INCONCLUSIVE / FLAKY | plan |
 | 7 | baseline clean, candidate mixed | FLAKY | plan |
+| 14 | gate: a strong or execution-claim label (STRONG_EXECUTION_LABELS — incl. every FLAKY producer 2/6/7/8/12) whose rounds lack a VALID observation agreeing with the text on counts, identities and exit semantics; downgrade-only, never upgrades | INCONCLUSIVE | **post-GLM A** |
 | 9/10 | post-guard: tree drift outside the dependency subtree / non-VALID tree observation | any strong verdict downgraded to INCONCLUSIVE | audits F9/B6 |
 
 The prototype lesson — "a green result over degenerate evidence is a failure"
@@ -187,6 +198,11 @@ and the validator independently requires ≥ 2 DENSE rounds for trustful
 labels). Candidate reruns preserve per-run evidence; unanimity is computed
 over exit codes; identical suite-qualified failing-test identities across
 reruns are required (rule 8) and persisted in the bundle as first-class data.
+Post-GLM: when the observation gate holds, the identity/coverage math reads
+the ATTESTED counts/identities — the channels are equal by the gate's own
+condition, so the observed record (not the text) is the canonical source for
+the table; malformed disk-carried observations are a gate REFUSAL (rule 14),
+never a crash.
 
 ## 7. Golden fixture — selection evidence and fallback ladder
 

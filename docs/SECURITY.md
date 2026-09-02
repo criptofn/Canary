@@ -106,14 +106,26 @@ be a lie; here is the real picture.
   that collapses from 128 to 1 executed test can no longer produce any strong
   verdict, while the legitimate 128→125+3 regression shape still confirms.
   `validateBundle` enforces the same parity independently (rules 12/13 plus
-  ≥2 dense rounds per arm), so a resealed bundle refutes itself.
+  ≥2 dense rounds per arm), so a resealed bundle refutes itself. Post-GLM
+  adds rule 14, the **execution-authority** gate: every strong or
+  execution-claim label (PASS / CONFIRMED_REGRESSION / PRE_EXISTING_FAILURE /
+  FLAKY) additionally requires a Canary-observed, pinned-runner execution on
+  every round, cross-checked against the text — a printed summary is a CLAIM;
+  text alone can no longer produce strength in any direction (see
+  docs/EXECUTION-AUTHORITY.md for the full rules 0..14 table and trust ladder).
 - **Evidence integrity** (audit B3/B4). Artifact filenames are derived from a
   round's arm/round and must equal the canonical name, realpath-confined to the
   run dir (no `../`/absolute/cross-round swaps); a manifest digest makes any
   single-field rewrite without full recompute detectable (integrity, NOT
   authenticated provenance — no trust root); `prove`/`check`/`report` re-derive
-  each round's summary, counts and failing-test identities FROM the artifact
-  BYTES, so the bundle cannot misdescribe what actually ran. The structural
+  each round's summary, counts, failing-test identities AND execution
+  observation FROM the artifact BYTES — including the post-GLM fifth artifact,
+  `<arm>-<round>.attest.ndjson`, whose digest binds the lifecycle frames — so
+  the bundle cannot misdescribe **what it recorded**. (Pre-GLM wording claimed
+  "what actually ran"; the demonstrated finding-A class was precisely a bundle
+  that faithfully recorded *fabricated-looking* output. What the bytes mean as
+  an execution is now established by the observation channel and rule 14, not
+  by the text re-derivation alone.) The structural
   floor (which fields MUST exist, per-state trustful requirements, unknown
   fields refused) is one machine-readable contract:
   `packages/evidence/schema/src/contract.ts` generates
@@ -123,6 +135,20 @@ be a lie; here is the real picture.
   evidence agrees with the artifacts on THIS machine; it explicitly does NOT
   mean the committed proof was consulted — only `prove`/`check` assert that,
   and the banner says so. Refused bundles are never rendered as trusted.
+- **Execution-observation channel (post-GLM A).** A strong verdict can only
+  exist for an execution Canary *watched*: a Canary-authored in-process
+  observer is injected (via `--require`, appended last into protected argv)
+  **only** into a runner whose on-disk tree hash matches a pinned release in
+  `KNOWN_RUNNER_RELEASES`; per-test lifecycle events stream back on a private
+  fd the subject cannot be granted through argv (any spec-carried `--require`
+  is refused fail-closed → INFRASTRUCTURE_FAILURE), and the runner's own text
+  summary is demoted to a downgrade-only cross-channel check. Unpinned
+  runners receive NO injection: status ABSENT, and strong labels are
+  structurally unreachable — narrow + correct, never broad + fake. The pin
+  table is trust-on-first-use (a human-reviewed allowlist of *bytes*, not a
+  crypto trust root). Claim contract, validator rules, the three independent
+  enforcement sites (classify gate / validateBundle mirror / prove byte
+  binding) and residual ceilings: [docs/EXECUTION-AUTHORITY.md](EXECUTION-AUTHORITY.md).
 - **Process containment.** Timeout kills the whole process tree; AND on every
   child exit (normal or killed) a descendant sweep runs (audit F5) so a runner
   helper that outlived its parent cannot leak ports/files into a later round.
@@ -156,6 +182,13 @@ be a lie; here is the real picture.
   property; it is a planned kernel-level follow-on (Job Object / cgroup-net /
   seccomp), explicitly out of scope here.
 - **No filesystem jail**, as stated in Tier B.
+- **No authenticated runner provenance.** `KNOWN_RUNNER_RELEASES` pins
+  content BYTES (treeSha256): it proves the process hosted exactly the bytes
+  Canary reviewed, not that those bytes arrived from the npm registry under a
+  publisher key. Integrity + TOFU, not supply-chain attestation. In-process
+  self-emulation (code inside the genuine pinned runner neutralizing the
+  observer) remains unfixed *by construction* without an external root of
+  trust — see docs/EXECUTION-AUTHORITY.md §8.
 
 The failure posture below is about Tier A: when a *Tier-A-enforced* bound
 cannot hold, Canary stops. It does not promise to notice Tier-B/C violations.
@@ -222,7 +255,8 @@ Full ledger with root causes, execution evidence and per-milestone commits:
 **docs/AUDIT-REMEDIATION-2026-08-30.md** (round 1),
 **docs/AUDIT-REMEDIATION-ROUND2-2026-08-31.md** (round 2) and
 **docs/AUDIT-REMEDIATION-ROUND3-2026-08-31.md** (round 3 + internal adversarial
-self-review). Headline outcomes, each covered by the current 371-test suite:
+self-review). Headline outcomes, each covered by the then-current 371-test
+suite (baseline now 423; see the Post-GLM section below):
 
 - **F1/F2/F13 — classification correctness.** A passing-summary-then-nonzero-
   exit can no longer produce CONFIRMED_REGRESSION (conservative INFRA);
@@ -389,10 +423,59 @@ provenance — restated here rather than hidden. Coverage parity (RB-2) reasons
 from the experiment's own summaries; a suite that shrank BEFORE both arms ran
 carries no cross-arm signal and is anchored only by the committed proof.
 
+### Post-GLM observation hardening (finding A HIGH + B LOW, 2026-09-01/02)
+
+A GLM-5.3 re-audit of the post-sol candidate `c1ff4e7` demonstrated that
+`node -e "console.log('128 passing (1s)')"` — **no runner installed** —
+classified **PASS**: the text channel had been the only execution authority.
+Finding B (LOW) was its mirror image: case-SENSITIVE, ANSI-BLIND infra
+matchers, where `"NPM ERROR code E404"` hid a genuine infrastructure failure
+behind presentation alone.
+
+Fixed at the architectural cause, not the auditor's strings — the full
+contract (trust ladder, mechanism, rules 0..14, claim scope, verbatim residual
+limits and the four items that are unfixable without a crypto root) is
+**docs/EXECUTION-AUTHORITY.md**:
+
+- **A — evidence AUTHORITY, not output heuristics.** No keyword lists, no
+  `passing > 0` thresholds, no `node -e` special cases. A Canary-authored
+  observer, injected only into a **byte-pinned** runner (TOFU allowlist),
+  watches per-test lifecycle on a private fd and must AGREE with the text
+  summary on every round for any strong label (rule 14: unattested or
+  contradicted execution → INCONCLUSIVE, reason naming what it previously
+  would have been). Enforced at three independent sites — the pure
+  `classify()` gate, the `validateBundle` mirror keyed on its own constant,
+  and prove's fifth-artifact byte binding — so weakening one leaves two.
+  Subject `--require` in spec argv is refused fail-closed; unpinned runners
+  get no injection and therefore no strength; forged frames from an unpinned
+  fake buy nothing but a forensic `strayFd3Bytes` record.
+- **B — presentation-symmetric matchers.** Case-folded HARD tier +
+  ANSI-stripped, LF-normalized view at matcher entry (view-only: artifacts
+  stay byte-exact; prove parity is structural). The pass/progress-glyph
+  skip — which guards honest titles quoting error phrases — is now evaluated
+  on the same stripped view, closing the false-positive half of the hole.
+  Bidirectional battery: must-match AND must-stay-benign.
+- **Robustness found en route:** `observationGateIssue` treats malformed
+  disk-carried observations as a gate REFUSAL (rule 14), never a TypeError —
+  the gate is total over hostile data (proven by test).
+
+Permanent batteries: `apps/cli/test/execution-authority.test.ts` (exact GLM
+reproducer verbatim), `apps/cli/test/attested-channel.test.ts` (validator +
+end-to-end attack matrix), `packages/runner/executor/test/
+infra-matching-hardening.test.ts`, extended classify/schema/prove/verify-tree
+suites. The golden proof's 36 expectations and `proof.json` were NOT
+re-anchored: the legitimate path passes through the real mechanism (pinned
+10.8.2 on the proof host) or degrades honestly off-host.
+
+Suite baseline moved **371/52/370/0/1 → 423/60/422/0/1** (tests/suites/
+pass/fail/skip) at commit `eb61f61`; the one skip remains the platform-
+conditional symlink test. The demonstrated class cannot recur silently: the
+counterexamples are now part of the permanent test contract.
+
 ## Platform status (audit F15 — no unproven cross-platform claims)
 
 - **Windows (win32/x64, Node 26):** the fully executed platform — entire
-  371-test suite (52 suites, 1 platform-conditional skip), including
+  423-test suite (60 suites, 1 platform-conditional skip), including
   real-subprocess lifecycle/env tests, and the golden Axios proof — 36
   assertions executed with ZERO skips on the designated proof host
   (win32/x64/node v26.3.0/npm 11.16.0; re-executed on the post-sol candidate

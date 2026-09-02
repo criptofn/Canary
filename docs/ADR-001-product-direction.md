@@ -23,12 +23,20 @@ reproduce suspected regressions -> machine-readable evidence ->
 deterministic classification -> only then may an LLM explain/summarize
 ```
 
-Critical invariant (already implemented, now contractual):
+Critical invariant (already implemented, now contractual; amended 2026-09-02
+after the GLM finding-A demonstration, which showed that the exit-code +
+summary-text + infra-pattern channel — while itself never reachable by an
+LLM — could be satisfied by a *subject* printing text without ever running
+tests; the subject is also a producer that must not certify itself):
 PASS / CONFIRMED_REGRESSION / PRE_EXISTING_FAILURE / FLAKY /
 INFRASTRUCTURE_FAILURE / INCONCLUSIVE come from reproducible evidence and
-pure functions. `@canary-rn/classification` consumes only exit codes,
-runner-summary presence, and infra patterns; it has no dependency on any AI
-pathway — the LLM cannot reach the verdict, structurally.
+pure functions. `@canary-rn/classification` consumes only run facts Canary
+derives itself — exit codes, structural output properties, and (post-GLM) the
+execution-observation channel: a Canary-injected, byte-pinned-runner
+lifecycle record that must agree with every text claim before a strong
+verdict exists. It has no dependency on any AI pathway — the LLM cannot reach
+the verdict, structurally. Full claim contract, trust ladder and stated
+ceilings: docs/EXECUTION-AUTHORITY.md.
 
 ## Orchestrator principle
 
@@ -39,6 +47,14 @@ security evidence, CodSpeed for performance, Playwright for UI, Qwen for
 explanation) may later feed evidence or improve individual stages **behind
 optional adapter/provider boundaries** — they never own the workflow, and
 Canary must run with zero external integrations.
+
+Adapter evidence invariant (post-GLM, contractual — docs/EXECUTION-AUTHORITY.md
+§10): evidence an adapter merely *claims* is a claim; it may carry a strong
+verdict only through a re-derivable Canary-side channel (byte-pinned
+execution observation, bound artifacts, committed proof), never through a
+producer-asserted scalar. A self-declared producer identity can never
+establish attestation — that is the self-certification the hardening exists
+to prevent.
 
 ## v0.1 scope discipline
 

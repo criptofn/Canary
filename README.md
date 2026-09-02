@@ -45,7 +45,7 @@ Reproduce it:
 ```bash
 npm ci            # lockfile-exact, reproducible install
 npm run build
-npm test          # 371 tests / 52 suites (offline; 1 skip when the OS denies symlink creation)
+npm test          # 423 tests / 60 suites (offline; 1 skip when the OS denies symlink creation)
 npm run prove     # fresh end-to-end run; PASS requires the committed proof host (36 assertions
                   # executed, zero skips). On any other runtime it honestly exits 2 (INCOMPLETE):
                   # the 22 portable assertions must all hold, the 6 host-exact ones are skipped,
@@ -100,18 +100,24 @@ Every downstream repository is **untrusted**. Enforced by
   are rejected (audits B5/B5.1, post-sol RB-1); disposable workspace under
   `.canary-runs/`; caches and HOME redirected inside
 - **evidence is bound to reality, not just self-consistent** (audit B1–B4,
-  post-sol RB-2/M-1): failing-test identities are suite-qualified (no
-  leaf-title collapse); a zero-test / no-summary / infra-at-exit-0 run can
+  post-sol RB-2/M-1, post-GLM A+B): failing-test identities are suite-qualified
+  (no leaf-title collapse); a zero-test / no-summary / infra-at-exit-0 run can
   never become PASS; **suite collapse is never a verdict** — strong verdicts
   require stable-across-repetitions and comparable-across-arms test-execution
-  coverage (classifier rules 12/13 + an independent validator gate); every
+  coverage (classifier rules 12/13 + an independent validator gate); **a
+  strong verdict additionally requires that Canary WATCHED the execution** —
+  a byte-pinned runner with a Canary-injected in-process observer, whose
+  private-channel lifecycle counts agree with the text summary on every round
+  (rule 14; `node -e "console.log('128 passing (1s)')"` → INCONCLUSIVE, never
+  PASS — [docs/EXECUTION-AUTHORITY.md](docs/EXECUTION-AUTHORITY.md)); every
   artifact path is derived from its round (traversal/ownership rejected) and
   confined to the run dir; a manifest digest makes single-field rewrites
   detectable; the bundle's structural floor and the published JSON schema are
   **one generated contract** (`packages/evidence/schema/src/contract.ts`);
-  and `prove`/`check`/`report` re-derive each round's summary, counts and
-  failing-test identities **from the artifact bytes**, so the bundle cannot
-  lie about what actually ran
+  and `prove`/`check`/`report` re-derive each round's summary, counts,
+  failing-test identities and execution observation **from the artifact
+  bytes**, so the bundle cannot lie about what it recorded — and what it
+  recorded can only carry strength if the observation channel backs it
 - no publish, no push, no external auth, ever
 - if a *Tier-A (code-enforced)* bound can't hold: `INFRASTRUCTURE_FAILURE`,
   before executing
@@ -121,7 +127,9 @@ jail and no network egress allowlist — a fixture's own test code runs with the
 operator's OS permissions. The evidence manifest is tamper-*evidence* /
 cross-field integrity, **not authenticated provenance** (no signing key /
 external trust root); a forger who controls the whole file recomputes it, which
-is exactly why the byte re-derivation and committed proof do the real binding.
+is exactly why the byte re-derivation, the execution-observation channel (an
+integrity bound, not a trust root — its exact ceilings are stated verbatim in
+docs/EXECUTION-AUTHORITY.md §7–8) and the committed proof do the real binding.
 Isolation is real at the process/environment boundary and a deliberate
 best-effort convention beyond it.
 
@@ -137,7 +145,7 @@ packages/github/                pinned-SHA tarball fetch
 packages/ai/                    optional explain-only adapter (noop shipped)
 fixtures/axios-0.27-to-1.0/     golden fixture: spec + committed proof expectations
 schemas/evidence.schema.json    published evidence contract (GENERATED from packages/evidence/schema/src/contract.ts — the single source of truth)
-docs/                           ADR-001 · PLAN · SECURITY
+docs/                           ADR-001 · PLAN · SECURITY · EXECUTION-AUTHORITY
 archive/python-golden-prototype/ superseded first prototype (concepts preserved in TS)
 archive/prototype-scripts/      superseded M0/ladder harnesses (now the CLI)
 ```
