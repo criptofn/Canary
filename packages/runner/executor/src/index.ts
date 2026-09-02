@@ -18,7 +18,7 @@ import {
 } from '@canary-rn/support';
 import { normalize, type Normalizer } from '@canary-rn/normalizers';
 import { sha256hex } from '@canary-rn/hashing';
-import { extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
+import { extractFailingTestNames, parseSummaryCounts, runnerView } from '@canary-rn/comparator';
 import type { AbsentKind, ExecutionObservation, RoundFact } from '@canary-rn/classification';
 import { validateObservation } from './observation.js';
 import {
@@ -63,20 +63,17 @@ export interface ExecResult {
  * Artifacts stay byte-exact; only the DERIVED facts see the normalized
  * view, and prove.ts re-derives through these same functions (parity).
  */
-const toLf = (out: string): string => out.replace(/\r\n?/g, '\n');
 /**
- * Post-GLM Finding B: ANSI/CSI decorations are ALSO stripped at matcher entry
- * (same view-only contract as toLf — artifacts stay byte-exact; prove.ts
- * re-derives through these functions, so parity holds automatically). Real
- * npm/mocha color their output; the base matchers were ANSI-blind in BOTH
- * directions, which is a hole twice over: a colored genuine failure line
- * escaped the line-anchored crash and summary matchers (ESC is not \s), and a
- * colored pass-glyph TITLE escaped the PASS_GLYPH skip (false infrastructure).
- * Stripping before splitting is per-line-equivalent: CSI parameters
- * ([0-9;]*) can never contain \n, so no sequence crosses a line boundary.
+ * Post-GLM Finding B stripped ANSI/CSI at matcher entry (colored genuine
+ * lines escaped the line-anchored matchers; colored pass-glyph TITLES escaped
+ * the PASS_GLYPH skip). Post-GLM F3 made the stripping SHARED: the canonical
+ * view is comparator's runnerView — the exact function the count/identity
+ * parsers apply at entry — so hasRunnerSummary / isInfraOutput /
+ * hasCrashSignature and the summary facts can never see two representations
+ * of one byte string. View-only contract: artifacts stay byte-exact; prove.ts
+ * re-derives through these same functions, so parity holds automatically.
  */
-const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
-const view = (out: string): string => toLf(out.replace(ANSI_RE, ''));
+const view = runnerView;
 const SUMMARY_LINE = /^\s*(?:\d+ (?:tests? )?(?:passed|failed)|\d+ (?:passing|failing)|Tests:\s*\d+ passed)\b/m;
 export function hasRunnerSummary(out: string): boolean {
   return SUMMARY_LINE.test(view(out));

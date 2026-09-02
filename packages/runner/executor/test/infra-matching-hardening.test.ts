@@ -21,6 +21,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { parseSummaryCounts } from '@canary-rn/comparator';
+
 import { isInfraOutput, hasRunnerSummary, hasCrashSignature } from '../src/index.js';
 
 const E = String.fromCharCode(27); // ESC, built without control bytes in source
@@ -111,5 +113,36 @@ describe('FINDING B — benign prose NEVER flips to infrastructure (false-positi
   it('summary regexes stay anchored (prose containing "5 passing" mid-sentence)', () => {
     assert.equal(hasRunnerSummary('The README says there are 5 passing examples only'), false);
     assert.equal(hasRunnerSummary('assertion failed: 2 failed checks'), false);
+  });
+});
+
+// post-GLM F3: Finding B gave the executor matchers an ANSI strip, but the
+// comparator parsers that feed the ROUND FACTS (reportedFailing et al.) did
+// not normalize ANSI — two views of one byte string. An exit-code-swallowing
+// wrapper that printed a plain passing line and an ANSI-wrapped failing line
+// got hasRunnerSummary=true + reportedFailing=undefined, walking rule 1's
+// masked-failure clause (exit 0 while reportedFailing>0) into a false PASS.
+// Both sides now consume the SAME canonical runnerView (the executor's view()
+// IS comparator's runnerView — one definition).
+describe('post-GLM F3 — summary recognition and count parsing share one view', () => {
+  it('an ANSI-wrapped failing line is counted as surely as it is recognized', () => {
+    const masked = '  128 passing (1s)\n  ' + ansi('3 failing') + '\n';
+    assert.equal(hasRunnerSummary(masked), true);
+    assert.equal(parseSummaryCounts(masked).failing, 3,
+      'divergent views let a masked failure slip past rule 1 (false PASS)');
+  });
+
+  it('a fully colored genuine run is recognized AND counted (no false infra)', () => {
+    const colored = ansi('  128 passing (3s)') + '\n' + ansi('  3 failing');
+    assert.equal(hasRunnerSummary(colored), true);
+    assert.deepEqual(parseSummaryCounts(colored), { passing: 128, failing: 3, pending: undefined });
+  });
+
+  it('lone-CR and ANSI compose identically across both functions', () => {
+    const cr = ansi('  128 passing (1s)') + '\r' + ansi('  3 failing');
+    const lf = cr.replace(/\r/g, '\n');
+    assert.equal(hasRunnerSummary(cr), hasRunnerSummary(lf));
+    assert.deepEqual(parseSummaryCounts(cr), parseSummaryCounts(lf));
+    assert.equal(parseSummaryCounts(cr).failing, 3);
   });
 });

@@ -147,6 +147,25 @@ const SUMMARY_LINE = /^\s*\d+\s+(?:tests?\s+)?(?:passing|failing|pending|passed|
 /** Defensive bound on describe-path nesting scanned for one identity. */
 const MAX_TITLE_SEGMENTS = 24;
 
+/**
+ * CANONICAL runner-output view — the ONE normalization every text-derived fact
+ * must see (post-GLM F3). The executor's matchers already stripped ANSI/CSI
+ * before matching while these parsers normalized only line endings, so the
+ * same bytes gave different representations at different decision points:
+ * hasRunnerSummary said "summary" while parseSummaryCounts saw no counts —
+ * an exit-code-swallowing wrapper could ANSI-wrap just its failing line and
+ * walk rule 1's masked-failure clause right past us (false PASS), and a
+ * genuine FORCE_COLOR run lost every count to the same blindness (false
+ * infra). CSI parameters ([0-9;]*) can never contain \n, so stripping before
+ * splitting is per-line-equivalent. Artifacts stay byte-exact; only DERIVED
+ * facts see this view, and prove.ts re-derives through these same functions
+ * (parity). The executor's view() is this function — one definition.
+ */
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
+export function runnerView(out: string): string {
+  return out.replace(ANSI_RE, '').replace(/\r\n?/g, '\n');
+}
+
 export function extractFailingTestNames(log: string): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -155,9 +174,10 @@ export function extractFailingTestNames(log: string): string[] {
     if (t && !seen.has(t)) { seen.add(t); out.push(t); }
   };
 
-  // post-sol secondary: CR/CRLF normalize at entry (see executor's toLf
-  // rationale) — a lone-CR stream must not defeat the line parser.
-  const norm = log.replace(/\r\n?/g, '\n');
+  // post-sol secondary + post-GLM F3: canonical runnerView at entry (line
+  // endings AND ANSI) — neither a lone-CR stream nor color escapes may
+  // defeat the line parser.
+  const norm = runnerView(log);
   const lines = norm.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const m = /^\s*\d+\)\s+(.+?)\s*$/.exec(lines[i]!);
@@ -198,9 +218,10 @@ export interface SummaryCounts {
 }
 
 export function parseSummaryCounts(log: string): SummaryCounts {
-  // post-sol secondary: CR/CRLF normalize at entry, consistent with the
-  // executor matchers — summary lines separated only by lone CR still parse.
-  const norm = log.replace(/\r\n?/g, '\n');
+  // post-sol secondary + post-GLM F3: canonical runnerView at entry — line
+  // endings AND ANSI are normalized exactly like the executor matchers, so
+  // no byte can make hasRunnerSummary and these counts disagree.
+  const norm = runnerView(log);
   const g = (re: RegExp): number | undefined => {
     const m = re.exec(norm);
     return m ? Number(m[1]) : undefined;

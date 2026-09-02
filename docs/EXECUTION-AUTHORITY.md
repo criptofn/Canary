@@ -160,6 +160,17 @@ the whole channel is stated in §7.
   failure or a crash, and colored pass titles cannot *fake* one (the glyph
   skip sees the same stripped view). A presentation property of text can only
   ever **weaken** a verdict, never strengthen it.
+- **One view, every consumer (post-GLM F3):** finding B stripped ANSI at the
+  executor's matcher entry but the comparator's `parseSummaryCounts` /
+  `extractFailingTestNames` — which produce the ROUND FACTS the classifier
+  consumes — normalized only line endings. Two representations of one byte
+  string: `hasRunnerSummary` said "summary" while `reportedFailing` read
+  `undefined`, so an exit-code-swallowing wrapper with a plain passing line
+  and an ANSI-wrapped failing line walked past rule 1's masked-failure clause
+  (false PASS), and a genuine `FORCE_COLOR` run lost every count (false
+  infra). The canonical normalization is now `runnerView()` in the comparator
+  — the executor's `view()` IS that function (import, not copy), and both
+  parsers apply it at entry, so recognition and counting can never diverge.
 
 ## 4. Claim scope — the honest label for the capability
 
@@ -345,6 +356,7 @@ recorded as a known gap until then.
 | end-to-end: plain-node stub PASS pretense; unpinned double claiming strength; **forged frames from an unpinned fake** (ABSENT + stray-bytes forensics, zero credit); `--require` in spec argv; mid-run `process.exit` | `apps/cli/test/attested-channel.test.ts` layer 2 |
 | injection-decision matrix (pinned→inject-last; unpinned→ABSENT; hoisted→not injectable; subject `-r`/`--require` forms; non-mocha bins) + tampered-double e2e | `packages/runner/executor/test/executor.test.ts` |
 | case/ANSI symmetry, must-match AND false-positive directions | `packages/runner/executor/test/infra-matching-hardening.test.ts` |
+| ANSI cannot split recognition from counting (false-PASS masked-failure battery, false-infra colored-genuine-run control, CR×ANSI composition) | `packages/core/comparator/test/comparator.test.ts` + `packages/runner/executor/test/infra-matching-hardening.test.ts` (post-GLM F3 describes) |
 | gate total on malformed disk data; rule-14 routing for ALL strong + FLAKY producers (2–8, 12; each un-attested case carries an attested-twin test proving the shape genuinely reaches its producer, so the routing assertion cannot rot into testing a dead path); identity-set refusal | `packages/core/classification/test/classify.test.ts` |
 | schema mirror: own-copy strong-label constant with test-pinned classifier equivalence, rule-13 containment restatement, refusal + honest-shape acceptance (no over-block), deletion matrix | `packages/evidence/schema/test/schema.test.ts` |
 | would-be-PRE_EXISTING containment (swallowed regression, disjoint sets, honest PEF preserved, CR untouched, passing-side substitution boundary codified) | `packages/core/classification/test/classify.test.ts` (round-5 describe) |

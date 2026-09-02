@@ -302,3 +302,73 @@ describe('post-sol secondary — lone-CR line endings parse identically to LF/CR
     assert.ok(lf.length >= 1, 'fixture must actually carry an identity');
   });
 });
+
+// post-GLM F3: the executor's view() strips ANSI/CSI before its matchers run,
+// but these parsers normalized ONLY line endings — the same bytes gave the
+// summary recognizer and the count/identity parsers different views. The
+// asymmetry is exploitable in BOTH directions:
+//   FALSE PASS — an exit-code-swallowing wrapper prints a plain "N passing"
+//     line and ANSI-wraps the failing line ("ESC[31m 3 failing ESC[0m"):
+//     hasRunnerSummary (stripped) says yes, parseSummaryCounts (raw) says
+//     failing=undefined, and rule-1's masked-failure clause
+//     (exit 0 while reportedFailing>0) never fires.
+//   FALSE INFRA — a genuine FORCE_COLOR run hides ALL its counts behind
+//     escapes ("summary present but no machine-readable counts") while the
+//     summary itself is recognized.
+// Both parsers now share the executor's view normalization at entry.
+describe('post-GLM F3 — ANSI-colored output parses identically to plain output', () => {
+  const ESC = String.fromCharCode(27);
+  const ansi = (s: string): string => `${ESC}[31m${s}${ESC}[0m`;
+  const ansiG = (s: string): string => `${ESC}[32m${s}${ESC}[0m`;
+
+  // mocha's spec reporter wraps the failing count in red; the passing count
+  // is green and the failure headline number is red.
+  const PLAIN = [
+    '  128 passing (119ms)',
+    '  3 failing',
+    '',
+    '  1) MockAdapter basics',
+    '       can pass headers to match to a handler:',
+    '     Error: Request failed with status code 404',
+  ].join('\n');
+  const COLORED = [
+    `  ${ansiG('128 passing')} (119ms)`,
+    `  ${ansi('3 failing')}`,
+    '',
+    `  ${ansi('1)')} MockAdapter basics`,
+    '       can pass headers to match to a handler:',
+    '     Error: Request failed with status code 404',
+  ].join('\n');
+  // the exact FALSE PASS attack: plain passing line, ANSI-wrapped failing line
+  const MASKED = `  128 passing (1s)\n  ${ansi('3 failing')}\n`;
+
+  it('parseSummaryCounts reads the same totals colored as plain', () => {
+    assert.deepEqual(parseSummaryCounts(COLORED), parseSummaryCounts(PLAIN));
+    assert.deepEqual(parseSummaryCounts(COLORED), { passing: 128, failing: 3, pending: undefined });
+  });
+
+  it('extractFailingTestNames finds the same identities colored as plain', () => {
+    assert.deepEqual(
+      [...extractFailingTestNames(COLORED)].sort(),
+      [...extractFailingTestNames(PLAIN)].sort(),
+    );
+    assert.deepEqual(extractFailingTestNames(COLORED), ['MockAdapter basics > can pass headers to match to a handler']);
+  });
+
+  it('F3 false-PASS battery: an ANSI-wrapped failing line cannot hide from the masked-failure count', () => {
+    assert.equal(parseSummaryCounts(MASKED).failing, 3,
+      'ANSI on the failing line must not turn reportedFailing into undefined (rule-1 clause exit0+failing>0 needs the count)');
+    assert.equal(parseSummaryCounts(MASKED).passing, 128);
+  });
+
+  it('precision control: stripping never fabricates counts', () => {
+    assert.deepEqual(parseSummaryCounts(`  ${ansiG('128 passing')}${ESC}[0m`), { passing: 128, failing: undefined, pending: undefined });
+    assert.deepEqual(extractFailingTestNames(`${ansi('1)')} suite\n     ${ansi('a passing title')}\n`), []);
+  });
+
+  it('ANSI and lone-CR compose: colored CR-only stream matches colored LF stream', () => {
+    const cr = COLORED.replace(/\n/g, '\r');
+    assert.deepEqual(parseSummaryCounts(cr), parseSummaryCounts(COLORED));
+    assert.deepEqual([...extractFailingTestNames(cr)].sort(), [...extractFailingTestNames(COLORED)].sort());
+  });
+});
