@@ -245,8 +245,11 @@ trust root, no attestation authority**. A forger who controls the entire
 filesystem can recompute everything offline (the pre-existing documented
 ceiling); the pin table is TOFU — Canary's own list, not registry-verified.
 The real binding is *live*: the golden proof re-runs the experiment on the
-committed proof host and asserts the re-derived facts against
-`proof.json`/`spec`. Canary claims **integrity, plus observation by
+committed proof host — pinned by BYTES, not claims (post-GLM F2: the
+fingerprint includes the SHA-256 of the actual node executable; a committed
+proofHost lacking that digest pin is refused, because four self-reported
+metadata strings are exactly what a trojan runtime can print) — and asserts
+the re-derived facts against `proof.json`/`spec`. Canary claims **integrity, plus observation by
 Canary-controlled code inside the pinned process** — and says so wherever it
 claims anything.
 
@@ -361,4 +364,5 @@ recorded as a known gap until then.
 | schema mirror: own-copy strong-label constant with test-pinned classifier equivalence, rule-13 containment restatement, refusal + honest-shape acceptance (no over-block), deletion matrix | `packages/evidence/schema/test/schema.test.ts` |
 | would-be-PRE_EXISTING containment (swallowed regression, disjoint sets, honest PEF preserved, CR untouched, passing-side substitution boundary codified) | `packages/core/classification/test/classify.test.ts` (round-5 describe) |
 | 5-file tuple binding; reseal-everything-but-observation refused; byte-tamper refusals; argv re-derivation parity | `apps/cli/test/prove.test.ts`, `verify-tree` suite |
-| golden never re-anchored: 36 assertions on the committed proof host, `proof.json` byte-identical | `fixtures/axios-0.27-to-1.0/specs/` (untouched by this hardening, by rule) |
+| host-exactness is BYTES: same-machine trojan (identical metadata, foreign executable digest) → INCOMPLETE never PASS; proofHost without exec-digest pin → refused FAIL; sampler digest == sha256(process.execPath) | `apps/cli/test/proof-host.test.ts` (post-GLM F2 describe) |
+| golden never re-anchored: 37 assertions on the committed proof host, `proof.json` byte-identical EXCEPT the authorized post-GLM F2 additive `nodeExecSha256` re-pin (spec + evidence fixtures untouched, by rule) | `fixtures/axios-0.27-to-1.0/specs/` |

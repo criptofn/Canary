@@ -36,7 +36,20 @@ export interface HostFingerprint {
   arch: string;
   nodeVersion: string;
   npmVersion: string;
+  /** post-GLM F2: SHA-256 of the ACTUAL node executable bytes
+   *  (`sha256File(process.execPath)`). The four metadata fields above are
+   *  self-reported strings that a repackaged or patched runtime can claim
+   *  while `process.version` lies — `--set-node-options`-style trojans,
+   *  swapped binaries under a real version string. Host-exactness is only
+   *  meaningful when the verifier proves WHICH bytes executed: the digest
+   *  turns "claims to be v26.3.0" into "IS the pinned v26.3.0 binary".
+   *  REQUIRED: a committed proofHost without it is refused (see assertProof). */
+  nodeExecSha256: string;
 }
+
+/** The self-reported metadata half — everything the evidence environment
+ *  block can ever carry (post-GLM F2: evidence has NO exec digest). */
+type HostMeta = Pick<HostFingerprint, 'platform' | 'arch' | 'nodeVersion' | 'npmVersion'>;
 
 export interface ProofExpectation {
   schema: number;
@@ -101,6 +114,10 @@ export interface AssertionResult {
  * var) in the verifying shell could spoof or crash the very measurement
  * that decides host-exactness — the fingerprint must describe the RUNTIME,
  * not the shell that invoked us.
+ *
+ * Post-GLM F2: also hashes THIS process's executable bytes
+ * (sha256File(process.execPath)) — the metadata fields above are claims the
+ * runtime makes about itself; the digest is the only field that is not.
  */
 export function actualHostFingerprint(): HostFingerprint {
   const nodeDir = path.dirname(process.execPath);
@@ -110,12 +127,22 @@ export function actualHostFingerprint(): HostFingerprint {
     env: sanitizedEnv({ ws: { root: os.tmpdir(), fixture: process.cwd() }, nodeDir }),
   }).trim();
   if (!npmVersion) throw new Error('npm --version produced empty output');
-  return { platform: process.platform, arch: process.arch, nodeVersion: process.version, npmVersion };
+  return {
+    platform: process.platform, arch: process.arch,
+    nodeVersion: process.version, npmVersion,
+    nodeExecSha256: sha256File(process.execPath),
+  };
 }
 
-const fpEq = (a: HostFingerprint, b: HostFingerprint): boolean =>
+/** Metadata-only equality — for comparisons where one side CANNOT carry a
+ *  digest (the evidence's environment block). Not host-exactness. */
+const metaEq = (a: HostMeta, b: HostMeta): boolean =>
   a.platform === b.platform && a.arch === b.arch &&
   a.nodeVersion === b.nodeVersion && a.npmVersion === b.npmVersion;
+
+/** Host-exactness (post-GLM F2): metadata AND the executable bytes. */
+const fpEq = (a: HostFingerprint, b: HostFingerprint): boolean =>
+  metaEq(a, b) && a.nodeExecSha256 === b.nodeExecSha256;
 
 /**
  * Round-3 blocker 3: bind the EVIDENCE's claimed environment to reality.
@@ -124,12 +151,12 @@ const fpEq = (a: HostFingerprint, b: HostFingerprint): boolean =>
  * is unverifiable HERE — surfaced as an explicit note (report: NOT SELF-CONSISTENT)
  * instead of a silent self-consistency banner.
  */
-export function environmentAttestationIssues(bundle: EvidenceBundle, runtime: HostFingerprint): string[] {
+export function environmentAttestationIssues(bundle: EvidenceBundle, runtime: HostMeta): string[] {
   const e = bundle.environment;
-  const claimed: HostFingerprint = {
+  const claimed: HostMeta = {
     platform: e.platform, arch: e.arch, nodeVersion: e.nodeVersion, npmVersion: e.npmVersion,
   };
-  if (fpEq(claimed, runtime)) return [];
+  if (metaEq(claimed, runtime)) return [];
   return [`environment attestation: evidence claims ${claimed.platform}/${claimed.arch}/node ${claimed.nodeVersion}/npm ${claimed.npmVersion}, ` +
     `but the ACTUAL verifying runtime is ${runtime.platform}/${runtime.arch}/node ${runtime.nodeVersion}/npm ${runtime.npmVersion} — ` +
     `host-bound digests cannot be verified from this machine (round-3 B3)`];
@@ -162,9 +189,14 @@ export function proofHostContext(
   ev: EvidenceBundle, proof: ProofExpectation, runtime: HostFingerprint,
 ): { onProofHost: boolean; skipWhy: string } {
   const hf = proof.proofHost;
-  const onProofHost = hf ? fpEq(runtime, hf) : fpEq(runtime, ev.environment);
+  // The hf branch compares full fingerprints (metadata + exec bytes,
+  // post-GLM F2). The fallback stays metadata-only: the evidence environment
+  // block has no digest, and this legacy anchor's removal is tracked
+  // separately (post-GLM F6) — behavior preserved here, not extended.
+  const onProofHost = hf ? fpEq(runtime, hf) : metaEq(runtime, ev.environment);
   const skipWhy = hf
-    ? `actual runtime is not the committed proof host ${hf.platform}/${hf.arch}/node ${hf.nodeVersion}/npm ${hf.npmVersion}`
+    ? `actual runtime is not the committed proof host ${hf.platform}/${hf.arch}/node ${hf.nodeVersion}/npm ${hf.npmVersion} ` +
+      `exec ${hf.nodeExecSha256 !== undefined ? hf.nodeExecSha256.slice(0, 16) + '…' : 'digest NOT PINNED'}`
     : 'no committed proofHost and the actual runtime differs from the evidence-recorded environment';
   return { onProofHost, skipWhy };
 }
@@ -222,6 +254,13 @@ export function assertProof(
   // does not pin it cannot support a PASS claim (the golden proof omitted the
   // pin, so a coherently resealed tarballSha256 survived check unnoticed).
   eq('proof pins tarball digest', proof.tarballSha256 !== undefined, true);
+  // post-GLM F2, same logic: a proof that NAMES a proof host must pin that
+  // host's executable bytes. Metadata-only pinning is spoofable (a trojan
+  // runtime can print any version), so an unpinning proofHost is refused —
+  // loud FAIL, never a silently weaker host-exactness gate.
+  if (proof.proofHost) {
+    eq('proof pins proof-host exec digest', proof.proofHost.nodeExecSha256 !== undefined, true);
+  }
   if (proof.tarballSha256 !== undefined) {
     eq('tarball digest pinned', ev.downstream.tarballSha256, proof.tarballSha256);
   }

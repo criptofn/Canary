@@ -257,6 +257,10 @@ function canSymlink(): boolean {
   } catch { return false; }
 }
 
+// post-GLM F2: the harness "machine" has a fingerprint too — proofHost and
+// the on-machine runtime must agree on the exec digest.
+const HARNESS_EXEC_DIGEST = 'ab'.repeat(32);
+
 const CAND_LOG = [
   '  suite', '    √ ok one', '', '  1 passing (1ms)', '  1 failing', '',
   '  1) suite', '       candidate breaks widget:', '     Error: nope', '',
@@ -275,7 +279,7 @@ describe('assertProof — audit F11 + round-3 B3 (host-exactness from the ACTUAL
       // one that doesn't); the harness pins the value the bundle records.
       tarballSha256: bundle.downstream.tarballSha256,
       ...(withHost
-        ? { proofHost: { platform: bundle.environment.platform, arch: bundle.environment.arch, nodeVersion: bundle.environment.nodeVersion, npmVersion: bundle.environment.npmVersion } }
+        ? { proofHost: { platform: bundle.environment.platform, arch: bundle.environment.arch, nodeVersion: bundle.environment.nodeVersion, npmVersion: bundle.environment.npmVersion, nodeExecSha256: HARNESS_EXEC_DIGEST } }
         : {}),
       expected: {
         classification: 'CONFIRMED_REGRESSION', rule: 5, driftConfinedToDependency: true,
@@ -289,8 +293,8 @@ describe('assertProof — audit F11 + round-3 B3 (host-exactness from the ACTUAL
   // verify process whose ACTUAL identity matches that claim (the only way the
   // pre-B3 code could be satisfied); the fake-host runtime simulates verifying
   // somewhere else. The evidence itself is NEVER consulted for the decision.
-  const runtimeOnRecordedMachine = { platform: 'x', arch: 'y', nodeVersion: 'v', npmVersion: 'n' };
-  const runtimeElsewhere = { platform: 'linux', arch: 'arm64', nodeVersion: 'v22.0.0', npmVersion: '10.0.0' };
+  const runtimeOnRecordedMachine = { platform: 'x', arch: 'y', nodeVersion: 'v', npmVersion: 'n', nodeExecSha256: HARNESS_EXEC_DIGEST };
+  const runtimeElsewhere = { platform: 'linux', arch: 'arm64', nodeVersion: 'v22.0.0', npmVersion: '10.0.0', nodeExecSha256: 'ff'.repeat(32) };
   const run = (bundle: EvidenceBundle, proof: ProofExpectation, runtime = runtimeOnRecordedMachine) =>
     assertProof(bundle, proof, { candidateStdout: CAND_LOG, baselineStdout: BASE_LOG }, runtime);
 
@@ -352,9 +356,9 @@ describe('assertProof — audit F11 + round-3 B3 (host-exactness from the ACTUAL
       const checks = run(bundle, proof); // actual runtime == x/y/v/n
       const skipped = checks.filter((c) => c.skipped);
       assert.deepEqual(skipped.map((c) => c.name).sort(), [
-        'baseline normalized stdout hashes [SKIPPED: actual runtime is not the committed proof host x/y/node v99.0.0/npm n]',
-        'candidate normalized stdout hashes [SKIPPED: actual runtime is not the committed proof host x/y/node v99.0.0/npm n]',
-        'evidence environment bound to proof host [SKIPPED: actual runtime is not the committed proof host x/y/node v99.0.0/npm n]',
+        'baseline normalized stdout hashes [SKIPPED: actual runtime is not the committed proof host x/y/node v99.0.0/npm n exec abababababababab…]',
+        'candidate normalized stdout hashes [SKIPPED: actual runtime is not the committed proof host x/y/node v99.0.0/npm n exec abababababababab…]',
+        'evidence environment bound to proof host [SKIPPED: actual runtime is not the committed proof host x/y/node v99.0.0/npm n exec abababababababab…]',
       ]);
       // determinism-within-arm is host-INDEPENDENT and must NOT skip:
       assert.ok(checks.some((c) => c.name === 'candidate arm internally deterministic' && !c.skipped));
@@ -428,7 +432,7 @@ describe('round-3 B4-D — exact failing-identity set equality (proof vs candida
     },
   } as ProofExpectation;
   const run = (p: ProofExpectation) =>
-    assertProof(bundle, p, { candidateStdout: CAND_LOG, baselineStdout: BASE_LOG }, { platform: 'x', arch: 'y', nodeVersion: 'v', npmVersion: 'n' });
+    assertProof(bundle, p, { candidateStdout: CAND_LOG, baselineStdout: BASE_LOG }, { platform: 'x', arch: 'y', nodeVersion: 'v', npmVersion: 'n', nodeExecSha256: HARNESS_EXEC_DIGEST });
   const exactName = 'failing test identities (exact set from candidate bytes)';
 
   it('faithful expectation: exact set holds', () => {
@@ -449,7 +453,7 @@ describe('round-3 B4-D — exact failing-identity set equality (proof vs candida
   });
   it('the exact-set check is portable — it evaluates (never skips) off-host', () => {
     const p = structuredClone(proof);
-    p.proofHost = { platform: 'os2', arch: 'ppc', nodeVersion: 'v0', npmVersion: '0' }; // we are NOT it
+    p.proofHost = { platform: 'os2', arch: 'ppc', nodeVersion: 'v0', npmVersion: '0', nodeExecSha256: 'cd'.repeat(32) }; // we are NOT it
     const c = run(p).find((x) => x.name === exactName)!;
     assert.equal(c.skipped, undefined);
     assert.equal(c.ok, true); // bytes vs proof, host-independent
@@ -477,7 +481,7 @@ describe('round-3 B4-D — exact failing-identity set equality (proof vs candida
     forged.experimentId = 'some-other-experiment';
     const c = assertProof(
       forged, proof, { candidateStdout: CAND_LOG, baselineStdout: BASE_LOG },
-      { platform: 'x', arch: 'y', nodeVersion: 'v', npmVersion: 'n' },
+      { platform: 'x', arch: 'y', nodeVersion: 'v', npmVersion: 'n', nodeExecSha256: HARNESS_EXEC_DIGEST },
     ).find((x) => x.name === 'experiment identity')!;
     assert.equal(c.ok, false, 'the proof-identity pin must be the refuser at the assertProof layer');
     assert.equal(c.skipped, undefined, 'identity pinning is host-independent');

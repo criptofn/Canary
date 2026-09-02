@@ -282,7 +282,11 @@ suite (baseline now 438; see the Post-GLM section below):
   runtime version match, and the per-round argv/envKeys re-derivations — and
   the gate reads the ACTUAL runtime, never the evidence's own metadata; off
   the proof host they report SKIPPED and the verdict downgrades to INCOMPLETE
-  (exit 2), never PASS.)
+  (exit 2), never PASS. Updated again by post-GLM F2: the runtime→proofHost
+  comparison includes `nodeExecSha256`, the SHA-256 of the actual node
+  executable bytes — the four metadata strings are claims a repackaged or
+  patched runtime can print, so host-exactness now requires proving WHICH
+  bytes executed; a committed proofHost lacking the digest pin is refused.)
 - **F12 — `npm run report` works**; the report renders failing identities from
   the bundle itself.
 - **F14 — this document**: guarantees tiered (A enforced / B convention /

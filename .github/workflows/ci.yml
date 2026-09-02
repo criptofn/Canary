@@ -27,11 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # Round-3 B3: this job IS the committed proof host (win32/x64/
-      # node 26.3.0/npm 11.16.0 per the proof file's proofHost block).
+      # node 26.3.0/npm 11.16.0 + the nodeExecSha256 exec-bytes pin, post-GLM
+      # F2, per the proof file's proofHost block — setup-node installs the
+      # official nodejs.org binary whose bytes the digest was cut from).
       # EXACT pins — not "26": host-exactness is decided by the ACTUAL
-      # runtime, so a drifted node/npm here makes `check` correctly report
-      # INCOMPLETE (exit 2) and fail the job. If the pins move, the proof
-      # file's proofHost/environment blocks must be re-cut on a machine that
+      # runtime's bytes, so a drifted node/npm here (or a repackaged
+      # runtime printing 26.3.0) makes `check` correctly report INCOMPLETE
+      # (exit 2) and fail the job. If the pins move, the proof file's
+      # proofHost/environment blocks must be re-cut on a machine that
       # genuinely runs the new versions.
       - uses: actions/setup-node@v4
         with:

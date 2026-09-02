@@ -322,9 +322,13 @@ Known deliberate limits (v0.1):
   hashes, evidence-environment↔proof-host binding, runtime version match,
   per-round argv/envKeys re-derivations) are gated on the ACTUAL runtime
   matching the committed `proofHost`; off-host they report SKIPPED, every
-  portable assertion still runs (22 of them), and the verdict is INCOMPLETE
+  portable assertion still runs (23 of them), and the verdict is INCOMPLETE
   (exit 2) — never a PASS built on skips. The pinned CI windows job executes
-  all 36 with zero skips. No `--portable` flag was needed.
+  all 37 with zero skips. No `--portable` flag was needed.
+  Post-GLM F2: "matching" is BYTES, not claims — the fingerprint includes
+  `nodeExecSha256` (SHA-256 of the running node executable); a tampered
+  runtime printing v26.3.0 from other bytes is off-host, and a committed
+  proofHost without the digest pin is REFUSED (assertion fails, exit 1).
 - Round-3 ledger: docs/AUDIT-REMEDIATION-ROUND3-2026-08-31.md (blockers B1–B6,
   secondaries, and the internal adversarial self-review N1–N10 + doc-truth
   pass). The golden proof has never been re-cut for host drift: drifted dev

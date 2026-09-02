@@ -28,7 +28,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from '../src/prove.js';
 import { verifyTreeSnapshots } from '../src/verify-tree.js';
-import { sha256hex } from '@canary-rn/hashing';
+import { sha256hex, sha256File } from '@canary-rn/hashing';
 import { writeStagedPayload, stageCommands, MOCHA_TEST_ARGV, widgetSpec, swapScript, WIDGET_PKGS } from './stub-harness.js';
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-b3-'));
@@ -176,7 +176,7 @@ describe('round-3 B3 — the proof host is the ACTUAL runtime, never the evidenc
 
   it('off the proof host (simulate a foreign runtime): strict checks SKIP and the verdict INCOMPLETE (exit 2) — PASS is not claimed', async () => {
     const { bundle, artifactsDir, proof, spec } = await realRun();
-    const foreign: HostFingerprint = { platform: 'linux', arch: 'x64', nodeVersion: 'v22.99.0', npmVersion: '99.99.99' };
+    const foreign: HostFingerprint = { platform: 'linux', arch: 'x64', nodeVersion: 'v22.99.0', npmVersion: '99.99.99', nodeExecSha256: 'cd'.repeat(32) };
     const g = fullGate(bundle, artifactsDir, proof, foreign, spec);
     assert.equal(g.at, 'assertProof');
     assert.equal(g.verdict!.status, 'INCOMPLETE');
@@ -219,7 +219,7 @@ describe('round-3 B3 — the proof host is the ACTUAL runtime, never the evidenc
 
   it('a lying proof file cannot flip the verdict either: proofHost=foreign while running here still skips (evidence-agnostic)', async () => {
     const { bundle, artifactsDir, proof, spec } = await realRun();
-    const badProof: ProofExpectation = { ...proof, proofHost: { platform: 'os2', arch: 'ppc', nodeVersion: 'v1', npmVersion: '1' } };
+    const badProof: ProofExpectation = { ...proof, proofHost: { platform: 'os2', arch: 'ppc', nodeVersion: 'v1', npmVersion: '1', nodeExecSha256: 'ab'.repeat(32) } };
     const g = fullGate(bundle, artifactsDir, badProof, RUNTIME, spec);
     assert.equal(g.at, 'assertProof');
     // we are NOT the (committed) proof host -> skip -> INCOMPLETE, never PASS;
@@ -227,5 +227,66 @@ describe('round-3 B3 — the proof host is the ACTUAL runtime, never the evidenc
     assert.equal(g.verdict!.status === 'INCOMPLETE' || g.verdict!.status === 'FAIL', true,
       `verdict=${g.verdict!.status}`);
     assert.notEqual(g.verdict!.exitCode, 0, 'off-host must never exit 0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST-GLM F2 — THE PROOF HOST PINS BYTES, NOT CLAIMS.
+// The B3 gate made host-exactness depend on the ACTUAL runtime — but the
+// fingerprint it compares was four self-reported strings (platform, arch,
+// process.version, `npm --version`). A repackaged or patched runtime can
+// print every one of them while executing arbitrary injected code (the
+// audit's --require-trojan shape): identical metadata, different bytes, and
+// the gate declares "on the proof host" -> host-exact hashes assert -> PASS
+// on a machine that is NOT the pinned one. Fix: HostFingerprint carries
+// nodeExecSha256 = sha256File(process.execPath); fpEq requires it, and a
+// committed proofHost WITHOUT a pinned digest is refused (tarball-pin
+// precedent). RED on the frozen base: the trojan passes the pre-fix gate.
+// ---------------------------------------------------------------------------
+describe('post-GLM F2 — executable bytes are part of the host identity', () => {
+  it('a trojan runtime claiming the proof-host METADATA but running different bytes can never PASS', async () => {
+    const { bundle, artifactsDir, proof, spec } = await realRun();
+    // Same machine's self-reported identity; a swapped binary underneath.
+    const trojan: HostFingerprint = Object.assign({}, RUNTIME, { nodeExecSha256: 'f'.repeat(64) });
+    const g = fullGate(bundle, artifactsDir, proof, trojan, spec);
+    assert.equal(g.at, 'assertProof');
+    assert.notEqual(g.verdict!.status, 'PASS',
+      'metadata-only agreement certified a foreign binary (false PASS on an unpinned host)');
+    assert.equal(g.verdict!.status, 'INCOMPLETE');
+    assert.equal(g.verdict!.exitCode, 2);
+    assert.ok(g.verdict!.skipped.length >= 3, 'host-exact assertions must skip off-(real)-host');
+    // the skip reason must NAME the pinned digest, or an operator cannot tell
+    // "wrong machine" from "right machine, tampered binary":
+    assert.ok(g.verdict!.skipped.every((s) => /exec [0-9a-f]{16}…/.test(s.name)),
+      JSON.stringify(g.verdict!.skipped.map((s) => s.name)));
+  });
+
+  it('a proof naming a proofHost but omitting the exec digest is REFUSED — loud FAIL, never a silently weaker gate', async () => {
+    const { bundle, artifactsDir, proof, spec } = await realRun();
+    const stale: ProofExpectation = structuredClone(proof);
+    // Simulate a pre-F2 proof file loaded from JSON: the field is simply absent.
+    delete (stale.proofHost as unknown as { nodeExecSha256?: string }).nodeExecSha256;
+    const g = fullGate(bundle, artifactsDir, stale, RUNTIME, spec);
+    assert.equal(g.at, 'assertProof');
+    const pin = g.verdict!.failed.find((f) => f.name === 'proof pins proof-host exec digest');
+    assert.ok(pin, `refusal missing: ${JSON.stringify(g.verdict!.failed.map((f) => f.name))}`);
+    assert.equal(pin!.skipped, undefined, 'the pin requirement itself is portable — never skip-to-quiet');
+    assert.equal(g.verdict!.status, 'FAIL');
+    assert.equal(g.verdict!.exitCode, 1);
+  });
+
+  it('the sampler reports the ACTUAL bytes of the running executable', () => {
+    assert.match(RUNTIME.nodeExecSha256, /^[0-9a-f]{64}$/, 'sampler must carry a real digest');
+    assert.equal(RUNTIME.nodeExecSha256, sha256File(process.execPath));
+  });
+
+  it('an environment ATTESTATION stays metadata-only: the evidence block carries no bytes to compare (documented residual)', () => {
+    // The recorder-side attestation compares ev.environment (4 fields). F2
+    // deliberately does NOT extend it — the bundle's own claim can never
+    // prove bytes; its only job is flagging an obviously foreign machine.
+    assert.deepEqual(environmentAttestationIssues(
+      { environment: { platform: 'win32', arch: 'x64', nodeVersion: 'v26.3.0', npmVersion: '11.16.0' } } as EvidenceBundle,
+      { platform: 'win32', arch: 'x64', nodeVersion: 'v26.3.0', npmVersion: '11.16.0' },
+    ), [], 'pure metadata comparison — adding a digest requirement here would be theater');
   });
 });
