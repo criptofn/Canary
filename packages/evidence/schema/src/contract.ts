@@ -299,7 +299,10 @@ export function structuralIssues(b: Record<string, unknown>): string[] {
     if (typeof v !== 'object' || v === null || Array.isArray(v)) { issues.push(`${path} must be an object`); return; }
     const o = v as Record<string, unknown>;
     for (const k of Object.keys(o)) {
-      if (!(k in f.obj)) issues.push(`${path}.${k} is not a field of the published contract (unknown fields are refused by policy — post-sol M-1)`);
+      // Own-property membership ONLY: `k in f.obj` inherits Object.prototype
+      // names, letting a bundle smuggle an unknown `toString`/`constructor`/
+      // `__proto__` field past the refusal (post-glm F6c).
+      if (!Object.hasOwn(f.obj, k)) issues.push(`${path}.${k} is not a field of the published contract (unknown fields are refused by policy — post-sol M-1)`);
     }
     for (const [k, sub] of Object.entries(f.obj)) {
       walk(sub, o[k], path ? `${path}.${k}` : k);

@@ -453,6 +453,29 @@ describe('post-sol M-1 — contract.ts is the single source of truth', () => {
     }
   });
 
+  it('post-glm F6c: unknown fields NAMED LIKE Object.prototype members are refused too (own-property check, not `in`)', () => {
+    // `k in f.obj` is true for inherited names, so a hostile bundle carrying
+    // an own `toString`/`constructor`/`__proto__` field once sailed through
+    // the unknown-field policy. Membership must be own-property-safe.
+    for (const protoName of ['toString', 'constructor', '__proto__', 'valueOf', 'hasOwnProperty']) {
+      for (const at of ['root', 'round'] as const) {
+        const b = goodBundle();
+        const target = at === 'root' ? b : (b.rounds as Record<string, unknown>[])[0]!;
+        if (protoName === '__proto__') {
+          // plain assignment goes through the prototype SETTER (no-op for 1);
+          // an attacker's JSON.parse'd bundle has it as a REAL own key.
+          Object.defineProperty(target, protoName, { value: 1, enumerable: true, writable: true, configurable: true });
+        } else {
+          target[protoName] = 1;
+        }
+        assert.ok(Object.prototype.hasOwnProperty.call(target, protoName), `fixture must own ${protoName} at ${at}`);
+        const issues = structuralIssues(b);
+        assert.ok(issues.some((i) => /unknown fields are refused by policy/.test(i)),
+          `${at}.${protoName}: ${issues.join('; ')}`);
+      }
+    }
+  });
+
   it('trustful-tier fields: deleted infraSignal/snapshots/anomalies kill a trustful claim but validate clean under a weak honest label', () => {
     const b = goodBundle();
     for (const r of b.rounds as Record<string, unknown>[]) delete r.infraSignal;
