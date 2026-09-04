@@ -940,6 +940,48 @@ describe('observation hardening — expandArgvWithPlan injection decision', () =
     } finally { cleanup(); }
   });
 
+  it('post-glm F6a: pinned bytes reached through a LINK at the anchor are not injectable (root case)', (t) => {
+    // The hoist test proves LOCATION must match; a probe (.night-run) proved
+    // the match was only LEXICAL: with <fixture>/node_modules/mocha a
+    // symlink/junction onto a real double copy OUTSIDE the fixture, hashing
+    // follows the root link (pin hit) and located.dir === canonical still
+    // holds — injection credited bytes that physically live outside the run.
+    const { rec, cleanup, ws } = freshRecorder(undefined, true); // F5 grant ON: location is the only variable
+    try {
+      const target = path.join(ws.root, 'f6a-outside-tree');
+      copyDouble(target);
+      const nm = path.join(ws.fixture, 'node_modules');
+      fs.mkdirSync(nm, { recursive: true });
+      let linked = false;
+      for (const typ of ['dir', 'junction'] as const) {
+        try { fs.symlinkSync(target, path.join(nm, 'mocha'), typ); linked = true; break; } catch { /* next form */ }
+      }
+      if (!linked) { t.skip('symlink/junction creation denied on this host'); return; }
+      const { argv, plan } = rec.expandArgvWithPlan(['$bin:mocha', 'test.js'], SUBS, doubleResolver(ws.fixture));
+      assert.equal(plan.injected, false, 'a symlinked runner root is not the PHYSICAL canonical anchor');
+      assert.equal(plan.absentKind, 'runner-identity-unpinned');
+      assert.ok(!argv.includes('--require'), `link escape must not earn the preload: ${argv.join(' ')}`);
+      assert.equal(plan.observedRunnerTreeSha256, doublePin?.treeSha256, 'bytes match the pin; PHYSICAL location does not');
+    } finally { cleanup(); }
+  });
+
+  it('post-glm F6a: a LINK ABOVE the anchor (node_modules junctioned out) is not injectable either', (t) => {
+    const { rec, cleanup, ws } = freshRecorder(undefined, true);
+    try {
+      const target = path.join(ws.root, 'f6a-outside-nm');
+      copyDouble(path.join(target, 'mocha')); // REAL dir inside the link target
+      let linked = false;
+      for (const typ of ['junction', 'dir'] as const) {
+        try { fs.symlinkSync(target, path.join(ws.fixture, 'node_modules'), typ); linked = true; break; } catch { /* next form */ }
+      }
+      if (!linked) { t.skip('symlink/junction creation denied on this host'); return; }
+      const { argv, plan } = rec.expandArgvWithPlan(['$bin:mocha', 'test.js'], SUBS, doubleResolver(ws.fixture));
+      assert.equal(plan.injected, false, 'pinned bytes behind an escaped node_modules are not the fixture anchor');
+      assert.equal(plan.absentKind, 'runner-identity-unpinned');
+      assert.ok(!argv.includes('--require'), `link escape must not earn the preload: ${argv.join(' ')}`);
+    } finally { cleanup(); }
+  });
+
   it('a subject-supplied --require/-r in a mocha argv is refused fail-closed', () => {
     const { rec, cleanup, ws } = freshRecorder();
     try {

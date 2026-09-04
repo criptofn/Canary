@@ -632,6 +632,23 @@ export function isRequireToken(tok: string): boolean {
   return false;
 }
 
+/**
+ * post-glm F6a: the anchor claim is PHYSICAL, not lexical. `located.dir ===
+ * canonical` compares resolved-but-unrealpathed paths, and treeSha256 happily
+ * follows a symlink/junction AT the package root (probe-proven, and also for
+ * a link ABOVE it at node_modules): pinned bytes living OUTSIDE the fixture
+ * would earn injection. Demand that both sides resolve, through every link,
+ * to the fixture-relative anchor. Any resolution failure == not injectable
+ * (fail-closed, the same posture as locateRunnerPackage swallowing anomalies).
+ */
+function isPhysicalAnchor(fixture: string, dir: string): boolean {
+  try {
+    return path.relative(fs.realpathSync(fixture), fs.realpathSync(dir)) === path.join(...OBSERVER_MOCHA_ANCHOR_REL);
+  } catch {
+    return false;
+  }
+}
+
 export class Recorder {
   private counts = new Map<string, number>();
   readonly facts: RoundFact[] = [];
@@ -785,7 +802,7 @@ export class Recorder {
       // F5: origin-gated lookup — the public canary-double needs the explicit
       // in-process grant; npm pins are selectable in both postures.
       const pin = located ? findRunnerPin(located, { allowCanaryDoubleOrigin: d.allowCanaryDoubleOrigin === true }) : null;
-      if (located && pin && located.dir === canonical) {
+      if (located && pin && located.dir === canonical && isPhysicalAnchor(d.ws.fixture, located.dir)) {
         out.push('--require', observerPreloadPath(d.ws));
         plan.injected = true;
         plan.absentKind = null;

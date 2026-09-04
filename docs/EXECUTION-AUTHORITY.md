@@ -81,9 +81,14 @@ the whole channel is stated in §7.
   (`packages/runner/executor/src/`) resolves `$bin:mocha` to the real
   package directory; it computes the package's canonical **treeSha256**
   (sorted `path \0 sha256(bytes) \n` over regular files, excluding
-  `<pkg>/node_modules/**` and the root `.package-lock.json`; a symlink
-  anywhere throws → treated as a pin miss) and compares `(name, version,
+  `<pkg>/node_modules/**` and the root `.package-lock.json`; a symlink INSIDE
+  the tree throws → treated as a pin miss) and compares `(name, version,
   hash)` against `KNOWN_RUNNER_RELEASES` (`packages/support/src/knownRunners.ts`).
+  A hash match alone never earns injection: the located package must also
+  occupy the fixture's canonical anchor PHYSICALLY (post-glm F6a — the anchor
+  check resolves realpaths, so a symlink/junction at the package root or
+  anywhere above it, whose target's bytes would otherwise hash clean, fails
+  closed to ABSENT; observed bytes are still honestly recorded).
 - **Injection is the whole gate:** injection credit additionally requires the
   token to OCCUPY THE EXECUTED RUNNER POSITION (post-GLM F1): expanded argv
   must be `[execPath, <pinned bin>, …]`, i.e. `$bin:mocha` must be spec argv[0].
