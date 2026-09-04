@@ -737,6 +737,11 @@ export class Recorder {
       // key wins, so nothing user-controlled can follow this block — `--` and
       // short options are rejected in this family, and every accepted option
       // spelling is allowlisted and prefix-disjoint from these keys.
+      // post-glm F6e: re-establish the controlled userconfig AT INJECTION
+      // TIME. Workspace init created it empty, but prepare/swap/subject code
+      // all hold write access to that path — a tamper in the
+      // creation→install gap would otherwise be npm's EFFECTIVE config.
+      if (tool === '$npm') fs.writeFileSync(path.join(d.ws.root, 'empty.npmrc'), '');
       const flags = tool === '$npm'
         ? ['--ignore-scripts', '--no-audit', '--no-fund', '--legacy-peer-deps',
             '--userconfig', path.join(d.ws.root, 'empty.npmrc'),

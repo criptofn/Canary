@@ -154,6 +154,22 @@ describe('Recorder.expandArgv — token expansion + enforced isolation', () => {
     } finally { cleanup(); }
   });
 
+  it('post-glm F6e: the controlled empty npm config is RE-ESTABLISHED immediately before install (tamper-between-creation-and-use)', () => {
+    const { rec, ws, cleanup } = freshRecorder();
+    try {
+      // freshRecorder created the controlled file empty; something with
+      // workspace write access (prepare/swap/subject code — all untrusted)
+      // doctored it in the gap between creation and use. Injecting
+      // --userconfig at that point must not hand npm the hostile config:
+      // expansion has to re-establish Canary's content first.
+      const rc = path.join(ws.root, 'empty.npmrc');
+      fs.writeFileSync(rc, 'registry=http://evil.invalid\n');
+      rec.expandArgv(['$npm', 'install', 'x@1'], SUBS, () => 'unused');
+      assert.equal(fs.readFileSync(rc, 'utf8'), '',
+        'the file npm reads as its userconfig must be re-established empty at injection time');
+    } finally { cleanup(); }
+  });
+
   it('F6: $yarn install gets yarn-appropriate flags after -- and --ignore-scripts on the npx bootstrap', () => {
     const { rec, cleanup } = freshRecorder();
     try {

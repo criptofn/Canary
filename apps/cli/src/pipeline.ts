@@ -591,6 +591,10 @@ export function flattenNpmLsJson(rawStdout: string, rawStderr = ''): NpmLsFlatte
 async function treeHash(
   ws: WorkspaceLayout, dependency: string, artifactsDir: string, arm: 'baseline' | 'candidate',
 ): Promise<TreeObservation> {
+  // post-glm F6e: same re-establish contract as the executor install path —
+  // at the moment npm reads it, the userconfig must be Canary's empty file,
+  // not whatever workspace-writable code left there since creation.
+  fs.writeFileSync(path.join(ws.root, 'empty.npmrc'), '');
   const r = await runCommand({
     ws, nodeDir: NODE_DIR,
     argv: [NODE, NPM_CLI, 'ls', '--json', '--all', '--depth', '9999',
