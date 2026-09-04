@@ -893,6 +893,52 @@ describe('post-GLM — execution-observation gate (rule 14)', () => {
     assert.equal(r.rule, 1);
   });
 
+  it('post-GLM F4 residual: a crash-signature TEXT cannot veto an attested execution either', () => {
+    // The same masking shape as infraSignal, still live at 5097019: every
+    // round carries a VALID Canary observation agreeing with its text, AND
+    // the candidate's stdout matches CRASH_LINE (the subject can print a real
+    // V8/shell crash banner inside honest test output; prove re-derives the
+    // flag from bytes, so even an accurate crashSignal remains SUBJECT TEXT,
+    // not a process fact). attestedView() neutralized infraSignal but left
+    // crashSignal, so rule 1 buried the attested regression as INFRA.
+    const crashed = (f: RoundFact): RoundFact => ({ ...f, crashSignal: true });
+    const r = classify([
+      attested(arm('baseline', 1)), attested(arm('baseline', 2)),
+      crashed(attested(arm('candidate', 1, false))), crashed(attested(arm('candidate', 2, false))),
+    ]);
+    assert.equal(r.classification, 'CONFIRMED_REGRESSION', `attested evidence must win: ${r.reason}`);
+    assert.equal(r.rule, 5);
+    // Trusted PROCESS facts must keep vetoing even here: signal death is an
+    // executor observation, not bytes, and attestedView leaves it alone.
+    const killed = attested({ ...arm('candidate', 1, false), exitCode: -1, crashSignal: true });
+    const r2 = classify([attested(arm('baseline', 1)), attested(arm('baseline', 2)), killed, attested(arm('candidate', 2, false))]);
+    assert.equal(r2.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(r2.rule, 1);
+    assert.match(r2.reason, /killed or signal death/);
+    // …and so must the containment-sweep forensics: this end-to-end pair is
+    // what pins it to the VIEW (the F4 test's infraCause-direct check never
+    // traverses attestedView, so an over-neutralizing `sweepFailed:false`
+    // mutant survived the whole suite — mutation-lens audit, post-GLM F4).
+    // Pre-fix this also fails on the reason: crashSignal was checked FIRST,
+    // so the vetoing clause named was the buried text flag, not the sweep.
+    const swept = attested({ ...arm('candidate', 1, false), sweepFailed: true, crashSignal: true });
+    const r3 = classify([attested(arm('baseline', 1)), attested(arm('baseline', 2)), swept, attested(arm('candidate', 2, false))]);
+    assert.equal(r3.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(r3.rule, 1);
+    assert.match(r3.reason, /containment sweep/);
+  });
+
+  it('post-GLM F4 residual twin: WITHOUT attestation crash prose still yields rule 1 INFRA', () => {
+    // Counter-invariant of the fix above: the neutralization lives on the
+    // attested view ONLY; prose-only experiments keep every weak path.
+    const r = classify([
+      arm('baseline', 1), arm('baseline', 2),
+      { ...arm('candidate', 1, false), crashSignal: true }, { ...arm('candidate', 2, false), crashSignal: true },
+    ]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE');
+    assert.equal(r.rule, 1);
+  });
+
   it('weak paths are NOT gated: rule 0/rule 1 keep their rule numbers without any observation', () => {
     // An empty-ish bundle must report "missing arms" (rule 0), not claim the
     // gate fired — the gate downgrades claims, it never fabricates structure.

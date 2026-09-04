@@ -488,7 +488,9 @@ describe('post-GLM F1 — off-position runner token earns no execution credit', 
 // title with no pass glyph) downgraded a fully-VALID, channel-agreeing
 // regression to INFRASTRUCTURE_FAILURE rule 1: prose outranked the watched
 // lifecycle. Fail-closed precedence now: on the attested view the
-// infraSignal-only clause is suppressed; killed/crash/sweep facts stay.
+// text-PATTERN clauses are suppressed (infraSignal; plus crashSignal per the
+// F4 residual — it matches subject bytes, same channel class); the
+// executor-observed killed/sweep facts stay in rule 1.
 // ───────────────────────────────────────────────────────────────────────────
 describe('post-GLM F4 — infra prose cannot mask an attested regression', () => {
   it('a VALID round whose stdout trips the infra signature still yields CONFIRMED_REGRESSION', async () => {

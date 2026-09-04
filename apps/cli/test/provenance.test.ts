@@ -395,12 +395,15 @@ describe('round-3 B4 — coherent-reseal matrix on release-critical fields', () 
     assert.match(g.detail, /crashSignal/);
   });
   it('an invented crashSignal on clean bytes is caught too (bidirectional binding, resealed)', async () => {
-    // The inverse lie (crashSignal=true on benign bytes) self-contradicts the
-    // bundle at validateBundle first — the re-derived label (INFRA) disagrees
-    // with the recorded one (CONFIRMED). Layer order documented, both refuse.
+    // The inverse lie (crashSignal=true on benign bytes). Post-GLM F4
+    // residual it no longer self-contradicts the LABEL — a text-derived flag
+    // cannot move an attested verdict in EITHER direction — so validateBundle
+    // agrees and the lie dies where the truth lives: the byte re-derivation
+    // refutes the recorded flag against the (clean) artifacts. Same anchor
+    // that catches the hidden-crash twin above.
     const g = await forge((b) => { for (const r of b.rounds) r.crashSignal = true; }, true);
-    assert.equal(g.layer, 'validateBundle', JSON.stringify(g));
-    assert.match(g.detail, /contradicts its own round facts/);
+    assert.equal(g.layer, 'verifyArtifactSemantics', JSON.stringify(g));
+    assert.match(g.detail, /crashSignal/);
   });
   it('a tampered infraSignal (false where bytes carry an infra line) is caught by bytes', async () => {
     // The stub candidate bytes are clean, so first append a real infra line to

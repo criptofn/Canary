@@ -236,15 +236,20 @@ because it still *claims execution* ("tests ran, with differing results");
 (execution-claim tier) are two constants, never conflated.
 
 **Channel precedence (post-GLM F4):** once the gate holds — every round
-VALID and channel-agreeing — an infra-flavored KEYWORD in untrusted stdout
-cannot veto the attested evidence: `attestedView` neutralizes the
-`infraSignal`-only clause of rule 1, so an honest failing test titled
-"(ERR_REQUIRE_ESM)" cannot bury a CONFIRMED_REGRESSION as
-INFRASTRUCTURE_FAILURE. Signal death, crash signatures, and failed
-containment sweeps stay in rule 1 unconditionally — they are trusted
-process/forensic facts, or (crash) round-3 hardening prose can never
-override. Text NEVER upgrades a verdict; this only removes prose's power
-to suppress one.
+VALID and channel-agreeing — no text-PATTERN veto derived from untrusted subject output
+can bury the attested evidence: `attestedView` neutralizes the
+`infraSignal` and `crashSignal` clauses of rule 1, so an honest failing
+test titled "(ERR_REQUIRE_ESM)" — or one whose output legitimately
+contains a V8/shell crash banner — cannot turn a CONFIRMED_REGRESSION into
+INFRASTRUCTURE_FAILURE. (Summary/count and exit-contradiction clauses are
+also untouched — the gate already contradicts before they could matter.) The
+residual audit showed crash signatures belong
+on the text side of this line: `hasCrashSignature` matches subject bytes
+(prove re-derives the flag from them), so an accurate `crashSignal` still
+only proves the output *said* it, not that the process crashed. Signal
+death and failed containment sweeps stay in rule 1 unconditionally —
+executor-observed process facts, never subject prose. Text NEVER upgrades
+a verdict; this only removes prose's power to suppress one.
 
 ## 6. Integrity ≠ provenance ≠ authenticated provenance
 

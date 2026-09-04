@@ -400,16 +400,20 @@ function attestedView(r: RoundFact): RoundFact {
     reportedPending: o.observedCounts!.pending,
     failingTestNames: [...(o.observedFailingIdentities ?? [])].sort(),
     // Post-GLM F4 (fail-closed precedence): once every round is ATTESTED —
-    // a VALID pinned-runner observation agreeing with the text — an
-    // infra-flavored KEYWORD in untrusted stdout ("ECONNREFUSED" asserted on
-    // by a test, npm-shaped prose in tool output) may not veto the attested
-    // evidence and bury a confirmed regression as INFRA rule 1. The veto
-    // survives everywhere the attestation does not reach: exit -1, failed
-    // sweep, and crash signatures stay in infraCause unconditionally (they
-    // are trusted process/forensic facts or round-3 hardening prose-only
-    // can never override). Text-derived facts NEVER upgrade a verdict —
-    // this only removes prose's power to suppress one.
+    // a VALID pinned-runner observation agreeing with the text — a veto
+    // derived from UNTRUSTED SUBJECT TEXT may not bury the attested
+    // evidence: infra keywords ("ECONNREFUSED" asserted on by a test) and
+    // crash signatures alike are byte-pattern matches on subject output
+    // (prove re-derives both from the artifact bytes; accuracy there proves
+    // the bytes said it, not that the process crashed). A test printing a
+    // real V8/shell crash banner while genuinely failing would otherwise be
+    // buried as INFRA rule 1. The veto survives for the flags that are not
+    // text patterns at all: exit -1 (executor-observed signal death) and the
+    // containment sweep stay in infraCause unconditionally. Text-derived
+    // facts NEVER upgrade a verdict — this only removes prose's power to
+    // suppress one.
     infraSignal: false,
+    crashSignal: false,
   };
 }
 
