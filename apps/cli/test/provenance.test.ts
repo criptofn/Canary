@@ -104,6 +104,11 @@ async function realRun(): Promise<{ bundle: EvidenceBundle; artifactsDir: string
   const hashes = (arm: 'baseline' | 'candidate') => b.rounds.filter((r) => r.arm === arm).map((r) => r.normalizedStdoutSha256);
   const proof: ProofExpectation = {
     schema: 1, experimentId: 'prov', evidenceSchema: 1,
+    // post-glm F6f: host-exact checks (argv/envKeys re-derivation, hashes)
+    // are granted ONLY by a committed proofHost — the env-metadata fallback
+    // is gone, so the forgery tests that expect to be refused ON this host
+    // must have this (really the recording) host committed.
+    proofHost: { ...RUNTIME },
     dependency: { package: 'widget', baseline: '1.0.0', candidate: '2.0.0' },
     downstream: { repo: 'stub/downstream', commit: FAKE_SHA },
     tarballSha256: b.downstream.tarballSha256, // B4: release-critical pin is mandatory

@@ -132,8 +132,12 @@ describe('audit M8 — offline pipeline end-to-end', () => {
     // from the bytes + retained trees.
     assert.deepEqual(verifyRunIdentity(artifactsDir, bundle), []);
     assert.deepEqual(verifyClassificationDerivation(artifactsDir, bundle), []);
+    // post-glm F6f: host-exact trust comes ONLY from a COMMITTED proofHost —
+    // the no-proofHost env-metadata fallback is gone, so an expecting-PASS
+    // proof must declare its host (this machine really recorded this run).
     const proof: ProofExpectation = {
       schema: 1, experimentId: 'stub-e2e',
+      proofHost: actualHostFingerprint(),
       dependency: { package: 'widget', baseline: '1.0.0', candidate: '2.0.0' },
       downstream: { repo: 'stub/downstream', commit: FAKE_SHA },
       tarballSha256: bundle.downstream.tarballSha256,
@@ -149,8 +153,8 @@ describe('audit M8 — offline pipeline end-to-end', () => {
       return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
     };
     // Round-3 B3: assertions run against the ACTUAL runtime (this machine,
-    // which really is the recording machine here — the legacy-proof branch
-    // only asserts host-exact hashes when reality matches the evidence).
+    // which really is the recording machine here — and post-F6f the proof
+    // COMMITS that host, so host-exact hashes assert without fallback).
     const checks = assertProof(bundle, proof, { candidateStdout: readLog('candidate'), baselineStdout: readLog('baseline') }, actualHostFingerprint());
     assert.deepEqual(checks.filter((c) => !c.ok).map((c) => c.name), [], 'a faithful proof must pass');
     assert.deepEqual(checks.filter((c) => c.skipped).map((c) => c.name), [], 'nothing host-exact may skip when reality matches');

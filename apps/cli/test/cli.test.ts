@@ -23,6 +23,7 @@ import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
 
 import { runExperiment } from '../src/pipeline.js';
+import { actualHostFingerprint } from '../src/prove.js';
 import { sha256hex } from '@canary-rn/hashing';
 import {
   writeStagedPayload, stageCommands, MOCHA_TEST_ARGV, widgetSpec, swapScript,
@@ -93,6 +94,11 @@ async function stage(): Promise<{ repoRoot: string; specPath: string; artifactsD
     b.rounds.filter((r) => r.arm === arm).map((r) => r.normalizedStdoutSha256);
   const proof = {
     schema: 1, experimentId: 'stub-cli',
+    // post-glm F6f: a proof that must PASS check has to COMMIT its host —
+    // host-exact trust is never derived from the evidence's own (re-sealable)
+    // environment metadata again. This machine really recorded the run, and
+    // the `check` subprocess runs the same node, so the fingerprint matches.
+    proofHost: actualHostFingerprint(),
     dependency: spec.dependency, downstream: { repo: 'stub/downstream', commit: FAKE_SHA },
     // B4: a proof must pin the release-critical tarball digest.
     tarballSha256: b.downstream.tarballSha256,

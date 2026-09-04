@@ -298,19 +298,40 @@ describe('assertProof — audit F11 + round-3 B3 (host-exactness from the ACTUAL
   const run = (bundle: EvidenceBundle, proof: ProofExpectation, runtime = runtimeOnRecordedMachine) =>
     assertProof(bundle, proof, { candidateStdout: CAND_LOG, baselineStdout: BASE_LOG }, runtime);
 
-  it('legacy proof (no proofHost): host-exact hashes assert ONLY when the actual runtime matches the recorded environment', () => {
+  it('legacy proof (no proofHost): host-exact hashes NEVER assert — recorded-env match grants nothing (post-glm F6f)', () => {
     const { dir, bundle, cleanup } = harness();
     try {
-      const onMachine = run(bundle, proofFor(bundle, false));
-      const hash = onMachine.find((c) => c.name === 'candidate normalized stdout hashes')!;
-      assert.equal(hash.ok, true);
-      assert.equal(hash.skipped, undefined);
-      // The old unconditional-strict branch is GONE: a legacy proof verified
-      // on a foreign machine must skip (INCOMPLETE), not silently assert.
-      const elsewhere = run(bundle, proofFor(bundle, false), runtimeElsewhere);
-      const skipped = elsewhere.filter((c) => c.skipped);
-      assert.equal(skipped.length, 2, JSON.stringify(skipped.map((s) => s.name)));
-      assert.ok(skipped.every((s) => /no committed proofHost and the actual runtime differs/.test(s.name)));
+      // STALE expectation, mechanically replaced (see the F6f test below):
+      // this once pinned "runtime matches the RECORDED environment ⇒ host-
+      // exact hashes assert". That grant came from attacker-re-sealable
+      // evidence metadata and is exactly finding F6f. Both runtime positions
+      // now skip, so a proof without a committed proofHost can never PASS
+      // through the fallback.
+      for (const rt of [runtimeOnRecordedMachine, runtimeElsewhere]) {
+        const skipped = run(bundle, proofFor(bundle, false), rt).filter((c) => c.skipped);
+        assert.equal(skipped.length, 2, JSON.stringify(skipped.map((s) => s.name)));
+        assert.ok(skipped.every((s) => /no committed proofHost/.test(s.name)), skipped.map((s) => s.name).join('; '));
+      }
+    } finally { cleanup(); }
+  });
+
+  it('post-glm F6f: an ABSENT proofHost can never grant host-exact trust — resealed env metadata cannot PASS the proof', () => {
+    const { dir, bundle, cleanup } = harness();
+    try {
+      // Attacker posture: the proof expectation carries NO proofHost, and the
+      // evidence environment block — the attacker's own re-sealable metadata —
+      // is doctored to match the verifying runtime. The old fallback derived
+      // onProofHost from that metadata, so host-exact checks RAN and passed,
+      // and proofVerdict said PASS. Absence of a committed proofHost must
+      // never grant: the checks skip and the verdict is INCOMPLETE (exit 2).
+      const checks = run(bundle, proofFor(bundle, false)); // runtime == recorded env
+      // skipped checks carry their reason IN the name, so match by prefix:
+      const hash = checks.find((c) => c.name.startsWith('candidate normalized stdout hashes'))!;
+      assert.ok(hash.skipped, `host-exact check asserted without a committed proofHost: ${JSON.stringify(hash)}`);
+      const v = proofVerdict(checks);
+      assert.ok(v.status !== 'PASS', 'the proof must not become PASS solely through the no-proofHost fallback');
+      assert.equal(v.status, 'INCOMPLETE');
+      assert.equal(v.exitCode, 2);
     } finally { cleanup(); }
   });
 

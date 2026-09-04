@@ -189,15 +189,20 @@ export function proofHostContext(
   ev: EvidenceBundle, proof: ProofExpectation, runtime: HostFingerprint,
 ): { onProofHost: boolean; skipWhy: string } {
   const hf = proof.proofHost;
-  // The hf branch compares full fingerprints (metadata + exec bytes,
-  // post-GLM F2). The fallback stays metadata-only: the evidence environment
-  // block has no digest, and this legacy anchor's removal is tracked
-  // separately (post-GLM F6) — behavior preserved here, not extended.
-  const onProofHost = hf ? fpEq(runtime, hf) : metaEq(runtime, ev.environment);
+  // Host-exactness is granted ONLY by the committed proofHost, compared as
+  // full fingerprints (metadata + exec bytes, post-GLM F2). The former
+  // no-proofHost fallback derived trust from metaEq against the evidence's
+  // own environment block — re-sealable attacker metadata, so an attacker
+  // who matched it to their runtime minted host-exact trust and the proof
+  // PASSed purely through the fallback (post-glm F6f). Absence of a
+  // proofHost now NEVER grants: every host-exact assertion skips and
+  // proofVerdict downgrades skips to INCOMPLETE — the fallback can no
+  // longer produce a PASS.
+  const onProofHost = hf !== undefined && fpEq(runtime, hf);
   const skipWhy = hf
     ? `actual runtime is not the committed proof host ${hf.platform}/${hf.arch}/node ${hf.nodeVersion}/npm ${hf.npmVersion} ` +
       `exec ${hf.nodeExecSha256 !== undefined ? hf.nodeExecSha256.slice(0, 16) + '…' : 'digest NOT PINNED'}`
-    : 'no committed proofHost and the actual runtime differs from the evidence-recorded environment';
+    : 'no committed proofHost — host-exact assertions are never granted from re-sealable evidence metadata (post-glm F6f)';
   return { onProofHost, skipWhy };
 }
 
