@@ -179,7 +179,11 @@ export function validateObservation(v: ValidateInput): ExecutionObservation {
   if (bc.pass !== passing || bc.fail !== failing || bc.pending !== pending) return bad('bye-vs-recount');
 
   // ── Exit consistency (panel D, capture mirror): what mocha's exit code
-  // claims about failures must match what we watched.
+  // claims about failures must match what we watched. -1 (killed) is exempt
+  // BY DESIGN (post-glm F6b): a kill's exit code claims nothing about tests,
+  // and the observation must say what was really watched — the authoritative
+  // veto is classification rule 1's unconditional 'killed or signal death',
+  // NOT an observation lie here. (Both directions pinned by F6b tests.)
   if (v.exitCode !== -1 && failing === 0 && v.exitCode !== 0) return bad('exit-contradiction-nonzero');
   if (failing > 0 && v.exitCode === 0) return bad('exit-contradiction-masked');
 

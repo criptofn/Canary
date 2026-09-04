@@ -342,8 +342,14 @@ export const STRONG_EXECUTION_LABELS: readonly Classification[] = [
  *      died outside the tests Canary watched (and with VALID, printed-zero
  *      text is pinned to INFRA by ungated rule 1); failing>0 with exit==0 is
  *      a masked failure — kept here as defense-in-depth even though agreement
- *      routes it via rule 1 today. exit==-1 (killed) never gets a VALID
- *      status past capture, and rule 1 fires before any gated rule anyway.
+ *      routes it via rule 1 today. NOTE (post-glm F6b): exit==-1 (killed) is
+ *      NOT caught here when the round watched real failures — neither clause
+ *      matches (-1!=0 with failing>0, exit!=0 with failing>0) — and capture
+ *      DELIBERATELY honors a complete stream paired with -1 (the exit code
+ *      of a kill claims nothing about tests). The unconditional veto is
+ *      infraCause's 'killed or signal death', which attestedView never
+ *      touches and rule 1 applies before any gated rule. Pinned by the F6b
+ *      test in classify.test.ts + the layer-1 F6b test in attested-channel.
  */
 export function observationGateIssue(rounds: readonly RoundFact[]): string | null {
   for (const r of rounds) {

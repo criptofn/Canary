@@ -94,6 +94,24 @@ describe('panel K layer 1 — the validator refuses hostile frame streams', () =
     assert.equal(obs.frameCount, 4);
   });
 
+  it('post-glm F6b: capture DELIBERATELY honors a complete stream paired with exit -1 — the veto lives in classification, not here', () => {
+    // The exit-contradiction clause exempts -1 on purpose: a killed exit code
+    // makes no claim about test failures (a completed round killed one
+    // scheduler tick after mocha printed its summary really DID run
+    // everything watched). The observation must record what was watched;
+    // making the round INFRA is rule 1's unconditional 'killed or signal
+    // death' veto, which survives attestation (classify.test pins both, and
+    // the gate itself cannot see -1-with-failures — checked there).
+    const obs = validateObservation(baseInput({
+      raw: stream([hello(), pass('s > a'), fail('s > b'), bye({ pass: 1, fail: 1, pending: 0 })]),
+      exitCode: -1,
+      textCounts: { passing: 1, failing: 1 },
+      textFailingNames: ['s > b'],
+    }));
+    assert.equal(obs.status, 'VALID', `capture must not launder the kill into an observation lie: ${obs.invalidReason}`);
+    assert.deepEqual(obs.observedCounts, { passing: 1, failing: 1, pending: 0 });
+  });
+
   it('(ii) injected round with ZERO frames on the channel is INVALID', () => {
     const obs = validateObservation(baseInput({ raw: '' }));
     assert.equal(obs.status, 'INVALID');

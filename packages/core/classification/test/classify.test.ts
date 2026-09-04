@@ -885,6 +885,27 @@ describe('post-GLM — execution-observation gate (rule 14)', () => {
     assert.match(infraCause({ ...swept, infraSignal: true }) ?? '', /containment sweep/);
   });
 
+  it('post-glm F6b: the ACTUAL containment of a VALID-observed killed round — gate blind, rule 1 absolute', () => {
+    // The -1+VALID capture shape (pinned at attested-channel layer 1) is
+    // deliberately INVISIBLE to the gate's exit clauses: they cover only
+    // failing==0/exit!=0 and failing>0/exit==0, and a killed round reporting
+    // a real watched failure matches neither. The veto is infraCause's
+    // UNCONDITIONAL 'killed or signal death' — executor process knowledge,
+    // never neutralized by attestedView. Deleting the exit -1 clause from
+    // infraCause makes THIS fail: the attested view would then confirm a
+    // "regression" earned by a process whose exit code claimed nothing.
+    const killedFailing = attested({ ...arm('candidate', 1, false), exitCode: -1 });
+    assert.equal(observationGateIssue([attested(arm('baseline', 1)), killedFailing]), null,
+      'the gate is blind to -1-with-failures BY CONTRACT — do not "fix" the gate');
+    const r = classify([
+      attested(arm('baseline', 1)), attested(arm('baseline', 2)),
+      killedFailing, attested(arm('candidate', 2, false)),
+    ]);
+    assert.equal(r.classification, 'INFRASTRUCTURE_FAILURE', r.reason);
+    assert.equal(r.rule, 1);
+    assert.match(r.reason, /killed or signal death/);
+  });
+
   it('post-GLM F4 twin: WITHOUT attestation the same prose still yields rule 1 INFRA', () => {
     // The fix suppresses the text veto only on the attested view; prose-only
     // experiments keep every weak-label path byte-identical.
