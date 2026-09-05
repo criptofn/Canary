@@ -1,0 +1,180 @@
+▶ classify — decision table (docs/PLAN.md section 6)
+  ✔ rule 3: baseline unanimous pass + candidate unanimous pass -> PASS (1.0816ms)
+  ✔ rule 5: baseline passes, all candidate rounds fail -> CONFIRMED_REGRESSION (0.2162ms)
+  ✔ rule 4: baseline fails with real summaries + candidate fails -> PRE_EXISTING_FAILURE (0.1581ms)
+  ✔ rule 1 (degenerate-run guard): failing round without runner summary -> INFRASTRUCTURE_FAILURE, never CONFIRMED_REGRESSION (0.1156ms)
+  ✔ rule 1: killed round (exit -1) -> INFRASTRUCTURE_FAILURE (0.1141ms)
+  ✔ rule 1: infra signal on a failing round outranks drift (0.107ms)
+  ✔ rule 2: split baseline -> FLAKY (experiment invalid) (0.1028ms)
+  ✔ rule 7: clean baseline, mixed candidate -> FLAKY, not CONFIRMED (0.132ms)
+  ✔ rule 6: failing baseline + all-pass candidate -> INCONCLUSIVE (inverted pattern) (0.1304ms)
+  ✔ rule 0: missing arms -> INCONCLUSIVE (0.1268ms)
+  ✔ rule 1 (F1 guard): nonzero exit whose summary reports 0 failing is infra, not drift (0.0937ms)
+  ✔ rule 1 (F5 guard): zero exit with masked failures in summary is never PASS (0.0761ms)
+  ✔ audit B2: zero-test execution (exit 0, "0 passing") is INFRA, never PASS (0.1289ms)
+  ✔ audit B2: a round with NO runner summary at exit 0 is INFRA, never PASS (0.0797ms)
+  ✔ audit B2: recognized infra signature at EXIT ZERO is INFRA (a harness that swallows errors) (0.0872ms)
+  ✔ audit B2: a candidate whose baseline is clean but rounds are zero-test is INFRA (never CONFIRMED) (0.0776ms)
+  ✔ audit B2 positive control: a valid zero-failure run (N>0 passing, exit 0) still PASSES (0.0867ms)
+  ✔ audit F1 (mocha-realistic): passing summary WITHOUT a failing line + nonzero exit -> INFRA, never CONFIRMED_REGRESSION (0.0927ms)
+  ✔ audit F2: candidate rounds failing DIFFERENT counts -> FLAKY rule 8, not CONFIRMED_REGRESSION (0.101ms)
+  ✔ audit F2: same count but DIFFERENT failing-test identities -> FLAKY rule 8 (0.0853ms)
+  ✔ audit F2: identical failure profiles (golden shape) -> still CONFIRMED_REGRESSION rule 5 (0.1264ms)
+  ✔ audit F2: profile comparison is order-independent (sorted identities) (0.0961ms)
+  ✔ audit F2: unstable baseline failure identities block PRE_EXISTING_FAILURE -> FLAKY (0.0824ms)
+  ✔ audit F1 contract: summary-present failing round WITHOUT any failing count is INFRA, not regression (0.084ms)
+  ✔ is pure: same facts always yield the same verdict (0.4743ms)
+✔ classify — decision table (docs/PLAN.md section 6) (5.3106ms)
+▶ audit F9/B6 — applyConfinementGuard (rules 9 + 10, enforced not decorative)
+  ✔ downgrades CONFIRMED_REGRESSION to INCONCLUSIVE rule 9 when drift is unconfined (0.1524ms)
+  ✔ is identity when drift IS confined and both trees VALID (a legit CONFIRMED survives) (0.071ms)
+  ✔ never masks an INFRASTRUCTURE_FAILURE (higher-fidelity reason kept) (0.0728ms)
+  ✔ downgrades PASS and PRE_EXISTING_FAILURE too (any trustful verdict needs comparable arms) (0.1205ms)
+  ✔ audit B6: an empty/partial tree observation downgrades to INCONCLUSIVE rule 10 even when drift is confined (0.0948ms)
+  ✔ audit B6: tree-invalidity takes precedence over unconfined drift (rule 10 not 9) (0.0767ms)
+  ✔ guard removal would flip the outcome: identical facts, opposite confinement (0.0791ms)
+✔ audit F9/B6 — applyConfinementGuard (rules 9 + 10, enforced not decorative) (0.839ms)
+▶ round-3 blocker 1 — identity coverage gates trustful verdicts
+  ✔ identityCoverage: exact match COMPLETE; fewer / more / missing => INCOMPLETE / NOT_OBSERVED (0.1442ms)
+  ✔ two DIFFERENT root-level failures that collapsed to equal EMPTY sets can never CONFIRM (rule 11) (0.1091ms)
+  ✔ repeated "2 failing" with only ONE extractable identity -> INCONCLUSIVE rule 11, never CONFIRMED (0.093ms)
+  ✔ single failing round claiming 9 failures with 0 identities -> INCONCLUSIVE rule 11 (0.0774ms)
+  ✔ under-accounted BASELINE blocks PRE_EXISTING_FAILURE too (coverage is not candidate-only) (0.0798ms)
+  ✔ genuinely distinct root failures stay distinct (rule 8 FLAKY, not coverage, not CONFIRMED) (0.1057ms)
+  ✔ fully-accounted root-level identities CONFIRM (conservatism must not break real proofs) (0.0801ms)
+✔ round-3 blocker 1 — identity coverage gates trustful verdicts (0.8433ms)
+▶ round-3 blocker 2 — pending tests are NOT executed assertions
+  ✔ all-pending candidate (0/0/7, exit 0) can never PASS -> INFRA (0.1503ms)
+  ✔ infraCause flags a pending-only round directly (was: null) (0.096ms)
+  ✔ healthy baseline + ALL-skipped candidate: the run proves nothing executed (0.0608ms)
+  ✔ summary present with NO machine-readable counts at all -> INFRA (prose "summary" proves nothing) (0.5735ms)
+  ✔ pending-only counts (no passing/failing line — the real mocha shape) -> INFRA zero-executed (0.1137ms)
+  ✔ zero-test with NO summary at all stays INFRA (B2 path unchanged) (0.0846ms)
+  ✔ a single executed assertion (1 passing, 0 failing, N pending) is enough to be a VALID run (0.0993ms)
+  ✔ decoy early summary lines cannot steer a nonzero-exit round into CONFIRMED (probe P2) (0.0699ms)
+  ✔ duplicate identical suite-qualified identities under-account -> rule 11, never trust (probe P4) (0.0795ms)
+✔ round-3 blocker 2 — pending tests are NOT executed assertions (1.5ms)
+▶ post-sol RB-2 — coverage consistency gates strong verdicts
+  ✔ Sol case 1: baseline 128 passing, candidate 1 passing is NOT PASS (0.1585ms)
+  ✔ Sol case 2: baseline repetitions 128 then 1 (both exit 0) is NOT PASS (0.0818ms)
+  ✔ Sol case 3: baseline 128, candidate 1 passing / 127 pending is NOT PASS (0.0656ms)
+  ✔ Sol case 4: baseline 128, candidate 1 stable failing test is NOT CONFIRMED_REGRESSION (0.0762ms)
+  ✔ Axios golden shape (128 passing -> 125 passing / 3 failing) STILL classifies CONFIRMED_REGRESSION rule 5 (0.0938ms)
+  ✔ a passing->failing move at stable totals is a regression, not a coverage gap (0.0704ms)
+  ✔ one executed test on BOTH arms, stable across repetitions, still PASSES (no hard-coded minimum) (0.0716ms)
+  ✔ pending that SHRINKS candidate-side is caught by the observed total (5 executed + 0 pending vs 5 + 5 pending) (0.0861ms)
+  ✔ candidate executing MORE than baseline is equally non-comparable (strong verdicts need both directions) (0.0552ms)
+  ✔ rule 12 fires on candidate-side instability too (one repeat loses a test, both exit 0) (0.0661ms)
+  ✔ PRE_EXISTING_FAILURE also demands comparability (baseline fails with fewer executed than candidate) (0.0821ms)
+  ✔ weak outputs are never inflated by the new rules: mixed candidate with a coverage gap stays FLAKY (rule 7), infra wins over coverage (rule 1) (0.1069ms)
+  ✔ treats undefined counts as zero consistently with rule 1 (mocha omits the 0-failing line): 5 passing vs 5 passing+3 failing is NOT comparable (0.0602ms)
+  ✔ a stable-coverage collapse on BOTH arms (128 -> 1 -> uniform) is comparable and can still PASS — and is reported honestly (0.0551ms)
+✔ post-sol RB-2 — coverage consistency gates strong verdicts (1.3685ms)
+▶ post-GLM — execution-observation gate (rule 14)
+  ✔ the GLM shape: unanimous "passing" prose with NO observation -> INCONCLUSIVE rule 14, never PASS (0.1825ms)
+  ✔ a VALID observation that LIES about counts is caught (text 5/0/0 vs observed 42/0/0) (0.0799ms)
+  ✔ a VALID observation whose failing identities differ from the text is caught (0.0834ms)
+  ✔ FLAKY is gated too: a split baseline WITHOUT observation is rule 14, not FLAKY (0.0651ms)
+  ✔ PRE_EXISTING_FAILURE is gated: fail/fail/fail prose is rule 14 (the guard also gates the honest direction) (0.0727ms)
+  ✔ status ABSENT is not "weak-but-fine": an explicit ABSENT observation gates like a missing one (0.0804ms)
+  ✔ the gate reports the FIRST offending round in bundle order (deterministic reason) (0.0648ms)
+  ✔ observationGateIssue: both exit-contradiction directions fail a VALID observation (0.084ms)
+  ✔ observationSatisfied agrees with the gate on both paths (0.0646ms)
+  ✔ a VALID observation whose identity array is missing/malformed is a REFUSAL, not a crash (0.0918ms)
+  ✖ post-GLM F4: infra TEXT signature alone cannot veto an attested execution (precedence) (0.5532ms)
+  ✖ post-glm F6b: the ACTUAL containment of a VALID-observed killed round — gate blind, rule 1 absolute (0.3511ms)
+  ✔ post-GLM F4 twin: WITHOUT attestation the same prose still yields rule 1 INFRA (0.0642ms)
+  ✖ post-GLM F4 residual: a crash-signature TEXT cannot veto an attested execution either (0.2462ms)
+  ✔ post-GLM F4 residual twin: WITHOUT attestation crash prose still yields rule 1 INFRA (0.0663ms)
+  ✔ weak paths are NOT gated: rule 0/rule 1 keep their rule numbers without any observation (0.0767ms)
+✖ post-GLM — execution-observation gate (rule 14) (2.5726ms)
+▶ post-GLM round 5 F1 — PRE_EXISTING requires failing-set containment
+  ✔ a candidate failure Canary never saw fail in baseline is NOT pre-existing — INCONCLUSIVE 13 (never a swallowed regression) (0.1375ms)
+  ✔ disjoint failing sets ({A} baseline vs {B} candidate) at equal totals describe no comparable transition — INCONCLUSIVE 13 (0.0943ms)
+  ✔ an honest PRE_EXISTING_FAILURE (identical failing sets) keeps rule 4 — containment must not over-block (0.0842ms)
+  ✔ CONFIRMED_REGRESSION is untouched by containment (baseline has zero failing identities) (0.0698ms)
+  ✔ DOCUMENTED CEILING: version-gated passing-test substitution still PASSes (F3/§8.1) — equality of cardinality + failing sets is the exact invariant (0.0665ms)
+✔ post-GLM round 5 F1 — PRE_EXISTING requires failing-set containment (0.5565ms)
+▶ post-GLM round 5 F4 — rule 14 downgrades EVERY FLAKY producer (6/7/8/12)
+  ✔ un-attested producer rule 6 (non-unanimous candidate under failing baseline) -> INCONCLUSIVE 14, never FLAKY (0.12ms)
+  ✔ un-attested producer rule 7 (clean baseline, mixed candidate) -> INCONCLUSIVE 14, never FLAKY (0.0654ms)
+  ✔ un-attested producer rule 8 (failing rounds within an arm differ in identity) -> INCONCLUSIVE 14, never FLAKY (0.0605ms)
+  ✔ un-attested producer rule 12 (repetitions differ in coverage totals) -> INCONCLUSIVE 14, never FLAKY (0.0562ms)
+✔ post-GLM round 5 F4 — rule 14 downgrades EVERY FLAKY producer (6/7/8/12) (0.3954ms)
+ℹ tests 87
+ℹ suites 8
+ℹ pass 84
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 88.1343
+
+✖ failing tests:
+
+test at packages\core\classification\dist\test\classify.test.js:786:5
+✖ post-GLM F4: infra TEXT signature alone cannot veto an attested execution (precedence) (0.5532ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /killed or signal death/. Input:
+  
+  'recognized infrastructure-failure signature in output'
+  
+      at TestContext.<anonymous> (file:///C:/Users/Johannes/Desktop/canary-observation-hardening/packages/core/classification/dist/test/classify.test.js:802:16)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'recognized infrastructure-failure signature in output',
+    expected: /killed or signal death/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at packages\core\classification\dist\test\classify.test.js:806:5
+✖ post-glm F6b: the ACTUAL containment of a VALID-observed killed round — gate blind, rule 1 absolute (0.3511ms)
+  AssertionError [ERR_ASSERTION]: all 2 candidate rounds failed while baseline passed — regression confirmed
+  + actual - expected
+  
+  + 'CONFIRMED_REGRESSION'
+  - 'INFRASTRUCTURE_FAILURE'
+  
+      at TestContext.<anonymous> (file:///C:/Users/Johannes/Desktop/canary-observation-hardening/packages/core/classification/dist/test/classify.test.js:821:16)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'CONFIRMED_REGRESSION',
+    expected: 'INFRASTRUCTURE_FAILURE',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages\core\classification\dist\test\classify.test.js:832:5
+✖ post-GLM F4 residual: a crash-signature TEXT cannot veto an attested execution either (0.2462ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'CONFIRMED_REGRESSION'
+  - 'INFRASTRUCTURE_FAILURE'
+  
+      at TestContext.<anonymous> (file:///C:/Users/Johannes/Desktop/canary-observation-hardening/packages/core/classification/dist/test/classify.test.js:851:16)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'CONFIRMED_REGRESSION',
+    expected: 'INFRASTRUCTURE_FAILURE',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

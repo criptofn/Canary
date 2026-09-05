@@ -1,0 +1,27 @@
+=== RUN A: scrubbed, no CI (expect: visible skipped sentinel + warn, exit 0) ===
+  ✔ B5: $bin:npm bypass is rejected; $bin:mocha still works (1.8212ms)
+!! F6a link-escape regression NOT exercised: 2 attempt(s), no link creatable on win32 — this green run does NOT certify the physical-anchor guard
+  ﹣ post-glm F6a: pinned bytes reached through a LINK at the anchor are not injectable (root case) (6.442ms) # symlink/junction creation denied on this host
+  ﹣ post-glm F6a: a LINK ABOVE the anchor (node_modules junctioned out) is not injectable either (6.7961ms) # symlink/junction creation denied on this host
+  ﹣ post-audit F6a coverage sentinel — the link-escape regression was ACTUALLY exercised on this platform (0.2979ms) # F6a link-escape regression NOT exercised: 2 attempt(s), no link creatable on win32
+ℹ tests 68
+ℹ suites 8
+ℹ pass 65
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 3
+EXIT_A:0
+=== RUN B: scrubbed, CI=1 (expect: sentinel FAILS) ===
+  ✔ B5: $bin:npm bypass is rejected; $bin:mocha still works (1.9073ms)
+  ✖ post-audit F6a coverage sentinel — the link-escape regression was ACTUALLY exercised on this platform (0.7577ms)
+ℹ tests 68
+ℹ suites 8
+ℹ pass 65
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 2
+✖ post-audit F6a coverage sentinel — the link-escape regression was ACTUALLY exercised on this platform (0.7577ms)
+  AssertionError [ERR_ASSERTION]: F6a link-escape regression NOT exercised: 2 attempt(s), no link creatable on win32 — on CI a certifiable-guard gap is actionable, not silent
+      at Suite.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+EXIT_B:0

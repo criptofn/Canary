@@ -1,0 +1,53 @@
+▶ validateBundle
+  ✔ accepts a well-formed bundle (3.1789ms)
+  ✔ rejects an unknown classification label (0.5966ms)
+  ✔ rejects short/hexless commit SHAs (no branch pins in evidence) (0.5318ms)
+  ✔ rejects a bundle missing an arm (0.683ms)
+  ✔ rejects malformed stream hashes (0.3911ms)
+  ✔ rejects a round whose envKeys leak outside the sanitized allowlist (F9) (0.4001ms)
+  ✔ rejects reproductionCount < 1 (0.4078ms)
+✔ validateBundle (7.0719ms)
+▶ validateBundle — semantic integrity (audit F3)
+  ✔ rejects a CONFIRMED_REGRESSION label whose own rounds say PASS (0.905ms)
+  ✔ rejects a CONFIRMED_REGRESSION built from rounds whose failure identities differ (must re-derive FLAKY rule 8) (0.7514ms)
+  ✔ rejects masked-failure rounds (exit 0 with reported failures) under a PASS label (0.6594ms)
+  ✔ rejects killedByTimeout=true alongside a normal exit code (0.2934ms)
+  ✔ rejects an inflated reproductionCount not backed by candidate rounds (0.2634ms)
+  ✔ rejects a trustful verdict while drift says NOT confined (rule-9 guard bypassed) (0.2515ms)
+  ✔ accepts the legitimate rule-9 override: unconfined drift + INCONCLUSIVE rule 9 (0.2911ms)
+  ✔ audit B6: rejects a trustful verdict built on a non-VALID tree observation (0.5106ms)
+  ✔ audit B6: accepts the legitimate rule-10 override (confined drift but weak observation) (0.2526ms)
+  ✔ audit B6: rejects a FABRICATED rule-10 downgrade even with a valid manifest (semantic layer alone catches it) (0.2954ms)
+  ✔ audit B6: observationStatus is mandatory (0.3068ms)
+  ✔ refuses to treat a CONFIRMED_REGRESSION as trustworthy when round facts are too sparse to re-derive (0.2863ms)
+  ✔ self-review N3: the sparse-facts refusal covers a PASS claim too (was: CONFIRMED/PRE_EXISTING only) (0.333ms)
+  ✔ robustness H1: rejects duplicate (arm,round) indices (resealed) (0.6049ms)
+  ✔ round-3 B1: a RESEALED CONFIRMED whose failing identities under-account the count dies twice over (0.481ms)
+  ✔ post-sol RB-2: a resealed trustful bundle over incomparable arm coverage dies twice over (0.4787ms)
+  ✔ post-sol RB-2: a trustful label with only ONE round per arm is refused (0.3521ms)
+  ✔ post-sol RB-2: unstable repetition coverage under a trustful label is refused (baseline 5 vs 4 passing) (0.3838ms)
+  ✔ post-sol RB-2: weak labels carry no parity requirement (honest INCONCLUSIVE rule 13 validates) (0.6651ms)
+  ✔ round-3 B2: a PASS label over zero-assertion (pending-only) rounds is rejected (0.5183ms)
+✔ validateBundle — semantic integrity (audit F3) (9.406ms)
+▶ post-sol M-1 — contract.ts is the single source of truth
+  ✔ the committed schemas/evidence.schema.json EQUALS the generated contract (no drift) (1.0725ms)
+  ✔ every always-required contract field is refused at runtime when DELETED (Sol: commands, killedByTimeout, startedAt, durationMs included) (15.0572ms)
+  ✔ intentionally-optional fields may be absent (we do not blind-strictify) (0.2946ms)
+  ✔ unknown fields are refused at root, round, and treeComparison scopes (policy is intentional) (0.7295ms)
+  ✔ post-glm F6c: unknown fields NAMED LIKE Object.prototype members are refused too (own-property check, not `in`) (1.2841ms)
+  ✔ trustful-tier fields: deleted infraSignal/snapshots/anomalies kill a trustful claim but validate clean under a weak honest label (0.5923ms)
+  ✔ round indices must be contiguous per arm (an omitted round shrinks the claimed reproduction) (0.2612ms)
+✔ post-sol M-1 — contract.ts is the single source of truth (19.4715ms)
+▶ post-GLM round 5 — mirror constant independence + containment restatement
+  ✔ STRONG_MIRROR_LABELS is a distinct copy of the classifier strong set with pinned equivalence (0.1173ms)
+  ✔ refuses PRE_EXISTING_FAILURE whose candidate fails identities baseline did not (containment at 3d) (0.4849ms)
+  ✔ accepts an honest PRE_EXISTING_FAILURE (identical failing sets across arms) — no over-blocking (0.2917ms)
+✔ post-GLM round 5 — mirror constant independence + containment restatement (0.984ms)
+ℹ tests 37
+ℹ suites 4
+ℹ pass 37
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 111.4037

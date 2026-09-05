@@ -1,0 +1,120 @@
+﻿CANARY UNATTENDED F6 HARDENING NIGHT RUN
+
+AUTHORITATIVE START:
+34cf515b50ebab3eb68cb10859eef3a67e0e57f3
+
+ROLE:
+You are the Qwen BUILDER.
+Work only on Canary Reliability Network.
+Do not invoke any other LLM/model provider.
+Do not launch subagents, dynamic workflows, or agent swarms.
+Do not push anything.
+
+F4 is CLOSED and independently GLM-audited PASS.
+Do not reopen or redesign F1-F5.
+Do not alter DreamForge, Homeostasis, the GLM audit cage, or unrelated architecture.
+
+MISSION:
+Perform a bounded low-risk F6 hardening pass.
+
+For every item:
+1. Reproduce or mechanically confirm the finding against the current HEAD.
+2. If it is no longer valid, document that and do not invent a fix.
+3. Add the smallest regression test first where practical.
+4. Prove RED against the vulnerable semantics.
+5. Make the smallest production fix.
+6. Prove GREEN.
+7. Run the relevant package tests.
+8. Keep each independent F6 repair in its own commit.
+
+PRIORITY ORDER:
+
+F6c — prototype-named unknown fields
+Confirmed issue: unknown fields named like Object.prototype members such as
+toString or constructor can bypass unknown-field refusal because membership
+was checked via `in`.
+Target: own-property-safe validation such as Object.hasOwn semantics.
+Prove ordinary unknown fields and prototype-named unknown fields are both refused.
+
+F6f — absent proofHost fallback
+Confirmed issue: evidence/proof without proofHost can derive host-exact trust
+from re-sealable evidence environment metadata.
+Target: absence of proofHost must never grant onProofHost.
+Host-exact assertions must be skipped/fail-closed such that the overall proof
+cannot become PASS solely through the fallback.
+Prove the prior forged/no-proofHost case cannot PASS.
+
+F6e — empty .npmrc re-verification
+Confirmed issue: Canary creates the controlled empty .npmrc once but does not
+re-verify it immediately before every install/use.
+Target: re-establish or verify the controlled file immediately before install.
+Add a tamper-between-creation-and-use regression test.
+Do not broaden npm behavior beyond what the finding requires.
+
+F6a — runner-root symlink truth
+Re-confirm the current behavior before changing anything.
+The historical claim that a symlink anywhere forces failure did not match
+runner-root behavior.
+Prefer a minimal mechanical enforcement fix if it is local and testable.
+If enforcing it requires broad redesign or platform-fragile behavior, correct
+the live documentation instead and explicitly record the residual.
+
+F6b — exitCode -1 observation semantics
+Re-confirm first.
+Historical state allowed VALID observation with exitCode -1 while a comment
+claimed this could never occur.
+Do not change verdict semantics merely to make prose true.
+If the existing fail-closed classification already contains it safely, make
+only the smallest test/comment/validator correction justified by the actual
+contract.
+
+OUT OF SCOPE TONIGHT:
+- F6d createdAt/freshness redesign
+- F6g 64 MiB stream truncation redesign
+- F6h conditional-skip/CI redesign
+- new features
+- refactors
+- public API redesign
+- dependency upgrades
+- unrelated documentation cleanup
+
+TEST DISCIPLINE:
+Do not weaken existing tests or gates.
+Do not change an expected result merely to make a suite green unless a
+mechanical probe proves the old expectation is stale, and document that proof.
+Prefer relevant tests after each repair and the complete repository suite once
+at the end.
+
+If existing host capabilities permit it, also run the canonical final build,
+typecheck, full test suite, and Canary proof/check appropriate to this branch.
+If something requires unavailable network, privileges, or infrastructure,
+record the limitation accurately. Never disable a security check to proceed.
+
+UNATTENDED OPERATION RULE:
+Use absolute paths for write/copy/edit/delete operations where practical.
+Avoid compound shell commands combining `cd` with writes or deletes.
+Do not recycle scratch directories using broad `rm -rf`; create fresh uniquely
+named scratch locations instead.
+This is to avoid native unattended approval gates, not to weaken safeguards.
+
+FINAL QUALIFICATION:
+Create:
+docs/NIGHT-F6-HARDENING-2026-09-05.md
+
+It must contain:
+- starting SHA
+- every finding revalidated
+- exact RED/GREEN evidence
+- exact files changed
+- exact commits
+- relevant/full suite counts
+- any skipped or unresolved F6 item
+- final HEAD
+- final git status
+- explicit statement that F1-F5 were not reopened
+- explicit list of F6 items still remaining
+
+Only when all in-scope work is genuinely complete and the final repository is
+clean, create .night-run/DONE as required by NightRunner.
+
+Do not declare DONE because of context pressure.

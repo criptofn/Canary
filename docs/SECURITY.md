@@ -91,6 +91,27 @@ be a lie; here is the real picture.
   options are rejected; in the script/info families any option whose resolved
   key (case-folded, negation-stripped, prefix-expanded) touches a protected
   key is refused.
+- **F6e residual — the controlled-userconfig race is narrowed, not
+  closed** (post-glm F6e; stated plainly per the 2026-09-05 re-audit):
+  three sites touch `empty.npmrc`, and they are not alike —
+  (a) workspace setup CREATES it (`apps/cli/src/pipeline.ts`,
+  `runExperimentInner`); that is creation, not a point of use;
+  (b) the treeHash `npm ls` observation (`apps/cli/src/pipeline.ts`,
+  `treeHash`) re-writes it immediately before passing
+  `--userconfig` (that site pins only the userconfig key, not the
+  install-isolation flag set);
+  (c) the executor `$npm` injection (`packages/runner/executor/src/index.ts`)
+  re-writes it immediately before the full isolation-flag argv suffix
+  is appended. At both CONSUMERS (b, c) the re-write means a tamper
+  written EARLIER cannot survive into npm's read. But write→spawn→npm-read is still a window:
+  code holding workspace write access can replace the file's contents
+  inside it. The argv-suffix flags keep every PINNED key immune (CLI
+  beats userconfig — userconfig path, cache, registry, ignore-scripts),
+  yet npm settings Canary does not pin (proxy-family keys, e.g.) could
+  ride a replaced file. Consistent with the tier honesty above: the
+  filesystem is Canary's weakest boundary — F6e narrows one concrete
+  race there; it does not mathematically guarantee the file is unchanged
+  when npm reads it.
 - **Content pinning.** Repo content arrives only as a tarball fetched by a
   full 40-hex commit SHA (codeload), never a branch, and its digest is recorded
   in the bundle.

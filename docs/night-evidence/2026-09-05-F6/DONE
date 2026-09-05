@@ -1,0 +1,5 @@
+final_head: d327e71c1e68fb4e292f2c2c26268693580bef3e
+verdict: COMPLETE — all five prioritized F6 items revalidated against HEAD and repaired/pinned (F6c 4e69572, F6f a060e8a, F6e cbd8dc4, F6a 684e27f, F6b e882d9f); full suite 472/71 pass 0 fail 0 skipped; golden prove PASS 37/37 host-exact on pinned Node 26.3.0 / npm 11.16.0; F1-F5 not reopened; F6d/F6g/F6h explicitly out-of-scope and documented as remaining
+report: docs/NIGHT-F6-HARDENING-2026-09-05.md
+timestamp: 2026-09-04T23:05:18Z
+pushed: no

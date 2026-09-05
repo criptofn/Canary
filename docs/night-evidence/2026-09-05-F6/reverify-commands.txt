@@ -1,0 +1,94 @@
+Re-derivation commands for the 2026-09-05 post-night re-audit corrections.
+Run from the worktree root unless stated. Every `reverify-*` log in this
+directory was produced by exactly one of these commands; the night-run
+artifacts (f6*-*, final-*, attempt-01, prompt, DONE, sept2 index) come
+from the procedures recorded in docs/NIGHT-F6-HARDENING-2026-09-05.md.
+
+1) Baseline at 34cf515 (fixes the false "438" and "64 -> 71 suites" claims)
+
+   git worktree add --detach ../canary-baseline-34cf 34cf515
+   cmd /c mklink /J ..\canary-baseline-34cf\node_modules C:\Users\Johannes\Desktop\canary-observation-hardening\node_modules
+   cd /c/Users/Johannes/Desktop/canary-baseline-34cf
+   pwd && git rev-parse HEAD
+   { echo "TREE: $(git rev-parse HEAD) @ $(pwd)"; npm test; } > .../baseline-suite-2.log 2>&1; echo "EXIT:$?" >> ...
+   -> reverify-baseline-34cf515-suite.log  (465 tests / 71 suites / 465 pass / 0 fail / 0 skipped, EXIT:0)
+
+   DISCLOSED MISHAP: the FIRST attempt (baseline-suite.log) omitted `cd`
+   into the worktree; the Bash tool reset cwd to the main worktree between
+   commands and it silently measured MAIN (472/71). Lesson: never trust an
+   unpinned count — pin the tree in the log's first line. SCOPE CORRECTION
+   (2026-09-05 verification pass): an earlier draft of this file claimed
+   every log here self-proves its tree with a TREE: line — mechanically
+   FALSE: only reverify-baseline-34cf515-suite.log and
+   reverify-postchange-suite.log carried TREE lines when written;
+   reverify-head-suite.log (command 2) did not. The gap is closed by the
+   clean-worktree re-derivation 2b below. (Cross-check:
+   `git show -s --format=%B 34cf515` says "Full suite 465/465 pass.")
+
+2) HEAD re-run at d327e71 (independently confirms the night final-full-suite.log)
+
+   cd /c/Users/Johannes/Desktop/canary-observation-hardening
+   npm test   -> reverify-head-suite.log  (472/71/472/0/0/0, EXIT:0)
+   (No TREE: line — the run site was asserted in prose only. Superseded as
+    the mechanical proof by 2b; retained as historical record.)
+
+2b) TREE-pinned HEAD re-run at d327e71, clean detached worktree
+    (closes 2's unproven tree; added by the 2026-09-05 verification pass)
+
+   git worktree add --detach ../canary-head-d327e71 d327e71
+   cmd /c mklink /J ..\canary-head-d327e71\node_modules C:\Users\Johannes\Desktop\canary-observation-hardening\node_modules
+   cd /c/Users/Johannes/Desktop/canary-head-d327e71
+   { echo "TREE: $(git rev-parse HEAD) @ $(pwd)"; npm test; } > .../reverify-head-d327e71-treepinned-suite.log 2>&1; echo "EXIT:$?" >> ...
+     -> reverify-head-d327e71-treepinned-suite.log
+        line 1: TREE: d327e71c1e68fb4e292f2c2c26268693580bef3e @
+                 /c/Users/Johannes/Desktop/canary-head-d327e71
+        472 tests / 71 suites / 472 pass / 0 fail / 0 cancelled / 0 skipped
+        EXIT:0 — identical to (2) and to the night's final-full-suite.log
+   Cleanup after capture:
+   cmd /c rmdir ..\canary-head-d327e71\node_modules   (junction only, not data)
+   git worktree remove ../canary-head-d327e71
+
+3) Post-change re-run (after adding the F6a coverage sentinel; uncommitted
+   working tree at HEAD d327e71 + executor.test.ts sentinel)
+
+   npx tsc -b packages/runner/executor
+   node --test packages/runner/executor/dist/test/executor.test.js
+     -> 68/8/68/0/0/0 EXIT:0 (link-capable host: sentinel passes silently)
+   npm test   -> reverify-postchange-suite.log  (473/71/473/0/0/0, EXIT:0)
+
+4) Skip-denial probe (P2 skip visibility — proves the sentinel, both directions)
+
+   scrub file: scratchpad/scrub-symlink.mjs sets fs.symlinkSync to throw EPERM
+   (simulates a link-denying OS, e.g. Windows without dev-mode).
+
+   NODE_OPTIONS="--import file:///.../scrub-symlink.mjs" \
+     node --test packages/runner/executor/dist/test/executor.test.js
+     -> reverify-f6a-skip-probe.log RUN A: `!!` warn line + 3 visible
+        skipped (2 link tests + sentinel), fail 0
+
+   CI=1 NODE_OPTIONS="--import file:///.../scrub-symlink.mjs" \
+     node --test packages/runner/executor/dist/test/executor.test.js
+     -> reverify-f6a-ci-sentinel-fail.log: sentinel FAILS
+        ("on CI a certifiable-guard gap is actionable, not silent"),
+        true node exit code 1 (recorded as NODE_EXIT_CI:1 — read the
+        captured code, not the pipe status)
+
+5) Provenance of the non-reverify files added by the corrections pass
+   (they are NOT outputs of commands 1-4):
+
+   postaudit-verification-workflow.json — structured result of Workflow
+   run wf_70c7ffe9-eda ("verify-night-audit-corrections"; 20 agents,
+   4 review lenses x find-then-refute; completed via resume wv1laxwt5).
+   Outcome: 5 findings confirmed, 19 refuted. Two confirmed findings were
+   fixed in this pass (beads child range 88x.1-88x.5, not 88x.1-88x.6;
+   .holdthegoblin/ added to .gitignore); three were already closed by
+   earlier corrections in the same pass. Script:
+   <session-dir>/workflows/scripts/verify-night-audit-corrections-wf_70c7ffe9-eda.js
+
+   hook-policy-test.mjs + hook-policy-test.log — the PreToolUse hook
+   autonomy proof matrix (15 synthetic payloads spawned through the REAL
+   local wrapper; sensitive-shaped paths runtime-concatenated on purpose).
+   Re-derive: node docs/night-evidence/2026-09-05-F6/hook-policy-test.mjs
+   -> ALL-CASES-PASS (rerun from this tracked location confirmed 2026-09-05,
+   RUNNER_EXIT:0). risk.js itself was never modified (sha256 prefix
+   33582714b28e01f8, 11599 bytes).

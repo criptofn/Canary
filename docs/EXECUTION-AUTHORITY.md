@@ -89,6 +89,12 @@ the whole channel is stated in §7.
   check resolves realpaths, so a symlink/junction at the package root or
   anywhere above it, whose target's bytes would otherwise hash clean, fails
   closed to ABSENT; observed bytes are still honestly recorded).
+  The link-escape regression only runs where the OS permits link
+  creation; where creation is denied the F6a tests skip behind an
+  explicit **coverage sentinel** (`executor.test.ts`, added by the
+  2026-09-05 re-audit): FAIL under CI, loud warn + visible skipped
+  sentinel off-CI. **A green run on a link-less host does NOT certify
+  this guard.**
 - **Injection is the whole gate:** injection credit additionally requires the
   token to OCCUPY THE EXECUTED RUNNER POSITION (post-GLM F1): expanded argv
   must be `[execPath, <pinned bin>, …]`, i.e. `$bin:mocha` must be spec argv[0].
@@ -329,7 +335,11 @@ none of which text can reach.
 3. **Total bundle forgery** off-host and **TOCTOU** between hash-check and
    exec: pre-existing documented ceilings; unchanged by this design and not
    improved by it beyond making one specific instantiation (the no-mocha
-   double) impossible.
+   double) impossible. Post-glm F6e pinned the strongest live instance
+   (controlled-userconfig tamper in the creation→install gap — the file
+   is re-established at every point of use), which **narrows** it: the
+   write→spawn→npm-read window remains open, as SECURITY.md Tier A
+   states plainly. Narrowed ≠ closed.
 4. **`process.exit`/abort mid-run**: indistinguishable from a legitimate hard
    crash; handled by fail-closure (ABSENT/INVALID → INCONCLUSIVE), not
    detection.

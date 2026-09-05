@@ -940,8 +940,18 @@ describe('observation hardening — expandArgvWithPlan injection decision', () =
     } finally { cleanup(); }
   });
 
+  // post-audit P2 (2026-09-05, skip visibility): a platform that CANNOT
+  // exercise the link-escape regression must never be indistinguishable
+  // from one that exercised it and passed. The two F6a tests below
+  // self-skip when the OS denies link creation (Windows without
+  // dev-mode/privilege); the sentinel at the end of this block turns that
+  // silence into signal: FAIL under CI (there the gap is actionable),
+  // loud warn + a visible skipped entry off-CI.
+  const f6aLinkCoverage = { attempted: 0, exercised: 0 };
+
   it('post-glm F6a: pinned bytes reached through a LINK at the anchor are not injectable (root case)', (t) => {
-    // The hoist test proves LOCATION must match; a probe (.night-run) proved
+    // The hoist test proves LOCATION must match; a probe
+    // (docs/night-evidence/2026-09-05-F6/f6a-probe.mjs) proved
     // the match was only LEXICAL: with <fixture>/node_modules/mocha a
     // symlink/junction onto a real double copy OUTSIDE the fixture, hashing
     // follows the root link (pin hit) and located.dir === canonical still
@@ -952,10 +962,12 @@ describe('observation hardening — expandArgvWithPlan injection decision', () =
       copyDouble(target);
       const nm = path.join(ws.fixture, 'node_modules');
       fs.mkdirSync(nm, { recursive: true });
+      f6aLinkCoverage.attempted++;
       let linked = false;
       for (const typ of ['dir', 'junction'] as const) {
         try { fs.symlinkSync(target, path.join(nm, 'mocha'), typ); linked = true; break; } catch { /* next form */ }
       }
+      if (linked) f6aLinkCoverage.exercised++;
       if (!linked) { t.skip('symlink/junction creation denied on this host'); return; }
       const { argv, plan } = rec.expandArgvWithPlan(['$bin:mocha', 'test.js'], SUBS, doubleResolver(ws.fixture));
       assert.equal(plan.injected, false, 'a symlinked runner root is not the PHYSICAL canonical anchor');
@@ -970,16 +982,34 @@ describe('observation hardening — expandArgvWithPlan injection decision', () =
     try {
       const target = path.join(ws.root, 'f6a-outside-nm');
       copyDouble(path.join(target, 'mocha')); // REAL dir inside the link target
+      f6aLinkCoverage.attempted++;
       let linked = false;
       for (const typ of ['junction', 'dir'] as const) {
         try { fs.symlinkSync(target, path.join(ws.fixture, 'node_modules'), typ); linked = true; break; } catch { /* next form */ }
       }
+      if (linked) f6aLinkCoverage.exercised++;
       if (!linked) { t.skip('symlink/junction creation denied on this host'); return; }
       const { argv, plan } = rec.expandArgvWithPlan(['$bin:mocha', 'test.js'], SUBS, doubleResolver(ws.fixture));
       assert.equal(plan.injected, false, 'pinned bytes behind an escaped node_modules are not the fixture anchor');
       assert.equal(plan.absentKind, 'runner-identity-unpinned');
       assert.ok(!argv.includes('--require'), `link escape must not earn the preload: ${argv.join(' ')}`);
     } finally { cleanup(); }
+  });
+
+  it('post-audit F6a coverage sentinel — the link-escape regression was ACTUALLY exercised on this platform', (t) => {
+    // node:test runs tests sequentially within a file in declaration
+    // order, so the two link tests above have already recorded theirs.
+    // UNKNOWN coverage fails closed (rule: missing evidence ≠ PASS).
+    if (f6aLinkCoverage.attempted === 0) {
+      assert.fail('F6a link tests never ran — coverage UNKNOWN, sentinel fails closed');
+    }
+    if (f6aLinkCoverage.exercised === f6aLinkCoverage.attempted) return; // exercised; the tests above certified the guard
+    const msg = `F6a link-escape regression NOT exercised: ${f6aLinkCoverage.attempted} attempt(s), no link creatable on ${process.platform}`;
+    if (process.env.CI) {
+      assert.fail(`${msg} — on CI a certifiable-guard gap is actionable, not silent`);
+    }
+    console.warn(`!! ${msg} — this green run does NOT certify the physical-anchor guard`);
+    t.skip(msg);
   });
 
   it('a subject-supplied --require/-r in a mocha argv is refused fail-closed', () => {

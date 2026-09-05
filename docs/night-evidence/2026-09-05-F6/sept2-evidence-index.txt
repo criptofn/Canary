@@ -1,0 +1,89 @@
+EVIDENCE INDEX — canary-observation-hardening night-run attempt-2 — HEAD b3a5069 — 2026-09-02
+
+== primary evidence files (this worktree, git-ignored) ==
+0 ..
+5552 attempt-01.log
+164 attempt-02.log
+612 beads-01.log
+159 evidence-index.txt
+12091 final-report.md
+2436 golden-prove-attempt02.log
+6676 prompt.txt
+50021 suite-verify.log
+
+== suite summary lines ==
+ℹ tests 438
+ℹ suites 64
+ℹ pass 437
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 189196.3073
+
+== golden assertion verdict line ==
+EXPERIMENT axios-mock-adapter-1.21.1: CONFIRMED_REGRESSION (rule 5) — all 3 candidate rounds failed while baseline passed — regression confirmed
+CANARY REGRESSION PROOF: PASS — 36 assertion(s) held (all of them, host-exact included, ON the proof host)
+
+== golden run dir ==
+artifacts
+canary-observer.cjs
+empty.npmrc
+fixture
+fixture.tgz
+isolated-home
+npm-cache
+tmp
+
+== branch diff vs frozen base c1ff4e7 (41 files) ==
+.gitattributes
+README.md
+apps/cli/src/main.ts
+apps/cli/src/pipeline.ts
+apps/cli/src/prove.ts
+apps/cli/test/attested-channel.test.ts
+apps/cli/test/cli.test.ts
+apps/cli/test/execution-authority.test.ts
+apps/cli/test/fixtures/mocha-double/bin/mocha.js
+apps/cli/test/fixtures/mocha-double/index.js
+apps/cli/test/fixtures/mocha-double/package.json
+apps/cli/test/known-runners-pin.test.ts
+apps/cli/test/pipeline-e2e.test.ts
+apps/cli/test/proof-host.test.ts
+apps/cli/test/prove.test.ts
+apps/cli/test/provenance.test.ts
+apps/cli/test/stub-harness.ts
+apps/cli/test/verify-tree.test.ts
+docs/ADR-001-product-direction.md
+docs/AUDIT-REMEDIATION-ROUND5-2026-09-02.md
+docs/EXECUTION-AUTHORITY.md
+docs/PLAN.md
+docs/SECURITY.md
+packages/core/classification/src/index.ts
+packages/core/classification/test/classify.test.ts
+packages/evidence/schema/package.json
+packages/evidence/schema/src/contract.ts
+packages/evidence/schema/src/index.ts
+packages/evidence/schema/test/schema.test.ts
+packages/evidence/schema/tsconfig.json
+packages/runner/executor/src/index.ts
+packages/runner/executor/src/observation.ts
+packages/runner/executor/src/observer-preload.ts
+packages/runner/executor/test/executor.test.ts
+packages/runner/executor/test/infra-matching-hardening.test.ts
+packages/runner/workspace/src/index.ts
+packages/support/src/index.ts
+packages/support/src/knownRunners.ts
+packages/support/test/fixtures/runner-manifests/mocha-10.8.2.npm.txt
+packages/support/test/known-runners-manifest.test.ts
+schemas/evidence.schema.json
+
+== fixture-specs commit count since base (must be 0) ==
+0
+
+== docs of record ==
+docs/EXECUTION-AUTHORITY.md (rules 0..14, contract §7 ceilings)
+docs/AUDIT-REMEDIATION-ROUND5-2026-09-02.md (guard-removal battery 10/10 RED record)
+
+== git status ==
+(empty = clean tracked tree)

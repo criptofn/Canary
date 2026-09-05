@@ -1,0 +1,38 @@
+▶ panel K layer 1 — the validator refuses hostile frame streams
+  ✔ CONTROL: an honest watched lifecycle validates VALID (the battery needs a standing baseline) (1.3561ms)
+  ✔ post-glm F6b: capture DELIBERATELY honors a complete stream paired with exit -1 — the veto lives in classification, not here (0.1856ms)
+  ✔ (ii) injected round with ZERO frames on the channel is INVALID (0.143ms)
+  ✔ (iii) a missing bye — and a misplaced bye — are INVALID boundary violations (0.2183ms)
+  ✔ (iv) a reject frame (adapter caught a forged/dup event LIVE) condemns the round (0.1554ms)
+  ✔ (v) text claiming "2 passing" over 1 watched pass is INVALID — and a lying bye cannot fix it (0.2158ms)
+  ✔ (vi) a forged hello.mochaVersion is INVALID — vs the pin and vs its own shape (0.2407ms)
+  ✔ panel 1 extras: flood truncation, duplicate credits, unknown kinds and no-summary all fail closed (0.1816ms)
+  ✔ (xi) garbage lines, non-object frames, adapter-error and masked exit each condemn the round (0.2272ms)
+✔ panel K layer 1 — the validator refuses hostile frame streams (3.9394ms)
+▶ panel K layer 2 — the pipeline end-to-end refuses unattested execution
+  ✔ (i) a plain-node text stub that reads as a clean run degrades to INCONCLUSIVE rule 14 (4885.4653ms)
+  ✔ (vii) an UNPINNED double running the observer protocol on fd 3 gets stray-bytes forensics, zero credit (4794.0412ms)
+  ✔ (viii) AM-1 kill test: double CLAIMS the pinned version, bytes are wrong -> ABSENT, strong unreachable (4842.2014ms)
+  ✔ (ix) a subject --require in spec argv is refused fail-closed (protected preload flag) (1746.7823ms)
+  ✔ (x) process.exit() mid-round: watched lifecycle never ends -> INVALID, never strong (4821.8504ms)
+✔ panel K layer 2 — the pipeline end-to-end refuses unattested execution (21090.8548ms)
+▶ post-GLM F1 — off-position runner token earns no execution credit
+  ✔ refused fail-closed: forging `node -e` with the token trailing (1755.5584ms)
+  ✔ refused fail-closed: forging prelude script with the token after it (1731.4236ms)
+  ✔ positive control: the executed-position token still earns VALID and a strong verdict (4846.6421ms)
+✔ post-GLM F1 — off-position runner token earns no execution credit (8333.9539ms)
+▶ post-GLM F4 — infra prose cannot mask an attested regression
+  ✔ a VALID round whose stdout trips the infra signature still yields CONFIRMED_REGRESSION (4850.9123ms)
+✔ post-GLM F4 — infra prose cannot mask an attested regression (4851.119ms)
+▶ post-GLM F5 — an untrusted spec cannot select the canary double
+  ✔ double bytes staged by the spec itself: NO injection, every round ABSENT, INCONCLUSIVE rule 14 (4848.0298ms)
+  ✔ trusted control: with the in-process grant the SAME spec earns VALID + a strong verdict (4835.4273ms)
+✔ post-GLM F5 — an untrusted spec cannot select the canary double (9683.7167ms)
+ℹ tests 20
+ℹ suites 5
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 45157.7647

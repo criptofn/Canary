@@ -1,0 +1,71 @@
+▶ verifyArtifacts — audit F4 (proof must rehash the real artifacts)
+  ✔ accepts a bundle whose every recorded hash matches the file on disk (13.0328ms)
+  ✔ rejects a tampered raw stdout (recorded hash kept, content swapped) (11.3252ms)
+  ✔ rejects a tampered normalized stdout independently of the raw one (11.0939ms)
+  ✔ rejects quietly deleted stderr artifacts (10.1834ms)
+  ✔ rejects all four substituted files of one round (raw, raw-err, norm, norm-err) (10.8635ms)
+  ✔ rejects a logPath that breaks the round-ownership contract (7.3724ms)
+✔ verifyArtifacts — audit F4 (proof must rehash the real artifacts) (64.8514ms)
+▶ verifyArtifacts — audit B3 (path confinement + ownership)
+  ✔ ../../ identical external substitution is refused (ownership), not verified against the external bytes (4.079ms)
+  ✔ absolute external path in logPath is refused (3.5298ms)
+  ✔ cross-round swap (candidate#1 claims candidate#2 log) is refused (5.2385ms)
+  ✔ baseline pointing at a candidate artifact is refused (3.3327ms)
+  ✔ a valid canonical relative artifact path verifies clean (6.5513ms)
+  ✔ missing + modified artifacts are refused (11.487ms)
+  ✔ a symlinked artifact resolving outside the dir is refused (symlink escape) (7.891ms)
+✔ verifyArtifacts — audit B3 (path confinement + ownership) (42.7739ms)
+▶ assertProof — audit F11 + round-3 B3 (host-exactness from the ACTUAL runtime)
+  ✔ legacy proof (no proofHost): host-exact hashes assert ONLY when the actual runtime matches the recorded environment (5.7782ms)
+  ✖ post-glm F6f: an ABSENT proofHost can never grant host-exact trust — resealed env metadata cannot PASS the proof (4.6046ms)
+  ✔ matching proofHost + actual runtime on it: every assertion including hashes AND the environment binding evaluates (4.987ms)
+  ✔ round-3 B3 core: resealing the evidence environment can NO LONGER skip strict checks — it FAILS the binding (4.2471ms)
+  ✔ off-proof-host: host-exact comparisons skip (flagged, not silent); portable assertions still evaluate; verdict is INCOMPLETE (4.3373ms)
+  ✔ off-proof-host with tampered committed hashes still passes portable checks (and this is exactly why verifyArtifacts exists) (10.5747ms)
+✖ assertProof — audit F11 + round-3 B3 (host-exactness from the ACTUAL runtime) (34.7499ms)
+▶ round-3 B3 — environment attestation + verdict helpers
+  ✔ environmentAttestationIssues: silent only when claim == ACTUAL runtime (4.5896ms)
+  ✔ proofVerdict: PASS requires zero failures AND zero skips (0.0857ms)
+✔ round-3 B3 — environment attestation + verdict helpers (4.7606ms)
+▶ round-3 B4-D — exact failing-identity set equality (proof vs candidate bytes)
+  ✔ faithful expectation: exact set holds (0.211ms)
+  ✔ proof pinning a SUBSET (hiding a real failure) FAILS (0.1955ms)
+  ✔ proof pinning an EXTRA (non-existent) identity FAILS (0.1339ms)
+  ✔ the exact-set check is portable — it evaluates (never skips) off-host (0.1476ms)
+  ✔ a proof that does not pin the tarball digest FAILS the pin requirement (0.1234ms)
+  ✔ assertProof alone refuses a resealed experimentId the proof does not name (mutation N10) (0.5266ms)
+  ✔ a proof declaring a schema version the reader does not implement FAILS (portable) (0.2102ms)
+✔ round-3 B4-D — exact failing-identity set equality (proof vs candidate bytes) (3.1344ms)
+▶ post-sol secondary — host sampling is immune to the verifier process environment
+  ✔ a poisoned NODE_OPTIONS in the verifying process does NOT crash or steer the fingerprint (403.0609ms)
+✔ post-sol secondary — host sampling is immune to the verifier process environment (403.1432ms)
+ℹ tests 29
+ℹ suites 6
+ℹ pass 28
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 651.3446
+
+✖ failing tests:
+
+test at apps\cli\dist\test\prove.test.js:340:5
+✖ post-glm F6f: an ABSENT proofHost can never grant host-exact trust — resealed env metadata cannot PASS the proof (4.6046ms)
+  AssertionError [ERR_ASSERTION]: host-exact check asserted without a committed proofHost: {"name":"candidate normalized stdout hashes","ok":true,"actual":["df77ca05aa66f907"],"expected":["df77ca05aa66f907"]}
+      at TestContext.<anonymous> (file:///C:/Users/Johannes/Desktop/canary-observation-hardening/apps/cli/dist/test/prove.test.js:351:20)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1889:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

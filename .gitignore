@@ -27,3 +27,10 @@ dist/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Night Runner scratch — per-worktree, NOT shared; durable evidence must be
+# exported to docs/night-evidence/ before DONE (docs/night-evidence/README.md)
+.night-run/
+
+# Hook-local state (HoldTheGoblin event/audit logs) — machine-local, never tracked
+.holdthegoblin/

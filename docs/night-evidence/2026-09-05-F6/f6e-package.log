@@ -1,0 +1,24 @@
+▶ audit M8 — CLI subprocess exit-code contract
+  ✔ check on honest evidence exits 0 and prints PASS (5820.0881ms)
+  ✔ check on a tampered artifact exits 3 and names the tampered file (5534.1195ms)
+  ✔ report refuses a fabricated bundle (exit 3) and renders a valid one (exit 0) (5638.5866ms)
+  ✔ audit F12: report with NO argument defaults to the latest run and renders bundle-persisted failing identities (5575.8528ms)
+  ✔ version exits 0; no command prints usage and exits 3 (misuse) (136.7567ms)
+  ✔ round-3 secondary: an infrastructure abort exits 2 (environment fault), never 3 (misuse) (412.0618ms)
+✔ audit M8 — CLI subprocess exit-code contract (23118.7872ms)
+▶ audit M8 — offline pipeline end-to-end
+  ✔ confined regression: CONFIRMED_REGRESSION, real artifacts re-hash clean (5698.9877ms)
+  ✔ unconfined tree drift is downgraded to INCONCLUSIVE rule 9 (F9 e2e) (5068.7619ms)
+  ✔ a tampered artifact is caught end-to-end by the prove path (F4 e2e) (5187.0076ms)
+  ✔ a fabricated self-contradictory bundle is refuted by validateBundle (F3 e2e) (5143.6505ms)
+  ✔ round-3 secondary: a fetch failure is INFRASTRUCTURE (InfraAbort -> CLI exit 2), not generic error (2.4975ms)
+  ✔ round-3 secondary: an extraction failure is INFRASTRUCTURE too (2.2125ms)
+✔ audit M8 — offline pipeline end-to-end (21104.237ms)
+ℹ tests 12
+ℹ suites 2
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 23610.5885

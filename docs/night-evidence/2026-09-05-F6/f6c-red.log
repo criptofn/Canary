@@ -1,0 +1,73 @@
+▶ validateBundle
+  ✔ accepts a well-formed bundle (3.0728ms)
+  ✔ rejects an unknown classification label (0.578ms)
+  ✔ rejects short/hexless commit SHAs (no branch pins in evidence) (0.5228ms)
+  ✔ rejects a bundle missing an arm (0.5709ms)
+  ✔ rejects malformed stream hashes (0.3849ms)
+  ✔ rejects a round whose envKeys leak outside the sanitized allowlist (F9) (0.3734ms)
+  ✔ rejects reproductionCount < 1 (0.3931ms)
+✔ validateBundle (6.7533ms)
+▶ validateBundle — semantic integrity (audit F3)
+  ✔ rejects a CONFIRMED_REGRESSION label whose own rounds say PASS (0.8619ms)
+  ✔ rejects a CONFIRMED_REGRESSION built from rounds whose failure identities differ (must re-derive FLAKY rule 8) (0.7561ms)
+  ✔ rejects masked-failure rounds (exit 0 with reported failures) under a PASS label (0.6434ms)
+  ✔ rejects killedByTimeout=true alongside a normal exit code (0.2718ms)
+  ✔ rejects an inflated reproductionCount not backed by candidate rounds (0.2615ms)
+  ✔ rejects a trustful verdict while drift says NOT confined (rule-9 guard bypassed) (0.2569ms)
+  ✔ accepts the legitimate rule-9 override: unconfined drift + INCONCLUSIVE rule 9 (0.2819ms)
+  ✔ audit B6: rejects a trustful verdict built on a non-VALID tree observation (0.5099ms)
+  ✔ audit B6: accepts the legitimate rule-10 override (confined drift but weak observation) (0.2478ms)
+  ✔ audit B6: rejects a FABRICATED rule-10 downgrade even with a valid manifest (semantic layer alone catches it) (0.2591ms)
+  ✔ audit B6: observationStatus is mandatory (0.3026ms)
+  ✔ refuses to treat a CONFIRMED_REGRESSION as trustworthy when round facts are too sparse to re-derive (0.2917ms)
+  ✔ self-review N3: the sparse-facts refusal covers a PASS claim too (was: CONFIRMED/PRE_EXISTING only) (0.3065ms)
+  ✔ robustness H1: rejects duplicate (arm,round) indices (resealed) (0.585ms)
+  ✔ round-3 B1: a RESEALED CONFIRMED whose failing identities under-account the count dies twice over (0.4746ms)
+  ✔ post-sol RB-2: a resealed trustful bundle over incomparable arm coverage dies twice over (0.4958ms)
+  ✔ post-sol RB-2: a trustful label with only ONE round per arm is refused (0.3302ms)
+  ✔ post-sol RB-2: unstable repetition coverage under a trustful label is refused (baseline 5 vs 4 passing) (0.3732ms)
+  ✔ post-sol RB-2: weak labels carry no parity requirement (honest INCONCLUSIVE rule 13 validates) (0.6289ms)
+  ✔ round-3 B2: a PASS label over zero-assertion (pending-only) rounds is rejected (0.4609ms)
+✔ validateBundle — semantic integrity (audit F3) (9.0935ms)
+▶ post-sol M-1 — contract.ts is the single source of truth
+  ✔ the committed schemas/evidence.schema.json EQUALS the generated contract (no drift) (1.0232ms)
+  ✔ every always-required contract field is refused at runtime when DELETED (Sol: commands, killedByTimeout, startedAt, durationMs included) (14.4789ms)
+  ✔ intentionally-optional fields may be absent (we do not blind-strictify) (0.2984ms)
+  ✔ unknown fields are refused at root, round, and treeComparison scopes (policy is intentional) (0.7028ms)
+  ✖ post-glm F6c: unknown fields NAMED LIKE Object.prototype members are refused too (own-property check, not `in`) (0.6087ms)
+  ✔ trustful-tier fields: deleted infraSignal/snapshots/anomalies kill a trustful claim but validate clean under a weak honest label (0.6949ms)
+  ✔ round indices must be contiguous per arm (an omitted round shrinks the claimed reproduction) (0.272ms)
+✖ post-sol M-1 — contract.ts is the single source of truth (18.288ms)
+▶ post-GLM round 5 — mirror constant independence + containment restatement
+  ✔ STRONG_MIRROR_LABELS is a distinct copy of the classifier strong set with pinned equivalence (0.1082ms)
+  ✔ refuses PRE_EXISTING_FAILURE whose candidate fails identities baseline did not (containment at 3d) (0.4301ms)
+  ✔ accepts an honest PRE_EXISTING_FAILURE (identical failing sets across arms) — no over-blocking (0.4227ms)
+✔ post-GLM round 5 — mirror constant independence + containment restatement (1.0465ms)
+ℹ tests 37
+ℹ suites 4
+ℹ pass 36
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 108.4919
+
+✖ failing tests:
+
+test at packages\evidence\schema\dist\test\schema.test.js:428:5
+✖ post-glm F6c: unknown fields NAMED LIKE Object.prototype members are refused too (own-property check, not `in`) (0.6087ms)
+  AssertionError [ERR_ASSERTION]: root.toString: 
+      at TestContext.<anonymous> (file:///C:/Users/Johannes/Desktop/canary-observation-hardening/packages/evidence/schema/dist/test/schema.test.js:446:24)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

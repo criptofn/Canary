@@ -1,0 +1,114 @@
+▶ Recorder.expandArgv — token expansion + enforced isolation
+  ✔ expands $bin via resolver to node + bin path (3.221ms)
+  ✔ ALWAYS appends --ignore-scripts and cache isolation to install commands (1.8659ms)
+  ✔ F6: flags are detected past leading options ($npm --loglevel install) (1.7904ms)
+  ✔ F6: npm ci (runs lifecycle scripts by default) is also covered (1.6555ms)
+  ✖ post-glm F6e: the controlled empty npm config is RE-ESTABLISHED immediately before install (tamper-between-creation-and-use) (3.1507ms)
+  ✔ F6: $yarn install gets yarn-appropriate flags after -- and --ignore-scripts on the npx bootstrap (1.6158ms)
+  ✔ F8: $npm -u evil.npmrc install x is REJECTED (was silent injection-skip) (1.7919ms)
+  ✔ F8: conflicting config flags rejected BEFORE and AFTER the subcommand (2.0371ms)
+  ✔ F8: unknown bare option before subcommand rejected; --key=value passes (1.7791ms)
+  ✔ F8: exec/dlx/shell-style subcommands rejected; run of a local script is not (1.7064ms)
+  ✔ F8: conflicting flags rejected in CASE VARIANTS too (red-team) (1.6043ms)
+  ✔ F8: install-family options with = or after the subcommand still expand normally (1.524ms)
+  ✔ non-install commands get no injected flags (1.5123ms)
+✖ Recorder.expandArgv — token expansion + enforced isolation (26.4343ms)
+▶ summary/infra matchers (F1/F5 hardening)
+  ✔ strict summary matcher rejects prose and accepts runner lines (0.2515ms)
+  ✔ environmental error patterns are infra (F1/F2) (0.3796ms)
+  ✔ audit B2: errno code in a PASSING test name is NOT infra; in an error line IS (0.385ms)
+✔ summary/infra matchers (F1/F5 hardening) (1.1302ms)
+▶ Recorder.step/round — real subprocess, real artifacts (no mocks)
+  ✔ captures exit code, streams, hashes, counts; unique-ifies repeated labels (352.0156ms)
+  ✔ F1 shape: nonzero exit + summary claiming 0 failing is recorded with the count (313.7579ms)
+  ✔ F5 shape: exit 0 while summary reports failures is captured (classifier then infra-guards) (314.7921ms)
+  ✔ audit F13: failing-test identities from REAL subprocess output land in fact and evidence (310.2939ms)
+  ✔ audit B2 (real subprocess): 0 passing at exit 0 records reportedPassing=0 (classifier => INFRA) (314.3608ms)
+  ✔ audit B2 (real subprocess): ECONNREFUSED error line at exit 0 sets infraSignal true (not swallowed by exit) (306.7809ms)
+  ✔ audit B2 (real subprocess): a genuinely passing run records reportedPassing>0 and stays valid (309.4956ms)
+  ✔ audit B1 e2e: same leaf title, different SUITE across candidate rounds -> FLAKY (973.4543ms)
+  ✔ audit B1 e2e: identical SUITE-QUALIFIED identity across rounds stays CONFIRM-eligible (1271.8458ms)
+  ✔ timeout kills produce exit -1 (and tree-kill runs without throwing) (1341.978ms)
+✔ Recorder.step/round — real subprocess, real artifacts (no mocks) (5809.5612ms)
+▶ audit B5 — canonical package-manager policy (closed allowlist)
+  ✔ B5: install ALIASES (the pre-fix silent-skip) now receive full injection (2.1306ms)
+  ✔ B5: unknown/unvetted subcommands are REJECTED, not run without policy (1.906ms)
+  ✔ B5: RAW package-manager forms rejected for ANY command position (1.8856ms)
+  ✔ B5: $bin:npm bypass is rejected; $bin:mocha still works (1.7674ms)
+  ✔ B5: user `--` in an install command is rejected (was the trailing-flag dead-weight bypass) (2.1079ms)
+  ✔ B5 invariant (property): accepted install => isolation flags in EFFECTIVE position after the subcommand, none after a `--` (1.9298ms)
+  ✔ B5: closed-allowlist families classified correctly by the policy parser (0.1296ms)
+✔ audit B5 — canonical package-manager policy (closed allowlist) (12.053ms)
+▶ round-3 B5 — wrapper-mediated / frontend package-manager execution is refused
+  ✔ cmd /c npm install … is refused (the canonical Windows wrapper bypass) (1.9249ms)
+  ✔ powershell / pwsh … npm is refused (1.7685ms)
+  ✔ env / nohup / xargs / sh -c / sudo npm are refused (POSIX wrappers) (1.7989ms)
+  ✔ package-manager FRONTENDS (pnpm/bun/corepack/volta) are refused (1.816ms)
+  ✔ node executed ON a package-manager file (node npm / node npm-cli.js) is refused (1.828ms)
+  ✔ any other unenumerated literal executable fails closed (not silently expanded) (1.7198ms)
+  ✔ REGRESSION: every SUPPORTED form still expands (allowlist does not over-reject) (1.8042ms)
+  ✔ REGRESSION: raw npm / npm.cmd / direct npm-cli / $bin:npm still rejected (pre-existing B5.1) (1.7369ms)
+✔ round-3 B5 — wrapper-mediated / frontend package-manager execution is refused (14.6183ms)
+▶ round-3 secondary — crash & sweep signals reach the classification
+  ✔ hasCrashSignature: matches V8/native abort phrasing, skips pass-glyph lines (0.1339ms)
+  ✔ glyph discrimination (self-review N4): ava ✖ (U+2716) fires infra; ✗-titled (U+2717) prose does not (0.1488ms)
+  ✔ isInfraOutput: a hard infra phrase inside a PASSING test title is not false-INFRA (round-3 secondary) (0.0684ms)
+  ✔ round() records crashSignal from a real post-summary crash -> classify says INFRA rule 1 (305.2243ms)
+  ✔ round() records sweepFailed (when the run outcome flags it) -> classify says INFRA rule 1 (4.1236ms)
+  ✔ post-sol secondary: CR-only line endings are matched like LF/CRLF (summary + anchored crash banner) (0.2442ms)
+  ✔ assertSupportedSpecExecutable: the allowlist is small and explicit (0.1919ms)
+✔ round-3 secondary — crash & sweep signals reach the classification (310.3304ms)
+▶ observation hardening — expandArgvWithPlan injection decision
+  ✔ the double fixture is actually pinned (fails if the pin table drifted) (0.5267ms)
+  ✔ post-GLM F5: the canary double is UNSELECTABLE by default — pinned bytes, no execution authority (8.7188ms)
+  ✔ pinned bytes at the canonical anchor: injected, --require appended LAST, plan from the PIN (8.3889ms)
+  ✔ unpinned bytes at the canonical anchor: NO injection, runner-identity-unpinned + observed hash recorded (21.4613ms)
+  ✔ pinned bytes OUTSIDE the canonical anchor (hoisted): not injectable (8.7081ms)
+  ✔ a subject-supplied --require/-r in a mocha argv is refused fail-closed (6.8036ms)
+  ✔ post-GLM F1: an off-position $bin:mocha token is refused, never credited (8.3401ms)
+  ✔ non-mocha commands: no injection attempted, absentKind not-mocha-bin (1.7665ms)
+  ✔ the ABSENT path end-to-end: an unpinned double runs REAL rounds and rule 14 refuses the strong label (647.5023ms)
+✔ observation hardening — expandArgvWithPlan injection decision (712.5133ms)
+▶ post-sol RB-1 — semantic package-manager policy (equivalence classes)
+  ✔ Sol's accepted forms are now rejected in install-family commands (2.015ms)
+  ✔ property: for EVERY protected key, every abbreviation/negation/case/= spelling is refused (install family) (31.9245ms)
+  ✔ property: the per-package config family (@scope:registry, //…:auth) is refused everywhere (2.0488ms)
+  ✔ property: accepted install argv ends with Canary protected flags after every user token (2.0351ms)
+  ✔ invariant: no allowed install spelling resolves to a protected key (prefix-disjoint) (0.3506ms)
+  ✔ legitimate script-family passthrough and fixture install shapes still expand (1.8775ms)
+  ✔ resolveOptionToken normalizes case, =-values, and one leading no- (0.1309ms)
+  ✔ empirical: npm applies abbreviation + negation + LAST-WINS ordering (the semantic premises) (655.7595ms)
+✔ post-sol RB-1 — semantic package-manager policy (equivalence classes) (696.5298ms)
+ℹ tests 65
+ℹ suites 8
+ℹ pass 64
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7674.6271
+
+✖ failing tests:
+
+test at packages\runner\executor\dist\test\executor.test.js:145:5
+✖ post-glm F6e: the controlled empty npm config is RE-ESTABLISHED immediately before install (tamper-between-creation-and-use) (3.1507ms)
+  AssertionError [ERR_ASSERTION]: the file npm reads as its userconfig must be re-established empty at injection time
+  + actual - expected
+  
+  + 'registry=http://evil.invalid\n'
+  - ''
+  
+      at TestContext.<anonymous> (file:///C:/Users/Johannes/Desktop/canary-observation-hardening/packages/runner/executor/dist/test/executor.test.js:156:20)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'registry=http://evil.invalid\n',
+    expected: '',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

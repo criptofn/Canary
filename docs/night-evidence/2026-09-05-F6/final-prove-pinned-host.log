@@ -1,0 +1,60 @@
+
+> canary-reliability-network@0.0.0 prove
+> node apps/cli/dist/src/main.js prove fixtures/axios-0.27-to-1.0/specs/axios-mock-adapter.json
+
+workspace: C:\Users\Johannes\Desktop\canary-observation-hardening\.canary-runs\exp-axios-mock-adapter-1.21.1-2026-09-04T23-02-55-074Z
+[1] fetch ctimmerm/axios-mock-adapter @ b880444283 (tarball by SHA)
+  112 KiB sha256=1343cae70b70d682...
+[2] pre-execution audit
+  axios-mock-adapter@1.21.1; declared axios=^0.27.2; hooks/rc clean
+[3] prepare
+  attested baseline: axios@0.27.2 (3 copy/copies in tree)
+[5] baseline arm x2
+[6] candidate swap
+  attested candidate: axios@1.0.0 (3 copy/copies)
+  tree drift: confined to dependency subtree
+[7] candidate arm x3
+
+EXPERIMENT axios-mock-adapter-1.21.1: CONFIRMED_REGRESSION (rule 5) — all 3 candidate rounds failed while baseline passed — regression confirmed
+
+=== PROOF ASSERTIONS ===
+  ok   proof schema
+  ok   classification
+  ok   rule
+  ok   experiment identity
+  ok   evidence schema
+  ok   fetch method
+  ok   repository pinned
+  ok   commit pinned
+  ok   tree observation VALID
+  ok   drift-confined-to-dependency
+  ok   resolved versions attested
+  ok   dependency pinned
+  ok   proof pins tarball digest
+  ok   proof pins proof-host exec digest
+  ok   tarball digest pinned
+  ok   baseline exit codes
+  ok   candidate exit codes
+  ok   baseline normalized stdout hashes
+  ok   candidate normalized stdout hashes
+  ok   evidence environment bound to proof host
+  ok   baseline arm internally deterministic
+  ok   candidate arm internally deterministic
+  ok   candidate summary counts
+  ok   baseline summary counts
+  ok   environment platform/arch match proof
+  ok   runtime node/npm match proof
+  ok   failing test identities (exact set from candidate bytes)
+  ok   round baseline#1 argv re-derived from committed spec
+  ok   round baseline#2 argv re-derived from committed spec
+  ok   round candidate#1 argv re-derived from committed spec
+  ok   round candidate#2 argv re-derived from committed spec
+  ok   round candidate#3 argv re-derived from committed spec
+  ok   round baseline#1 envKeys re-derived from sanitizer policy
+  ok   round baseline#2 envKeys re-derived from sanitizer policy
+  ok   round candidate#1 envKeys re-derived from sanitizer policy
+  ok   round candidate#2 envKeys re-derived from sanitizer policy
+  ok   round candidate#3 envKeys re-derived from sanitizer policy
+============================================================
+CANARY REGRESSION PROOF: PASS — 37 assertion(s) held (all of them, host-exact included, ON the proof host)
+============================================================
