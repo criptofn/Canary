@@ -404,3 +404,35 @@ recorded as a known gap until then.
 | host-exactness is BYTES: same-machine trojan (identical metadata, foreign executable digest) → INCOMPLETE never PASS; proofHost without exec-digest pin → refused FAIL; sampler digest == sha256(process.execPath) | `apps/cli/test/proof-host.test.ts` (post-GLM F2 describe) |
 | the double's PUBLIC bytes are not an execution authority: pin-table posture matrix (default refuses the double, grant selects it, npm pins selectable in both), untrusted-capture e2e (spec-staged double bytes → every round ABSENT, INCONCLUSIVE rule 14), trusted-control twin (same bytes + grant → VALID + CONFIRMED_REGRESSION) | `packages/support/test/known-runners-manifest.test.ts` + `packages/runner/executor/test/executor.test.ts` + `apps/cli/test/attested-channel.test.ts` (post-GLM F5 describes) |
 | golden never re-anchored: 37 assertions on the committed proof host, `proof.json` byte-identical EXCEPT the authorized post-GLM F2 additive `nodeExecSha256` re-pin (spec + evidence fixtures untouched, by rule) | `fixtures/axios-0.27-to-1.0/specs/` |
+
+## 12. Local harness gates — wiring is not enforcement (stop-gate posture)
+
+This worktree is driven by a local Claude Code harness that lives OUTSIDE the
+tracked tree: the hook registrations are in the never-committed per-worktree
+`.claude/settings.json`, and the Stop gate is
+`%USERPROFILE%\Tools\canary-stop-gate.ps1`. The audit record must not conflate
+presence of a hook with enforcement of verification:
+
+- **Wired ≠ enforced.** A Stop hook is registered and runs on every stop; what
+  it does is decided entirely by `<cwd>/.canary-gate.local.json`, which is also
+  NOT tracked.
+- **No config file ⇒ the gate allows stopping.** Absent (or invalid JSON, or
+  no `cwd` in the hook input) the gate prints a systemMessage and allows the
+  stop. `mode` values other than `"enforce"` take the intended **shadow**
+  posture: message + allow. As of 2026-09-06 this worktree has **no
+  `.canary-gate.local.json` at all** — the gate is wired but inert.
+- **Enforcement requires an explicit trusted local command.** Only
+  `{"mode":"enforce","command":"…"}` can block; enforce-without-command blocks
+  as misconfiguration. The command runs via `cmd.exe /d /s /c` from `cwd`,
+  output captured to `.canary-gate-last.log`, non-zero exit ⇒ stop blocked.
+- **The command belongs to the local trust boundary.** Whatever
+  `.canary-gate.local.json` names is operator-local, unsigned, and untracked;
+  it is a trust-boundary input, not repo content, and the tracked tree neither
+  defines nor endorses any particular command for it. Enabling enforcement is
+  a separate decision reserved for after the GitHub checkpoint; this document
+  deliberately invents no verification command to make a gate "green".
+
+Auditor corollary: "the stop gate never blocked" is NOT evidence — with no
+config file it cannot block anything. The §2 tier ladder governs what counts as
+verification; the local harness adds nothing to it unless and until an explicit
+trusted command is configured.

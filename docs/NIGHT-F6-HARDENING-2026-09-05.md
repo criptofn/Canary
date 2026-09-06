@@ -135,8 +135,9 @@ package suites run; one commit per independent repair.
 - **Complete repository suite (once, at final HEAD before this doc):**
   `npm test` (build + typecheck + all node:test) — **472 tests / 71
   suites / 472 pass / 0 fail / 0 cancelled / 0 skipped**, exit 0.
-  Log: `docs/night-evidence/2026-09-05-F6/final-full-suite.log` (independently
-  re-run post-audit with identical numbers: `reverify-head-suite.log`, and a
+  Log: `docs/night-evidence/2026-09-05-F6/final-full-suite.log` (re-run
+  post-audit with identical numbers by the same operator — reproduction,
+  not independent verification: `reverify-head-suite.log`, and a
   TREE-pinned re-derivation in a clean detached worktree at `d327e71`:
   `reverify-head-d327e71-treepinned-suite.log`).
   Pre-branch baseline at `34cf515` is **465 tests / 71 suites** — re-derived
@@ -229,8 +230,8 @@ convention now codified in `docs/TEST-COUNTING.md`).
    465/465 pass.").
 4. **"64 -> 71 suites" was wrong; the delta is in TESTS.** Suites were 71
    at `34cf515` and 71 at `d327e71` (unchanged). The F6 branch added +7
-   tests: 465 → 472. The 472/71 final figure itself was independently
-   re-confirmed (`reverify-head-suite.log`, identical summary block; and
+   tests: 465 → 472. The 472/71 final figure itself was re-confirmed by
+   post-audit re-runs (`reverify-head-suite.log`, identical summary block; and
    `reverify-head-d327e71-treepinned-suite.log`, which additionally
    self-proves its tree with a `TREE:` first line — the earlier head re-run
    had no TREE pin, an overclaim since corrected in `reverify-commands.txt`).
@@ -244,11 +245,20 @@ can no longer look green while silently not exercising the link-escape
 regression — FAIL under `CI`, loud warn + visible skipped entry off-CI
 (proof: `reverify-f6a-skip-probe.log`, `reverify-f6a-ci-sentinel-fail.log`;
 the corrections pass itself was adversarially verified by a 20-agent
-find-then-refute workflow — full result exported as
-`postaudit-verification-workflow.json`, provenance in
+find-then-refute workflow (all agents qwen3.8-flash — intra-model
+adversarial verification across independent contexts, NOT
+model-independent verification; the cross-model review is the separate
+GLM-5.3 audit) — full result exported as
+`postaudit-verification-workflow.json` plus complete per-finding verdict
+records in `postaudit-verification-verdicts.md`, provenance in
 `reverify-commands.txt` section 5; the beads-range and `.holdthegoblin/`
 ignore fixes in this pass came out of that verification; hook-autonomy
-proof matrix exported as `hook-policy-test.mjs`/`.log`, ALL-CASES-PASS);
+proof matrix exported as `hook-policy-test.mjs`/`.log`, ALL-CASES-PASS —
+superseded 2026-09-06: GLM-5.3 decision-only probes had bypassed the
+wrapper's allow class, so the policy was hardened and the matrix extended
+(59 payload cases + 3 structural checks, ALL-CASES-PASS, tracked wrapper
+copy under `tooling/hooks/`; see `reverify-commands.txt` section 5 and
+`hook-policy-test-2026-09-06.log`);
 post-change full suite **473/71/473 pass/0 fail/0 skipped**, EXIT:0,
 `reverify-postchange-suite.log`). A platform that cannot exercise the
 guard is now distinguishable from one that passed it.

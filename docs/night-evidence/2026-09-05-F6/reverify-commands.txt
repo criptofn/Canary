@@ -25,7 +25,9 @@ from the procedures recorded in docs/NIGHT-F6-HARDENING-2026-09-05.md.
    clean-worktree re-derivation 2b below. (Cross-check:
    `git show -s --format=%B 34cf515` says "Full suite 465/465 pass.")
 
-2) HEAD re-run at d327e71 (independently confirms the night final-full-suite.log)
+2) HEAD re-run at d327e71 (post-audit reproduction of the night
+   final-full-suite.log by the same operator — reconfirms the numbers;
+   NOT model-independent verification)
 
    cd /c/Users/Johannes/Desktop/canary-observation-hardening
    npm test   -> reverify-head-suite.log  (472/71/472/0/0/0, EXIT:0)
@@ -79,11 +81,35 @@ from the procedures recorded in docs/NIGHT-F6-HARDENING-2026-09-05.md.
    postaudit-verification-workflow.json — structured result of Workflow
    run wf_70c7ffe9-eda ("verify-night-audit-corrections"; 20 agents,
    4 review lenses x find-then-refute; completed via resume wv1laxwt5).
+   All 20 agents ran the same model (qwen3.8-flash): this pass is
+   INTRA-MODEL adversarial verification across independent contexts —
+   isolated contexts with opposing incentives — NOT model-independent
+   verification (the cross-model review is the separate GLM-5.3 audit of
+   the committed result).
    Outcome: 5 findings confirmed, 19 refuted. Two confirmed findings were
    fixed in this pass (beads child range 88x.1-88x.5, not 88x.1-88x.6;
    .holdthegoblin/ added to .gitignore); three were already closed by
    earlier corrections in the same pass. Script:
    <session-dir>/workflows/scripts/verify-night-audit-corrections-wf_70c7ffe9-eda.js
+
+   The headline counts are re-derivable from retained records.
+   postaudit-verification-verdicts.md (added by the 2026-09-06 closure
+   pass; extracted verbatim from the session-local workflow journal and
+   per-agent transcripts, which are NOT tracked) holds every finding
+   raised and every refuter verdict — identity, outcome, and full
+   reasoning. From this directory:
+     grep -c "^## Finding " postaudit-verification-verdicts.md -> 16  (findings raised)
+     grep -c "^- verdict: REFUTED" postaudit-verification-verdicts.md -> 19
+     grep -c "^- verdict: STOOD"  postaudit-verification-verdicts.md -> 9
+     grep -c "^- outcome: CONFIRMED" postaudit-verification-verdicts.md -> 5
+   32 refuter runs were recorded; 28 returned journal results (the 4
+   others count as runs, not verdicts — agent IDs listed in the artifact
+   header). 28 verdicts = 19 REFUTED + 9 STOOD; "19 refuted" counts
+   REFUTED verdicts, and the 9 STOOD verdicts cover 5 distinct findings
+   (= exactly the 5 records in result.confirmed), which is why the
+   headline reads "5 findings confirmed, 19 refuted" and not "5
+   confirmed, 11 refuted". No numerical claim in this file lacks a
+   tracked source any more.
 
    hook-policy-test.mjs + hook-policy-test.log — the PreToolUse hook
    autonomy proof matrix (15 synthetic payloads spawned through the REAL
@@ -92,3 +118,22 @@ from the procedures recorded in docs/NIGHT-F6-HARDENING-2026-09-05.md.
    -> ALL-CASES-PASS (rerun from this tracked location confirmed 2026-09-05,
    RUNNER_EXIT:0). risk.js itself was never modified (sha256 prefix
    33582714b28e01f8, 11599 bytes).
+
+   2026-09-06 F-C hardening (same command now runs the EXTENDED matrix):
+   the 2026-09-05 allow class (single INLINE regex + token scan) was
+   bypassed by GLM-5.3 decision-only probes; the wrapper policy was
+   rewritten (global danger scan + quote-aware segmentation + per-segment
+   allowlist + recursive bash-payload analysis + payload write/exec/net/
+   evasion scans). The hardened wrapper is now tracked canonically at
+   tooling/hooks/holdthegoblin-pretooluse-local.mjs (live copy:
+   ~/.claude/hooks/... ; byte-identity is enforced by a drift check in
+   the matrix). hook-policy-test.mjs grew to 59 payload cases (original
+   15 retained verbatim + GLM bypass families + legit-read-only
+   regressions + plain-only delegation pins) + 3 structural checks
+   (live/tracked drift, fail-closed delegation, malformed stdin). The
+   2026-09-05 log above is the historical record of the 15-case matrix;
+   the current re-derivation is
+   node docs/night-evidence/2026-09-05-F6/hook-policy-test.mjs
+   -> ALL-CASES-PASS in hook-policy-test-2026-09-06.log.
+   All decision-only: every payload string is inspected by the wrapper,
+   none is executed. risk.js remains unmodified.
