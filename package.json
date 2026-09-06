@@ -23,6 +23,7 @@
     "clean": "tsc -b --clean",
     "typecheck": "tsc -b --pretty",
     "test": "npm run build && node --test \"packages/**/dist/test/*.test.js\" \"apps/**/dist/test/*.test.js\"",
+    "verify:productization": "node tooling/verify-productization.mjs",
     "prove": "node apps/cli/dist/src/main.js prove fixtures/axios-0.27-to-1.0/specs/axios-mock-adapter.json",
     "report": "node apps/cli/dist/src/main.js report"
   },

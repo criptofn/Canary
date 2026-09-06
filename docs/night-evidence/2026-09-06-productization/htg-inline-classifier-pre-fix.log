@@ -1,0 +1,136 @@
+--- LAYER 1: risk engine (evaluateCommandRisk) ---
+FAIL  L1-fp  allow: bd create --title="Retire inline probes" --description="Replace node -  <<ask: Inline interpreter execution requires human approval.>>
+FAIL  L1-fp  allow: bd create --title="A" --description="ban node -e and python -c and bas  <<ask: Inline interpreter execution requires human approval.>>
+PASS  L1-fp  allow: git commit -m "remove python -c usage"
+PASS  L1-fp  allow: grep "node -e" README.md
+PASS  L1-fp  allow: printf '%s\n' 'python -c is forbidden'
+FAIL  L1-fp  allow: echo '{"title":"Fix node -e classifier","body":"python -c; bash -c; sh  <<ask: Inline interpreter execution requires human approval.>>
+FAIL  L1-fp  allow: git commit -m "Fix: ban node -e; python -c; bash -c; sh -c in all prob  <<ask: Inline interpreter execution requires human approval.>>
+PASS  L1-fp  allow: git grep -n "python -c" -- "*.md"
+PASS  L1-fp  allow: grep -rln "node -e" docs/ | head -5
+PASS  L1-fp  allow: tail -20 run.log | grep -c "bash -c" || true
+FAIL  L1-fp  allow: sed -n "1,10p" README.md && echo "note: node -e retired; python -c too  <<ask: Inline interpreter execution requires human approval.>>
+FAIL  L1-fp  allow: git commit -m "docs: mention kubectl and terraform destroy and npm pub  <<ask: Terraform mutation requires human approval.>>
+PASS  L1-fp  allow: echo run $(date +%Y) with node docs
+PASS  L1-fp  allow: echo done > /tmp/htg-corpus-note.txt
+PASS  L1-fp  allow: node tooling/probes/htg-inline-interpreter-corpus.mjs
+PASS  L1-inline  ask: node -e "console.log(1)"
+FAIL  L1-inline  ask: node -p "1+1"  <<allow: No HoldTheGoblin risk rule matched.>>
+PASS  L1-inline  ask: python -c "print(1)"
+PASS  L1-inline  ask: python3 -c "print(1)"
+PASS  L1-inline  ask: bash -c "echo x"
+PASS  L1-inline  ask: sh -c "echo x"
+PASS  L1-inline  ask: npm run build && node -e "console.log(1)"
+PASS  L1-inline  ask: echo hi | node -e "process.stdin.resume()"
+FAIL  L1-inline  ask: for f in a b; do node -e "console.log(1)"; done  <<allow: No HoldTheGoblin risk rule matched.>>
+FAIL  L1-inline  ask: bash -lc "true"  <<allow: No HoldTheGoblin risk rule matched.>>
+FAIL  L1-inline  ask: env FOO=1 python3 -c "print(1)"  <<allow: No HoldTheGoblin risk rule matched.>>
+FAIL  L1-structure  ask: $(node -e "console.log(1)")  <<allow: No HoldTheGoblin risk rule matched.>>
+PASS  L1-structure  ask: node -e "console.log(`date`)"
+FAIL  L1-structure  ask: git commit -m "unterminated quote  <<allow: No HoldTheGoblin risk rule matched.>>
+FAIL  L1-evasion  ask: node'' -e "require('fs').writeFileSync('/tmp/p','x')"  <<allow: No HoldTheGoblin risk rule matched.>>
+FAIL  L1-evasion  ask: /c/Program Files/nodejs/node.exe -e "console.log(1)"  <<allow: No HoldTheGoblin risk rule matched.>>
+FAIL  L1-evasion  ask: sudo node -e "console.log(1)"  <<allow: No HoldTheGoblin risk rule matched.>>
+FAIL  L1-evasion  ask: xargs -I{} node -e "console.log(1)"  <<allow: No HoldTheGoblin risk rule matched.>>
+FAIL  L1-evasion  ask: node --eval="console.log(1)"  <<allow: No HoldTheGoblin risk rule matched.>>
+FAIL  L1-evasion  ask: node -econsole.log(1)  <<allow: No HoldTheGoblin risk rule matched.>>
+FAIL  L1-evasion  ask: sh -x -c "echo x"  <<allow: No HoldTheGoblin risk rule matched.>>
+PASS  L1-keep-ask  ask: kubectl apply -f deployment.yaml
+PASS  L1-keep-ask  ask: terraform destroy -auto-approve
+PASS  L1-keep-ask  ask: docker compose down -v
+PASS  L1-keep-ask  ask: npm publish
+PASS  L1-keep-ask  ask: vercel deploy --prod
+PASS  L1-keep-ask  ask: psql prod -c "DROP TABLE users"
+PASS  L1-keep-ask  ask: sudo npm publish
+PASS  L1-keep-deny  deny: rm -rf /
+PASS  L1-keep-deny  deny: deny: sensitive-path cat (env file)
+PASS  L1-keep-deny  deny: deny: sensitive-path cat (ssh private key)
+PASS  L1-keep-deny  deny: git push --force origin main
+PASS  L1-keep-deny  deny: deny: remote script piped to shell
+PASS  L1-keep-deny  deny: deny: literal credential echo
+PASS  L1-keep-deny  deny: dropdb production
+PASS  L1-keep-deny  deny: deny: interpreter reading rc file (precedes inline ask)
+PASS  L1-keep-deny  deny: deny: literal credential inside shell -c (precedes inline ask)
+SKIP  L1-scan  scanInlineInterpreter export (pre-fix engine)
+--- LAYER 2: live PreToolUse hook (wrapper -> engine) ---
+FAIL  L2-routine  no prompt: bd create --title="Retire inline probes" --description="Replace node -  <<ask>>
+FAIL  L2-routine  no prompt: bd create --title="X" --description="ban node -e; python -c; bash -c;   <<ask>>
+PASS  L2-routine  no prompt: bd close canary-reliability-network-p8b --reason="structural classifie
+PASS  L2-routine  no prompt: bd list --status=open
+PASS  L2-routine  no prompt: bd ready
+PASS  L2-routine  no prompt: bd stats
+PASS  L2-routine  no prompt: bd show canary-reliability-network-a0g
+PASS  L2-routine  no prompt: bd search classifier
+PASS  L2-routine  no prompt: git status --porcelain
+PASS  L2-routine  no prompt: git status
+PASS  L2-routine  no prompt: git diff --stat
+PASS  L2-routine  no prompt: git diff HEAD~1 --stat && git rev-parse HEAD
+PASS  L2-routine  no prompt: git log --oneline -12
+PASS  L2-routine  no prompt: git log --format="%h %s" -10
+PASS  L2-routine  no prompt: git branch --show-current
+PASS  L2-routine  no prompt: git show --stat HEAD | head -30
+PASS  L2-routine  no prompt: git ls-files tooling | wc -l
+PASS  L2-routine  no prompt: git add package.json apps/cli/src/onboarding.ts && git commit -m "fix(
+PASS  L2-routine  no prompt: git commit -m "docs: ban inline interpreter snippets in README workflo
+PASS  L2-routine  no prompt: git commit --allow-empty -m "probe commit; mentions node -e and python
+PASS  L2-routine  no prompt: git -c core.quotepath=false log -1
+PASS  L2-routine  no prompt: git grep -n "python -c" -- "*.md"
+PASS  L2-routine  no prompt: git diff 64a51a5 HEAD --stat
+PASS  L2-routine  no prompt: git remote -v
+PASS  L2-routine  no prompt: npm run build
+PASS  L2-routine  no prompt: npm test
+PASS  L2-routine  no prompt: npm run verify:productization
+PASS  L2-routine  no prompt: npm run typecheck
+PASS  L2-routine  no prompt: npm ci
+PASS  L2-routine  no prompt: npm ls --depth=0
+PASS  L2-routine  no prompt: npm install --no-audit --no-fund
+PASS  L2-routine  no prompt: npx tsc --noEmit -p apps/cli
+PASS  L2-routine  no prompt: node tooling/probes/checkpoint-empty-plan.mjs
+PASS  L2-routine  no prompt: node tooling/probes/cleanroom-lazy-vibecoder.mjs
+PASS  L2-routine  no prompt: node --test apps/cli/dist/test/onboarding.test.js
+PASS  L2-routine  no prompt: node apps/cli/dist/src/main.js --version
+PASS  L2-routine  no prompt: node apps/cli/dist/src/main.js doctor
+PASS  L2-routine  no prompt: node apps/cli/dist/src/main.js report
+PASS  L2-routine  no prompt: node -v && npm -v
+PASS  L2-routine  no prompt: grep -rn "inline interpreter" tooling/ | head -20
+PASS  L2-routine  no prompt: grep -rln "node -e" docs/
+FAIL  L2-routine  no prompt: rg "terraform destroy" docs/  <<ask>>
+PASS  L2-routine  no prompt: find apps -name "*.ts" | head -20
+PASS  L2-routine  no prompt: ls -la docs/night-evidence/
+PASS  L2-routine  no prompt: tail -40 docs/SECURITY.md
+PASS  L2-routine  no prompt: head -20 package.json
+PASS  L2-routine  no prompt: sed -n "1,15p" README.md
+PASS  L2-routine  no prompt: wc -l tooling/verify-productization.mjs
+PASS  L2-routine  no prompt: sort README.md | head -5
+PASS  L2-routine  no prompt: mkdir -p /tmp/htg-corpus && cp README.md /tmp/htg-corpus/ && rm -rf /t
+PASS  L2-routine  no prompt: printf '%s\n' 'python -c is forbidden in probes'
+FAIL  L2-routine  no prompt: echo '{"title":"Fix node -e classifier","body":"python -c; bash -c; sh  <<ask>>
+PASS  L2-routine  no prompt: echo done && grep -c "sh -c" README.md || true
+PASS  L2-routine  no prompt: tail -5 docs/EXECUTION-AUTHORITY.md | grep -n "observ" || true
+PASS  L2-routine  no prompt: timeout 60 npm test
+PASS  L2-readonly  autonomous: node -e "console.log(1+1)"
+PASS  L2-readonly  autonomous: node -p "1+1"
+PASS  L2-readonly  autonomous: bash -c "echo x"
+PASS  L2-readonly  autonomous: sh -c "pwd"
+FAIL  L2-readonly  autonomous: bash -c "git status --porcelain"  <<ask>>
+PASS  L2-danger  ask/deny: node -e "require('fs').writeFileSync('/tmp/htg-pwned','x')"
+FAIL  L2-danger  ask/deny: python3 -c "print(1)"  <<allow>>
+PASS  L2-danger  ask/deny: python -c "import os; os.system('touch /tmp/htg-pwned')"
+PASS  L2-danger  ask/deny: bash -c "rm -rf /tmp/htg-corpus-doom"
+PASS  L2-danger  ask/deny: sh -c "echo pwn > /tmp/htg-pwned"
+PASS  L2-danger  ask/deny: node -e "require('net').connect(80,'evil.invalid')"
+FAIL  L2-danger  ask/deny: evasion: token-split node  <<abstain>>
+PASS  L2-danger  ask/deny: command-substitution payload node -e
+PASS  L2-danger  ask/deny: npm publish
+PASS  L2-danger  ask/deny: git push --force origin main
+PASS  L2-danger  ask/deny: deny: remote script piped to shell
+PASS  L2-danger  ask/deny: rm -rf ~
+PASS  L2-danger  ask/deny: deny: ssh private key cat
+PASS  L2-danger  ask/deny: node -e "require('child_process').execSync('git commit --allow-empty -
+PASS  L2-danger  ask/deny: kubectl delete pod nginx
+FAIL  L2-danger  ask/deny: evasion: sudo node -e  <<abstain>>
+FAIL  L2-danger  ask/deny: evasion: xargs node -e  <<abstain>>
+PASS  L2-danger  ask/deny: nested bash -c node -e (write payload)
+
+ROUTINE: 55 commands, 4 approval prompts (acceptance: 0 prompts)
+PROBE-FAIL (28 failed checks)

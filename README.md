@@ -2,6 +2,68 @@
 
 > *"Cool diff. Prove that it actually made the project better."*
 
+**The AI builds. Canary checks. You do almost nothing.** Once Canary is set up
+in your project, every time your AI coding agent says "done", Canary runs your
+project's own checks and steps in only when something needs attention. You
+never edit config, never learn a schema, never run a Canary command per task.
+
+## 60-second quickstart
+
+1. **Install Canary once** (until the npm package is published, from a checkout):
+
+   ```bash
+   git clone <this repo> && cd canary-reliability-network
+   npm install && npm run build
+   cd apps/cli && npm link        # gives you the `canary` command
+   ```
+
+2. **In your project** (a Node.js repo with `package.json`):
+
+   ```bash
+   canary setup
+   ```
+
+   That is the whole job. Canary detects your package manager from your
+   lockfile, infers a verification plan from the `test` / `typecheck` /
+   `build` scripts in your `package.json` (showing you exactly what it
+   picked), wires itself into Claude Code automatically — merging with, never
+   overwriting, your existing hooks — and runs your checks once right there
+   as a smoke test.
+
+3. **It worked if it says `READY`.** Unsure at any point later?
+   `canary doctor` answers "is Canary really protecting this repo?" with
+   READY / NEEDS ATTENTION / UNSUPPORTED and the one command that fixes it.
+
+**What you get after that single command:**
+
+- *automatic* — the agent finishes → Canary runs your checks → all pass:
+  total silence (you are not interrupted); a check fails: the agent is
+  blocked once and sent back to repair it, and if it still fails, you are
+  told in plain words. No per-task `canary` command, ever.
+- *self-healing* — re-run `canary setup` any time; it repairs its own wiring,
+  never duplicates a hook, never destroys your edits.
+- *reversible* — `canary uninstall` removes exactly Canary's own changes
+  (identified by recorded command strings, never by guesswork) and keeps every
+  other settings entry (content preserved — re-serialization may reformat
+  whitespace). If cleanup can't fully succeed it keeps its ownership record so
+  the advertised retry actually works.
+
+**Supported today:** Node-style projects (npm / pnpm / yarn / bun lockfiles)
+and Claude Code. If you run OpenAI Codex you'll get an explicit message, not
+a half-integration that pretends to protect you.
+
+**What `READY` means — and what it does not.** READY is printed only when
+Canary's wiring was verified to exist *and* your detected checks were
+actually executed and passed in that run. Nothing executed → NEEDS
+ATTENTION, never a fake green. This auto-watched plan runner is the everyday
+path; the much stronger **attested proof pipeline** (`canary prove` /
+`canary check`, below) is a separate, different promise for release-grade
+claims.
+
+---
+
+## For the proof-minded: what Canary fundamentally is
+
 Canary takes a **baseline** state and a **candidate** change, runs relevant
 deterministic checks against both in disposable, sanitized (process/env-boundary
 enforced) workspaces, reproduces any divergence, and emits a
@@ -45,7 +107,7 @@ Reproduce it:
 ```bash
 npm ci            # lockfile-exact, reproducible install
 npm run build
-npm test          # 438 tests / 64 suites (offline; 1 skip when the OS denies symlink creation)
+npm test          # 503 tests / 78 suites (offline; symlink-dependent tests skip only when the OS denies link creation)
 npm run prove     # fresh end-to-end run; PASS requires the committed proof host (36 assertions
                   # executed, zero skips). On any other runtime it honestly exits 2 (INCOMPLETE):
                   # the 22 portable assertions must all hold, the 6 host-exact ones are skipped,
@@ -63,18 +125,41 @@ came back PASS — honestly reported, ledger in
 
 ## CLI
 
+The two tiers share one binary; `canary` below is the linked command, or
+`node apps/cli/dist/src/main.js` straight from a checkout.
+
+Everyday automatic path (the quickstart above):
+
 ```bash
-node apps/cli/dist/src/main.js run    <spec.json>   # execute, write evidence
-node apps/cli/dist/src/main.js prove  <spec.json>   # re-run + assert expectations
-node apps/cli/dist/src/main.js check  <spec.json>   # assert last run's evidence
-node apps/cli/dist/src/main.js report [evidence.json] [out.html]  # defaults: latest run
+canary setup     [--yes]     # detect project + harness, wire, smoke-run. READY/NEEDS ATTENTION
+canary doctor                # runs your checks NOW and reports READY/NEEDS ATTENTION/UNSUPPORTED
+canary uninstall             # remove exactly Canary's own changes (recorded strings, never guesswork)
+canary checkpoint            # harness-internal: runs at the agent's completion boundary (Stop hook)
+```
+
+`setup` / `doctor` never print READY without having executed the detected
+checks and seen them pass *in that same invocation* — `doctor` runs the plan
+every time it is called, so a stored or hand-edited record can never produce a
+green answer; re-running `setup` heals its own wiring idempotently; nothing
+about this tier claims the attested-proof strength of the commands below — it
+is a transparent plan runner over *your* scripts.
+
+Release-grade proof pipeline:
+
+```bash
+canary run    <spec.json>   # execute, write evidence
+canary prove  <spec.json>   # re-run + assert expectations
+canary check  <spec.json>   # assert last run's evidence
+canary report [evidence.json] [out.html]  # defaults: latest run
+canary version
 ```
 
 Exit codes: `0` proof holds fully (on the committed proof host) / regression
-confirmed / self-consistent report · `1` a proof assertion diverged (or `run`
-classified PASS) · `2` other classification / infra / proof INCOMPLETE (this
-runtime is not the proof host — host-exact assertions unverifiable, never a
-PASS pretense) · `3` misuse, refused bundle, or a NOT-SELF-CONSISTENT report.
+confirmed / self-consistent report / onboarding READY · `1` a proof assertion
+diverged (or `run` classified PASS) · `2` other classification / infra /
+proof INCOMPLETE (this runtime is not the proof host — host-exact assertions
+unverifiable, never a PASS pretense) / onboarding NEEDS ATTENTION or
+UNSUPPORTED · `3` misuse, refused bundle, or a NOT-SELF-CONSISTENT report.
 
 ## Security contract — enforced at the process/env boundary, tiered elsewhere
 

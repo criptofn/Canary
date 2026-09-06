@@ -7,12 +7,20 @@
  *   canary check <spec.json> [proof.json]    prove without re-running (last evidence)
  *   canary report [evidence.json] [out.html] render the human-readable report
  *                                          (no args: the latest run's evidence)
+ *   --- productization surface (see onboarding.ts for its doctrine) ---
+ *   canary setup    [--yes]                  detect project+harness, wire automatic
+ *                                          verification, smoke-run it (READY only on proof)
+ *   canary doctor                            runs the checks NOW; READY only from this run
+ *   canary uninstall                         remove exactly Canary's own changes
+ *   canary checkpoint                        harness-internal: verify at completion boundary
  *
  * Exit codes: 0 proof holds fully on the proof host / CONFIRMED_REGRESSION as expected
  *             1 proof failed / PASS
  *             2 other classification / infra / proof INCOMPLETE — host-exact
  *               assertions could not be verified because this runtime is not
  *               the committed proof host (round-3 B3; never a PASS pretense)
+ *             2 also: onboarding NEEDS ATTENTION / UNSUPPORTED (onboarding never
+ *               exits 0 without having executed and seen its checks pass)
  *             3 misuse / refused bundle / NOT-SELF-CONSISTENT report
  *               (report's exit 0 means the evidence is self-consistent with
  *               the local artifacts — post-sol F1: it does NOT mean the
@@ -32,6 +40,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
+import { cmdSetup, cmdDoctor, cmdUninstall, cmdCheckpoint } from './onboarding.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -47,6 +56,10 @@ usage:
                                           derivation checks ON THIS MACHINE — NOT a committed-
                                           proof comparison; that is prove/check. exit 0 on
                                           self-consistency, else NOT SELF-CONSISTENT, exit 3)
+  canary setup [--yes]      one-command onboarding for a Node project (AI-harness auto-wiring)
+  canary doctor             is Canary actually protecting this repo? Runs the checks now;
+                            READY / NEEDS ATTENTION / UNSUPPORTED (--run accepted, always on)
+  canary uninstall          remove Canary's own changes, keep everything else
   canary version`);
   process.exit(3);
 }
@@ -272,6 +285,12 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'prove' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), true);
   if (cmd === 'check' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), false);
   if (cmd === 'report') return cmdReport(rest[0], rest[1]);
+  // productization surface (apps/cli/src/onboarding.ts) — separate promise from
+  // the proof pipeline above; exit codes: 0 READY, 2 NEEDS ATTENTION/UNSUPPORTED.
+  if (cmd === 'setup') return cmdSetup(rest);
+  if (cmd === 'doctor') return cmdDoctor(rest);
+  if (cmd === 'uninstall') return cmdUninstall(rest);
+  if (cmd === 'checkpoint') return cmdCheckpoint();
   return usage();
 }
 

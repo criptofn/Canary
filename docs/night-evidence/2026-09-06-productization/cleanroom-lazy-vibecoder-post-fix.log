@@ -1,0 +1,29 @@
+TREE: 64a51a5a32883066f13b3ed3aeecde678000f633 @ C:\Users\Johannes\Desktop\canary-observation-hardening
+node v26.7.0 win32; cleanroom lazy-vibecoder acceptance
+STEP-1 PASS: clean supported sample repo created (git+package.json+scripts+.claude)
+STEP-2 PASS: installation: CLI built and invocable (docs give the real one-time install)
+STEP-3 PASS: one command configured everything (exit 0)
+STEP-3 PASS: ends with READY for a healthy repo
+STEP-4 PASS: detected package manager from lockfile
+STEP-4 PASS: disclosed inferred plan in compact form
+STEP-4 PASS: detected the harness
+STEP-5 PASS: Stop hook registered pointing at the Canary CLI
+STEP-5 PASS: local config + self-ignoring .canary/ created
+STEP-5 PASS: smoke evidence recorded
+STEP-6 PASS: doctor says READY (exit 0)
+STEP-6 PASS: doctor re-ran the checks in this invocation (READY is earned now)
+STEP-7 PASS: green repo: agent finishes -> Canary allows silently (human NOT interrupted)
+STEP-7 PASS: broken repo: Canary BLOCKS the finish with a repair instruction (REPAIR)
+STEP-7 PASS: loop guard: second finish still-failing -> honest systemMessage, human told, no infinite loop
+STEP-8 PASS: doctor on failing checks: NEEDS ATTENTION, never READY
+STEP-8 PASS: hook removed by hand: loudly un-protected + one repair command
+STEP-9 PASS: re-run repairs registration (exactly one Canary entry, user entry intact)
+STEP-9 PASS: re-run stays honest while code is broken: NEEDS ATTENTION, not fake green
+STEP-9 PASS: backups taken before consequential config edits
+STEP-9 PASS: after the code is fixed: doctor re-proves READY (checks run every time)
+STEP-10 PASS: uninstall exit 0; Canary state gone
+STEP-10 PASS: unrelated config preserved exactly ($schema + user hook; no Canary entry)
+STEP-10 PASS: uninstall idempotent
+STEP-10 PASS: reinstall after uninstall
+
+ALL-ACCEPTANCE-PASS (10/10 acceptance steps)
