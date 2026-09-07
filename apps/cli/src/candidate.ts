@@ -5,8 +5,9 @@
  * `canary isolate <name>` opens a detached `git worktree` checkout of the
  * base's resolved commit, the worker works there, and Canary verifies the
  * candidate from OUTSIDE it against the BASE's sealed authority. A PASS makes
- * the candidate ELIGIBLE for promotion — promotion is a separate act (M8);
- * nothing here ever applies anything, and a FAIL leaves the base untouched.
+ * the candidate ELIGIBLE for promotion — promotion is a separate act
+ * (`--promote`, implemented in this file under M8); verify itself never
+ * applies anything, and a FAIL leaves the base untouched.
  *
  * Which guarantee lives where (the probe proves each end to end on real git):
  *   1  accepted work never edited by the worker — the worktree is the only
@@ -65,6 +66,16 @@
  * Obligation evaluation for the candidate diff compares against rec.baseHead
  * and lands with M10; conflating cfg.baseline here would blame the base's
  * own post-setup commits on the worker.
+ *
+ * M8 — promotion (NO PASS, NO APPLY; the apply act lives in isolatePromote):
+ * a PASS only makes a candidate ELIGIBLE; `--promote` re-verifies LIVE
+ * against the sealed plan and is the sole authority — stored bundles are
+ * never read back, so old or forged evidence cannot authorize anything. The
+ * act moves the base ONLY by `git merge --ff-only` onto the exact verified
+ * commit, sandwiched by identity checks, and post-proves the applied tree
+ * byte-for-byte. ponytail ceiling, stated not hidden: an edit-then-revert
+ * strictly inside one plan run cannot be seen by a same-thread sandwich; the
+ * fresh bundle's own step outputs are the human-visible record (M19/persist).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -200,22 +211,26 @@ function isolateCreate(root: string, cfg: CanaryConfig, o: Out, name: string, ba
   return 0;
 }
 
-function isolateVerify(root: string, cfg: CanaryConfig, o: Out, name: string): number {
+/** Verify outcome: exit code plus the identity the verdict was earned on.
+ *  M8 promotion consumes startHead/rec; verify's own caller ignores them. */
+interface VerifyOutcome { code: number; startHead: string | null; rec: CandidateRecord | null }
+
+function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string): VerifyOutcome {
   const rec = loadRecord(root, name);
-  if (rec === 'missing') { o.say(`isolate: no candidate "${name}" registered here — see: canary isolate --list`); return 2; }
-  if (rec === 'invalid') { o.say(`isolate: registry record "${name}" is malformed (hand-edited?) — refusing to verify from it; fix or remove .canary/${CANDIDATES_SUBDIR}/${name}.json`); return 2; }
-  if (!samePath(rec.baseRoot, root)) { o.say(`isolate: record "${name}" claims a different base (${echoable(path.basename(rec.baseRoot))}) — refusing (impersonation guard)`); return 2; }
+  if (rec === 'missing') { o.say(`isolate: no candidate "${name}" registered here — see: canary isolate --list`); return { code: 2, startHead: null, rec: null }; }
+  if (rec === 'invalid') { o.say(`isolate: registry record "${name}" is malformed (hand-edited?) — refusing to verify from it; fix or remove .canary/${CANDIDATES_SUBDIR}/${name}.json`); return { code: 2, startHead: null, rec: null }; }
+  if (!samePath(rec.baseRoot, root)) { o.say(`isolate: record "${name}" claims a different base (${echoable(path.basename(rec.baseRoot))}) — refusing (impersonation guard)`); return { code: 2, startHead: null, rec }; }
   const prov = { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null };
   const extra = {
     candidateName: rec.name, candidateRoot: rec.root,
     isolatedFrom: { ref: rec.baseRef, head: rec.baseHead, tree: rec.baseTree, at: rec.createdAt },
   };
-  const blocked = (why: string, next?: string): number => {
+  const blocked = (why: string, next?: string): VerifyOutcome => {
     // the BLOCK itself is evidence, written under the base's authority dir.
     writeVerificationBundle(root, 'candidate', [], 'blocked', prov, { evidenceRoot: root, subjectRoot: rec.root, extra });
     o.say(`BLOCKED — ${why}`);
     if (next) o.say(`next: ${next}`);
-    return 2;
+    return { code: 2, startHead: null, rec };
   };
   const cid = candidateIdentity(rec.root);
   if (!cid.resolved) return blocked(`candidate "${name}" is not a resolvable git tree at ${rec.root} (moved? deleted? corrupted?) — nothing ran`, 'canary isolate --list, then --remove + re-isolate');
@@ -267,11 +282,127 @@ function isolateVerify(root: string, cfg: CanaryConfig, o: Out, name: string): n
   if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
   if (failed.length) {
     o.say(`CANDIDATE FAIL — ${failed.length}/${results.length} step(s) not green; the trusted base was not touched. Evidence: ${path.join(root, CONFIG_DIR, 'evidence')}`);
-    return 2;
+    return { code: 2, startHead: cid.head, rec };
   }
   const cnt = gitWithinRoot(rec.root, ['rev-list', '--count', '--end-of-options', `${rec.baseHead}..HEAD`]);
   const advanced = cnt !== null && /^\d+$/.test(cnt.trim()) && Number(cnt) > 0 ? ` (${cnt.trim()} commit(s) beyond the isolated base)` : '';
   o.say(`CANDIDATE PASS — "${name}" @ ${short(cid.head)}${advanced} verified against the sealed plan. ELIGIBLE for promotion — nothing applied; promotion is a separate act.`);
+  return { code: 0, startHead: cid.head, rec };
+}
+
+function isolateVerify(root: string, cfg: CanaryConfig, o: Out, name: string): number {
+  return verifyCandidate(root, cfg, o, name).code;
+}
+
+/**
+ * M8 — NO PASS, NO APPLY (directive §8). Promotion is the ONLY act in Canary
+ * that lets candidate-authored bytes enter the trusted base, so it trusts:
+ *   - a LIVE re-verification against the sealed plan, this invocation, right
+ *     now — stored bundles are never read back, so replayed, forged, or
+ *     stale evidence cannot authorize anything (an author wanting a PASS
+ *     must make the bytes pass, not write a file);
+ *   - content identity: the apply fast-forwards onto exactly the commit the
+ *     sandwich proved clean across the verify→apply window;
+ *   - `merge --ff-only` as the race primitive: git's own ref lock refuses
+ *     concurrently with "not something we can merge", so a base that moved
+ *     mid-act loses the race instead of being overwritten;
+ *   - post-proof: after the apply, base HEAD and tree are re-derived and must
+ *     byte-match the verified commit, else the act refuses loudly with the
+ *     apply honestly recorded { applied: true, proven: false }.
+ * Every refusal path leaves the base byte-identical and writes a blocked
+ * promotion bundle — a refusal is evidence. Idempotent replay onto a base
+ * already at the verified commit ACCEPTS with no second act (no reset, ever).
+ * Deliberately NOT claim-trusting: worker DONE lines, candidate-created PASS
+ * files, and the ADVANCED registry status are all inert here.
+ */
+function isolatePromote(root: string, cfg: CanaryConfig, o: Out, name: string): number {
+  const prov = { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null };
+  const writeBundle = (results: StepResult[], status: 'accepted' | 'blocked', rec: CandidateRecord, promotion: Record<string, unknown>): string => {
+    const dir = writeVerificationBundle(root, 'promotion', results, status, prov, {
+      evidenceRoot: root, subjectRoot: rec.root,
+      extra: { candidateName: rec.name, promotion },
+    });
+    return dir ?? path.join(root, CONFIG_DIR, 'evidence');
+  };
+  const refuse = (rec: CandidateRecord | null, why: string, next?: string, promotion?: Record<string, unknown>): number => {
+    // NO PASS, NO APPLY: every refusal is evidence AND leaves the base intact.
+    if (rec) {
+      const dir = writeBundle([], 'blocked', rec, { ...(promotion ?? {}), refusal: why });
+      o.say(`  evidence: ${dir}`);
+    }
+    o.say(`PROMOTION REFUSED — ${why}`);
+    o.say('  nothing was applied; the trusted base is untouched.');
+    if (next) o.say(`next: ${next}`);
+    return 2;
+  };
+  // Gate 1 — the SOLE authority: a live re-verification, right now. Record
+  // shape, base binding, gitlink, drift, hooks, .npmrc and the plan itself
+  // are all re-checked by this call; nothing stored from an earlier run is
+  // trusted, so replay and forgery have no code path here.
+  const v = verifyCandidate(root, cfg, o, name);
+  if (v.code !== 0) return v.code;
+  const rec = v.rec; const H = v.startHead;
+  if (!rec || H === null) return 2; // fail-closed: a PASS without identity is not a PASS
+  // Gate 2 — sandwich: the candidate must still BE the bytes that passed.
+  const id = candidateIdentity(rec.root);
+  if (!id.resolved) return refuse(rec, 'the candidate became unresolvable during this act — the verified bytes cannot be confirmed', 'canary isolate --list to see what happened');
+  if (id.head !== H) return refuse(rec, `the candidate HEAD moved during verification (${short(H)} → ${short(id.head)}) — the bytes that passed are not what I would apply`, 'run --promote again (it re-verifies from scratch)', { from: H, to: id.head });
+  if (id.dirty) return refuse(rec, 'the candidate has UNCOMMITTED changes — promotion applies COMMITTED, verified bytes; commit inside the candidate first', `git -C "${rec.root}" add -A && git -C "${rec.root}" commit -m "..."`, { from: H, to: H });
+  // Gate 3 — pin the verified commit's tree, content-addressed (H is HEX).
+  const treeOut = gitWithinRoot(rec.root, ['rev-parse', '--verify', '--end-of-options', `${H}^{tree}`]);
+  const treeT = treeOut !== null && HEX_RE.test(treeOut.trim()) ? treeOut.trim() : null;
+  if (treeT === null) return refuse(rec, 'the verified commit tree cannot be resolved — there is nothing to prove a promotion against', undefined, { from: H, to: H });
+  // Gate 4 — the trusted target: base identity live, and TRACKED-clean.
+  // Untracked base files (setup's own .claude edit among them) do not block:
+  // git's own ff-merge refuses when one would be overwritten by the merge.
+  const idb = candidateIdentity(root);
+  if (!idb.resolved) return refuse(rec, 'the trusted base identity became unresolvable — cannot promote into a repo git cannot answer for', 'run canary doctor on the base', { from: null, to: H, tree: treeT });
+  const baseTrackedDirty = gitWithinRoot(root, ['status', '--porcelain', '--untracked-files=no']);
+  if (baseTrackedDirty === null) return refuse(rec, 'the trusted base working tree cannot be inspected — Canary does not guess past a git failure', 'run canary doctor on the base', { from: idb.head, to: H, tree: treeT });
+  if (baseTrackedDirty.trim() !== '') return refuse(rec, 'the trusted base has UNCOMMITTED tracked changes — commit or stash the base first', 'promotion never merges into, or overwrites, uncommitted human work', { from: idb.head, to: H, tree: treeT });
+  // Gate 5 — promotion fast-forwards a checked-out branch (no detached HEAD
+  // rewriting, no history games — the human always keeps plain `git merge`).
+  const branchRaw = gitWithinRoot(root, ['symbolic-ref', '--quiet', 'HEAD']);
+  if (branchRaw === null) return refuse(rec, 'the trusted base is on a detached HEAD — promotion fast-forwards a checked-out BRANCH', `git switch <branch> in ${root} (or merge by hand; Canary never auto-merges onto detached state)`, { from: idb.head, to: H, tree: treeT });
+  const branch = branchRaw.trim(); // evidence fields carry no stray newlines
+  const branchShort = branch.replace(/^refs\/heads\//, '');
+  // Gate 6 — idempotent replay: the base already sits ON the verified commit.
+  if (idb.head === H) {
+    writeBundle([], 'accepted', rec, { branch, from: H, to: H, tree: treeT, idempotent: true });
+    o.say(`ALREADY APPLIED — "${name}"'s verified commit ${short(H)} is exactly where ${branchShort} already sits; the live re-verification passed.`);
+    o.say('ACCEPTED — no second act was needed.');
+    return 0;
+  }
+  // Gate 7 — the apply: fast-forward only. H passed HEX_RE, so it can never
+  // parse as a flag; --end-of-options is deliberately NOT used (undocumented
+  // for `merge` — relying on lenient parsing would be luck, not plumbing).
+  const t0 = new Date().toISOString();
+  const m = spawnSync('git', ['-C', root, 'merge', '--ff-only', H], { encoding: 'utf8', timeout: 120_000, maxBuffer: 32 * 1024 * 1024 });
+  const t1 = new Date().toISOString();
+  const mergeStep: StepResult = {
+    kind: 'promotion', display: `git -C ${root} merge --ff-only ${H}`, ok: m.status === 0, exitCode: m.status,
+    secs: Math.max(0, Math.round((Date.parse(t1) - Date.parse(t0)) / 100) / 10),
+    tail: `${m.stdout ?? ''}${m.stderr ?? ''}`.trim().split(/\r?\n/).filter((l) => l.trim() !== '').slice(-6).join('\n'),
+    argv: ['git', '-C', root, 'merge', '--ff-only', H], cwd: root,
+    stdout: m.stdout ?? '', stderr: m.stderr ?? '', startedAt: t0, endedAt: t1,
+  };
+  if (m.status !== 0) {
+    const firstLine = (m.stderr || m.stdout || String(m.error?.message ?? '')).trim().split(/\r?\n/)[0] ?? '(no message)';
+    return refuse(rec, `git refused the fast-forward onto the verified commit: ${firstLine}`, 'the base moved or diverged since isolation (or an untracked file collides) — re-isolate onto the current base, or merge by hand; Canary never auto-merges or rewrites history', { branch, from: idb.head, to: H, tree: treeT });
+  }
+  // Gate 8 — post-proof: the applied bytes must BE the verified bytes.
+  const pHeadOut = gitWithinRoot(root, ['rev-parse', '--verify', '--end-of-options', 'HEAD']);
+  const pTreeOut = gitWithinRoot(root, ['rev-parse', '--verify', '--end-of-options', 'HEAD^{tree}']);
+  const pHead = pHeadOut !== null && HEX_RE.test(pHeadOut.trim()) ? pHeadOut.trim() : null;
+  const pTree = pTreeOut !== null && HEX_RE.test(pTreeOut.trim()) ? pTreeOut.trim() : null;
+  if (pHead !== H || pTree !== treeT) {
+    return refuse(rec, 'git reported success but Canary cannot re-derive the base identity to match the verified commit — INSPECT the base now', 'this arm should be unreachable on healthy git; the fast-forward WAS applied and is recorded', { branch, from: idb.head, to: H, tree: treeT, applied: true, proven: false });
+  }
+  const dir = writeBundle([mergeStep], 'accepted', rec, { branch, from: idb.head, to: H, tree: treeT });
+  o.say(`PROMOTED "${name}" — ${branchShort} fast-forwarded ${short(idb.head)} → ${short(H)}.`);
+  o.say(`POST-PROOF PASS — base tree ${short(treeT)} is byte-identical to the tree the sealed plan verified this invocation. ACCEPTED — the promotion is proven, not assumed.`);
+  o.say(`  evidence: ${dir}`);
+  o.say(`the candidate record and worktree remain (cleanup is a separate act: canary isolate --remove ${name}).`);
   return 0;
 }
 
@@ -347,18 +478,18 @@ function isolateRemove(root: string, o: Out, name: string, discard: boolean): nu
 export function cmdIsolate(rawArgs: string[]): number {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose);
-  const usage = 'usage: canary isolate <name> [--base <ref>] [--path <dir>] [repo-path] | --list | --verify <name> | --remove <name> [--discard]';
+  const usage = 'usage: canary isolate <name> [--base <ref>] [--path <dir>] [repo-path] | --list | --verify <name> | --remove <name> [--discard] | --promote <name>';
   const misuse = (why: string): number => { o.say(`isolate: ${why}`); o.say(usage); return 3; };
-  let mode: 'create' | 'list' | 'verify' | 'remove' | null = null;
+  let mode: 'create' | 'list' | 'verify' | 'remove' | 'promote' | null = null;
   let arg = ''; let baseRef = 'HEAD'; let baseGiven = false; let pathGiven = false;
   let customPath: string | null = null; let discard = false;
   const pos: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
     if (a === '--list') { if (mode) return misuse('one mode at a time'); mode = 'list'; }
-    else if (a === '--verify' || a === '--remove') {
+    else if (a === '--verify' || a === '--remove' || a === '--promote') {
       if (mode) return misuse('one mode at a time');
-      mode = a.slice(2) as 'verify' | 'remove';
+      mode = a.slice(2) as 'verify' | 'remove' | 'promote';
       arg = rest[++i] ?? '';
       if (!arg) return misuse(`${a} needs a candidate name`);
     } else if (a === '--base') { baseGiven = true; baseRef = rest[++i] ?? ''; if (!baseRef) return misuse('--base needs a ref'); if (baseRef.length > 200) return misuse('--base ref is too long (the record caps baseRef at 200 chars)'); }
@@ -372,7 +503,7 @@ export function cmdIsolate(rawArgs: string[]): number {
     mode = 'create'; arg = pos.shift()!;
   }
   if (mode !== 'create' && (baseGiven || pathGiven)) return misuse('--base/--path apply to isolation (create) only');
-  if (mode === 'create' && discard) return misuse('--discard applies to --remove only');
+  if (discard && mode !== 'remove') return misuse('--discard applies to --remove only');
   // (create's name comes from pos, verify/remove's from their flag — both already non-empty; only list carries none)
   if (mode !== 'list' && !NAME_RE.test(arg)) return misuse(`candidate name must match ${NAME_RE} (no path separators, no leading punctuation)`);
   // CON.json etc. would register and then be undeletable through the device
@@ -385,6 +516,7 @@ export function cmdIsolate(rawArgs: string[]): number {
   const { root, cfg } = base;
   if (mode === 'create') return isolateCreate(root, cfg, o, arg, baseRef, customPath);
   if (mode === 'verify') return isolateVerify(root, cfg, o, arg);
+  if (mode === 'promote') return isolatePromote(root, cfg, o, arg);
   if (mode === 'remove') return isolateRemove(root, o, arg, discard);
   return isolateList(root, o);
 }

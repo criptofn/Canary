@@ -38,6 +38,14 @@
  *      intact, uninstall refusing to delete .canary while candidates are
  *      registered, Windows reserved device names at parse, and PASS is
  *      UNREACHABLE under fake git — the positive path is proven only by probe 14)
+ *  8b. M8 promotion contract tests (the apply act under the fake-git ceiling:
+ *      --promote needs one mode + a valid name and --discard stays --remove-only
+ *      (misuse 3); record-level refusals DELEGATE to the live re-verification —
+ *      promote carries no separate, impersonatable record gate; the canonical
+ *      impersonation guard answers for a forged baseRoot; fake git can never
+ *      reach the apply: BLOCKED only, no PROMOTED/ACCEPTED line, no promotion
+ *      bundle, and a forged stored PASS changes nothing; promotion bundles obey
+ *      the same bounded retention as every other evidence source)
  *   9. empty-plan checkpoint probe (degenerate config never fakes green)
  *  10. M2 real-git probe (candidate binds to actual HEAD/dirty; digest binds to
  *      retained bytes; outward-linked evidence dir is never written through)
@@ -60,6 +68,20 @@
  *      UNREGISTERED); spaces+Unicode --path AND an outside-base --path that
  *      registers, verifies, and clean-removes without --discard; remove refuses
  *      dirty without --discard)
+ *  14b. M8 real-git promotion probe (§8 end to end on real git: live re-verify
+ *      is the SOLE authority — a stored PASS bundle is never read back, a forged
+ *      one stays inert bytes; ff-only apply binds the base to exactly the
+ *      verified commit and the post-proof re-derives base head+tree against the
+ *      pinned candidate identity; idempotent re-promote lands ALREADY APPLIED
+ *      with no second act; divergence, TRACKED-dirty base, untracked collision
+ *      (git's own refusal, stray bytes preserved), detached base, candidate
+ *      HEAD moved mid-plan (the identity-sandwich catch, plus honest recovery:
+ *      a stable second promote applies the new head), dirty candidate after a
+ *      PASS — every refusal leaves the base byte-identical and writes a blocked
+ *      bundle; candidate-planted local config + a git shim on PATH cannot edit
+ *      the sealed authority the plan actually ran; malformed record delegates;
+ *      the one recorded M9-scope residual: a plan step CAN write the base
+ *      evidence dir — proven behaviorally inert, prevention is M9's job)
  *  15. M6 real-git probe (a CLEAN setup baseline really can attribute blame;
  *      a green plan + deleted test = BLOCK — worktree, STAGED, or committed —
  *      and the printed restore advice unmutes; renames out of (and staying
@@ -95,6 +117,7 @@ const STEPS = [
   ['M5 trusted-plan contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m5-proof-plan.test.js'], {}],
   ['M6 proof-orchestration contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m6-proof-orchestration.test.js'], {}],
   ['M7 candidate-isolation contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m7-candidate-isolation.test.js'], {}],
+  ['M8 promotion contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m8-promotion.test.js'], {}],
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: M2 claims-not-evidence (real git)', process.execPath, ['tooling/probes/m2-claims-not-evidence.mjs'], {}],
   ['probe: M3 trust-classes (real git)', process.execPath, ['tooling/probes/m3-trust-classes.mjs'], {}],
@@ -102,6 +125,7 @@ const STEPS = [
   ['probe: M5 trusted plan (real git)', process.execPath, ['tooling/probes/m5-proof-plan.mjs'], {}],
   ['probe: M6 proof orchestration (real git)', process.execPath, ['tooling/probes/m6-proof-orchestration.mjs'], {}],
   ['probe: M7 candidate isolation (real git)', process.execPath, ['tooling/probes/m7-candidate-isolation.mjs'], {}],
+  ['probe: M8 promotion (real git)', process.execPath, ['tooling/probes/m8-promotion.mjs'], {}],
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
   ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],
