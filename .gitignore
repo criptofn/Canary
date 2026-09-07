@@ -34,3 +34,7 @@ Thumbs.db
 
 # Hook-local state (HoldTheGoblin event/audit logs) — machine-local, never tracked
 .holdthegoblin/
+
+# M1 packaging scratch (staging manifest + bundle + packed .tgz) — the artifact
+# of record is proven by tooling/probes/cleanroom-packed-artifact.mjs, not committed
+/pack/

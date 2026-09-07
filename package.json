@@ -28,7 +28,8 @@
     "report": "node apps/cli/dist/src/main.js report"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.6.0"
   }
 }

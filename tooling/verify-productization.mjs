@@ -13,6 +13,9 @@
  *   4. clean-room lazy-vibecoder acceptance (one-command full journey)
  *   5. HTG inline-interpreter corpus (real hook autonomy: 0 routine prompts,
  *      every dangerous case still gated) — classification only, nothing runs
+ *   6. packed-artifact clean room (tooling/pack.mjs -> npm pack -> install the
+ *      exact .tgz into a spaces-path temp repo; full vibecoder journey through
+ *      the installed bundle; tarball audited: no monorepo, no secrets)
  * Brief items 5-7 (setup twice, partial repair, uninstall/reinstall, harness
  * preservation, quoting) are asserted inside steps 2 and 4.
  *
@@ -30,6 +33,7 @@ const STEPS = [
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
+  ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],
 ];
 
 const results = [];
