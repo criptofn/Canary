@@ -115,6 +115,10 @@ try {
     const pkg = JSON.parse(fs.readFileSync(path.join(dirty, 'package.json'), 'utf8'));
     pkg.scripts.test = `node "${FX('f-pass.js')}"`;
     fs.writeFileSync(path.join(dirty, 'package.json'), JSON.stringify(pkg, null, 2));
+    // M5: a repaired script is authority drift until setup re-runs (visible smoke
+    // executes the new command, then seals it). The bare swap BLOCKING is pinned
+    // in m5-proof-plan; this probe keeps its own story: honest repair -> silence.
+    assert.equal(canary(['setup', '--yes', dirty]).status, 0);
     const out = canary(['checkpoint'], dirty, JSON.stringify({ cwd: dirty }));
     assert.equal(out.stdout.trim(), '', `expected silence, got ${out.stdout}`);
     const b = latestBundle(dirty, 'checkpoint');

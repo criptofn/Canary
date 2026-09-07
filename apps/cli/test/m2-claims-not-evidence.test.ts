@@ -101,6 +101,29 @@ describe('candidateIdentity (pure): unknown candidate stays unknown', () => {
     const root = makeProject('ident-fake');
     assert.deepEqual(candidateIdentity(root), { resolved: false, head: null, tree: null, dirty: null });
   });
+  it('a fake .git under a REAL parent repo is still UNIDENTIFIED — git never lends ancestor identity', (t) => {
+    // 2026-09-07: a stray zero-commit repo appeared above %TEMP% on this host
+    // and made fake-.git temp dirs answer `status` about the PARENT (dirty
+    // misattributed). The worse twin is a parent WITH commits: identity fully
+    // resolves, and every byte of it belongs to someone else's repo. Hermetic
+    // here: outer temp repo + one commit, inner project with an empty .git.
+    const g = (dir: string, ...args: string[]) =>
+      spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 30_000 });
+    if (g(TMP, '--version').status !== 0) { t.skip('git unavailable'); return; }
+    const outer = path.join(TMP, 'ident-outer');
+    fs.mkdirSync(outer, { recursive: true });
+    for (const args of [['init', '-b', 'main'], ['config', 'user.email', 'test@canary.local'], ['config', 'user.name', 'test']]) {
+      assert.equal(g(outer, ...args).status, 0);
+    }
+    fs.writeFileSync(path.join(outer, 'tracked.txt'), 'committed by the parent, not the candidate\n');
+    assert.equal(g(outer, 'add', 'tracked.txt').status, 0);
+    const c = g(outer, 'commit', '-m', 'outer commit');
+    assert.equal(c.status, 0, c.stderr);
+    const inner = makeProject(path.join('ident-outer', 'inner')); // fake .git inside a real repo
+    assert.deepEqual(candidateIdentity(inner), { resolved: false, head: null, tree: null, dirty: null });
+    // control: the gate is CONTAINMENT, not git-in-temp being broken
+    assert.equal(candidateIdentity(outer).resolved, true);
+  });
 });
 
 describe('verification bundle: what Canary EXECUTED, recorded from its own run', () => {
@@ -153,6 +176,10 @@ describe('verification bundle: what Canary EXECUTED, recorded from its own run',
     // the TS union narrows detectPlan's OWN output, but disk bytes only face
     // validConfigShape's isStr — that is exactly the gap the sanitizer closes.
     (cfg.plan[0] as { kind: string }).kind = '../../pwn'; // isStr-valid; stepArgv only guards pm+script, so the step still runs
+    // M5 made a hand-edited plan an AUTHORITY block (pinned in m5-proof-plan:
+    // kind-relabel -> 'plan no longer matches the sealed plan'). This test's
+    // subject is sanitization, not authority, so it runs as a pre-M5 config.
+    delete (cfg as { planAuthority?: unknown }).planAuthority;
     writeConfig(root, cfg);
     assert.equal(checkpoint(root), null, 'containment never changes the verdict (here: silent pass)');
     // the traversal must NOT have landed files outside the bundle dir...

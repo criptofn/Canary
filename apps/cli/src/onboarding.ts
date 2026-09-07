@@ -91,6 +91,10 @@ export interface CanaryConfig {
    *  Canary was wired". Optional: configs written before M4 have no provable
    *  baseline, and bundles say `baseline: null` rather than invent one. */
   baseline?: BaselineStamp;
+  /** M5 trusted verification plan: the plan AND the exact script TEXTS that a
+   *  human set up. Verified before every execution; drift blocks. Optional:
+   *  configs written before M5 have no seal and verify exactly as before. */
+  planAuthority?: PlanAuthority;
 }
 
 // ---------- detection (pure, testable) ----------
@@ -461,12 +465,25 @@ export interface BaselineStamp extends Identity { at: string }
 
 /** Read-only, fixed-argv git probes (same spawn pattern as configTracked).
  *  A fake .git dir that cannot answer is recorded as UNIDENTIFIED — the
- *  evidence bundle never upgrades an unknown candidate into a known one. */
+ *  evidence bundle never upgrades an unknown candidate into a known one.
+ *  Containment, not just answers: git discovery walks UP, so when root/.git
+ *  is absent or invalid and some ANCESTOR is a real repo, `status` exits 0
+ *  with the PARENT's file list while `HEAD` may fail outright — reporting
+ *  that as this candidate's identity is a misattribution (found by the
+ *  2026-09-07 environment: a stray zero-commit repo under %TEMP%'s home).
+ *  The toplevel must resolve to root itself — linked worktrees and
+ *  submodules do; a parent repo does not — or everything is UNIDENTIFIED. */
 export function candidateIdentity(root: string): Identity {
+  const unidentified: Identity = { resolved: false, head: null, tree: null, dirty: null };
   const gitOut = (args: string[]): string | null => {
     const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 15_000 });
     return r.status === 0 ? r.stdout : null;
   };
+  const top = gitOut(['rev-parse', '--show-toplevel']);
+  if (top === null) return unidentified; // not a repo at all (or git refuses to run)
+  const rootReal = containedRealPath(root, root);
+  const topReal = top.trim() ? containedRealPath(root, top.trim()) : null;
+  if (rootReal === null || topReal === null || topReal !== rootReal) return unidentified; // answered about an ancestor, not about root
   const head = gitOut(['rev-parse', 'HEAD']);
   const tree = gitOut(['rev-parse', 'HEAD^{tree}']);
   const status = gitOut(['status', '--porcelain']);
@@ -566,6 +583,83 @@ export interface BundleProvenance {
   baseline: BaselineStamp | null;
   /** digest of the optional task string a hook sent; raw prose is never stored */
   taskDigest?: string;
+}
+
+// ---------- M5 trusted verification plan ----------
+/**
+ * The worker must not redefine success after implementing its solution. The
+ * plan and the script TEXTS a human approved at setup are TRUSTED authority;
+ * the candidate controls only the implementation. This seal catches the
+ * subtle attack the exit-code oracle cannot: `"test": "vitest"` swapped for
+ * `"test": "echo all good"` still exits 0 — a "pass" of a hollowed-out check
+ * certifies nothing. So the seal is verified BEFORE anything executes, and a
+ * drifted command is never run as proof at all.
+ *
+ * Detected here (mid-task drift against the setup-time seal): plan edits
+ * (cfg.plan — the test/build/typecheck script choice, kind relabels
+ * included) and package-script TEXT edits. NOT claimed: any seal over the
+ * tool config files a sealed command reads (vitest.config.ts, tsconfig …) —
+ * editing those is the same attack class arriving through an UNSEALED door,
+ * and working-tree visibility is the detection path M7 builds on; overclaim
+ * it not. Containment of an agent that re-runs setup itself is likewise not
+ * claimed — re-sealing is a visible act that re-smokes the new command — and
+ * honest containment of candidate edits to Canary's own protected files
+ * (.canary state, hooks) is M7's protected-surface work. Per-test-name
+ * inventory drift (427→426) is out of scope too: M4's observedCounts record
+ * the raw material; no seal over test names exists yet. A config with no
+ * seal (pre-M5) verifies exactly as before — additive, and `canary setup`
+ * is what creates the authority.
+ */
+export interface PlanAuthority {
+  /** when a human ran setup and this seal was captured */
+  at: string;
+  planDigest: string;
+  /** sha256 of the exact package.json script text, keyed by script name */
+  scriptDigests: Record<string, string>;
+}
+
+/** Capture the authority a human just approved: the plan plus the verbatim
+ *  text of every script it references. detectPlan guarantees plan scripts
+ *  exist as non-empty strings in pkgScripts; anything else is left unsealed
+ *  and the drift check fails closed on it. */
+export function sealPlanAuthority(plan: PlanStep[], pkgScripts: Record<string, unknown>): PlanAuthority {
+  const scriptDigests: Record<string, string> = {};
+  for (const s of plan) {
+    const t = pkgScripts[s.script];
+    if (typeof t === 'string') scriptDigests[s.script] = sha256(t);
+  }
+  return { at: new Date().toISOString(), planDigest: planDigest(plan), scriptDigests };
+}
+
+/** How the current repo state deviates from the sealed verification authority
+ *  — a human-readable sentence (script names sanitized; no candidate-controlled
+ *  prose can ride the message), or null when there is no drift (or no seal). */
+export function planAuthorityDrift(root: string, cfg: CanaryConfig): string | null {
+  const seal = cfg.planAuthority;
+  if (seal === undefined) return null; // pre-M5 config: nothing sealed, nothing to drift from
+  if (typeof seal !== 'object' || seal === null
+    || typeof seal.at !== 'string' || !/^[0-9a-f]{64}$/.test(String(seal.planDigest))
+    || typeof seal.scriptDigests !== 'object' || seal.scriptDigests === null || Array.isArray(seal.scriptDigests)
+    || !Object.values(seal.scriptDigests).every((d) => typeof d === 'string' && /^[0-9a-f]{64}$/.test(d))) {
+    return 'the sealed verification authority in .canary/canary.local.json is malformed (hand-edited?)';
+  }
+  const drift: string[] = [];
+  if (planDigest(cfg.plan) !== seal.planDigest) drift.push('the plan no longer matches the sealed plan');
+  const pkg = parseJsonOrNull(path.join(root, 'package.json'));
+  const scripts = pkg ? (pkg.scripts ?? {}) as Record<string, unknown> : null;
+  if (scripts === null && cfg.plan.length > 0) drift.push('package.json cannot be read to compare the sealed scripts');
+  for (const s of cfg.plan) {
+    const name = isSafeScriptName(s.script) ? s.script : '<odd plan entry>'; // never echo raw config text
+    if (!Object.hasOwn(seal.scriptDigests, s.script)) {
+      drift.push(`script "${name}" is in the plan but was never sealed`);
+      continue;
+    }
+    if (scripts === null) continue; // unreadable pkg already reported
+    const cur = scripts[s.script];
+    if (typeof cur !== 'string') drift.push(`script "${name}" no longer exists in package.json`);
+    else if (sha256(cur) !== seal.scriptDigests[s.script]) drift.push(`script "${name}" changed since setup sealed it`);
+  }
+  return drift.length ? drift.join('; ') : null;
 }
 
 /**
@@ -761,6 +855,9 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     // M4 baseline: stamped NOW by Canary's own probes. Honest label —
     // "state when Canary was wired", not a claim about the agent's past.
     baseline: { at: new Date().toISOString(), ...candidateIdentity(root) },
+    // M5: whatever plan and script texts are on disk RIGHT NOW are what the
+    // human running setup just approved — they become the sealed authority.
+    planAuthority: sealPlanAuthority(plan, (pkg.scripts ?? {}) as Record<string, unknown>),
     cliPath: CLI_ENTRY, hookCommand,
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
     touched: [res.touched!],
@@ -774,6 +871,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     return 2;
   }
   o.say(`Claude Code will run Canary automatically when the agent finishes a turn here.${prev && prev !== 'corrupt' ? ' (re-run: existing Canary hook refreshed, no duplicates)' : ''}`);
+  o.detail('authority sealed: the plan and the exact text of every script it runs — candidate edits to the verification surface block completion until a human re-runs setup.');
 
   // smoke = run the plan for real (this is the proof the wiring works)
   const interactive = process.stdin.isTTY === true;
@@ -843,6 +941,10 @@ export function cmdDoctor(rawArgs: string[]): number {
   for (const s of cfg.plan) {
     if (!scripts[s.script]) problems.push(`plan references script "${s.script}" which no longer exists in package.json`);
   }
+  // M5: a sealed authority that drifted is a problem REGARDLESS of whether the
+  // current commands pass — doctor must not certify READY on proof it never sealed.
+  const drift = planAuthorityDrift(root, cfg);
+  if (drift) problems.push(`verification authority changed since setup — ${drift}; restore the sealed checks, or re-run setup to re-seal deliberately`);
   if (!fs.existsSync(cfg.cliPath)) problems.push('the Canary command files moved or were removed — reinstall, then re-run setup');
   for (const t of cfg.touched) {
     if (!fs.existsSync(t.path)) { problems.push(`${rel(root, t.path)} is missing — the harness hook is NOT registered, so nothing runs automatically`); continue; }
@@ -874,6 +976,7 @@ export function cmdDoctor(rawArgs: string[]): number {
   o.verdict('READY', 'wiring verified; the checks just ran and passed.', 'nothing to do — the agent finishes, Canary checks');
   // M3 (verbose-only — trust classes are evidence internals, not default UX):
   o.detail('trust: this READY is CANARY_OBSERVED — Canary executed the checks in this very invocation. Agent words are AGENT_REPORTED and never sufficient for a PASS; no class is promoted by copying bytes into a Canary-owned file (evidence is never read back for verdicts).');
+  if (cfg.planAuthority) o.detail('authority: every command that just ran is one setup sealed — script-text drift is blocked before execution, not excused after it passes.');
   return 0;
 }
 
@@ -942,6 +1045,19 @@ export async function cmdCheckpoint(): Promise<number> {
   if (!Array.isArray(cfg.plan) || cfg.plan.length === 0) {
     // degenerate/hand-edited config: executing zero checks is NOT a pass — say so, don't fake green
     return emit({ systemMessage: 'Canary: the verification plan is empty, so nothing was checked — this completion is UNVERIFIED, not a pass. Run: canary doctor' });
+  }
+  // M5: check the SEALED AUTHORITY before executing anything — a candidate-
+  // edited command must never be certified as proof, not even by failing on
+  // it. Verdict authority stays Canary's own execution; this gate only
+  // decides WHICH commands may run as proof at all.
+  const drift = planAuthorityDrift(root, cfg);
+  if (drift) {
+    writeCheckpoint(root, 'fail', ['authority'], 'checkpoint'); // state, not a bundle: nothing was executed
+    if (input.stop_hook_active === true) {
+      // same no-loop posture as a failed plan: one repair turn, then honest stop
+      return emit({ systemMessage: `Canary: verification authority is still changed (${drift.slice(0, 200)}) after one repair attempt — stopping anyway; a human should look.` });
+    }
+    return emit({ decision: 'block', reason: `Canary blocked completion: verification authority changed by candidate — ${drift}. Canary will not certify proof commands it never sealed. Restore the sealed checks, or have a human run: canary setup (re-runs the new command under a visible smoke test and re-seals it).` });
   }
 
   // M4 provenance for every bundle this invocation writes — from the TRUSTED
