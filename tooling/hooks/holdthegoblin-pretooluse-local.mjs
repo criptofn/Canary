@@ -289,7 +289,7 @@ const PAYLOAD_DANGER = new RegExp(
 // open()/openSync() in any mode that is not provably a plain read mode.
 const OPEN_ANY = /\bopen(?:Sync|AsPromise)?\s*\(/i;
 const OPEN_SAFE_KNOWN = /\bopen(?:Sync|AsPromise)?\s*\(\s*[^,()]+,\s*['"](?:r|rb|br|rt|tr)['"]\s*(?:,[^,()]*)?\)/gi;
-const OPEN_SAFE_DEFAULT = /\bopen(?:Sync|AsPromise)?\s*\(\s*[^,()]+\)/gi; // flags default to 'r'
+const OPEN_SAFE_DEFAULT = /\bopen(?:Sync|AsPromise)?\s*\(\s*[^,()]+(?:,\s*(?:encoding|errors|newline|buffering)\s*=\s*[^,()]+)*\s*\)/gi; // default read mode; only inert read-related keyword args allowed
 function openDanger(p) {
   const s = p.replace(OPEN_SAFE_KNOWN, '(0)').replace(OPEN_SAFE_DEFAULT, '(0)');
   return OPEN_ANY.test(s);
@@ -395,6 +395,14 @@ function bashPayloadReadOnly(p, depth) {
 // ---------------------------------------------------------------------------
 // 5. Decision.
 // ---------------------------------------------------------------------------
+function classifyQuotedPythonHeredoc(cmd) {
+  const m = cmd.match(/^\s*(python|python3)\s+-\s+<<'([A-Za-z_][A-Za-z0-9_]*)'\r?\n([\s\S]*?)\r?\n\2\s*$/);
+  if (!m) return null;
+  const body = m[3];
+  if (!body.trim()) return 'ask';
+  return !globallyDangerous(body) && payloadProvableReadOnly(body) ? 'allow' : 'ask';
+}
+
 function provableReadOnlyAnalysis(cmd) {
   if (globallyDangerous(cmd)) return false;
   const segs = scanTop(cmd);
@@ -422,6 +430,20 @@ try {
   input = JSON.parse(raw);
 } catch {
   delegate(raw); // HoldTheGoblin handles malformed input its own way (deny).
+}
+
+if (
+  input?.hook_event_name === 'PreToolUse' &&
+  input?.tool_name === 'Bash' &&
+  typeof input?.tool_input?.command === 'string'
+) {
+  const hd = classifyQuotedPythonHeredoc(input.tool_input.command);
+  if (hd === 'allow') {
+    emit('allow', 'HoldTheGoblin-local: quoted Python heredoc is provably read-only.');
+  }
+  if (hd === 'ask') {
+    emit('ask', 'HoldTheGoblin-local: Python heredoc is not provably read-only; human approval required.');
+  }
 }
 
 if (
