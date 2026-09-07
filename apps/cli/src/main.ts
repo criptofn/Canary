@@ -13,6 +13,8 @@
  *   canary doctor                            runs the checks NOW; READY only from this run
  *   canary uninstall                         remove exactly Canary's own changes
  *   canary checkpoint                        harness-internal: verify at completion boundary
+ *   canary claim <text>                      record the agent's account as an UNTRUSTED
+ *                                          hint — claims are not evidence, never a verdict
  *
  * Exit codes: 0 proof holds fully on the proof host / CONFIRMED_REGRESSION as expected
  *             1 proof failed / PASS
@@ -40,7 +42,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
-import { cmdSetup, cmdDoctor, cmdUninstall, cmdCheckpoint } from './onboarding.js';
+import { cmdSetup, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim } from './onboarding.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -60,6 +62,8 @@ usage:
   canary doctor             is Canary actually protecting this repo? Runs the checks now;
                             READY / NEEDS ATTENTION / UNSUPPORTED (--run accepted, always on)
   canary uninstall          remove Canary's own changes, keep everything else
+  canary claim "<text>"     the agent's account, stored as an UNTRUSTED hint — claims
+                            are not evidence; only Canary's own runs decide verdicts
   canary version`);
   process.exit(3);
 }
@@ -291,6 +295,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'doctor') return cmdDoctor(rest);
   if (cmd === 'uninstall') return cmdUninstall(rest);
   if (cmd === 'checkpoint') return cmdCheckpoint();
+  if (cmd === 'claim') return cmdClaim(rest);
   return usage();
 }
 

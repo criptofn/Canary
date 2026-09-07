@@ -27,12 +27,25 @@
  *  - doctor's READY is always earned in the invocation that prints it: doctor
  *    runs the checks every time; a stored checkpoint can never produce READY
  *    on its own (post-review S4 — the exit-0 oracle must not reward a record).
+ *  - CLAIMS ARE NOT EVIDENCE (M2): a worker agent's reports ("427 tests
+ *    passed", results.txt, logs, screenshots) are UNTRUSTED hints. Every check
+ *    that carries a verdict is one Canary EXECUTED ITSELF in this invocation,
+ *    and each run writes a verification bundle (.canary/evidence/) recording
+ *    the candidate identity, exact argv, cwd, runtime identity, relevant env
+ *    overrides, raw stdout/stderr (capped files + full sha256), exit code and
+ *    independently derived observation counts. The bundle — like
+ *    last-checkpoint.json — is NEVER read back to produce a verdict; it is
+ *    written evidence for humans, not an oracle for the hook. An agent claim
+ *    recorded via `canary claim` can only ANNOTATE a block Canary already
+ *    decided from its own execution, and can never turn a pass into a block
+ *    or a block into a pass.
  *  - uninstall keeps .canary (its ownership record) until cleanup fully
  *    succeeded, so the advertised "re-run uninstall" can actually work
  *    (post-review S6).
  *  - Exit codes (same doctrine as main.ts): 0 READY/success, 2 NEEDS
  *    ATTENTION / UNSUPPORTED / execution refused, 3 misuse.
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,6 +60,11 @@ export const CLI_ENTRY = path.join(HERE, 'main.js');
 const CONFIG_DIR = '.canary';
 const CONFIG_FILE = 'canary.local.json';
 const CHECKPOINT_FILE = 'last-checkpoint.json';
+const EVIDENCE_DIR = 'evidence';
+const CLAIMS_FILE = path.join('claims', 'latest.json');
+/** bundles kept before the oldest are pruned — evidence must not grow unbounded */
+const EVIDENCE_KEEP = 10;
+const RAW_CAP = 256 * 1024;
 const LOCKFILES: Array<[string, string]> = [
   ['package-lock.json', 'npm'],
   ['pnpm-lock.yaml', 'pnpm'],
@@ -395,7 +413,11 @@ export function uninstallHooks(root: string, cfg: CanaryConfig): { removed: numb
 
 // ---------- execution ----------
 
-export interface StepResult { kind: string; display: string; ok: boolean; exitCode: number | null; secs: number; tail: string }
+export interface StepResult {
+  kind: string; display: string; ok: boolean; exitCode: number | null; secs: number; tail: string;
+  /** M2 evidence fields — recorded, never consulted for a verdict */
+  argv: string[]; cwd: string; stdout: string; stderr: string;
+}
 
 export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs = 600_000): StepResult {
   const argv = stepArgv(pm, step.script); // throws unless [pm, 'run', script] is fully whitelisted
@@ -405,13 +427,148 @@ export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs 
     shell: process.platform === 'win32', // npm et al. are .cmd shims on Windows; argv is whitelisted fragments only
     maxBuffer: 32 * 1024 * 1024,
   });
-  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  const stdout = r.stdout ?? '';
+  const stderr = r.stderr ?? '';
+  const out = `${stdout}${stderr}`;
   const infra = r.error !== undefined && r.status === null;
   return {
     kind: step.kind, display, ok: !infra && r.status === 0,
     exitCode: infra ? null : r.status, secs: 0,
     tail: out.split(/\r?\n/).filter(Boolean).slice(-12).join('\n'),
+    argv, cwd: root, stdout, stderr,
   };
+}
+
+// ---------- M2 evidence: claims are not evidence ----------
+
+/** Read-only, fixed-argv git probes (same spawn pattern as configTracked).
+ *  A fake .git dir that cannot answer is recorded as UNIDENTIFIED — the
+ *  evidence bundle never upgrades an unknown candidate into a known one. */
+export function candidateIdentity(root: string): { resolved: boolean; head: string | null; dirty: boolean | null } {
+  const gitOut = (args: string[]): string | null => {
+    const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 15_000 });
+    return r.status === 0 ? r.stdout : null;
+  };
+  const head = gitOut(['rev-parse', 'HEAD']);
+  const status = gitOut(['status', '--porcelain']);
+  return {
+    resolved: head !== null && head.trim().length > 0,
+    head: head?.trim() ?? null,
+    dirty: status === null ? null : status.trim().length > 0,
+  };
+}
+
+/** Derive test counts FROM THE BYTES CANARY CAPTURED (or from claim text —
+ *  same parser, applied to untrusted input). Observation only: nothing here
+ *  can make a command succeed or fail; the exit code remains the oracle and
+ *  a printed summary is just another claim.
+ *  Cost is bounded twice over (M2 review): only the LAST 256 KiB is scanned
+ *  (summaries sit at the tail anyway) and the jest gap is a bounded `{0,120}`
+ *  lazy — an adversarial multi-MB single line of "Tests:Tests:..." cannot
+ *  stall the hook (an unbounded [^\n]*? here is per-start quadratic, and a
+ *  hung checkpoint gets the hook killed, which fails the stop gate open). */
+export function deriveObservedCounts(raw: string): { parser: string; passed: number; failed: number } | null {
+  const text = raw.length > 262_144 ? raw.slice(-262_144) : raw;
+  const families: Array<[string, RegExp, RegExp]> = [
+    ['node --test', /#\s*pass\s+(\d+)/, /#\s*fail\s+(\d+)/],
+    ['mocha', /(\d+)\s+passing\b/, /(\d+)\s+failing\b/],
+    ['jest', /Tests:[^\n]{0,120}?(\d+)\s+passed/, /Tests:[^\n]{0,120}?(\d+)\s+failed/],
+    ['vitest', /Tests\s+(\d+)\s+passed/, /Tests\s+(\d+)\s+failed/],
+  ];
+  for (const [parser, pass, fail] of families) {
+    const matches = (re: RegExp): RegExpMatchArray[] => [...text.matchAll(new RegExp(re.source, `${re.flags}g`))];
+    const pm = matches(pass).pop();
+    if (!pm) continue;
+    const fm = matches(fail).pop();
+    return { parser, passed: Number(pm[1]), failed: fm ? Number(fm[1]) : 0 };
+  }
+  return null;
+}
+
+/** Which env vars that steer child behavior were present (NAMES only, never
+ *  values — a token in NODE_OPTIONS is not evidence to store). */
+function relevantEnvNames(): string[] {
+  return Object.keys(process.env)
+    .filter((k) => /^(npm_config_|NODE_OPTIONS$|NODE_PATH$|CI$)/.test(k))
+    .sort();
+}
+
+const sha256 = (s: string): string => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
+
+/**
+ * Write what Canary just executed, as bytes — argv, cwd, runtime, candidate,
+ * raw streams (capped files + full-byte digests), exit codes, derived
+ * observation counts. BEST-EFFORT: evidence plumbing must never crash or
+ * alter the harness hook, and nothing reads this back for a verdict (S4
+ * doctrine extended to the whole evidence dir).
+ */
+function writeVerificationBundle(root: string, source: string, results: StepResult[], status: string): void {
+  try {
+    if (containedRealPath(root, path.join(root, CONFIG_DIR)) === null) return; // linked .canary: no writes through it (S3)
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dir = path.join(root, CONFIG_DIR, EVIDENCE_DIR, `${stamp}-${source}`);
+    if (containedRealPath(root, dir) === null) return;
+    fs.mkdirSync(dir, { recursive: true });
+    const steps = results.map((r, i) => {
+      const files: Record<'out' | 'err', string> = { out: '', err: '' };
+      const raws: Record<'out' | 'err', string> = { out: r.stdout, err: r.stderr };
+      (['out', 'err'] as const).forEach((stream) => {
+        // kind arrives from DISK config (validConfigShape only checks isStr), so it
+        // must not shape a path component — path.join collapses `../` right out of
+        // the bundle dir. detectPlan kinds (typecheck/tests/build) pass unchanged.
+        const safeKind = /^[a-z][a-z0-9-]{0,31}$/.test(r.kind) ? r.kind : 'step';
+        const name = `${i + 1}-${safeKind}.${stream}.log`; // name is derived, never supplied
+        const text = raws[stream];
+        const capped = text.length > RAW_CAP
+          ? `${text.slice(0, RAW_CAP / 2)}\n…TRUNCATED (${text.length} bytes total; full-byte sha256 below)…\n${text.slice(-RAW_CAP / 2)}`
+          : text;
+        try { writeFileAtomic(path.join(dir, name), capped); files[stream] = name; } catch { /* best-effort per stream */ }
+      });
+      return {
+        kind: r.kind, argv: r.argv, cwd: r.cwd, ok: r.ok, exitCode: r.exitCode,
+        stdout: { sha256: sha256(r.stdout), bytes: Buffer.byteLength(r.stdout, 'utf8'), file: files.out || null },
+        stderr: { sha256: sha256(r.stderr), bytes: Buffer.byteLength(r.stderr, 'utf8'), file: files.err || null },
+        observedCounts: deriveObservedCounts(`${r.stdout}${r.stderr}`),
+      };
+    });
+    const bundle = {
+      schema: 'canary-verification/1', at: new Date().toISOString(), source, status,
+      note: 'Written from Canary\'s OWN execution. Agent reports and printed summaries are claims, not evidence; this bundle is never read back to produce a verdict.',
+      canaryEntry: CLI_ENTRY,
+      runtime: { node: process.version, execPath: process.execPath, platform: process.platform, arch: process.arch },
+      cwd: root, candidate: candidateIdentity(root), envOverrides: relevantEnvNames(), steps,
+    };
+    writeFileAtomic(path.join(dir, 'verification.json'), JSON.stringify(bundle, null, 2) + '\n');
+    // bounded retention: newest EVIDENCE_KEEP bundles; only Canary's own
+    // <stamp>-<source> dirs are eligible; anything else in evidence/ is left alone
+    const parent = path.join(root, CONFIG_DIR, EVIDENCE_DIR);
+    const mine = fs.readdirSync(parent)
+      .filter((d) => /^\d{4}-\d{2}-\d{2}T[\d-]{11,}(Z)?-(setup|doctor|checkpoint)$/.test(d))
+      .sort();
+    for (const d of mine.slice(0, Math.max(0, mine.length - EVIDENCE_KEEP))) {
+      try { fs.rmSync(path.join(parent, d), { recursive: true, force: true }); } catch { /* churn-tolerant */ }
+    }
+  } catch { /* evidence is best-effort; never crash the harness hook over it */ }
+}
+
+/** The agent's latest UNTRUSTED hint — read ONLY to annotate a block Canary
+ *  already decided from its own execution. Shape-checked, capped, silent null
+ *  on anything odd; it can never carry authority. */
+function readAgentClaim(root: string): { at: string; text: string } | null {
+  try {
+    const p = path.join(root, CONFIG_DIR, CLAIMS_FILE);
+    if (containedRealPath(root, p) === null) return null;
+    if (!fs.existsSync(p)) return null;
+    const v = JSON.parse(fs.readFileSync(p, 'utf8')) as unknown;
+    const o = v as { at?: unknown; text?: unknown };
+    if (typeof o?.text !== 'string' || typeof o?.at !== 'string') return null;
+    // `at` is interpolated into a block-reason annotation, so it must FULLY match
+    // an ISO timestamp (end anchor included — a prefix-only gate lets up to ~21
+    // bytes of agent prose ride the tail of a hand-planted file into the note).
+    // cmdClaim always writes new Date().toISOString(), which passes.
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?$/.test(o.at)) return null;
+    return { at: o.at.slice(0, 40), text: o.text.slice(0, 4000) };
+  } catch { return null; }
 }
 
 function rel(root: string, p: string): string { return path.relative(root, p) || '.'; }
@@ -542,11 +699,14 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   o.say('\nsmoke test (running your own project scripts):');
   let allOk = true;
   const failed: StepResult[] = [];
+  const ran: StepResult[] = [];
   for (const s of plan) {
     const r = runPlanStep(root, pm, s);
+    ran.push(r);
     o.step(r);
     if (!r.ok) { allOk = false; failed.push(r); }
   }
+  writeVerificationBundle(root, 'setup', ran, allOk ? 'pass' : 'fail');
   writeCheckpoint(root, allOk ? 'pass' : 'fail', failed.map((f) => f.kind), 'setup');
   if (allOk) {
     o.verdict('READY', 'Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.', `try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor`);
@@ -611,7 +771,9 @@ export function cmdDoctor(rawArgs: string[]): number {
   // --run is accepted but no longer changes behavior.
   o.say('running the verification plan:');
   const failed: StepResult[] = [];
-  for (const s of cfg.plan) { const r = runPlanStep(root, cfg.pm, s); o.step(r); if (!r.ok) failed.push(r); }
+  const ran: StepResult[] = [];
+  for (const s of cfg.plan) { const r = runPlanStep(root, cfg.pm, s); ran.push(r); o.step(r); if (!r.ok) failed.push(r); }
+  writeVerificationBundle(root, 'doctor', ran, failed.length ? 'fail' : 'pass');
   writeCheckpoint(root, failed.length ? 'fail' : 'pass', failed.map((f) => f.kind), 'doctor');
   if (failed.length) {
     o.verdict('NEEDS ATTENTION', `wiring is good, but the checks just failed (${failed.map((f) => f.kind).join(', ')}) — your code is talking, not Canary.`, 'fix the failing checks (ask the agent), then: canary doctor');
@@ -681,22 +843,87 @@ export async function cmdCheckpoint(): Promise<number> {
   }
 
   const failed: StepResult[] = [];
+  const ran: StepResult[] = [];
   let infra = '';
   for (const s of cfg.plan) {
     let r: StepResult;
     try { r = runPlanStep(root, cfg.pm, s); } catch (e) { infra = String(e); break; }
+    ran.push(r);
     if (!r.ok) failed.push(r);
   }
   if (infra) {
+    writeVerificationBundle(root, 'checkpoint', ran, 'infra');
     writeCheckpoint(root, 'infra', failed.map((f) => f.kind), 'checkpoint');
     return emit({ systemMessage: `Canary could not run the checks (${infra.slice(0, 160)}) — this completion is UNVERIFIED, not a pass.` });
   }
-  if (failed.length === 0) { writeCheckpoint(root, 'pass', [], 'checkpoint'); return 0; }
+  if (failed.length === 0) {
+    writeVerificationBundle(root, 'checkpoint', ran, 'pass');
+    writeCheckpoint(root, 'pass', [], 'checkpoint');
+    return 0; // silent even if an agent claim contradicts — claims never BLOCK, and never CREATE a pass
+  }
+  writeVerificationBundle(root, 'checkpoint', ran, 'fail');
   writeCheckpoint(root, 'fail', failed.map((f) => f.kind), 'checkpoint');
   if (input.stop_hook_active === true) {
     // already one repair attempt this turn — never loop the agent; surface honestly instead
     return emit({ systemMessage: `Canary: checks still failing (${failed.map((f) => f.kind).join(', ')}) after one repair attempt — stopping anyway; a human should look.` });
   }
-  const reason = `Canary verification failed: ${failed.map((f) => `${f.kind} (${f.display}${f.exitCode === null ? ', could not run' : `, exit ${f.exitCode}`})`).join('; ')}. Fix this before finishing. Last output:\n${failed.map((f) => f.tail).join('\n---\n').slice(0, 4000)}`;
+  // M2: an agent claim may only ANNOTATE this already-decided block, and only
+  // as a truthful claim-vs-observation contrast. Verdict authority: Canary's own
+  // execution (exit code). Absent/unparseable claim => no note at all.
+  let claimNote = '';
+  const claim = readAgentClaim(root);
+  if (claim) {
+    const claimed = deriveObservedCounts(claim.text);
+    const observed = deriveObservedCounts(failed.map((f) => `${f.stdout}${f.stderr}`).join('\n'));
+    if (claimed && observed && (claimed.passed !== observed.passed || claimed.failed !== observed.failed)) {
+      claimNote = `Claim is not evidence. Agent claimed: ${claimed.passed} passed / ${claimed.failed} failed (hint recorded ${claim.at}). ` +
+        `Canary observed: ${observed.passed} passed / ${observed.failed} failed, from its own run of ${JSON.stringify(failed.map((f) => f.display).join(' + '))}. ` +
+        `Repair the observed failures.\n`;
+    }
+  }
+  const reason = `${claimNote}Canary verification failed: ${failed.map((f) => `${f.kind} (${f.display}${f.exitCode === null ? ', could not run' : `, exit ${f.exitCode}`})`).join('; ')}. Fix this before finishing. Last output:\n${failed.map((f) => f.tail).join('\n---\n').slice(0, 4000)}`;
   return emit({ decision: 'block', reason });
+}
+
+/**
+ * M2 claim intake: the agent records what it BELIEVED happened. The claim is
+ * stored as an untrusted hint next to Canary's own evidence and can never
+ * create, block, or modify a verdict — only annotate a block Canary decided
+ * from checks it executed itself. (Tests passing != task proven complete;
+ * agent-reported != canary-observed.)
+ */
+export function cmdClaim(rawArgs: string[]): number {
+  const { opts, rest } = parseGlobals(rawArgs);
+  const o = new Out(opts.verbose);
+  const text = rest.filter((a) => !a.startsWith('--')).join(' ').trim();
+  if (!text) { o.say('usage: canary claim "<what the agent believes happened>"'); return 3; }
+  const root = findRepoRoot(process.cwd());
+  if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository — there is no project here to attach a claim to.', 'cd into your project and try again'); return 2; }
+  const cfg = readConfig(root);
+  if (cfg === 'corrupt') { o.verdict('NEEDS ATTENTION', "Canary's local config is unreadable — it will not attach claims to state it cannot read.", 'run: canary setup'); return 2; }
+  if (!cfg) { o.verdict('NEEDS ATTENTION', 'Canary is not set up in this repo, so there is no verification record to attach a claim to.', 'run: canary setup --yes'); return 2; }
+  const distrust = untrustedConfigReason(root, cfg);
+  if (distrust) { o.verdict('NEEDS ATTENTION', `Canary will not record claims against a config it does not trust (${distrust}).`, "run: canary setup --yes (rewrites it as this machine's own)"); return 2; }
+  try {
+    if (containedRealPath(root, path.join(root, CONFIG_DIR)) === null) {
+      o.verdict('NEEDS ATTENTION', '.canary resolves outside the repository (a link?) — Canary will not write claims through it.', 'replace it with a real folder, then re-run'); return 2;
+    }
+    // the claims PATH (not just .canary) must stay inside: a linked claims/
+    // dir would otherwise let the atomic write land outside the repo (S3)
+    const claimPath = path.join(root, CONFIG_DIR, CLAIMS_FILE);
+    if (containedRealPath(root, claimPath) === null) {
+      o.verdict('NEEDS ATTENTION', `${rel(root, claimPath)} resolves outside the repository (a link?) — Canary will not write claims through it.`, 'replace it with a real folder inside .canary, then re-run'); return 2;
+    }
+    fs.mkdirSync(path.dirname(claimPath), { recursive: true });
+    writeFileAtomic(claimPath, JSON.stringify({
+      at: new Date().toISOString(), kind: 'agent-claim',
+      authority: 'UNTRUSTED HINT — claims are not evidence; verdicts come only from checks Canary executes',
+      text: text.slice(0, 4000),
+    }, null, 2) + '\n');
+  } catch (e) {
+    o.verdict('NEEDS ATTENTION', `could not record the claim (${String(e).slice(0, 140)}).`, 'fix the file/permission, then re-run'); return 2;
+  }
+  o.say('claim recorded as an UNTRUSTED hint. Canary does not execute, trust, or report anything from it;');
+  o.say('the next completion check re-runs the plan itself and judges only its own execution (claim ≠ evidence).');
+  return 0;
 }
