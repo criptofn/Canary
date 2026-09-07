@@ -15,6 +15,11 @@
  *   canary checkpoint                        harness-internal: verify at completion boundary
  *   canary claim <text>                      record the agent's account as an UNTRUSTED
  *                                          hint — claims are not evidence, never a verdict
+ *   canary task <text> [--kind k] [--requirement "..."]…
+ *                                          register the task INTENT so Canary derives
+ *                                          proof obligations for its kind — an
+ *                                          AGENT_REPORTED hint that can only ADD
+ *                                          obligations, never lift the sealed plan
  *
  * Exit codes: 0 proof holds fully on the proof host / CONFIRMED_REGRESSION as expected
  *             1 proof failed / PASS
@@ -42,7 +47,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
-import { cmdSetup, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim } from './onboarding.js';
+import { cmdSetup, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask } from './onboarding.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -64,6 +69,10 @@ usage:
   canary uninstall          remove Canary's own changes, keep everything else
   canary claim "<text>"     the agent's account, stored as an UNTRUSTED hint — claims
                             are not evidence; only Canary's own runs decide verdicts
+  canary task "<intent>"    register task intent (--kind bugfix|refactor|dependency|
+                            performance|ui|multi, --requirement per part) so completion
+                            checks derive the task's proof obligations — a hint with zero
+                            authority: it can only ADD obligations, never weaken the plan
   canary version`);
   process.exit(3);
 }
@@ -296,6 +305,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'uninstall') return cmdUninstall(rest);
   if (cmd === 'checkpoint') return cmdCheckpoint();
   if (cmd === 'claim') return cmdClaim(rest);
+  if (cmd === 'task') return cmdTask(rest);
   return usage();
 }
 

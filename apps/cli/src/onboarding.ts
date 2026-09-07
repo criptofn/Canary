@@ -62,6 +62,7 @@ const CONFIG_FILE = 'canary.local.json';
 const CHECKPOINT_FILE = 'last-checkpoint.json';
 const EVIDENCE_DIR = 'evidence';
 const CLAIMS_FILE = path.join('claims', 'latest.json');
+const TASK_FILE = path.join('task', 'current.json');
 /** bundles kept before the oldest are pruned — evidence must not grow unbounded */
 const EVIDENCE_KEEP = 10;
 const RAW_CAP = 256 * 1024;
@@ -73,13 +74,19 @@ const LOCKFILES: Array<[string, string]> = [
 ];
 /** Script names we accept into a plan; also blocks any shell-shaped name. */
 export const isSafeScriptName = (s: string): boolean => /^[A-Za-z0-9_:.-]{1,64}$/.test(s);
-/** Conventional script name -> plan kind. Exact names only; conservative. */
-const SCRIPT_KINDS: Array<[string, 'typecheck' | 'tests' | 'build']> = [
+/** Conventional script name -> plan kind. Exact names only; conservative.
+ *  M6 (spec M5) adds bench/e2e: a performance or UI task is only PROVEN if a
+ *  human actually put a benchmark/e2e script in the sealed plan — detection of
+ *  those names is what gives the obligation its chance to reach `met`. */
+const PLAN_KINDS = ['typecheck', 'tests', 'build', 'bench', 'e2e'] as const;
+export type PlanKind = (typeof PLAN_KINDS)[number];
+const SCRIPT_KINDS: Array<[string, PlanKind]> = [
   ['typecheck', 'typecheck'], ['type-check', 'typecheck'], ['test', 'tests'], ['build', 'build'],
+  ['bench', 'bench'], ['benchmark', 'bench'], ['e2e', 'e2e'], ['test:e2e', 'e2e'],
 ];
-const PLAN_ORDER = { typecheck: 0, tests: 1, build: 2 } as const;
+const PLAN_ORDER: Record<PlanKind, number> = { typecheck: 0, tests: 1, build: 2, bench: 3, e2e: 4 };
 
-export interface PlanStep { kind: 'typecheck' | 'tests' | 'build'; script: string }
+export interface PlanStep { kind: PlanKind; script: string }
 export interface TouchedFile { path: string; created: boolean }
 export interface CanaryConfig {
   version: string; installedAt: string; pm: string; plan: PlanStep[];
@@ -270,6 +277,18 @@ function writeFileAtomic(p: string, data: string): void {
     try { fs.rmSync(tmp, { force: true }); } catch { /* best effort; a surviving temp is inert */ }
     throw e;
   }
+}
+
+/** Make .canary self-ignoring BEFORE Canary's first repo write. installStopHook
+ *  drops a settings backup under .canary/backups, and the baseline dirty-stamp
+ *  runs after that — if the self-ignore only arrives with writeConfig, Canary's
+ *  own backup stamps the baseline dirty and permanently blinds worktree-deletion
+ *  blame in the common "repo tracks .claude/settings.json" setup (review #2). */
+export function ensureCanarySelfIgnore(root: string): void {
+  const dir = path.join(root, CONFIG_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  const gi = path.join(dir, '.gitignore');
+  if (!fs.existsSync(gi)) writeFileAtomic(gi, '*\n');
 }
 
 export function writeConfig(root: string, cfg: CanaryConfig): void {
@@ -473,23 +492,34 @@ export interface BaselineStamp extends Identity { at: string }
  *  2026-09-07 environment: a stray zero-commit repo under %TEMP%'s home).
  *  The toplevel must resolve to root itself — linked worktrees and
  *  submodules do; a parent repo does not — or everything is UNIDENTIFIED. */
-export function candidateIdentity(root: string): Identity {
-  const unidentified: Identity = { resolved: false, head: null, tree: null, dirty: null };
-  const gitOut = (args: string[]): string | null => {
-    const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 15_000 });
+/** One containment gate for EVERY read-only git probe Canary makes: fixed
+ *  argv, run under `-C root`, and the answer must be ABOUT root — git
+ *  discovery walks up, so a parent repo answering for a fake/absent .git
+ *  is a misattribution, not information (see candidateIdentity's history:
+ *  found via a stray zero-commit repo under the home dir). M6's diff
+ *  signals and M7's protected-surface reads share this one door. */
+export function gitWithinRoot(root: string, args: string[]): string | null {
+  const run = (a: string[]): string | null => {
+    const r = spawnSync('git', ['-C', root, ...a], { encoding: 'utf8', timeout: 15_000 });
     return r.status === 0 ? r.stdout : null;
   };
-  const top = gitOut(['rev-parse', '--show-toplevel']);
-  if (top === null) return unidentified; // not a repo at all (or git refuses to run)
+  const top = run(['rev-parse', '--show-toplevel']);
+  if (top === null) return null; // not a repo at all (or git refuses to run)
   const rootReal = containedRealPath(root, root);
   const topReal = top.trim() ? containedRealPath(root, top.trim()) : null;
-  if (rootReal === null || topReal === null || topReal !== rootReal) return unidentified; // answered about an ancestor, not about root
-  const head = gitOut(['rev-parse', 'HEAD']);
-  const tree = gitOut(['rev-parse', 'HEAD^{tree}']);
-  const status = gitOut(['status', '--porcelain']);
+  if (rootReal === null || topReal === null || topReal !== rootReal) return null; // answered about an ancestor, not about root
+  return run(args);
+}
+
+export function candidateIdentity(root: string): Identity {
+  const unidentified: Identity = { resolved: false, head: null, tree: null, dirty: null };
+  const head = gitWithinRoot(root, ['rev-parse', 'HEAD']);
+  if (head === null || head.trim().length === 0) return unidentified;
+  const tree = gitWithinRoot(root, ['rev-parse', 'HEAD^{tree}']);
+  const status = gitWithinRoot(root, ['status', '--porcelain']);
   return {
-    resolved: head !== null && head.trim().length > 0,
-    head: head?.trim() ?? null,
+    resolved: true,
+    head: head.trim(),
     tree: tree?.trim() ?? null,
     dirty: status === null ? null : status.trim().length > 0,
   };
@@ -660,6 +690,344 @@ export function planAuthorityDrift(root: string, cfg: CanaryConfig): string | nu
     else if (sha256(cur) !== seal.scriptDigests[s.script]) drift.push(`script "${name}" changed since setup sealed it`);
   }
   return drift.length ? drift.join('; ') : null;
+}
+
+// ---------- M6 (spec M5): orchestrate the right proof for the task ----------
+/**
+ * Beyond "run whatever npm test exists": each task kind carries PROOF
+ * OBLIGATIONS evaluated against what Canary itself observed (sealed-plan
+ * execution + contained git diffs), not against what the worker says.
+ *
+ * Direction of travel is one-way (this is what keeps the hint honest):
+ * classification can only ADD obligations — the sealed plan (M5) is the floor
+ * no declaration lifts, and no task kind can excuse a failing check. A worker
+ * who declares "ui" still gets diff-implied coverage obligations; a worker who
+ * declares nothing still gets the diff-implied ones. `canary task` is
+ * AGENT_REPORTED — same zero-authority plumbing as `canary claim`.
+ *
+ * Statuses: `met` (Canary observed it this invocation), `unproven` (obligation
+ * stands, no objective proof available — allowed through WITH an honest
+ * systemMessage, never a silent fake-complete), `unmet` (objectively violated
+ * — blocks). Per spec: do not pretend subjective requirements have
+ * deterministic truth; prove every objective part; mark what remains unproven;
+ * ask the human one concise question only when necessary (the multi-part
+ * enumeration hint) — inference first, question last.
+ *
+ * Attribution honesty: only deletions Canary can ATTRIBUTE block — COMMITTED
+ * ones (baseline..HEAD is post-baseline by construction) and STAGED/WORKTREE
+ * ones when setup stamped the tree CLEAN. The index is never snapshotted at
+ * setup, so pre-existing staged residue is the same epistemic class as worktree
+ * dirt: a repo that was already dirty (or whose state Canary never proved)
+ * cannot have its pre-existing state blamed on the agent (M4). Unattributable
+ * signals inform notes, never verdicts.
+ */
+export const TASK_KINDS = ['bugfix', 'refactor', 'dependency', 'performance', 'ui', 'multi'] as const;
+export type TaskKind = (typeof TASK_KINDS)[number];
+
+const KIND_PATTERNS: Array<[RegExp, TaskKind]> = [
+  [/\b(bug|fix|broken|crash|regress\w*|defect)\b/i, 'bugfix'],
+  [/\b(refactor\w*|restructure|extract (a |the )?(method|function|class)|clean[- ]up)\b/i, 'refactor'],
+  [/\b(dependenc\w+|lockfile|upgrade .{0,20}package|bump .{0,20}version|npm (install|update|add))\b/i, 'dependency'],
+  [/\b(performance|benchmark|faster|slower|latency|throughput|speed up|slow\w* down|memory usage|optimi[sz]\w+)\b/i, 'performance'],
+  [/\b(ui|interface|screen|render|component|css|button|dialog|page|browser|e2e|accessibility)\b/i, 'ui'],
+  [/\b(multi[- ]?part|several requirements|requirements? (below|listed|following)|each (of the )?(parts|requirements|items))\b/i, 'multi'],
+];
+
+/** Collect every kind a prose hint suggests (union — a mislabel adds work, never removes it). */
+export function inferTaskKinds(text: string): TaskKind[] {
+  const found = new Set<TaskKind>();
+  for (const [re, kind] of KIND_PATTERNS) if (re.test(text)) found.add(kind);
+  return [...found];
+}
+
+const isTestPath = (p: string): boolean =>
+  /(^|[\\/])(tests?|__tests__|spec[s]?)([\\/]|$)/i.test(p) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(p);
+// Lockfiles ONLY: package.json edits are authority moves (script text — M5's
+// sealed turf), not dependency-graph evidence, and blaming them here made
+// every setup-repair story trip the dep obligation. A deps bump without a
+// lockfile change is still caught one-way by `canary task --kind dependency`.
+const isDepPath = (p: string): boolean => {
+  const base = p.split(/[\\/]/).pop() ?? '';
+  return LOCKFILES.some(([f]) => base === f);
+};
+/** A path rides human-facing notes ONLY in this shape (odd names collapse —
+ *  classification never sees this layer: git probes answer in -z raw bytes). */
+function safePath(p: string): string {
+  const q = p.startsWith('"') && p.endsWith('"') ? p.slice(1, -1) : p;
+  return /^[A-Za-z0-9 ._\-/:@+~]{1,160}$/.test(q) ? q : '<odd path>';
+}
+function formatPaths(list: string[]): string {
+  const head = list.slice(0, 8).map(safePath).join(', ');
+  return list.length > 8 ? `${head} (+${list.length - 8} more)` : head;
+}
+
+/** One parsed change entry from git name-status / porcelain output. */
+export interface ChangeEntry { st: 'add' | 'mod' | 'del' | 'ren'; paths: string[] }
+
+const NAME_ST: Record<string, ChangeEntry['st']> = { A: 'add', M: 'mod', D: 'del', R: 'ren', C: 'ren', T: 'mod', U: 'mod' };
+/** `git diff --name-status -z` output: NUL-separated status + 1-2 RAW paths.
+ *  -z is what makes classification trustworthy: git C-quotes (wraps in `"` and
+ *  octal-escapes) any non-ASCII/quote/backslash path in line mode, and the
+ *  quote characters silently defeated isTestPath/isDepPath at both ends — a
+ *  committed deletion of tests/ünï.test.js went SILENT (M6 review #1, major:
+ *  one non-ASCII character evaded the coverage-loss gate). Raw -z bytes have
+ *  no quoting to outsmart. Unknown status codes degrade to mod, never crash. */
+export function parseNameStatus(out: string): ChangeEntry[] {
+  const entries: ChangeEntry[] = [];
+  const toks = out.split('\0');
+  for (let i = 0; i < toks.length; i++) {
+    const stRaw = toks[i]!;
+    if (!stRaw) continue;
+    const st = NAME_ST[stRaw.charAt(0)] ?? 'mod';
+    if (st === 'ren') {
+      const old = toks[++i]; const nw = toks[++i];
+      if (old !== undefined && nw !== undefined) entries.push({ st, paths: [old, nw] });
+    } else {
+      const p = toks[++i];
+      if (p !== undefined) entries.push({ st, paths: [p] });
+    }
+  }
+  return entries;
+}
+
+/** `git status --porcelain -z` output: each entry is "XY path" NUL-terminated;
+ *  R/C entries are followed by a second NUL-terminated path (the NEW name).
+ *  In -z mode git never quotes and never joins renames with ' -> ', so a real
+ *  filename containing ' -> ' or `"` cannot mis-split old/new sides either.
+ *  `??` is untracked = add-shaped. */
+export function parsePorcelain(out: string): ChangeEntry[] {
+  const entries: ChangeEntry[] = [];
+  const toks = out.split('\0');
+  for (let i = 0; i < toks.length; i++) {
+    const line = toks[i]!;
+    if (line.length < 4) continue;
+    const xy = line.slice(0, 2);
+    const body = line.slice(3);
+    if (xy === '??') { entries.push({ st: 'add', paths: [body] }); continue; }
+    if (xy.includes('R') || xy.includes('C')) {
+      const nw = toks[++i];
+      if (nw !== undefined) entries.push({ st: 'ren', paths: [body, nw] });
+      continue;
+    }
+    let st: ChangeEntry['st'] = 'mod';
+    if (xy[0] === 'A') st = 'add';
+    if (xy.includes('D')) st = 'del';
+    entries.push({ st, paths: [body] });
+  }
+  return entries;
+}
+
+/** Deletion-shaped paths: plain deletes, plus renames whose NEW side is NOT a
+ *  test path (git mv tests/x.test.js docs/x.md is coverage loss; a move that
+ *  keeps the file under tests/ is not). Exported for contract pins (review #5). */
+export const delPaths = (entries: ChangeEntry[]): string[] =>
+  entries.flatMap((e) => (e.st === 'del' ? e.paths : e.st === 'ren' && !isTestPath(e.paths[1]!) ? [e.paths[0]!] : []));
+
+export interface DiffSignals {
+  /** at least one attributable git source answered (committed or staged diff) */
+  resolved: boolean;
+  /** every touched path from any source (committed + staged + worktree) */
+  touched: string[];
+  /** touched EXCLUDING deletion paths — renames count by their NEW side only.
+   *  Regression evidence is "a test was added/changed", never "a test vanished"
+   *  (review #4). depTouched still keys off `touched`: a deleted lockfile is a
+   *  dependency change. */
+  changes: string[];
+  /** deletions of test-shaped paths Canary can attribute to this session — the BLOCK signal */
+  deletedTestsAttributable: string[];
+  /** test deletions it cannot attribute (staged/worktree on a non-clean baseline) — note material only */
+  deletedTestsUnattributable: string[];
+  /** the baseline stamp PROVED dirt at setup; false also covers "never stamped /
+   *  unresolved / probe failed", where the note must not claim otherwise (review #6) */
+  setupDirtProven: boolean;
+  depTouched: boolean;
+}
+
+/** Read-only contained git probes (gitWithinRoot — the parent repo never answers
+ *  for the candidate). A malformed baseline head from a hand-edited config is
+ *  dropped rather than interpolated: defense-in-depth below the distrust gate. */
+export function collectDiffSignals(root: string, cfg: CanaryConfig): DiffSignals {
+  const baselineHead = cfg.baseline?.head ?? null;
+  // -z everywhere classification reads: line mode C-quotes non-ASCII/quote/
+  // backslash paths and silently defeats isTestPath/isDepPath (review #1).
+  const committed = cfg.baseline?.resolved && baselineHead !== null && /^[0-9a-f]{40,64}$/i.test(baselineHead)
+    ? gitWithinRoot(root, ['diff', '--name-status', '-z', baselineHead, 'HEAD']) : null;
+  const staged = gitWithinRoot(root, ['diff', '--name-status', '-z', '--cached']);
+  const worktree = gitWithinRoot(root, ['status', '--porcelain', '-z']);
+  const setupDirtProven = cfg.baseline?.dirty === true;
+  if (committed === null && staged === null && worktree === null) {
+    return { resolved: false, touched: [], changes: [], deletedTestsAttributable: [], deletedTestsUnattributable: [], setupDirtProven, depTouched: false };
+  }
+  const fromCommitted = committed !== null ? parseNameStatus(committed) : [];
+  const fromStaged = staged !== null ? parseNameStatus(staged) : [];
+  const fromWorktree = worktree !== null ? parsePorcelain(worktree) : [];
+  // Attribution: a baseline Canary stamped CLEAN proves the tree AND index
+  // matched HEAD at setup, so deletions seen now — staged or unstaged —
+  // CANNOT be pre-existing dirt; they are the agent's. Without that proof
+  // (dirty or unknown baseline) both classes stay note-material only: the
+  // index is never snapshotted, so pre-existing staged residue is epistemically
+  // the worktree case, not the committed case (review #3 — design (c) blesses
+  // baseline..HEAD alone, which is post-baseline by construction).
+  const blameClean = cfg.baseline !== undefined && cfg.baseline.resolved && cfg.baseline.dirty === false;
+  const attributable = blameClean ? [...fromCommitted, ...fromStaged] : fromCommitted;
+  const wtOnlyDel = blameClean
+    ? delPaths(fromWorktree).filter((p) => !attributable.some((e) => e.paths.includes(p)))
+    : [];
+  const attrDel = [...delPaths(attributable), ...(blameClean ? wtOnlyDel : [])];
+  const residDel = [...delPaths(fromStaged), ...delPaths(fromWorktree)].filter((p) => !attrDel.includes(p));
+  const touched = [...new Set([...attributable, ...fromStaged, ...fromWorktree].flatMap((e) => e.paths))];
+  const changes = [...new Set([...attributable, ...fromStaged, ...fromWorktree].flatMap((e) =>
+    e.st === 'del' ? [] : e.st === 'ren' ? [e.paths[1]!] : e.paths))];
+  return {
+    // "resolved" = the candidate-vs-BASELINE story is knowable: either git
+    // answered the sealed baseline directly, or a clean baseline makes the
+    // worktree diff that story. Staged-only answers do not count.
+    resolved: blameClean || committed !== null,
+    touched,
+    changes,
+    deletedTestsAttributable: [...new Set(attrDel)].filter(isTestPath),
+    deletedTestsUnattributable: [...new Set(residDel)].filter(isTestPath),
+    setupDirtProven,
+    depTouched: touched.some(isDepPath),
+  };
+}
+
+export interface Obligation { id: string; mode: 'objective' | 'non-objective'; status: 'met' | 'unproven' | 'unmet'; note: string }
+
+/** The obligation engine: pure over (kinds, signals, sealed-plan kinds, requirement count).
+ *  `planKinds` comes from the SEALED plan — an obligation is only satisfiable
+ *  by a command a human actually approved; Canary never executes an unsealed
+ *  "benchmark" just because the task mentioned one. */
+export function obligationsFor(
+  kinds: TaskKind[], sig: DiffSignals, planKinds: Set<string>, requirementCount: number,
+): Obligation[] {
+  const out: Obligation[] = [];
+  const add = (o: Obligation) => { if (!out.some((x) => x.id === o.id)) out.push(o); };
+  const has = (k: string) => planKinds.has(k);
+
+  if (kinds.includes('bugfix')) {
+    const testTouched = sig.changes.some(isTestPath); // deletions are coverage LOSS, never regression evidence (review #4)
+    add(testTouched
+      ? { id: 'regression-evidence', mode: 'objective', status: 'met', note: 'regression evidence: test files were added/modified in the candidate diff' }
+      : { id: 'regression-evidence', mode: 'objective', status: 'unproven', note: 'no test file was added or changed since setup — regression evidence UNPROVEN (an old suite can stay green while the bug survives). Add a test that reproduces the fixed bug.' });
+  }
+  if (kinds.includes('refactor') || has('tests')) {
+    add(has('tests')
+      ? { id: 'tests-green', mode: 'objective', status: 'met', note: 'the sealed test run passed against the candidate' }
+      : { id: 'tests-green', mode: 'objective', status: 'unproven', note: 'this project\'s sealed plan has no tests step — behavior preservation is UNPROVEN' });
+  }
+  if (sig.deletedTestsAttributable.length > 0) {
+    add({ id: 'coverage-loss', mode: 'objective', status: 'unmet', note: `verification coverage removed by candidate — deleted test files: ${formatPaths(sig.deletedTestsAttributable)}` });
+  } else if (sig.deletedTestsUnattributable.length > 0) {
+    // the premise must match what Canary actually PROVED (review #6): the stamp
+    // saying "dirty" is a different fact from "never established the state".
+    const premise = sig.setupDirtProven
+      ? 'the repo was already dirty at setup'
+      : "Canary cannot establish the repo's state at setup";
+    add({ id: 'coverage-loss-unattributable', mode: 'objective', status: 'unproven', note: `test files are missing from the working tree but ${premise}, so the deletion cannot be attributed to this session: ${formatPaths(sig.deletedTestsUnattributable)} — whether coverage was lost is UNPROVEN` });
+  } else if (kinds.includes('refactor')) {
+    add(sig.resolved
+      ? { id: 'coverage-loss', mode: 'objective', status: 'met', note: 'no test file was deleted in the candidate diff — verification coverage intact' }
+      : { id: 'coverage-loss', mode: 'objective', status: 'unproven', note: 'candidate-vs-baseline diff unresolvable — lost verification coverage cannot be ruled out (UNPROVEN)' });
+  }
+  if (kinds.includes('dependency') || sig.depTouched) {
+    add({ id: 'dependency-change', mode: 'non-objective', status: 'unproven', note: sig.resolved
+      ? 'dependency change observed: the sealed plan re-ran against the new graph, but downstream behavior needs a trusted baseline/candidate comparison (or an acceptance criterion) — UNPROVEN'
+      : 'dependency change observed against an unresolvable baseline — comparison UNPROVEN' });
+  }
+  if (kinds.includes('performance')) {
+    add(has('bench')
+      ? { id: 'performance-proof', mode: 'objective', status: 'met', note: 'the sealed benchmark ran and passed (its exit code is the threshold a human approved)' }
+      : { id: 'performance-proof', mode: 'non-objective', status: 'unproven', note: 'a performance obligation needs a repeatable benchmark with a defined threshold; the sealed plan has none — UNPROVEN. A human can add a bench script and re-run: canary setup (seals + smokes it)' });
+  }
+  if (kinds.includes('ui')) {
+    add(has('e2e')
+      ? { id: 'ui-proof', mode: 'objective', status: 'met', note: 'the sealed e2e/browser proof ran and passed' }
+      : { id: 'ui-proof', mode: 'non-objective', status: 'unproven', note: 'no browser/e2e/accessibility proof is available in the sealed plan — UI behavior UNPROVEN (visual truth is not pretend-deterministic)' });
+  }
+  if (kinds.includes('multi') || requirementCount > 0) {
+    add({ id: 'per-requirement', mode: 'non-objective', status: 'unproven', note: requirementCount > 0
+      ? `multi-part task: ${requirementCount} registered requirement(s) — a green plan proves the plan, NOT each part; requirements without their own check remain UNPROVEN`
+      : 'multi-part task detected but requirements were never enumerated — ask the human ONCE which parts must be proven separately, or register them: canary task "..." --requirement "..." per part' });
+  }
+  return out;
+}
+
+/** Read the agent's registered task hint (AGENT_REPORTED — same zero-authority
+ *  posture as claims). Anything malformed collapses to no-kind/no-count, which
+ *  is exactly the pre-M6 posture: diff-implied obligations still apply. */
+function readTaskRecord(root: string): { kinds: TaskKind[]; requirementCount: number } | null {
+  try {
+    const p = path.join(root, CONFIG_DIR, TASK_FILE);
+    if (containedRealPath(root, p) === null) return null;
+    if (!fs.existsSync(p)) return null;
+    const v = JSON.parse(fs.readFileSync(p, 'utf8')) as Record<string, unknown>;
+    if (typeof v !== 'object' || v === null) return null;
+    const kinds = Array.isArray(v.kinds) ? v.kinds.filter((k): k is TaskKind => (TASK_KINDS as readonly string[]).includes(String(k))) : [];
+    const rc = typeof v.requirementCount === 'number' && Number.isInteger(v.requirementCount) && v.requirementCount >= 0 && v.requirementCount <= 64
+      ? v.requirementCount : 0;
+    return { kinds: [...new Set(kinds)], requirementCount: rc };
+  } catch { return null; }
+}
+
+/**
+ * M6 task-intake: the worker registers what it was ASKED for so Canary can
+ * derive that kind's proof obligations. The registration itself carries ZERO
+ * authority (AGENT_REPORTED, like `canary claim`): it can only ever ADD
+ * obligations — the sealed plan stays the floor no declaration lifts.
+ */
+export function cmdTask(rawArgs: string[]): number {
+  const { opts, rest } = parseGlobals(rawArgs);
+  const o = new Out(opts.verbose);
+  const root = findRepoRoot(process.cwd());
+  if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository — there is no project here to attach a task to.', 'cd into your project and try again'); return 2; }
+  const cfg = readConfig(root);
+  if (cfg === 'corrupt') { o.verdict('NEEDS ATTENTION', "Canary's local config is unreadable — it will not attach a task to state it cannot read.", 'run: canary setup'); return 2; }
+  if (!cfg) { o.verdict('NEEDS ATTENTION', 'Canary is not set up in this repo, so there is no verification record to attach a task to.', 'run: canary setup --yes'); return 2; }
+  const distrust = untrustedConfigReason(root, cfg);
+  if (distrust) { o.verdict('NEEDS ATTENTION', `Canary will not record a task against a config it does not trust (${distrust}).`, "run: canary setup --yes (rewrites it as this machine's own)"); return 2; }
+  let kindFlag: string | null = null;
+  const prose: string[] = [];
+  let requirementCount = 0;
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i]!;
+    if (a === '--kind' && rest[i + 1] && !rest[i + 1]!.startsWith('--')) { kindFlag = rest[++i]!; continue; }
+    if (a.startsWith('--kind=')) { kindFlag = a.slice(7); continue; }
+    if (a === '--requirement' && rest[i + 1] && !rest[i + 1]!.startsWith('--')) { requirementCount++; i++; continue; }
+    if (a.startsWith('--')) continue;
+    prose.push(a);
+  }
+  const text = prose.join(' ').trim();
+  if (!text && kindFlag === null && requirementCount === 0) { o.say('usage: canary task "<intent>" [--kind bugfix|refactor|dependency|performance|ui|multi] [--requirement "<part>"]…'); return 3; }
+  let kinds: TaskKind[];
+  if (kindFlag !== null) {
+    if (!(TASK_KINDS as readonly string[]).includes(kindFlag)) { o.verdict('NEEDS ATTENTION', `unknown task kind "${kindFlag.slice(0, 40)}" — one of: ${TASK_KINDS.join(', ')}.`, 're-run with --kind <one of those>, or omit --kind and let Canary infer'); return 3; }
+    kinds = [kindFlag as TaskKind];
+  } else kinds = inferTaskKinds(text);
+  if (requirementCount > 0 && !kinds.includes('multi')) kinds.push('multi');
+  try {
+    if (containedRealPath(root, path.join(root, CONFIG_DIR)) === null) {
+      o.verdict('NEEDS ATTENTION', '.canary resolves outside the repository (a link?) — Canary will not write through it.', 'replace it with a real folder, then re-run'); return 2;
+    }
+    const taskPath = path.join(root, CONFIG_DIR, TASK_FILE);
+    if (containedRealPath(root, taskPath) === null) {
+      o.verdict('NEEDS ATTENTION', `${rel(root, taskPath)} resolves outside the repository (a link?) — Canary will not write through it.`, 'replace it with a real folder inside .canary, then re-run'); return 2;
+    }
+    fs.mkdirSync(path.dirname(taskPath), { recursive: true });
+    writeFileAtomic(taskPath, JSON.stringify({
+      schema: 'canary-task/1', at: new Date().toISOString(),
+      // M3/M4 doctrine: prose is digested, never stored — the record cannot become a smuggling channel for agent text
+      taskDigest: text ? sha256(text.slice(0, 4000)) : null,
+      kinds, requirementCount,
+      trustClass: 'AGENT_REPORTED',
+      authority: 'ZERO — registering a task can only ADD proof obligations; the sealed plan is the floor no declaration lifts',
+    }, null, 2) + '\n');
+  } catch (e) {
+    o.verdict('NEEDS ATTENTION', `could not record the task (${String(e).slice(0, 140)}).`, 'fix the file/permission, then re-run'); return 2;
+  }
+  o.say(`task registered: ${kinds.length ? kinds.join(' + ') : 'no kind inferred'}${requirementCount ? ` (${requirementCount} requirement(s))` : ''}.`);
+  o.say('this is an AGENT_REPORTED hint with zero authority — the next checkpoint proves the sealed plan PLUS this task\'s obligations; nothing here weakens either.');
+  return 0;
 }
 
 /**
@@ -847,14 +1215,26 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const prevUsable = !!prev && prev !== 'corrupt' && !untrustedConfigReason(root, prev);
   const priorCommands = new Set<string>(prevUsable ? [...(prev as CanaryConfig).hookCommands, (prev as CanaryConfig).hookCommand] : []);
   const backupsDir = path.join(root, CONFIG_DIR, 'backups');
+  try { ensureCanarySelfIgnore(root); } catch { /* writeConfig below reports a real failure; the stamp just measures what it can */ }
 
   const res = installStopHook(root, hookCommand, priorCommands, backupsDir);
   if (!res.ok) { o.verdict('NEEDS ATTENTION', `could not configure Claude Code safely: ${res.problem}`, 'fix that file, then run setup again'); return 2; }
+  // M4 baseline: stamped NOW by Canary's own probes. Honest label — "state when
+  // Canary was wired", not a claim about the agent's past. `dirty` measures
+  // WORKER residue, so the one file Canary itself just wrote (its managed
+  // settings entry) is excluded from THIS stamp: setup's own wiring must not
+  // permanently blind the repo to blame for later uncommitted deletions — M6
+  // attribution relies on a clean baseline actually being reachable. candidate-
+  // Identity itself stays untouched (M4-pinned semantics for bundles).
+  const baselineId = candidateIdentity(root);
+  const ownSettings = rel(root, settingsPath(root)).split(path.sep).join('/');
+  const baselineStatus = gitWithinRoot(root, ['status', '--porcelain', '--', '.', `:(exclude)${ownSettings}`]);
   const cfg: CanaryConfig = {
     version: 'product-0.1', installedAt: new Date().toISOString(), pm, plan,
-    // M4 baseline: stamped NOW by Canary's own probes. Honest label —
-    // "state when Canary was wired", not a claim about the agent's past.
-    baseline: { at: new Date().toISOString(), ...candidateIdentity(root) },
+    baseline: {
+      at: new Date().toISOString(), ...baselineId,
+      dirty: baselineStatus === null ? baselineId.dirty : baselineStatus.trim().length > 0,
+    },
     // M5: whatever plan and script texts are on disk RIGHT NOW are what the
     // human running setup just approved — they become the sealed authority.
     planAuthority: sealPlanAuthority(plan, (pkg.scripts ?? {}) as Record<string, unknown>),
@@ -973,7 +1353,20 @@ export function cmdDoctor(rawArgs: string[]): number {
     o.verdict('NEEDS ATTENTION', `wiring is good, but the checks just failed (${failed.map((f) => f.kind).join(', ')}) — your code is talking, not Canary.`, 'fix the failing checks (ask the agent), then: canary doctor');
     return 2;
   }
+  // M6: the same obligation read a checkpoint makes, for humans (no hook stdin
+  // here, so only the registered task hint participates; unattributable states
+  // say UNPROVEN rather than pretending to a verdict).
+  const task = readTaskRecord(root);
+  const obligations = obligationsFor(task?.kinds ?? [], collectDiffSignals(root, cfg), new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0);
+  const unmet = obligations.filter((x) => x.status === 'unmet');
+  const unproven = obligations.filter((x) => x.status === 'unproven');
+  if (unmet.length > 0) {
+    o.verdict('NEEDS ATTENTION', `the sealed checks pass, but a proof obligation is objectively violated — ${unmet.map((x) => x.note).join('; ')}`, 'restore the deleted verification files (git checkout -- <path>) — or a human reviews this deletion; then: canary doctor');
+    return 2;
+  }
   o.verdict('READY', 'wiring verified; the checks just ran and passed.', 'nothing to do — the agent finishes, Canary checks');
+  if (unproven.length > 0) o.say(`proof obligations open: ${unproven.length} UNPROVEN — the plan passing does not make the task proven (NO PROOF, NO DONE).`);
+  for (const ob of obligations) o.detail(`obligation [${ob.id}] ${ob.status.toUpperCase()} (${ob.mode}): ${ob.note}`);
   // M3 (verbose-only — trust classes are evidence internals, not default UX):
   o.detail('trust: this READY is CANARY_OBSERVED — Canary executed the checks in this very invocation. Agent words are AGENT_REPORTED and never sufficient for a PASS; no class is promoted by copying bytes into a Canary-owned file (evidence is never read back for verdicts).');
   if (cfg.planAuthority) o.detail('authority: every command that just ran is one setup sealed — script-text drift is blocked before execution, not excused after it passes.');
@@ -1084,6 +1477,32 @@ export async function cmdCheckpoint(): Promise<number> {
   if (failed.length === 0) {
     writeVerificationBundle(root, 'checkpoint', ran, 'pass', prov);
     writeCheckpoint(root, 'pass', [], 'checkpoint');
+    // M6 (spec M5): the plan passing is the FLOOR, not the finish. Evaluate
+    // this task's proof obligations against what Canary observed in THIS
+    // invocation (plan outcome + contained git diff). Objective violation
+    // blocks; anything unprovable rides an honest systemMessage — an allow
+    // that SAYS so, never a silent fake-complete. TESTS PASSING != PROVEN.
+    const task = readTaskRecord(root);
+    const kinds = task && task.kinds.length > 0
+      ? task.kinds
+      : (typeof input.task === 'string' && input.task.trim() ? inferTaskKinds(input.task.trim().slice(0, 4000)) : []);
+    const obligations = obligationsFor(kinds, collectDiffSignals(root, cfg), new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0);
+    const unmet = obligations.filter((x) => x.status === 'unmet');
+    const unproven = obligations.filter((x) => x.status === 'unproven');
+    if (unmet.length > 0) {
+      writeCheckpoint(root, 'fail', ['obligation'], 'checkpoint'); // state, like the authority gate: the plan DID pass — the obligation did not
+      const why = unmet.map((x) => x.note).join('; ');
+      if (input.stop_hook_active === true) {
+        return emit({ systemMessage: `Canary: a proof obligation is still unmet (${why.slice(0, 200)}) after one repair attempt — stopping anyway; a human should look.` });
+      }
+      // the advice must actually fix BOTH attributable shapes: `git checkout --`
+      // restores from the INDEX, which is exactly where a staged deletion lives
+      // (review #3) — restore from HEAD across index and worktree instead.
+      return emit({ decision: 'block', reason: `Canary blocked completion: ${why}. A green plan cannot certify checks that no longer exist. Restore them (git restore --source=HEAD --staged --worktree <path>) or have a HUMAN review this deletion — an agent claim cannot authorize it (claims are not evidence).` });
+    }
+    if (unproven.length > 0) {
+      return emit({ systemMessage: `Canary: the sealed checks passed — but not every proof obligation for this task is closed: ${unproven.map((x) => x.note).join(' ')}`.slice(0, 2000) });
+    }
     return 0; // silent even if an agent claim contradicts — claims never BLOCK, and never CREATE a pass
   }
   writeVerificationBundle(root, 'checkpoint', ran, 'fail', prov);

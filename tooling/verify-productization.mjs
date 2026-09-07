@@ -26,25 +26,40 @@
  *      texts; the "vitest -> echo all good" swap is blocked BEFORE execution
  *      though it exits 0; config-side plan edits and malformed seals fail
  *      closed; re-seal only via a setup smoke; pre-M5 configs verify as before)
- *   7. empty-plan checkpoint probe (degenerate config never fakes green)
- *   8. M2 real-git probe (candidate binds to actual HEAD/dirty; digest binds to
+ *   7. M6 proof-orchestration contract tests (task kinds can only ADD proof
+ *      obligations on top of the sealed plan — never lift it; attributable
+ *      test deletions are UNMET, unattributable UNPROVEN; the engine is pure
+ *      over injected diff signals; canary task is AGENT_REPORTED digest-only
+ *      with zero authority; malformed records collapse to pre-M6 silence; a
+ *      fake-git (unresolvable) diff never upgrades an obligation to met)
+ *   8. empty-plan checkpoint probe (degenerate config never fakes green)
+ *   9. M2 real-git probe (candidate binds to actual HEAD/dirty; digest binds to
  *      retained bytes; outward-linked evidence dir is never written through)
- *   9. M3 real-git probe (copy-to-promote attack end to end: a forged
+ *  10. M3 real-git probe (copy-to-promote attack end to end: a forged
  *      CANARY_OBSERVED pass bundle blocks neither checkpoint nor doctor)
- *  10. M4 real-git probe (real head+tree bytes; baseline holds while the
+ *  11. M4 real-git probe (real head+tree bytes; baseline holds while the
  *      candidate moves; task digest over the real wire; companion hash binds
  *      and catches a byte flip that stays behaviorally inert)
- *  11. M5 real-git probe (the swap really exits 0 yet blocks; git-restore
+ *  12. M5 real-git probe (the swap really exits 0 yet blocks; git-restore
  *      returns silent verification; re-setup re-seals under its smoke; the
  *      candidate's edit is visible in git status — M7's future surface)
- *  12. clean-room lazy-vibecoder acceptance (one-command full journey)
- *  13. HTG inline-interpreter corpus (real hook autonomy: 0 routine prompts,
+ *  13. M6 real-git probe (a CLEAN setup baseline really can attribute blame;
+ *      a green plan + deleted test = BLOCK — worktree, STAGED, or committed —
+ *      and the printed restore advice unmutes; renames out of (and staying
+ *      inside) test paths; a NON-ASCII test name cannot defeat the -z gate
+ *      (review #1/#8); Canary's own backup of a tracked settings.json stays
+ *      invisible to the stamp (review #2); a committed lockfile ADDS the
+ *      dependency obligation with no declaration; a registered task never
+ *      lifts the sealed authority; the dirty-at-setup mirror keeps staged +
+ *      worktree deletions UNPROVEN with an honest premise)
+ *  14. clean-room lazy-vibecoder acceptance (one-command full journey)
+ *  15. HTG inline-interpreter corpus (real hook autonomy: 0 routine prompts,
  *      every dangerous case still gated) — classification only, nothing runs
- *  14. packed-artifact clean room (tooling/pack.mjs -> npm pack -> install the
+ *  16. packed-artifact clean room (tooling/pack.mjs -> npm pack -> install the
  *      exact .tgz into a spaces-path temp repo; full vibecoder journey through
  *      the installed bundle; tarball audited: no monorepo, no secrets)
  * Brief items 5-7 (setup twice, partial repair, uninstall/reinstall, harness
- * preservation, quoting) are asserted inside steps 2 and 12.
+ * preservation, quoting) are asserted inside steps 2 and 14.
  *
  * Exit code: 0 only when every step passed. NO PROOF, NO DONE.
  */
@@ -61,11 +76,13 @@ const STEPS = [
   ['M3 trust-classes contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m3-trust-classes.test.js'], {}],
   ['M4 provenance contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m4-provenance.test.js'], {}],
   ['M5 trusted-plan contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m5-proof-plan.test.js'], {}],
+  ['M6 proof-orchestration contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m6-proof-orchestration.test.js'], {}],
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: M2 claims-not-evidence (real git)', process.execPath, ['tooling/probes/m2-claims-not-evidence.mjs'], {}],
   ['probe: M3 trust-classes (real git)', process.execPath, ['tooling/probes/m3-trust-classes.mjs'], {}],
   ['probe: M4 provenance (real git)', process.execPath, ['tooling/probes/m4-provenance.mjs'], {}],
   ['probe: M5 trusted plan (real git)', process.execPath, ['tooling/probes/m5-proof-plan.mjs'], {}],
+  ['probe: M6 proof orchestration (real git)', process.execPath, ['tooling/probes/m6-proof-orchestration.mjs'], {}],
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
   ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],
