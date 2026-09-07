@@ -57,7 +57,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The absolute path of the built CLI entry — what harness hooks invoke. */
 export const CLI_ENTRY = path.join(HERE, 'main.js');
 
-const CONFIG_DIR = '.canary';
+export const CONFIG_DIR = '.canary';
 const CONFIG_FILE = 'canary.local.json';
 const CHECKPOINT_FILE = 'last-checkpoint.json';
 const EVIDENCE_DIR = 'evidence';
@@ -257,7 +257,7 @@ export function containedRealPath(root: string, p: string): string | null {
  * the rename itself is the atomic step, so the worst crash window is a
  * surviving temp sibling, which self-heals on the next write.
  */
-function writeFileAtomic(p: string, data: string): void {
+export function writeFileAtomic(p: string, data: string): void {
   assertPlainTarget(p);
   const tmp = `${p}.${process.pid}.canary-tmp`;
   assertPlainTarget(tmp);
@@ -315,7 +315,7 @@ function assertPlainTarget(p: string): void {
 }
 
 /** null = parse failure (caller must refuse, never overwrite). */
-function parseJsonOrNull(file: string): Record<string, unknown> | null {
+export function parseJsonOrNull(file: string): Record<string, unknown> | null {
   try {
     const v = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
     return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null;
@@ -500,7 +500,9 @@ export interface BaselineStamp extends Identity { at: string }
  *  signals and M7's protected-surface reads share this one door. */
 export function gitWithinRoot(root: string, args: string[]): string | null {
   const run = (a: string[]): string | null => {
-    const r = spawnSync('git', ['-C', root, ...a], { encoding: 'utf8', timeout: 15_000 });
+    // 32MB like every other spawn here: the 1MB default would turn a large
+    // repo's `ls-tree -r` (M7's submodule probe) into a spurious null.
+    const r = spawnSync('git', ['-C', root, ...a], { encoding: 'utf8', timeout: 15_000, maxBuffer: 32 * 1024 * 1024 });
     return r.status === 0 ? r.stdout : null;
   };
   const top = run(['rev-parse', '--show-toplevel']);
@@ -1037,12 +1039,26 @@ export function cmdTask(rawArgs: string[]): number {
  * alter the harness hook, and nothing reads this back for a verdict (S4
  * doctrine extended to the whole evidence dir).
  */
-function writeVerificationBundle(root: string, source: string, results: StepResult[], status: string, prov?: BundleProvenance): void {
+/** Keys the bundle writer itself owns — `extra` may add, never overwrite. */
+const BUNDLE_RESERVED = new Set(['schema', 'at', 'source', 'status', 'trustClass', 'note',
+  'canaryEntry', 'runtime', 'cwd', 'candidate', 'envOverrides', 'steps', 'provenance']);
+
+export function writeVerificationBundle(root: string, source: string, results: StepResult[], status: string, prov?: BundleProvenance, o?: {
+  /** where evidence DIRS live (M7: a candidate's bundles land under the BASE's
+   *  .canary/evidence — the candidate never holds Canary's authoritative bytes) */
+  evidenceRoot?: string;
+  /** which tree cwd/candidate identity describe (defaults to the steps' root) */
+  subjectRoot?: string;
+  /** additive, plainly-labeled observation fields (never read back for verdicts) */
+  extra?: Record<string, unknown>;
+}): void {
   try {
-    if (containedRealPath(root, path.join(root, CONFIG_DIR)) === null) return; // linked .canary: no writes through it (S3)
+    const evidenceRoot = o?.evidenceRoot ?? root;
+    const subjectRoot = o?.subjectRoot ?? root;
+    if (containedRealPath(evidenceRoot, path.join(evidenceRoot, CONFIG_DIR)) === null) return; // linked .canary: no writes through it (S3)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dir = path.join(root, CONFIG_DIR, EVIDENCE_DIR, `${stamp}-${source}`);
-    if (containedRealPath(root, dir) === null) return;
+    const dir = path.join(evidenceRoot, CONFIG_DIR, EVIDENCE_DIR, `${stamp}-${source}`);
+    if (containedRealPath(evidenceRoot, dir) === null) return;
     fs.mkdirSync(dir, { recursive: true });
     const steps = results.map((r, i) => {
       const files: Record<'out' | 'err', string> = { out: '', err: '' };
@@ -1075,12 +1091,16 @@ function writeVerificationBundle(root: string, source: string, results: StepResu
       note: 'Written from Canary\'s OWN execution. Agent reports and printed summaries are claims, not evidence; this bundle is never read back to produce a verdict.',
       canaryEntry: CLI_ENTRY,
       runtime: { node: process.version, execPath: process.execPath, platform: process.platform, arch: process.arch },
-      cwd: root, candidate: candidateIdentity(root), envOverrides: relevantEnvNames(), steps,
+      cwd: subjectRoot, candidate: candidateIdentity(subjectRoot), envOverrides: relevantEnvNames(), steps,
       // M4 provenance: WHICH plan/code/task this evidence belongs to, stamped
       // from trusted in-memory state at write time — never re-derived from
       // bytes read back off the evidence dir. null only if a caller has no
       // plan context to offer. Observation, not verdict input.
       provenance: prov ? { planDigest: prov.planDigest, baseline: prov.baseline, taskDigest: prov.taskDigest ?? null } : null,
+      // extras add fields (plainly-labeled observations); they may never
+      // shadow the bundle's own reserved keys — a caller cannot launder a
+      // trustClass or status in through the side door.
+      ...Object.fromEntries(Object.entries(o?.extra ?? {}).filter(([k]) => !BUNDLE_RESERVED.has(k))),
     };
     const jsonPath = path.join(dir, 'verification.json');
     writeFileAtomic(jsonPath, JSON.stringify(bundle, null, 2) + '\n');
@@ -1092,9 +1112,9 @@ function writeVerificationBundle(root: string, source: string, results: StepResu
       JSON.stringify({ file: 'verification.json', sha256: sha256(fs.readFileSync(jsonPath, 'utf8')), label: 'tamper-evidence only — NOT a signature; no key exists' }, null, 2) + '\n');
     // bounded retention: newest EVIDENCE_KEEP bundles; only Canary's own
     // <stamp>-<source> dirs are eligible; anything else in evidence/ is left alone
-    const parent = path.join(root, CONFIG_DIR, EVIDENCE_DIR);
+    const parent = path.join(evidenceRoot, CONFIG_DIR, EVIDENCE_DIR);
     const mine = fs.readdirSync(parent)
-      .filter((d) => /^\d{4}-\d{2}-\d{2}T[\d-]{11,}(Z)?-(setup|doctor|checkpoint)$/.test(d))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}T[\d-]{11,}(Z)?-(setup|doctor|checkpoint|candidate)$/.test(d))
       .sort();
     for (const d of mine.slice(0, Math.max(0, mine.length - EVIDENCE_KEEP))) {
       try { fs.rmSync(path.join(parent, d), { recursive: true, force: true }); } catch { /* churn-tolerant */ }
@@ -1126,7 +1146,7 @@ function rel(root: string, p: string): string { return path.relative(root, p) ||
 
 // ---------- friendly output ----------
 
-class Out {
+export class Out {
   constructor(private verbose: boolean) {}
   say(s = '') { console.log(s); }
   detail(s: string) { if (this.verbose) console.log(`   ${s}`); }
@@ -1346,7 +1366,22 @@ export function cmdDoctor(rawArgs: string[]): number {
   o.say('running the verification plan:');
   const failed: StepResult[] = [];
   const ran: StepResult[] = [];
-  for (const s of cfg.plan) { const r = runPlanStep(root, cfg.pm, s); ran.push(r); o.step(r); if (!r.ok) failed.push(r); }
+  const refused: string[] = [];
+  for (const s of cfg.plan) {
+    let r: StepResult;
+    try { r = runPlanStep(root, cfg.pm, s); }
+    catch (e) { refused.push(`plan step "${s.script}" refused: ${(e as Error).message}`); continue; }
+    ran.push(r); o.step(r); if (!r.ok) failed.push(r);
+  }
+  if (refused.length) {
+    // a script name Canary will not execute is a config problem, not a test
+    // result — honest NEEDS ATTENTION, no checkpoint, no fake run.
+    writeVerificationBundle(root, 'doctor', ran, 'blocked', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
+    o.verdict('NEEDS ATTENTION', 'the config names a script Canary will not execute — doctor cannot certify this plan:', '');
+    for (const p of refused) console.log(`  - ${p}`);
+    console.log('next: canary setup --yes reseals from the package.json scripts');
+    return 2;
+  }
   writeVerificationBundle(root, 'doctor', ran, failed.length ? 'fail' : 'pass', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
   writeCheckpoint(root, failed.length ? 'fail' : 'pass', failed.map((f) => f.kind), 'doctor');
   if (failed.length) {
@@ -1393,6 +1428,14 @@ export function cmdUninstall(rawArgs: string[]): number {
   if (containedRealPath(root, path.join(root, CONFIG_DIR)) === null) {
     o.verdict('NEEDS ATTENTION', '.canary resolves outside the repository (a link?) — Canary will not delete through it.', 'replace it with a real folder, then re-run: canary uninstall'); return 2;
   }
+  // M7: .canary/candidates holds the registry and (by default) the candidate
+  // worktrees themselves. Removing .canary wholesale would orphan a worker's
+  // tree and erase the records proving it belongs to this repo (guarantee 11).
+  try {
+    if (fs.readdirSync(path.join(root, CONFIG_DIR, 'candidates')).length > 0) { // must match CANDIDATES_SUBDIR in candidate.ts
+      o.verdict('NEEDS ATTENTION', "candidates are still registered under .canary/candidates — uninstall would remove Canary's registry while the worktrees (and the worker's edits in them) remain.", 'canary isolate --list, then --remove each (or --discard), then re-run: canary uninstall'); return 2;
+    }
+  } catch { /* absent or empty: nothing to protect */ }
   fs.rmSync(path.join(root, CONFIG_DIR), { recursive: true, force: true });
   o.say(`removed ${removed} Canary hook entr${removed === 1 ? 'y' : 'ies'}; every other settings entry was kept (content preserved — re-serialization may reformat whitespace).`);
   o.verdict('READY', 'Canary is fully removed from this repo.', 'to bring it back: canary setup');

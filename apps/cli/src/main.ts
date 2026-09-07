@@ -48,6 +48,7 @@ import {
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
 import { cmdSetup, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask } from './onboarding.js';
+import { cmdIsolate } from './candidate.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -73,6 +74,16 @@ usage:
                             performance|ui|multi, --requirement per part) so completion
                             checks derive the task's proof obligations — a hint with zero
                             authority: it can only ADD obligations, never weaken the plan
+  canary isolate <name>     open an UNTRUSTED candidate: a detached git worktree of the
+                            trusted base (--base <ref>, --path <dir>) for a worker to
+                            edit — the base itself is never the workspace
+  canary isolate --verify <name>
+                            run the base's sealed plan INSIDE the candidate, from outside
+                            it; PASS = ELIGIBLE for promotion (a separate act — nothing
+                            is applied), FAIL/BLOCKED leaves the base untouched
+  canary isolate --list     live status of registered candidates (+ unregistered worktrees, reported never touched)
+  canary isolate --remove <name> [--discard]
+                            clean up a candidate; refuses a dirty one without --discard
   canary version`);
   process.exit(3);
 }
@@ -298,14 +309,16 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'prove' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), true);
   if (cmd === 'check' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), false);
   if (cmd === 'report') return cmdReport(rest[0], rest[1]);
-  // productization surface (apps/cli/src/onboarding.ts) — separate promise from
-  // the proof pipeline above; exit codes: 0 READY, 2 NEEDS ATTENTION/UNSUPPORTED.
+  // productization surface (apps/cli/src/onboarding.ts, candidate.ts) — separate
+  // promise from the proof pipeline above; exit codes: 0 READY/ELIGIBLE,
+  // 2 NEEDS ATTENTION/UNSUPPORTED/BLOCKED, 3 misuse.
   if (cmd === 'setup') return cmdSetup(rest);
   if (cmd === 'doctor') return cmdDoctor(rest);
   if (cmd === 'uninstall') return cmdUninstall(rest);
   if (cmd === 'checkpoint') return cmdCheckpoint();
   if (cmd === 'claim') return cmdClaim(rest);
   if (cmd === 'task') return cmdTask(rest);
+  if (cmd === 'isolate') return cmdIsolate(rest);
   return usage();
 }
 

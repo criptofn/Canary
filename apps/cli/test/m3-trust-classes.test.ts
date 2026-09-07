@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
+import { writeVerificationBundle, type StepResult } from '../src/onboarding.js';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..', '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
@@ -120,6 +121,28 @@ describe('labels are inert as input — no promotion by declaring or copying', (
     // and the REAL bundle from this run tells the truth about this run
     assert.equal(readLatestBundle(root, 'checkpoint').status, 'fail');
   });
+  it('no side door: extras handed to the bundle writer can never shadow its reserved fields', () => {
+    // Defense-in-depth on the WRITE path (M7 candidate verify passes observation
+    // extras): the threat is a future caller routing untrusted bytes into
+    // `extra` — a trustClass or status arriving through the side door.
+    const root = makeProject('sidedoor');
+    const step: StepResult = {
+      kind: 'tests', display: 'test', argv: ['node', 'nope'], cwd: root, ok: false, exitCode: 1,
+      secs: 0, tail: 'boom', startedAt: new Date().toISOString(), endedAt: new Date().toISOString(),
+      stdout: 'boom', stderr: '',
+    };
+    writeVerificationBundle(root, 'doctor', [step], 'blocked', undefined, {
+      extra: { trustClass: 'EXTERNALLY_VERIFIED', status: 'pass', note: 'override attempt', candidateName: 'w9' },
+    });
+    const dirs = fs.readdirSync(path.join(root, '.canary', 'evidence')).filter((d) => d.endsWith('-doctor'));
+    assert.ok(dirs.length > 0, 'a blocked bundle must still be written');
+    const b = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'evidence', dirs.at(-1)!, 'verification.json'), 'utf8'));
+    assert.equal(b.status, 'blocked', 'extra laundered the status');
+    assert.equal(b.trustClass, 'CANARY_OBSERVED', 'extra laundered the trust class');
+    assert.ok(b.note.includes('OWN execution'), 'extra overwrote the writer-owned note');
+    assert.equal(b.candidateName, 'w9', 'non-reserved extras must still land (additive, plainly labeled)');
+  });
+
   it('doctor re-derives despite a forged pass bundle: NEEDS ATTENTION, never READY', () => {
     const root = makeProject('promote-doctor', { testScript: fx('f-liar.js') });
     canary(['setup', '--yes', root]);
