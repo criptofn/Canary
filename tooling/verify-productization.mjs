@@ -17,19 +17,27 @@
  *      AGENT_REPORTED, EXTERNALLY_VERIFIED has no producer; self-declared or
  *      copied class labels are inert — no promotion by writing bytes into a
  *      Canary-owned file; class prose is verbose-only)
- *   5. empty-plan checkpoint probe (degenerate config never fakes green)
- *   6. M2 real-git probe (candidate binds to actual HEAD/dirty; digest binds to
+ *   5. M4 provenance contract tests (bundle answers plan/code/task/where/when
+ *      via planDigest, baseline, candidate tree, per-step stamps; task is a
+ *      digest with zero verdict authority, prose never stored; companion hash
+ *      is tamper-evidence only — labeled as such, never a signature; pre-M4
+ *      configs get baseline:null, not an invented past)
+ *   6. empty-plan checkpoint probe (degenerate config never fakes green)
+ *   7. M2 real-git probe (candidate binds to actual HEAD/dirty; digest binds to
  *      retained bytes; outward-linked evidence dir is never written through)
- *   7. M3 real-git probe (copy-to-promote attack end to end: a forged
+ *   8. M3 real-git probe (copy-to-promote attack end to end: a forged
  *      CANARY_OBSERVED pass bundle blocks neither checkpoint nor doctor)
- *   8. clean-room lazy-vibecoder acceptance (one-command full journey)
- *   9. HTG inline-interpreter corpus (real hook autonomy: 0 routine prompts,
+ *   9. M4 real-git probe (real head+tree bytes; baseline holds while the
+ *      candidate moves; task digest over the real wire; companion hash binds
+ *      and catches a byte flip that stays behaviorally inert)
+ *  10. clean-room lazy-vibecoder acceptance (one-command full journey)
+ *  11. HTG inline-interpreter corpus (real hook autonomy: 0 routine prompts,
  *      every dangerous case still gated) — classification only, nothing runs
- *  10. packed-artifact clean room (tooling/pack.mjs -> npm pack -> install the
+ *  12. packed-artifact clean room (tooling/pack.mjs -> npm pack -> install the
  *      exact .tgz into a spaces-path temp repo; full vibecoder journey through
  *      the installed bundle; tarball audited: no monorepo, no secrets)
  * Brief items 5-7 (setup twice, partial repair, uninstall/reinstall, harness
- * preservation, quoting) are asserted inside steps 2 and 8.
+ * preservation, quoting) are asserted inside steps 2 and 10.
  *
  * Exit code: 0 only when every step passed. NO PROOF, NO DONE.
  */
@@ -44,9 +52,11 @@ const STEPS = [
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
   ['M3 trust-classes contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m3-trust-classes.test.js'], {}],
+  ['M4 provenance contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m4-provenance.test.js'], {}],
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: M2 claims-not-evidence (real git)', process.execPath, ['tooling/probes/m2-claims-not-evidence.mjs'], {}],
   ['probe: M3 trust-classes (real git)', process.execPath, ['tooling/probes/m3-trust-classes.mjs'], {}],
+  ['probe: M4 provenance (real git)', process.execPath, ['tooling/probes/m4-provenance.mjs'], {}],
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
   ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],

@@ -99,7 +99,7 @@ describe('deriveObservedCounts (pure): parses bytes, never judges them', () => {
 describe('candidateIdentity (pure): unknown candidate stays unknown', () => {
   it('a fake .git that cannot answer is recorded UNIDENTIFIED, never upgraded', () => {
     const root = makeProject('ident-fake');
-    assert.deepEqual(candidateIdentity(root), { resolved: false, head: null, dirty: null });
+    assert.deepEqual(candidateIdentity(root), { resolved: false, head: null, tree: null, dirty: null });
   });
 });
 
@@ -116,7 +116,7 @@ describe('verification bundle: what Canary EXECUTED, recorded from its own run',
     assert.match(b.note, /never read back/);
     assert.equal(b.cwd, root);
     assert.equal(b.runtime.node, process.version);
-    assert.deepEqual(b.candidate, { resolved: false, head: null, dirty: null }); // honest UNIDENTIFIED
+    assert.deepEqual(b.candidate, { resolved: false, head: null, tree: null, dirty: null }); // honest UNIDENTIFIED
     assert.ok(Array.isArray(b.envOverrides));
     const s = b.steps[0];
     assert.deepEqual(s.argv, ['npm', 'run', 'test']);

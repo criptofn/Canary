@@ -87,6 +87,10 @@ export interface CanaryConfig {
   /** every command string ever installed here — uninstall matches exactly these */
   hookCommands: string[];
   touched: TouchedFile[];
+  /** M4 baseline: repo identity stamped by Canary at setup time — "state when
+   *  Canary was wired". Optional: configs written before M4 have no provable
+   *  baseline, and bundles say `baseline: null` rather than invent one. */
+  baseline?: BaselineStamp;
 }
 
 // ---------- detection (pure, testable) ----------
@@ -417,11 +421,14 @@ export interface StepResult {
   kind: string; display: string; ok: boolean; exitCode: number | null; secs: number; tail: string;
   /** M2 evidence fields — recorded, never consulted for a verdict */
   argv: string[]; cwd: string; stdout: string; stderr: string;
+  /** M4 provenance: wall-clock stamps around the spawn, recorded, never judged */
+  startedAt: string; endedAt: string;
 }
 
 export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs = 600_000): StepResult {
   const argv = stepArgv(pm, step.script); // throws unless [pm, 'run', script] is fully whitelisted
   const display = argv.join(' ');
+  const startedAt = new Date().toISOString();
   const r = spawnSync(argv[0] as string, argv.slice(1), {
     cwd: root, encoding: 'utf8', timeout: timeoutMs,
     shell: process.platform === 'win32', // npm et al. are .cmd shims on Windows; argv is whitelisted fragments only
@@ -436,24 +443,37 @@ export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs 
     exitCode: infra ? null : r.status, secs: 0,
     tail: out.split(/\r?\n/).filter(Boolean).slice(-12).join('\n'),
     argv, cwd: root, stdout, stderr,
+    startedAt, endedAt: new Date().toISOString(),
   };
 }
 
 // ---------- M2 evidence: claims are not evidence ----------
 
+/** M4 identity shape: candidate and baseline share it. `tree` is the git TREE
+ *  (content) identity, distinct from the commit — two commits with the same
+ *  tree verify the same bytes. */
+export interface Identity { resolved: boolean; head: string | null; tree: string | null; dirty: boolean | null }
+/** M4 baseline: who the repo was AT THE MOMENT CANARY WAS WIRED, stamped by
+ *  Canary's own read-only probes. The honest anchor the onboarding path has:
+ *  setup sees the present, never the agent's past — `at` names when the
+ *  stamp was taken, so no bundle claims to know pre-agent state it cannot. */
+export interface BaselineStamp extends Identity { at: string }
+
 /** Read-only, fixed-argv git probes (same spawn pattern as configTracked).
  *  A fake .git dir that cannot answer is recorded as UNIDENTIFIED — the
  *  evidence bundle never upgrades an unknown candidate into a known one. */
-export function candidateIdentity(root: string): { resolved: boolean; head: string | null; dirty: boolean | null } {
+export function candidateIdentity(root: string): Identity {
   const gitOut = (args: string[]): string | null => {
     const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 15_000 });
     return r.status === 0 ? r.stdout : null;
   };
   const head = gitOut(['rev-parse', 'HEAD']);
+  const tree = gitOut(['rev-parse', 'HEAD^{tree}']);
   const status = gitOut(['status', '--porcelain']);
   return {
     resolved: head !== null && head.trim().length > 0,
     head: head?.trim() ?? null,
+    tree: tree?.trim() ?? null,
     dirty: status === null ? null : status.trim().length > 0,
   };
 }
@@ -520,6 +540,34 @@ const sha256 = (s: string): string => crypto.createHash('sha256').update(s, 'utf
  */
 export type TrustClass = 'CANARY_OBSERVED' | 'EXTERNALLY_VERIFIED' | 'AGENT_REPORTED';
 
+// ---------- M4 provenance ----------
+/**
+ * M4 answers the questions authoritative evidence must carry: WHAT plan
+ * (planDigest) and WHAT task (task digest, optional), WHICH CODE (baseline +
+ * candidate head/tree), WHERE (per-step cwd), WHEN (per-step start/end),
+ * WHAT HAPPENED (exit codes, raw-byte hashes, artifacts) — and the
+ * verification.sha256 companion binds the whole answer together. All of it is
+ * OBSERVATION recorded by the executing code and is never consulted for a
+ * verdict (M2 doctrine stands): provenance documents proof, it never replaces
+ * it, and no field here claims cryptographic authenticity — there is no
+ * signing key; the bundle hash is tamper-EVIDENCE against corruption and
+ * accidental edit, nothing more.
+ */
+/** sha256 over the canonical plan ([{kind,script}] in order). The per-step
+ *  executed argv is recorded separately; this binds WHICH plan was in force. */
+export function planDigest(plan: PlanStep[]): string {
+  return sha256(JSON.stringify(plan.map((s) => ({ kind: s.kind, script: s.script }))));
+}
+
+/** Bundle provenance, computed by the CALLER from trusted state (config) or
+ *  observation — never from file content read back off the evidence dir. */
+export interface BundleProvenance {
+  planDigest: string;
+  baseline: BaselineStamp | null;
+  /** digest of the optional task string a hook sent; raw prose is never stored */
+  taskDigest?: string;
+}
+
 /**
  * Write what Canary just executed, as bytes — argv, cwd, runtime, candidate,
  * raw streams (capped files + full-byte digests), exit codes, derived
@@ -527,7 +575,7 @@ export type TrustClass = 'CANARY_OBSERVED' | 'EXTERNALLY_VERIFIED' | 'AGENT_REPO
  * alter the harness hook, and nothing reads this back for a verdict (S4
  * doctrine extended to the whole evidence dir).
  */
-function writeVerificationBundle(root: string, source: string, results: StepResult[], status: string): void {
+function writeVerificationBundle(root: string, source: string, results: StepResult[], status: string, prov?: BundleProvenance): void {
   try {
     if (containedRealPath(root, path.join(root, CONFIG_DIR)) === null) return; // linked .canary: no writes through it (S3)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -551,6 +599,7 @@ function writeVerificationBundle(root: string, source: string, results: StepResu
       });
       return {
         kind: r.kind, argv: r.argv, cwd: r.cwd, ok: r.ok, exitCode: r.exitCode,
+        startedAt: r.startedAt, endedAt: r.endedAt,
         stdout: { sha256: sha256(r.stdout), bytes: Buffer.byteLength(r.stdout, 'utf8'), file: files.out || null },
         stderr: { sha256: sha256(r.stderr), bytes: Buffer.byteLength(r.stderr, 'utf8'), file: files.err || null },
         observedCounts: deriveObservedCounts(`${r.stdout}${r.stderr}`),
@@ -565,8 +614,20 @@ function writeVerificationBundle(root: string, source: string, results: StepResu
       canaryEntry: CLI_ENTRY,
       runtime: { node: process.version, execPath: process.execPath, platform: process.platform, arch: process.arch },
       cwd: root, candidate: candidateIdentity(root), envOverrides: relevantEnvNames(), steps,
+      // M4 provenance: WHICH plan/code/task this evidence belongs to, stamped
+      // from trusted in-memory state at write time — never re-derived from
+      // bytes read back off the evidence dir. null only if a caller has no
+      // plan context to offer. Observation, not verdict input.
+      provenance: prov ? { planDigest: prov.planDigest, baseline: prov.baseline, taskDigest: prov.taskDigest ?? null } : null,
     };
-    writeFileAtomic(path.join(dir, 'verification.json'), JSON.stringify(bundle, null, 2) + '\n');
+    const jsonPath = path.join(dir, 'verification.json');
+    writeFileAtomic(jsonPath, JSON.stringify(bundle, null, 2) + '\n');
+    // M4 bundle self-hash — TAMPER-EVIDENCE only. There is no signing key in
+    // this product: whoever can rewrite verification.json can rewrite this
+    // file too, so it proves nothing about authenticity. It honestly binds
+    // the bundle against corruption and accidental edits, and says so.
+    writeFileAtomic(path.join(dir, 'verification.sha256'),
+      JSON.stringify({ file: 'verification.json', sha256: sha256(fs.readFileSync(jsonPath, 'utf8')), label: 'tamper-evidence only — NOT a signature; no key exists' }, null, 2) + '\n');
     // bounded retention: newest EVIDENCE_KEEP bundles; only Canary's own
     // <stamp>-<source> dirs are eligible; anything else in evidence/ is left alone
     const parent = path.join(root, CONFIG_DIR, EVIDENCE_DIR);
@@ -697,6 +758,9 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   if (!res.ok) { o.verdict('NEEDS ATTENTION', `could not configure Claude Code safely: ${res.problem}`, 'fix that file, then run setup again'); return 2; }
   const cfg: CanaryConfig = {
     version: 'product-0.1', installedAt: new Date().toISOString(), pm, plan,
+    // M4 baseline: stamped NOW by Canary's own probes. Honest label —
+    // "state when Canary was wired", not a claim about the agent's past.
+    baseline: { at: new Date().toISOString(), ...candidateIdentity(root) },
     cliPath: CLI_ENTRY, hookCommand,
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
     touched: [res.touched!],
@@ -734,7 +798,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     o.step(r);
     if (!r.ok) { allOk = false; failed.push(r); }
   }
-  writeVerificationBundle(root, 'setup', ran, allOk ? 'pass' : 'fail');
+  writeVerificationBundle(root, 'setup', ran, allOk ? 'pass' : 'fail', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
   writeCheckpoint(root, allOk ? 'pass' : 'fail', failed.map((f) => f.kind), 'setup');
   if (allOk) {
     o.verdict('READY', 'Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.', `try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor`);
@@ -801,7 +865,7 @@ export function cmdDoctor(rawArgs: string[]): number {
   const failed: StepResult[] = [];
   const ran: StepResult[] = [];
   for (const s of cfg.plan) { const r = runPlanStep(root, cfg.pm, s); ran.push(r); o.step(r); if (!r.ok) failed.push(r); }
-  writeVerificationBundle(root, 'doctor', ran, failed.length ? 'fail' : 'pass');
+  writeVerificationBundle(root, 'doctor', ran, failed.length ? 'fail' : 'pass', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
   writeCheckpoint(root, failed.length ? 'fail' : 'pass', failed.map((f) => f.kind), 'doctor');
   if (failed.length) {
     o.verdict('NEEDS ATTENTION', `wiring is good, but the checks just failed (${failed.map((f) => f.kind).join(', ')}) — your code is talking, not Canary.`, 'fix the failing checks (ask the agent), then: canary doctor');
@@ -841,7 +905,9 @@ export function cmdUninstall(rawArgs: string[]): number {
 
 /**
  * Harness entry point (Claude Code Stop hook). Contract:
- *  - stdin: hook JSON {cwd?, stop_hook_active?}; stdout JSON decisions; exit 0.
+ *  - stdin: hook JSON {cwd?, stop_hook_active?, task?}; stdout JSON decisions; exit 0.
+ *    (`task` is M4-additive: an optional AGENT_REPORTED provenance label,
+ *    stored as a digest only; old senders and unknown keys behave as before.)
  *  - all checks pass => silence (human is NOT interrupted when nothing is needed)
  *  - a check fails   => {"decision":"block", reason} => agent gets one repair turn
  *  - infra failure / unconfigured / loop guard => allow + honest systemMessage, never a fake green
@@ -849,8 +915,14 @@ export function cmdUninstall(rawArgs: string[]): number {
  *    damaged authority is NOT
  */
 export async function cmdCheckpoint(): Promise<number> {
-  let input: { cwd?: string; stop_hook_active?: boolean } = {};
+  let input: { cwd?: string; stop_hook_active?: boolean; task?: string } = {};
   try { input = JSON.parse(fs.readFileSync(0, 'utf8')) as typeof input; } catch { /* interactive invocation or empty stdin */ }
+  // M4: optional task/intent label from the hook — DIGEST only, raw prose is
+  // never stored or echoed, so provenance cannot become a smuggling channel
+  // for agent-authored text. AGENT_REPORTED by nature: a label on evidence,
+  // zero verdict authority either way.
+  const taskDigest = typeof input.task === 'string' && input.task.trim()
+    ? sha256(input.task.trim().slice(0, 4000)) : undefined;
   const root = findRepoRoot(input.cwd ?? process.cwd());
   const cfg = root ? readConfig(root) : null;
   const emit = (obj: Record<string, unknown>) => { console.log(JSON.stringify(obj)); return 0; };
@@ -872,6 +944,13 @@ export async function cmdCheckpoint(): Promise<number> {
     return emit({ systemMessage: 'Canary: the verification plan is empty, so nothing was checked — this completion is UNVERIFIED, not a pass. Run: canary doctor' });
   }
 
+  // M4 provenance for every bundle this invocation writes — from the TRUSTED
+  // in-memory config (shape-checked, non-distrusted above), never re-read from
+  // the evidence dir.
+  const prov: BundleProvenance = {
+    planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null,
+    ...(taskDigest ? { taskDigest } : {}),
+  };
   const failed: StepResult[] = [];
   const ran: StepResult[] = [];
   let infra = '';
@@ -882,16 +961,16 @@ export async function cmdCheckpoint(): Promise<number> {
     if (!r.ok) failed.push(r);
   }
   if (infra) {
-    writeVerificationBundle(root, 'checkpoint', ran, 'infra');
+    writeVerificationBundle(root, 'checkpoint', ran, 'infra', prov);
     writeCheckpoint(root, 'infra', failed.map((f) => f.kind), 'checkpoint');
     return emit({ systemMessage: `Canary could not run the checks (${infra.slice(0, 160)}) — this completion is UNVERIFIED, not a pass.` });
   }
   if (failed.length === 0) {
-    writeVerificationBundle(root, 'checkpoint', ran, 'pass');
+    writeVerificationBundle(root, 'checkpoint', ran, 'pass', prov);
     writeCheckpoint(root, 'pass', [], 'checkpoint');
     return 0; // silent even if an agent claim contradicts — claims never BLOCK, and never CREATE a pass
   }
-  writeVerificationBundle(root, 'checkpoint', ran, 'fail');
+  writeVerificationBundle(root, 'checkpoint', ran, 'fail', prov);
   writeCheckpoint(root, 'fail', failed.map((f) => f.kind), 'checkpoint');
   if (input.stop_hook_active === true) {
     // already one repair attempt this turn — never loop the agent; surface honestly instead
