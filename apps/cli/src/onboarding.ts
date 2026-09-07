@@ -495,6 +495,31 @@ function relevantEnvNames(): string[] {
 
 const sha256 = (s: string): string => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
 
+// ---------- M3 evidence trust classes ----------
+/**
+ * Every evidence item belongs to exactly ONE class, stamped by the code that
+ * WRITES its bytes — the label describes the writer, it is never authority:
+ *
+ *   CANARY_OBSERVED      Canary executed it itself (verification bundles).
+ *   EXTERNALLY_VERIFIED  a third party's executed proof, imported by a human
+ *                        (CI attestation, GLM audit). NO PRODUCER EXISTS YET:
+ *                        until a real import path is built, anything on disk
+ *                        claiming this class is unvalidated text at best
+ *                        AGENT_REPORTED.
+ *   AGENT_REPORTED       the worker's own words (claims file). A hint with
+ *                        ZERO verdict authority — never sufficient for PASS,
+ *                        never creates a BLOCK.
+ *
+ * Enforcement is STRUCTURAL, not label-based: a verdict is produced only
+ * from checks Canary executes in the same invocation, and evidence is never
+ * read back for one (M2 doctrine). So copying a bundle, self-declaring a
+ * class inside file content, or renaming AGENT_REPORTED bytes into a
+ * Canary-owned path all change NOTHING — the classes are honest description
+ * for humans and downstream tooling, and the tests pin that they stay inert
+ * as input.
+ */
+export type TrustClass = 'CANARY_OBSERVED' | 'EXTERNALLY_VERIFIED' | 'AGENT_REPORTED';
+
 /**
  * Write what Canary just executed, as bytes — argv, cwd, runtime, candidate,
  * raw streams (capped files + full-byte digests), exit codes, derived
@@ -533,6 +558,9 @@ function writeVerificationBundle(root: string, source: string, results: StepResu
     });
     const bundle = {
       schema: 'canary-verification/1', at: new Date().toISOString(), source, status,
+      // M3: every bundle exists because Canary ran the plan — CANARY_OBSERVED
+      // is not a claim this file makes, it is a fact about who wrote these bytes.
+      trustClass: 'CANARY_OBSERVED',
       note: 'Written from Canary\'s OWN execution. Agent reports and printed summaries are claims, not evidence; this bundle is never read back to produce a verdict.',
       canaryEntry: CLI_ENTRY,
       runtime: { node: process.version, execPath: process.execPath, platform: process.platform, arch: process.arch },
@@ -780,6 +808,8 @@ export function cmdDoctor(rawArgs: string[]): number {
     return 2;
   }
   o.verdict('READY', 'wiring verified; the checks just ran and passed.', 'nothing to do — the agent finishes, Canary checks');
+  // M3 (verbose-only — trust classes are evidence internals, not default UX):
+  o.detail('trust: this READY is CANARY_OBSERVED — Canary executed the checks in this very invocation. Agent words are AGENT_REPORTED and never sufficient for a PASS; no class is promoted by copying bytes into a Canary-owned file (evidence is never read back for verdicts).');
   return 0;
 }
 
@@ -917,6 +947,9 @@ export function cmdClaim(rawArgs: string[]): number {
     fs.mkdirSync(path.dirname(claimPath), { recursive: true });
     writeFileAtomic(claimPath, JSON.stringify({
       at: new Date().toISOString(), kind: 'agent-claim',
+      // M3: the writer is the agent, so the class is AGENT_REPORTED —
+      // permanently insufficient for a PASS, by the read side's design.
+      trustClass: 'AGENT_REPORTED',
       authority: 'UNTRUSTED HINT — claims are not evidence; verdicts come only from checks Canary executes',
       text: text.slice(0, 4000),
     }, null, 2) + '\n');
