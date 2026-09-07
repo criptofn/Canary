@@ -262,6 +262,25 @@ const PAYLOAD_DANGER = new RegExp(
     // identifier/`)`/`]`; an array literal `[ 'a', 'b' ]` after = , ( is fine)
     String.raw`|\\x[0-9a-fA-F]{2}|\\u00|\bchr\s*\(|fromCharCode|\batob\b|\bunescape\b|fromhex|unhexlify|b64decode|\bhex\b|(?<=[\w)\]])\[\s*['"][A-Za-z_]` +
     String.raw`|(['"])[^'"\n]+\1\s*(?=['"])` +
+    // GLM M0.5 (panel-hardened 2026-09-07): string-assembly evasions in the
+    // payload. '+'-joined literals are adjacency with an operator between the
+    // pieces, and any COMPUTED MEMBER whose key is not digit-led can dispatch
+    // an assembled name at runtime (fs[f], fs[f[0]+f[1]], fs[`${a}${b}`],
+    // fs[('w').concat('riteFile')], fs[['wr','ite'].join('')]). Listing only
+    // OPERATORS proved bypassable three ways (panel-confirmed); the sound rule
+    // is structural:
+    //   1) any string/template literal operand of a + => computed string
+    //      (catches 'write'+'File', 'wri'+t, t+'ile', `write`+`File`);
+    //      arithmetic `1+1` and compound `s += 'x'` (+ then =) are unaffected;
+    //   2) after an identifier/`)`/`]`, a `[` whose key does not start with a
+    //      digit or minus => dangerous. Only digit-led keys cannot name a
+    //      method, so pure-numeric indexing (arr[0+1], argv[2], arr[-1])
+    //      stays analyzable read-only.
+    // Cost: 'msg: '+x and obj[someVar] inside a payload now delegate (ASK).
+    // Ambiguous => ASK is the standing rule; false prompts beat false
+    // autonomy. \x60 = backtick written without a raw backtick so the
+    // enclosing template stays lexable.
+    String.raw`|['"\x60]\s*\+|\+\s*['"\x60]|(?<=[\w)\]])\[\s*(?![\d-])` +
     // loader / inspector flags:
     String.raw`|--input-type|--inspect|--experimental|NODE_OPTIONS|process\.binding|process\.dlopen`,
   'i',
