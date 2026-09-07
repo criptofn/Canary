@@ -21,6 +21,7 @@ import { after, describe, it } from 'node:test';
 
 import {
   detectPm, detectPlan, isSafeScriptName, stepArgv, buildHookCommand, hasCanaryEntry, containedRealPath,
+  writeConfig, readConfig, installStopHook,
   type CanaryConfig,
 } from '../src/onboarding.js';
 
@@ -240,11 +241,111 @@ describe('checkpoint (harness entry)', () => {
     assert.doesNotMatch(d.stderr, /TypeError|is not a function/);
     const c = canary(['checkpoint'], root, JSON.stringify({ cwd: root, hook_event_name: 'Stop' }));
     assert.equal(c.status, 0);
-    assert.equal(c.stdout.trim(), ''); // unconfigured shape: stay out of the way, say nothing fake
+    // GLM F-1 changed this pin: a corrupt config is NOT absence — silence here
+    // was a silent allow through damaged authority. Must now be loud UNVERIFIED.
+    const cout = JSON.parse(c.stdout) as { decision?: string; systemMessage?: string };
+    assert.equal(cout.decision, undefined); // never a fake block on unreadable bytes
+    assert.match(cout.systemMessage ?? '', /unreadable/);
+    assert.match(cout.systemMessage ?? '', /UNVERIFIED/);
     const u = canary(['uninstall', root]);
     assert.equal(u.status, 2);
     assert.match(u.stdout, /unreadable/);
     assert.match(canary(['setup', '--yes', root]).stdout, /READY/); // self-heal: setup rewrites it
+  });
+  it('F-1: a half-written (truncated) config is loud UNVERIFIED at checkpoint, never silent; doctor stays NEEDS ATTENTION', () => {
+    const root = makeProject('cp-trunc');
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    fs.writeFileSync(cfgFile(root), '{"version": "product-0.1", "install'); // the interrupted-write shape (F-2's failure mode)
+    const r = canary(['checkpoint'], root, hookInput(root));
+    assert.equal(r.status, 0);
+    const out = JSON.parse(r.stdout) as { decision?: string; systemMessage?: string };
+    assert.equal(out.decision, undefined); // no evidence => no fake block; no silence => no silent allow
+    assert.match(out.systemMessage ?? '', /unreadable/);
+    assert.match(out.systemMessage ?? '', /UNVERIFIED/);
+    assert.match(out.systemMessage ?? '', /canary setup/);
+    const d = canary(['doctor', root]);
+    assert.equal(d.status, 2);
+    assert.match(d.stdout, /NEEDS ATTENTION/);
+  });
+});
+
+describe('atomic config writes (GLM F-2)', () => {
+  const cfgOf = (pm: string): CanaryConfig => ({
+    version: 'test-0.1', installedAt: '2026-09-07T00:00:00.000Z', pm,
+    plan: [{ kind: 'tests', script: 'test' }], cliPath: CLI, hookCommand: 'h', hookCommands: ['h'], touched: [],
+  });
+  it('leaves no temp residue and round-trips exactly', () => {
+    const root = path.join(TMP, 'atomic-clean');
+    writeConfig(root, cfgOf('npm'));
+    assert.deepEqual(readConfig(root), cfgOf('npm'));
+    assert.deepEqual(fs.readdirSync(path.join(root, '.canary')).filter((f) => f.includes('.canary-tmp')), []);
+  });
+  it('a crash before the final rename leaves the PREVIOUS config byte-intact, never a corrupt half-file', () => {
+    const root = path.join(TMP, 'atomic-crash');
+    writeConfig(root, cfgOf('npm'));
+    const before = fs.readFileSync(cfgFile(root), 'utf8');
+    const realRename = fs.renameSync;
+    fs.renameSync = ((...args: Parameters<typeof fs.renameSync>) => {
+      // match by ARGUMENT, not call count: survives write-order changes and
+      // any extra renames the helper grows (mutation-tested 2026-09-07)
+      if (typeof args[0] === 'string' && /canary[.]local[.]json[.][0-9]+[.]canary-tmp$/.test(args[0])) {
+        throw new Error('simulated crash before config rename');
+      }
+      return realRename(...args);
+    }) as typeof fs.renameSync;
+    try {
+      assert.throws(() => writeConfig(root, cfgOf('pnpm')), /simulated crash/);
+    } finally {
+      fs.renameSync = realRename;
+    }
+    assert.equal(fs.readFileSync(cfgFile(root), 'utf8'), before); // old COMPLETE file, not truncated bytes
+    assert.notEqual(readConfig(root), 'corrupt'); // the loud-UNVERIFIED path stays reserved for real damage
+    assert.deepEqual(fs.readdirSync(path.join(root, '.canary')).filter((f) => f.includes('.canary-tmp')), []); // self-cleaned
+  });
+  it('every write is fsync-ed BEFORE its publish rename (durable-then-visible order is pinned)', () => {
+    const root = path.join(TMP, 'atomic-order');
+    const order: string[] = [];
+    const realFsync = fs.fsyncSync;
+    const realRename = fs.renameSync;
+    fs.fsyncSync = ((fd: number) => { order.push('fsync'); return realFsync(fd); }) as typeof fs.fsyncSync;
+    fs.renameSync = ((...args: Parameters<typeof fs.renameSync>) => {
+      if (/[.]gitignore$|canary[.]local[.]json$/.test(String(args[1]))) order.push('rename');
+      return realRename(...args);
+    }) as typeof fs.renameSync;
+    try {
+      writeConfig(root, cfgOf('npm')); // two atomic writes: .gitignore, then config
+    } finally {
+      fs.fsyncSync = realFsync;
+      fs.renameSync = realRename;
+    }
+    assert.deepEqual(order, ['fsync', 'rename', 'fsync', 'rename']);
+  });
+  it('a crash during the settings write surfaces as a problem — original untouched, backup kept, no residue', () => {
+    const root = path.join(TMP, 'atomic-settings');
+    const settings = path.join(root, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settings), { recursive: true });
+    fs.writeFileSync(settings, '{"theme":"user-value"}\n'); // a stranger's file with real content
+    const before = fs.readFileSync(settings, 'utf8');
+    const realRename = fs.renameSync;
+    fs.renameSync = ((...args: Parameters<typeof fs.renameSync>) => {
+      if (typeof args[0] === 'string' && /settings[.]json[.][0-9]+[.]canary-tmp$/.test(args[0])) {
+        throw new Error('simulated crash before settings rename');
+      }
+      return realRename(...args);
+    }) as typeof fs.renameSync;
+    let res: { ok: boolean; problem?: string };
+    try {
+      res = installStopHook(root, 'canary-hook-cmd', new Set(), path.join(root, '.canary', 'backups'));
+    } finally {
+      fs.renameSync = realRename;
+    }
+    assert.equal(res.ok, false);
+    assert.match(res.problem ?? '', /left exactly as it was/);
+    assert.equal(fs.readFileSync(settings, 'utf8'), before); // never truncated, never half-written
+    assert.equal(Object.keys(JSON.parse(fs.readFileSync(settings, 'utf8'))).join(), 'theme'); // intact, no hook entry
+    assert.deepEqual(fs.readdirSync(path.dirname(settings)).filter((f) => f.includes('.canary-tmp')), []);
+    const backups = path.join(root, '.canary', 'backups');
+    assert.ok(fs.readdirSync(backups).some((f) => f.endsWith('-settings.json'))); // the claimed backup really exists
   });
 });
 

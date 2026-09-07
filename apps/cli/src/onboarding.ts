@@ -211,13 +211,46 @@ export function containedRealPath(root: string, p: string): string | null {
     return inside(anc) ? path.join(anc, ...tail) : null;
   } catch { return null; }
 }
+/**
+ * Atomic replace (GLM F-2): full bytes to a temp sibling -> fsync -> close ->
+ * rename over the target. An interrupted or crashed write can only ever leave
+ * the PREVIOUS complete file or the NEW complete file — never a half-written
+ * config that readConfig would call 'corrupt'. fs.renameSync replaces an
+ * existing target on Windows (MoveFileEx REPLACE_EXISTING) and POSIX.
+ * Callers keep their own containment pre-checks; this preserves them:
+ * assertPlainTarget on BOTH final and temp (no dangling-link landing pads),
+ * and a failed attempt removes its temp and rethrows — bytes untouched.
+ * Ceiling (ponytail): no parent-directory fsync (not portable on Windows);
+ * the rename itself is the atomic step, so the worst crash window is a
+ * surviving temp sibling, which self-heals on the next write.
+ */
+function writeFileAtomic(p: string, data: string): void {
+  assertPlainTarget(p);
+  const tmp = `${p}.${process.pid}.canary-tmp`;
+  assertPlainTarget(tmp);
+  try {
+    // 'wx' exclusive create: a planted hardlink at the predictable temp name
+    // fails EEXIST instead of being written through (closes the check->open
+    // TOCTOU window assertPlainTarget alone cannot see).
+    const fd = fs.openSync(tmp, 'wx');
+    try {
+      fs.writeFileSync(fd, data, 'utf8');
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, p);
+  } catch (e) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort; a surviving temp is inert */ }
+    throw e;
+  }
+}
+
 export function writeConfig(root: string, cfg: CanaryConfig): void {
   const dir = path.join(root, CONFIG_DIR);
   fs.mkdirSync(dir, { recursive: true });
-  assertPlainTarget(path.join(dir, '.gitignore')); // a committed `.gitignore -> ../.gitignore` must not be written through (S3)
-  fs.writeFileSync(path.join(dir, '.gitignore'), '*\n', 'utf8'); // self-ignoring; never dirties the user repo
-  assertPlainTarget(path.join(dir, CONFIG_FILE));
-  fs.writeFileSync(path.join(dir, CONFIG_FILE), JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+  writeFileAtomic(path.join(dir, '.gitignore'), '*\n'); // self-ignoring; never dirties the user repo
+  writeFileAtomic(path.join(dir, CONFIG_FILE), JSON.stringify(cfg, null, 2) + '\n');
 }
 
 export function settingsPath(root: string): string { return path.join(root, '.claude', 'settings.json'); }
@@ -308,7 +341,13 @@ export function installStopHook(
   } else {
     fs.mkdirSync(path.dirname(file), { recursive: true });
   }
-  fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+  try {
+    writeFileAtomic(file, JSON.stringify(doc, null, 2) + '\n'); // harness settings: an interrupted write must not leave broken JSON
+  } catch (e) {
+    // rename can fail transiently on Windows (AV/indexer holds the target);
+    // the atomic path guarantees the original bytes are untouched — say so.
+    return { ok: false, problem: `could not update ${rel(root, file)} (${String(e).slice(0, 140)}) — ${existed ? 'your file was left exactly as it was, and the backup is in place' : 'nothing was created'}; a momentarily locked file (AV/indexer) is the usual cause. Re-run setup.` };
+  }
   return { ok: true, touched: { path: file, created: !existed } };
 }
 
@@ -336,11 +375,20 @@ export function uninstallHooks(root: string, cfg: CanaryConfig): { removed: numb
     }
     const doc = parseJsonOrNull(t.path);
     if (!doc) { problems.push(`${rel(root, t.path)} is not valid JSON — left untouched. Repair it, then re-run uninstall.`); continue; }
-    removed += pruneOwned(doc, owned);
-    if (fs.existsSync(t.path)) {
-      if (Object.keys(doc).length === 0 && t.created) fs.rmSync(t.path);
-      else fs.writeFileSync(t.path, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+    let pruned = 0;
+    try {
+      pruned = pruneOwned(doc, owned);
+      if (fs.existsSync(t.path)) {
+        if (Object.keys(doc).length === 0 && t.created) fs.rmSync(t.path);
+        else writeFileAtomic(t.path, JSON.stringify(doc, null, 2) + '\n');
+      }
+    } catch (e) {
+      // write/delete failed — the on-disk file was NOT changed, so the
+      // pruned entries must not be counted and the file must be reported.
+      problems.push(`${rel(root, t.path)} could not be updated (${String(e).slice(0, 140)}) — left untouched; re-run uninstall once the file lock clears.`);
+      continue;
     }
+    removed += pruned;
   }
   return { removed, problems };
 }
@@ -468,7 +516,14 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
     touched: [res.touched!],
   };
-  writeConfig(root, cfg);
+  try {
+    writeConfig(root, cfg);
+  } catch (e) {
+    // the hook entry is installed but WITHOUT config the checkpoint stays
+    // silent — this project would be wired yet unprotected. Say it plainly.
+    o.verdict('NEEDS ATTENTION', `could not write the .canary config (${String(e).slice(0, 140)}) — the hook entry is installed, but Canary cannot verify anything here without its config. Nothing was half-written.`, 'close whatever holds the file, then run setup again');
+    return 2;
+  }
   o.say(`Claude Code will run Canary automatically when the agent finishes a turn here.${prev && prev !== 'corrupt' ? ' (re-run: existing Canary hook refreshed, no duplicates)' : ''}`);
 
   // smoke = run the plan for real (this is the proof the wiring works)
@@ -506,9 +561,10 @@ function writeCheckpoint(root: string, status: string, failed: string[], source:
     // never write evidence through a committed link pointing outside the repo (S3)
     const p = path.join(root, CONFIG_DIR, CHECKPOINT_FILE);
     if (containedRealPath(root, fs.existsSync(p) ? p : path.join(root, CONFIG_DIR)) === null) return;
-    assertPlainTarget(p); // dangling link passing the ancestor walk would be CREATED outside via writeFileSync
     fs.mkdirSync(path.join(root, CONFIG_DIR), { recursive: true });
-    fs.writeFileSync(path.join(root, CONFIG_DIR, CHECKPOINT_FILE), JSON.stringify({ at: new Date().toISOString(), status, failed, source }, null, 2) + '\n', 'utf8');
+    // assertPlainTarget lives inside writeFileAtomic — a dangling link that passed
+    // the ancestor walk is refused there rather than CREATED outside via the write.
+    writeFileAtomic(p, JSON.stringify({ at: new Date().toISOString(), status, failed, source }, null, 2) + '\n');
   } catch { /* evidence is best-effort; never crash the harness hook over it */ }
 }
 
@@ -597,14 +653,23 @@ export function cmdUninstall(rawArgs: string[]): number {
  *  - all checks pass => silence (human is NOT interrupted when nothing is needed)
  *  - a check fails   => {"decision":"block", reason} => agent gets one repair turn
  *  - infra failure / unconfigured / loop guard => allow + honest systemMessage, never a fake green
+ *  - corrupt local config => loud honest UNVERIFIED (GLM F-1) — absence is silent,
+ *    damaged authority is NOT
  */
 export async function cmdCheckpoint(): Promise<number> {
   let input: { cwd?: string; stop_hook_active?: boolean } = {};
   try { input = JSON.parse(fs.readFileSync(0, 'utf8')) as typeof input; } catch { /* interactive invocation or empty stdin */ }
   const root = findRepoRoot(input.cwd ?? process.cwd());
   const cfg = root ? readConfig(root) : null;
-  if (!root || cfg === null || cfg === 'corrupt') return 0; // nothing wired here — stay out of the way
   const emit = (obj: Record<string, unknown>) => { console.log(JSON.stringify(obj)); return 0; };
+  if (!root || cfg === null) return 0; // nothing wired here — stay out of the way
+  // GLM F-1: a config file that EXISTS but cannot be read is NOT "nothing wired
+  // here" — treating it as absence is a silent allow through damaged authority.
+  // Honest UNVERIFIED (allow + systemMessage, same posture as S2/empty-plan):
+  // never a fake green, never a fake block on evidence we could not examine.
+  if (cfg === 'corrupt') {
+    return emit({ systemMessage: 'Canary could not verify this task because its local config (.canary/canary.local.json) is unreadable — nothing was verified; this completion is UNVERIFIED, not a pass. Run: canary setup' });
+  }
   // A config this installation did not write (bogus cliPath) or that arrived
   // from a clone (tracked in git) must never drive execution (S2) — say so
   // loudly instead of silently laundering an attacker's plan into "pass".
