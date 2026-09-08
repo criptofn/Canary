@@ -103,6 +103,32 @@
  *      detection-at-edges — no kernel lock exists to claim (m9-lock-facts),
  *      the ref really moved under S13, and a same-UID hand can delete the
  *      marker by hand (what quarantine closes is the automated laundering))
+ *  14d. M10 real-git obligations+intent probe (§10/§11 end to end: the sealed
+ *      plan passing is the FLOOR, not the finish — a green plan with a missing
+ *      proof obligation is CANDIDATE NOT PROVEN (exit 2, honest 'unproven'
+ *      bundle that still carries the executed steps) and promotion stays
+ *      locked; an objectively violated obligation (committed test deletion)
+ *      is CANDIDATE BLOCKED with the obligation named and restore advice
+ *      printed; a red plan stays CANDIDATE FAIL and its bundle carries the
+ *      obligation read (M11 repair fuel); closing an obligation is REAL WORK —
+ *      adding the test / restoring the file recovers PASS. §11: the record
+ *      freezes plan+sealed texts+task at isolation; weakening that authority
+ *      afterwards (drop a step or re-seal a script's text via re-setup,
+ *      shrink the registered task) blocks BEFORE anything runs — zero-step
+ *      bundle carrying intentEvent, refuse on promote, NO quarantine stamp
+ *      (grudgeless: the snapshot itself rides M9's fingerprint set), record
+ *      NOT re-baselined by refusal; restoring the bytes IS the recovery,
+ *      growth is always allowed, and a pre-M10 record (no snapshot) verifies
+ *      exactly as before — the feature is additive. Review-round gates: a
+ *      lying index (--assume-unchanged/--skip-worktree) reads dirty so gate 2
+ *      refuses; a test renamed out of the test DIRECTORY is coverage loss
+ *      even keeping the .test.js suffix; obligation signals are frozen
+ *      BEFORE the execution window (a step writing its own test mid-window
+ *      mints no evidence); and isolate ROLLS BACK when the fresh worktree is
+ *      not provably clean at birth (post-checkout hook) — no registration,
+ *      no half-created candidate; its lying-index premise — --assume-unchanged
+ *      prints lowercase and --skip-worktree prints 'S' in git ls-files -v,
+ *      both invisible to git status — is pinned by the lsfiles-letters probe)
  *  15. M6 real-git probe (a CLEAN setup baseline really can attribute blame;
  *      a green plan + deleted test = BLOCK — worktree, STAGED, or committed —
  *      and the printed restore advice unmutes; renames out of (and staying
@@ -140,6 +166,7 @@ const STEPS = [
   ['M7 candidate-isolation contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m7-candidate-isolation.test.js'], {}],
   ['M8 promotion contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m8-promotion.test.js'], {}],
   ['M9 authority contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m9-authority.test.js'], {}],
+  ['M10 obligations contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m10-obligations.test.js'], {}],
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: M2 claims-not-evidence (real git)', process.execPath, ['tooling/probes/m2-claims-not-evidence.mjs'], {}],
   ['probe: M3 trust-classes (real git)', process.execPath, ['tooling/probes/m3-trust-classes.mjs'], {}],
@@ -149,6 +176,8 @@ const STEPS = [
   ['probe: M7 candidate isolation (real git)', process.execPath, ['tooling/probes/m7-candidate-isolation.mjs'], {}],
   ['probe: M8 promotion (real git)', process.execPath, ['tooling/probes/m8-promotion.mjs'], {}],
   ['probe: M9 authority guard (real git)', process.execPath, ['tooling/probes/m9-authority.mjs'], {}],
+  ['probe: M10 obligations + intent (real git)', process.execPath, ['tooling/probes/m10-obligations.mjs'], {}],
+  ['probe: M10 lying-index letters (git premise)', process.execPath, ['tooling/probes/m10-lsfiles-letters.mjs'], {}],
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
   ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],

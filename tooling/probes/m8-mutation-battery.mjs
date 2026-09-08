@@ -96,7 +96,7 @@ function runOwner(m) {
 }
 
 // Optional targeting (1-based into MUTS) for debugging a survivor: node m8-mutation-battery.mjs 3,7
-const ONLY = process.argv[2] ? new Set(process.argv.slice(2).map(Number)) : null;
+const ONLY = process.argv[2] ? new Set(process.argv.slice(2).flatMap((a) => a.split(',')).map(Number)) : null;
 let killed = 0;
 try {
   for (const [idx, m] of MUTS.entries()) {

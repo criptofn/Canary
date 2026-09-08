@@ -66,9 +66,24 @@
  * bundle (ERROR exit 3 would never fake a PASS, but it wrote no evidence).
  * Each verify writes >=1 bundle, blocked attempts included; the global
  * EVIDENCE_KEEP cap is unchanged from pre-M7; bundles are never read back.
- * Obligation evaluation for the candidate diff compares against rec.baseHead
- * and lands with M10; conflating cfg.baseline here would blame the base's
- * own post-setup commits on the worker.
+ *
+ * M10 — proof obligations and trusted intent at the candidate boundary
+ * (directive §10 + §11), both riding the gates above:
+ *   - the ladder: after the plan runs green and the M9 sandwich is clean, the
+ *     obligation engine judges the CANDIDATE diff (baseHead from the record —
+ *     conflating cfg.baseline would blame the base's post-setup commits on the
+ *     worker; the worktree started provably clean at isolation, so every
+ *     deletion is attributable). Any UNMET → blocked bundle (steps included),
+ *     any UNPROVEN → 'unproven' bundle + CANDIDATE NOT PROVEN — exit 2 and a
+ *     null startHead, so M8 gate 1 can never launder a green-plan-unproven
+ *     run into an apply. PASS only when every obligation is MET; FAIL bundles
+ *     carry the obligation read as M11's repair fuel.
+ *   - the intent guard: isolateCreate freezes { plan, script digests, task }
+ *     into the record; before anything runs, verify refuses a candidate whose
+ *     authority was weakened after isolation (dropped step, re-sealed text,
+ *     shrunk task) with a blocked bundle carrying intentEvent. Increases are
+ *     always allowed. Grudgeless like the pre-gate (the snapshot is frozen at
+ *     record-write and the record is fingerprinted — no laundering vector).
  *
  * M9 — authority self-protection (directive §9: the candidate must never
  * control its verifier). The plan runs candidate-authored script text, so
@@ -111,16 +126,34 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import {
-  CLI_ENTRY, CONFIG_DIR, EVIDENCE_DIR, Out, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
-  findRepoRoot, gitWithinRoot, hasCanaryEntry, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readConfig,
-  runPlanStep, settingsPath, TASK_FILE, untrustedConfigReason, writeFileAtomic, writeVerificationBundle,
-  type CanaryConfig, type StepResult,
+  CLI_ENTRY, CONFIG_DIR, EVIDENCE_DIR, Out, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
+  findRepoRoot, gitWithinRoot, hasCanaryEntry, obligationsFor, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readConfig,
+  readTaskRecord, runPlanStep, settingsPath, TASK_FILE, untrustedConfigReason, writeFileAtomic, writeVerificationBundle,
+  type CanaryConfig, type PlanStep, type StepResult, type TaskKind,
 } from './onboarding.js';
 import { authorityDrift, quarantineInfo, QUARANTINE_FILE, shortState, snapshotAuthority, snapshotTree, stampQuarantine, treeDrift, type AuthorityChange } from './authority.js';
 
 const CANDIDATES_SUBDIR = 'candidates';
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/; // registry keys are filenames
 const HEX_RE = /^[0-9a-f]{40,64}$/;
+
+/**
+ * M10 (directive §11) — the verification intent FROZEN at isolation: which
+ * plan steps and which sealed script texts the candidate was opened against,
+ * plus the registered task's shape. Records written before M10 have no
+ * `intent` and verify exactly as before (additive). The snapshot exists so
+ * authority weakened AFTER isolation cannot launder an old candidate: the
+ * worker may add proof obligations, never silently shrink them. It is frozen
+ * at record-write (never re-baselined at window edges) and the record itself
+ * is inside M9's fingerprint set — there is no in-window laundering vector.
+ */
+interface CandidateIntent {
+  at: string;
+  plan: PlanStep[];
+  /** planAuthority.scriptDigests at isolation, or null (pre-M5 config) */
+  seal: Record<string, string> | null;
+  task: { kinds: TaskKind[]; requirementCount: number } | null;
+}
 
 interface CandidateRecord {
   schema: 'canary-candidate/1';
@@ -131,6 +164,7 @@ interface CandidateRecord {
   baseHead: string;
   baseTree: string | null;
   createdAt: string;
+  intent?: CandidateIntent;
 }
 
 const recordPath = (root: string, name: string) => path.join(root, CONFIG_DIR, CANDIDATES_SUBDIR, `${name}.json`);
@@ -183,6 +217,19 @@ function loadRecord(root: string, name: string): CandidateRecord | 'missing' | '
     if (typeof v.baseHead !== 'string' || !HEX_RE.test(v.baseHead)) return 'invalid';
     if (!(v.baseTree === null || (typeof v.baseTree === 'string' && HEX_RE.test(v.baseTree)))) return 'invalid';
     if (typeof v.createdAt !== 'string' || Number.isNaN(Date.parse(v.createdAt))) return 'invalid';
+    if (v.intent !== undefined) { // optional (pre-M10 records), but if present it must be shape-proved — an intent a guard cannot read is worse than no intent
+      const it = v.intent as Partial<CandidateIntent> | null;
+      if (!it || typeof it !== 'object' || Array.isArray(it) || typeof it.at !== 'string') return 'invalid';
+      if (!Array.isArray(it.plan) || !it.plan.every((s) => !!s && typeof s === 'object' && typeof s.script === 'string' && typeof s.kind === 'string')) return 'invalid';
+      if (!(it.seal === null || (it.seal && typeof it.seal === 'object' && !Array.isArray(it.seal)
+        && Object.values(it.seal).every((d) => typeof d === 'string' && /^[0-9a-f]{64}$/.test(d))))) return 'invalid';
+      if (it.task !== null && it.task !== undefined) {
+        const t = it.task as Partial<{ kinds: unknown; requirementCount: unknown }>;
+        if (!t || typeof t !== 'object' || !Array.isArray(t.kinds)
+          || !t.kinds.every((k) => typeof k === 'string')
+          || typeof t.requirementCount !== 'number' || !Number.isInteger(t.requirementCount) || t.requirementCount < 0) return 'invalid';
+      }
+    }
     return v as CandidateRecord;
   } catch { return 'invalid'; }
 }
@@ -226,14 +273,18 @@ function isolateCreate(root: string, cfg: CanaryConfig, o: Out, name: string, ba
     for (const l of (add.stderr || add.stdout || String(add.error?.message ?? '')).trim().split(/\r?\n/).slice(-4)) o.say(`  ${l}`);
     return 2;
   }
-  // post-check: what git checked out must BE the resolved commit, or the
-  // attempt is rolled back — a half-created candidate is worse than none.
+  // post-check: what git checked out must BE the resolved commit AND be
+  // provably clean, or the attempt is rolled back — a half-created candidate
+  // is worse than none. The clean assert is not ceremony: every M10
+  // attribution ("every deletion here is the candidate's") rests on the
+  // worktree starting at exactly baseHead, and a post-checkout hook, a weird
+  // core.fileMode, or a lying index would poison that premise at birth.
   const cid = candidateIdentity(target);
-  if (!cid.resolved || cid.head !== sha) {
+  if (!cid.resolved || cid.head !== sha || cid.dirty) {
     const rb = spawnSync('git', ['-C', root, 'worktree', 'remove', '--force', target], { encoding: 'utf8', timeout: 120_000 });
     spawnSync('git', ['-C', root, 'worktree', 'prune'], { encoding: 'utf8', timeout: 60_000 });
     o.say(rb.status === 0
-      ? 'isolate: the worktree does not match the resolved commit — attempt rolled back'
+      ? 'isolate: the worktree does not match the resolved commit or is not provably clean — attempt rolled back'
       : `isolate: the worktree does not match the resolved commit AND could not be auto-removed — nothing was registered; remove it manually: git -C "${root}" worktree remove --force "${target}"`);
     return 2;
   }
@@ -242,6 +293,13 @@ function isolateCreate(root: string, cfg: CanaryConfig, o: Out, name: string, ba
   const rec: CandidateRecord = {
     schema: 'canary-candidate/1', name, root: target, baseRoot: root,
     baseRef, baseHead: sha, baseTree, createdAt: new Date().toISOString(),
+    // M10 §11 — freeze the authority this candidate was opened against.
+    intent: {
+      at: new Date().toISOString(),
+      plan: cfg.plan.map((s) => ({ kind: s.kind, script: s.script })),
+      seal: cfg.planAuthority ? { ...cfg.planAuthority.scriptDigests } : null,
+      task: readTaskRecord(root),
+    },
   };
   try {
     fs.mkdirSync(path.dirname(rp), { recursive: true }); // --path elsewhere never created it
@@ -286,9 +344,9 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     candidateName: rec.name, candidateRoot: rec.root,
     isolatedFrom: { ref: rec.baseRef, head: rec.baseHead, tree: rec.baseTree, at: rec.createdAt },
   };
-  const blocked = (why: string, next?: string): VerifyOutcome => {
+  const blocked = (why: string, next?: string, ev?: Record<string, unknown>): VerifyOutcome => {
     // the BLOCK itself is evidence, written under the base's authority dir.
-    writeVerificationBundle(root, 'candidate', [], 'blocked', prov, { evidenceRoot: root, subjectRoot: rec.root, extra });
+    writeVerificationBundle(root, 'candidate', [], 'blocked', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: ev ? { ...extra, ...ev } : extra });
     o.say(`BLOCKED — ${why}`);
     if (next) o.say(`next: ${next}`);
     return { code: 2, startHead: null, rec };
@@ -328,6 +386,46 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     if (!doc || !hasCanaryEntry(doc, new Set(cfg.hookCommands))) {
       return authorityBlock('before execution', [{ file: settings, before: 'hook entry promised by setup', after: doc ? 'entry missing' : 'unreadable' }]);
     }
+  }
+  // M10 §11 — the trusted intent, checked against the snapshot frozen at
+  // isolation. The worker may ADD proof obligations (a growing plan, a
+  // richer task); it may not silently shrink the request it was opened with:
+  // drop a plan step, re-seal a step's script to easier text, delete task
+  // kinds or registered requirements. Re-running setup is exactly how an
+  // agent-friendly-looking "revision" arrives mechanically — the snapshot
+  // makes it visible. This block is grudgeless like the pre-gate: the
+  // snapshot is frozen at record-write (never re-baselined at window edges)
+  // and the record itself is inside M9's fingerprint set, so no quarantine
+  // is needed to stop laundering — restoring the authority bytes IS the
+  // recovery, and a legitimate revision needs the human's re-isolation.
+  // Honest ceiling (adversary review F1, same-UID): a worker may hollow the
+  // BASE's authority and open a NEW candidate against the weaker one — no
+  // CLI-side check survives an actor who owns every command and every byte
+  // (M9 conceded this for hand-edited markers). What this guard closes is
+  // laundering an EXISTING promise past a quietly-weakened authority; the
+  // positive answer — original-request identity and USER-APPROVED revisions
+  // persisted as trusted bytes — is directive §16-§18 territory: M15/M16.
+  if (rec.intent) {
+    const events: string[] = [];
+    const curScripts = new Set(cfg.plan.map((s) => s.script));
+    for (const s of rec.intent.plan) if (!curScripts.has(s.script)) events.push(`verification step "${s.script}" present at isolation is no longer in the plan`);
+    if (rec.intent.seal) {
+      if (!cfg.planAuthority) events.push('the sealed script texts at isolation have no seal in the current config (the authority was re-created without one)');
+      else for (const [script, digest] of Object.entries(rec.intent.seal)) {
+        if (cfg.planAuthority.scriptDigests[script] !== digest) events.push(`the sealed text of "${script}" changed since isolation (re-sealed to different commands)`);
+      }
+    }
+    const t0 = rec.intent.task;
+    if (t0) {
+      const t1 = readTaskRecord(root);
+      const k1 = new Set(t1?.kinds ?? []);
+      for (const k of t0.kinds) if (!k1.has(k)) events.push(`task kind "${k}" registered at isolation is gone from the task record`);
+      if ((t1?.requirementCount ?? 0) < t0.requirementCount) events.push(`registered requirements shrank ${t0.requirementCount} → ${t1?.requirementCount ?? 0}`);
+    }
+    if (events.length) return blocked(
+      'the verification intent was weakened after isolation — the candidate was opened against a stronger authority than the one now on disk: ' + events.join('; '),
+      'legitimate revision is a HUMAN act (directive §11): restore the plan/task this candidate was isolated under, or re-isolate against the new authority. Canary will not verify an old promise against a quietly-shrunk one.',
+      { intentEvent: { snapshotAt: rec.intent.at, events } });
   }
   const cid = candidateIdentity(rec.root);
   if (!cid.resolved) return blocked(`candidate "${name}" is not a resolvable git tree at ${rec.root} (moved? deleted? corrupted?) — nothing ran`, 'canary isolate --list, then --remove + re-isolate');
@@ -381,6 +479,15 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   };
   const preSeal = sealViolation('before anything ran');
   if (preSeal) return blocked(preSeal.why, preSeal.next);
+  // The obligation ladder reads the diff the VERDICT BINDS — captured BEFORE
+  // the execution window, the same edge cid.head (and therefore startHead,
+  // and therefore what promotion applies) is read at. A step that writes a
+  // test file inside its own window must not mint regression evidence for
+  // the verdict that judges it: that write lands untracked, invisible to the
+  // committed bytes a PASS would promote. Post-window collection had the
+  // mirror defect — obligations describing bytes that never existed at
+  // startHead (correctness review #4b/#1).
+  const sig = candidateDiffSignals(rec.root, rec.baseHead);
   // M9 §9 sandwich: fingerprint the authority bytes AND the evidence tree,
   // run the sealed plan, re-fingerprint. ANY difference forces BLOCKED —
   // mutated bytes can judge nothing, a planted PASS bundle authorizes nothing
@@ -425,14 +532,50 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   // refused, so the mutated plan surface cannot re-baseline to a PASS.
   const postSeal = sealViolation('after execution');
   if (postSeal) return authorityBlock('after execution', [{ file: postSeal.file, before: 'sealed at setup — held when the window opened', after: postSeal.why }]);
+  // M10 §10 — the obligation ladder over the CANDIDATE diff (baseHead frozen
+  // in the record; the worktree started provably clean at isolation, so every
+  // deletion here is the candidate's). The sealed plan passing is the FLOOR,
+  // not the finish: TESTS PASSING != TASK PROVEN COMPLETE. Task kinds come
+  // from the registered record only (no hook stdin here — the doctor posture).
+  const task = readTaskRecord(root);
+  const obligations = obligationsFor(task?.kinds ?? [], sig,
+    new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'isolation');
+  const obList = obligations.map((x) => ({ id: x.id, mode: x.mode, status: x.status, note: x.note }));
   const failed = results.filter((r) => !r.ok);
-  const status = failed.length ? 'fail' : 'pass';
-  writeVerificationBundle(root, 'candidate', results, status, prov, { evidenceRoot: root, subjectRoot: rec.root, extra });
-  if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
   if (failed.length) {
+    // FAIL stays FAIL — but the bundle now carries the obligation read too
+    // (M11 repair fuel: the worker sees WHAT proof is missing, not only which
+    // command went red).
+    writeVerificationBundle(root, 'candidate', results, 'fail', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
+    if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
     o.say(`CANDIDATE FAIL — ${failed.length}/${results.length} step(s) not green; the trusted base was not touched. Evidence: ${path.join(root, CONFIG_DIR, 'evidence')}`);
     return { code: 2, startHead: cid.head, rec };
   }
+  const unmet = obligations.filter((x) => x.status === 'unmet');
+  if (unmet.length) {
+    writeVerificationBundle(root, 'candidate', results, 'blocked', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
+    if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
+    o.say('CANDIDATE BLOCKED — the sealed plan passed, but a required proof obligation is objectively violated:');
+    for (const x of unmet) o.say(`  obligation [${x.id}] UNMET (${x.mode}): ${x.note}`);
+    o.say(`next: restore the deleted verification files (git -C "${rec.root}" restore --source=${rec.baseHead} --staged --worktree <path>) or have a HUMAN review the deletion — an agent claim cannot authorize coverage loss.`);
+    return { code: 2, startHead: null, rec }; // no identity to promote onto
+  }
+  const unproven = obligations.filter((x) => x.status === 'unproven');
+  if (unproven.length) {
+    // NOT PROVEN is never PASS and never promotable: exit 2 and a null
+    // startHead so M8 gate 1 cannot launder a green-plan-but-unproven run
+    // into an apply. Closing an obligation is real work (a test, a sealed
+    // bench step) — not a bytes edit.
+    writeVerificationBundle(root, 'candidate', results, 'unproven', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
+    if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
+    o.say('CANDIDATE NOT PROVEN — the sealed plan is green, but proof obligations for this task are UNPROVEN (NO PROOF, NO DONE):');
+    for (const x of obligations) o.say(`  obligation [${x.id}] ${x.status.toUpperCase()} (${x.mode}): ${x.note}`);
+    o.say('next: close each UNPROVEN obligation with its actual proof, then re-verify. The trusted base was not touched; promotion stays locked — no PASS was earned.');
+    return { code: 2, startHead: null, rec };
+  }
+  writeVerificationBundle(root, 'candidate', results, 'pass', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
+  if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
+  if (obligations.length) o.detail(`obligations: ${obligations.length}/${obligations.length} MET — the sealed plan plus this task's proof obligations are all satisfied (directive §10).`);
   const cnt = gitWithinRoot(rec.root, ['rev-list', '--count', '--end-of-options', `${rec.baseHead}..HEAD`]);
   const advanced = cnt !== null && /^\d+$/.test(cnt.trim()) && Number(cnt) > 0 ? ` (${cnt.trim()} commit(s) beyond the isolated base)` : '';
   o.say(`CANDIDATE PASS — "${name}" @ ${short(cid.head)}${advanced} verified against the sealed plan. ELIGIBLE for promotion — nothing applied; promotion is a separate act.`);

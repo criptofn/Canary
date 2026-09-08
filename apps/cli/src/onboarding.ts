@@ -526,11 +526,20 @@ export function candidateIdentity(root: string): Identity {
   if (head === null || head.trim().length === 0) return unidentified;
   const tree = gitWithinRoot(root, ['rev-parse', 'HEAD^{tree}']);
   const status = gitWithinRoot(root, ['status', '--porcelain']);
+  // The index can be made to LIE about dirtiness: --assume-unchanged prints a
+  // lowercase status letter and --skip-worktree prints 'S' in `ls-files -v`,
+  // and both hide a tracked edit from `git status` entirely. That lie is
+  // precisely what promotion must never eat: the verdict would judge working-
+  // tree bytes while the ff-only apply fast-forwards different COMMITTED
+  // bytes, and gate 2's dirty refusal would read "clean". Treat any flagged
+  // entry as dirty (fail-closed; ls-files silent = unknowable, do not guess).
+  const flags = gitWithinRoot(root, ['ls-files', '-v']);
+  const sneaky = status === null ? false : flags !== null && /^(?:[a-z]|S) /m.test(flags);
   return {
     resolved: true,
     head: head.trim(),
     tree: tree?.trim() ?? null,
-    dirty: status === null ? null : status.trim().length > 0,
+    dirty: status === null ? null : status.trim().length > 0 || sneaky,
   };
 }
 
@@ -749,8 +758,10 @@ export function inferTaskKinds(text: string): TaskKind[] {
   return [...found];
 }
 
+const isTestDirPath = (p: string): boolean =>
+  /(^|[\\/])(tests?|__tests__|spec[s]?)([\\/]|$)/i.test(p);
 const isTestPath = (p: string): boolean =>
-  /(^|[\\/])(tests?|__tests__|spec[s]?)([\\/]|$)/i.test(p) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(p);
+  isTestDirPath(p) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(p);
 // Lockfiles ONLY: package.json edits are authority moves (script text — M5's
 // sealed turf), not dependency-graph evidence, and blaming them here made
 // every setup-repair story trip the dep obligation. A deps bump without a
@@ -826,11 +837,17 @@ export function parsePorcelain(out: string): ChangeEntry[] {
   return entries;
 }
 
-/** Deletion-shaped paths: plain deletes, plus renames whose NEW side is NOT a
- *  test path (git mv tests/x.test.js docs/x.md is coverage loss; a move that
- *  keeps the file under tests/ is not). Exported for contract pins (review #5). */
+/** Deletion-shaped paths: plain deletes, plus renames whose NEW side escaped
+ *  test shape — either entirely (git mv tests/x.test.js docs/x.md) or out of
+ *  the test DIRECTORY while keeping a .test.js suffix (tests/x.test.js →
+ *  src/x.test.js: most runners' include scope is directory-shaped, so the
+ *  moved file silently stops executing while the suffix pretends coverage
+ *  survived). A move that keeps the directory shape (tests/a → tests/sub/a)
+ *  is intact; suffix-only repos (old never dir-matched) are not touched —
+ *  their scope is unknowable without reading runner config, which is NOT
+ *  sealed (stated ceiling, final report). Exported for contract pins (#5). */
 export const delPaths = (entries: ChangeEntry[]): string[] =>
-  entries.flatMap((e) => (e.st === 'del' ? e.paths : e.st === 'ren' && !isTestPath(e.paths[1]!) ? [e.paths[0]!] : []));
+  entries.flatMap((e) => (e.st === 'del' ? e.paths : e.st === 'ren' && (!isTestPath(e.paths[1]!) || (isTestDirPath(e.paths[0]!) && !isTestDirPath(e.paths[1]!))) ? [e.paths[0]!] : []));
 
 export interface DiffSignals {
   /** at least one attributable git source answered (committed or staged diff) */
@@ -852,18 +869,11 @@ export interface DiffSignals {
   depTouched: boolean;
 }
 
-/** Read-only contained git probes (gitWithinRoot — the parent repo never answers
- *  for the candidate). A malformed baseline head from a hand-edited config is
- *  dropped rather than interpolated: defense-in-depth below the distrust gate. */
-export function collectDiffSignals(root: string, cfg: CanaryConfig): DiffSignals {
-  const baselineHead = cfg.baseline?.head ?? null;
-  // -z everywhere classification reads: line mode C-quotes non-ASCII/quote/
-  // backslash paths and silently defeats isTestPath/isDepPath (review #1).
-  const committed = cfg.baseline?.resolved && baselineHead !== null && /^[0-9a-f]{40,64}$/i.test(baselineHead)
-    ? gitWithinRoot(root, ['diff', '--name-status', '-z', baselineHead, 'HEAD']) : null;
-  const staged = gitWithinRoot(root, ['diff', '--name-status', '-z', '--cached']);
-  const worktree = gitWithinRoot(root, ['status', '--porcelain', '-z']);
-  const setupDirtProven = cfg.baseline?.dirty === true;
+/** Shared core of the diff-signal collection: three -z git outputs in,
+ *  attribution out. blameClean = "the tree AND index provably matched HEAD at
+ *  the baseline, so staged/worktree deletions cannot be pre-existing dirt".
+ *  Both callers below answer that question from a DIFFERENT premise. */
+function diffSignalsFrom(committed: string | null, staged: string | null, worktree: string | null, blameClean: boolean, setupDirtProven: boolean): DiffSignals {
   if (committed === null && staged === null && worktree === null) {
     return { resolved: false, touched: [], changes: [], deletedTestsAttributable: [], deletedTestsUnattributable: [], setupDirtProven, depTouched: false };
   }
@@ -877,7 +887,6 @@ export function collectDiffSignals(root: string, cfg: CanaryConfig): DiffSignals
   // index is never snapshotted, so pre-existing staged residue is epistemically
   // the worktree case, not the committed case (review #3 — design (c) blesses
   // baseline..HEAD alone, which is post-baseline by construction).
-  const blameClean = cfg.baseline !== undefined && cfg.baseline.resolved && cfg.baseline.dirty === false;
   const attributable = blameClean ? [...fromCommitted, ...fromStaged] : fromCommitted;
   const wtOnlyDel = blameClean
     ? delPaths(fromWorktree).filter((p) => !attributable.some((e) => e.paths.includes(p)))
@@ -901,14 +910,55 @@ export function collectDiffSignals(root: string, cfg: CanaryConfig): DiffSignals
   };
 }
 
+/** Read-only contained git probes (gitWithinRoot — the parent repo never answers
+ *  for the candidate). A malformed baseline head from a hand-edited config is
+ *  dropped rather than interpolated: defense-in-depth below the distrust gate. */
+export function collectDiffSignals(root: string, cfg: CanaryConfig): DiffSignals {
+  const baselineHead = cfg.baseline?.head ?? null;
+  // -z everywhere classification reads: line mode C-quotes non-ASCII/quote/
+  // backslash paths and silently defeats isTestPath/isDepPath (review #1).
+  const committed = cfg.baseline?.resolved && baselineHead !== null && /^[0-9a-f]{40,64}$/i.test(baselineHead)
+    ? gitWithinRoot(root, ['diff', '--name-status', '-z', baselineHead, 'HEAD']) : null;
+  const staged = gitWithinRoot(root, ['diff', '--name-status', '-z', '--cached']);
+  const worktree = gitWithinRoot(root, ['status', '--porcelain', '-z']);
+  return diffSignalsFrom(committed, staged, worktree,
+    cfg.baseline !== undefined && cfg.baseline.resolved && cfg.baseline.dirty === false,
+    cfg.baseline?.dirty === true);
+}
+
+/** M10 (directive §10) — the same signals for a CANDIDATE worktree, diffed
+ *  against the record's frozen baseHead (conflating cfg.baseline here would
+ *  blame the base's own post-setup commits on the worker). The attribution
+ *  premise differs from collectDiffSignals and is PROVEN, not stamped:
+ *  `git worktree add --detach` checks out exactly the resolved commit and
+ *  isolateCreate post-verifies HEAD before registering — the candidate began
+ *  provably clean, so every deletion seen now is the candidate's. If the
+ *  baseHead..HEAD probe cannot answer (pruned object? fake git?), the premise
+ *  is moot: blameClean drops to false and deletions land UNATTRIBUTABLE —
+ *  fail-safe to UNPROVEN, never a false `met`. */
+export function candidateDiffSignals(root: string, baseHead: string): DiffSignals {
+  const committed = /^[0-9a-f]{40,64}$/i.test(baseHead)
+    ? gitWithinRoot(root, ['diff', '--name-status', '-z', baseHead, 'HEAD']) : null;
+  const staged = gitWithinRoot(root, ['diff', '--name-status', '-z', '--cached']);
+  const worktree = gitWithinRoot(root, ['status', '--porcelain', '-z']);
+  return diffSignalsFrom(committed, staged, worktree, committed !== null, false);
+}
+
 export interface Obligation { id: string; mode: 'objective' | 'non-objective'; status: 'met' | 'unproven' | 'unmet'; note: string }
 
 /** The obligation engine: pure over (kinds, signals, sealed-plan kinds, requirement count).
  *  `planKinds` comes from the SEALED plan — an obligation is only satisfiable
  *  by a command a human actually approved; Canary never executes an unsealed
  *  "benchmark" just because the task mentioned one. */
+/** `baseline` names the premise the signals were collected against: 'setup'
+ *  for the checkpoint/doctor path, 'isolation' at the candidate boundary —
+ *  where the state WAS proven clean at registration (isolate post-check), so
+ *  an unattributable deletion means the baseHead..HEAD diff cannot be read,
+ *  not that the baseline was never established. Default keeps every pre-M10
+ *  note byte-identical (m6 contract pins depend on it). */
 export function obligationsFor(
   kinds: TaskKind[], sig: DiffSignals, planKinds: Set<string>, requirementCount: number,
+  baseline: 'setup' | 'isolation' = 'setup',
 ): Obligation[] {
   const out: Obligation[] = [];
   const add = (o: Obligation) => { if (!out.some((x) => x.id === o.id)) out.push(o); };
@@ -918,7 +968,7 @@ export function obligationsFor(
     const testTouched = sig.changes.some(isTestPath); // deletions are coverage LOSS, never regression evidence (review #4)
     add(testTouched
       ? { id: 'regression-evidence', mode: 'objective', status: 'met', note: 'regression evidence: test files were added/modified in the candidate diff' }
-      : { id: 'regression-evidence', mode: 'objective', status: 'unproven', note: 'no test file was added or changed since setup — regression evidence UNPROVEN (an old suite can stay green while the bug survives). Add a test that reproduces the fixed bug.' });
+      : { id: 'regression-evidence', mode: 'objective', status: 'unproven', note: `no test file was added or changed since ${baseline} — regression evidence UNPROVEN (an old suite can stay green while the bug survives). Add a test that reproduces the fixed bug.` });
   }
   if (kinds.includes('refactor') || has('tests')) {
     add(has('tests')
@@ -930,7 +980,12 @@ export function obligationsFor(
   } else if (sig.deletedTestsUnattributable.length > 0) {
     // the premise must match what Canary actually PROVED (review #6): the stamp
     // saying "dirty" is a different fact from "never established the state".
-    const premise = sig.setupDirtProven
+    // At the candidate boundary the baseline WAS proven clean (isolate
+    // post-check), so unattributable means the committed-diff probe went
+    // silent — a different honest sentence (correctness review #5).
+    const premise = baseline === 'isolation'
+      ? 'the candidate-vs-isolation-base committed diff cannot be resolved'
+      : sig.setupDirtProven
       ? 'the repo was already dirty at setup'
       : "Canary cannot establish the repo's state at setup";
     add({ id: 'coverage-loss-unattributable', mode: 'objective', status: 'unproven', note: `test files are missing from the working tree but ${premise}, so the deletion cannot be attributed to this session: ${formatPaths(sig.deletedTestsUnattributable)} — whether coverage was lost is UNPROVEN` });
@@ -964,8 +1019,10 @@ export function obligationsFor(
 
 /** Read the agent's registered task hint (AGENT_REPORTED — same zero-authority
  *  posture as claims). Anything malformed collapses to no-kind/no-count, which
- *  is exactly the pre-M6 posture: diff-implied obligations still apply. */
-function readTaskRecord(root: string): { kinds: TaskKind[]; requirementCount: number } | null {
+ *  is exactly the pre-M6 posture: diff-implied obligations still apply.
+ *  Exported for M10: the candidate intent snapshot freezes this record at
+ *  isolation, and the shrink guard compares live-vs-frozen (candidate.ts). */
+export function readTaskRecord(root: string): { kinds: TaskKind[]; requirementCount: number } | null {
   try {
     const p = path.join(root, CONFIG_DIR, TASK_FILE);
     if (containedRealPath(root, p) === null) return null;
