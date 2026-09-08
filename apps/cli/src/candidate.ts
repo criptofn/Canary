@@ -50,6 +50,9 @@
  * ponytail — known ceilings, stated not hidden: same-UID processes can write
  * anywhere; this layout stops the ACCIDENTAL and the git-scoped edit, not a
  * determined local attacker (M4's "no key exists" honesty applies here too).
+ * M9 detects (and fails closed on) in-window authority writes; a
+ * change-and-revert strictly between the two fingerprint reads stays as
+ * invisible as it was under M8's identity sandwich — same thread, same limit.
  * gitignored deps and .canary state do not ride the checkout. A candidate at
  * the DEFAULT path sits under the base, so module resolution walks up into
  * the BASE's node_modules — a pass there can mix base deps with candidate
@@ -67,6 +70,32 @@
  * and lands with M10; conflating cfg.baseline here would blame the base's
  * own post-setup commits on the worker.
  *
+ * M9 — authority self-protection (directive §9: the candidate must never
+ * control its verifier). The plan runs candidate-authored script text, so
+ * in-window writes to authority are the attack — fingerprinted at both edges
+ * of the execution window: BASE bytes (.canary config, harness settings, this
+ * candidate's registry record, the task intent, the CLI entry), the WHOLE
+ * evidence store as a tree (closing M8's "plan step can write the base
+ * evidence dir" residual), the VERIFIER'S OWN CODE TREE (dist/src — the judge
+ * cannot be swapped to run mutated logic next time), and the base's HEAD REF
+ * as a state token (refs are shared with worktrees; a moved base ref must
+ * never read to gate 6 as a past apply). The candidate-side seal checks
+ * (plan-text, lifecycle hooks, .npmrc) run at BOTH edges too: npm re-reads
+ * package.json per spawn, so step 1 rewriting step 2's sealed text executes
+ * unsealed words INSIDE the window without touching a single fingerprinted
+ * base byte. Measured fact (tooling/probes/m9-lock-facts.mjs): this runtime
+ * offers no mandatory locks — so M9 claims NO prevention and enforces
+ * DETECTION AT BOTH EDGES, fail-closed: any drift forces CANARY BLOCKED
+ * COMPLETION (the PASS path is structurally never reached), a pre-execution
+ * containment gate catches a harness entry stripped BEFORE the window, and
+ * every event lands in a blocked bundle with both state tokens. A
+ * during/after-execution mandate additionally STAMPS A QUARANTINE marker:
+ * verify and promote then refuse the base outright until a HUMAN re-runs
+ * setup (the re-seal is the clearing act) — otherwise the same byte-
+ * idempotent mutation re-baselines clean in the next window and launders a
+ * PASS over tampered authority. The pre-gate stays grudgeless (restore =
+ * recovery, proven in the probe).
+ *
  * M8 — promotion (NO PASS, NO APPLY; the apply act lives in isolatePromote):
  * a PASS only makes a candidate ELIGIBLE; `--promote` re-verifies LIVE
  * against the sealed plan and is the sole authority — stored bundles are
@@ -82,11 +111,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import {
-  CONFIG_DIR, Out, candidateIdentity, containedRealPath, ensureCanarySelfIgnore,
-  findRepoRoot, gitWithinRoot, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readConfig,
-  runPlanStep, untrustedConfigReason, writeFileAtomic, writeVerificationBundle,
+  CLI_ENTRY, CONFIG_DIR, EVIDENCE_DIR, Out, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
+  findRepoRoot, gitWithinRoot, hasCanaryEntry, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readConfig,
+  runPlanStep, settingsPath, TASK_FILE, untrustedConfigReason, writeFileAtomic, writeVerificationBundle,
   type CanaryConfig, type StepResult,
 } from './onboarding.js';
+import { authorityDrift, quarantineInfo, QUARANTINE_FILE, shortState, snapshotAuthority, snapshotTree, stampQuarantine, treeDrift, type AuthorityChange } from './authority.js';
 
 const CANDIDATES_SUBDIR = 'candidates';
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/; // registry keys are filenames
@@ -122,6 +152,20 @@ function commonDir(root: string): string | null {
   const cd = out.trim();
   if (!cd) return null;
   try { return fs.realpathSync(path.isAbsolute(cd) ? cd : path.resolve(root, cd)); } catch { return null; }
+}
+
+/** F4: the base's HEAD as a sandwich token. Refs are SHARED with every
+ *  worktree, so a sealed step CAN move the base branch out from under
+ *  promotion — gate 6's idempotent arm must never read an attacker-moved ref
+ *  as proof of a past apply. Non-hex (no git at all, mid-write lock file)
+ *  reads UNREADABLE on both edges → a non-git root never false-blocks on a
+ *  token that cannot change; a legitimate base commit INSIDE the window reads
+ *  as drift → false-BLOCK, never false-PASS (same posture as a concurrent
+ *  canary invocation). */
+function headToken(root: string): string {
+  const out = gitWithinRoot(root, ['rev-parse', '--verify', '--end-of-options', 'HEAD']);
+  const sha = out?.trim() ?? '';
+  return HEX_RE.test(sha) ? sha : 'UNREADABLE';
 }
 
 /** Registry reads are untrusted bytes until shape-proved (M4 discipline). */
@@ -216,6 +260,23 @@ function isolateCreate(root: string, cfg: CanaryConfig, o: Out, name: string, ba
 interface VerifyOutcome { code: number; startHead: string | null; rec: CandidateRecord | null }
 
 function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string): VerifyOutcome {
+  // F2 (quarantine) — BEFORE any record read: a tampering caught in a past
+  // Canary window means the bytes this run would baseline on are exactly the
+  // bytes under suspicion. The mechanical laundering vector is byte-
+  // idempotence: the persisted mutation re-baselines clean in the NEXT window
+  // (pre/post now read the same mutated bytes), so a second verify PASSes and
+  // promotion applies over tampered authority. This refusal closes it. No
+  // bundle is written here: the refusal is about the BASE's integrity, and a
+  // marker the candidate can forge would make bundles a second copy anyway —
+  // the marker itself is the evidence. cmdSetup clears it: a human re-seal is
+  // the only act that says "these bytes are mine now."
+  const q = quarantineInfo(path.join(root, CONFIG_DIR, QUARANTINE_FILE));
+  if (q) {
+    o.say('CANARY QUARANTINED — a verification-authority tampering was caught in an earlier Canary window.');
+    o.say(`  ${typeof q === 'string' ? 'the marker is present but unreadable — fail-closed: a file Canary cannot parse still stands as a marker' : `stamped ${q.when} at ${q.at} — ${q.changes} fingerprinted change(s) recorded in the mandate bundle`}`);
+    o.say('next: a HUMAN restores the authority bytes deliberately and re-runs `canary setup` — the re-seal is the clearing act. Same-UID code can delete the marker by hand; that is the byte-restore/change-and-revert ceiling, stated — what this refusal closes is the AUTOMATED re-run laundering, not a determined hand.');
+    return { code: 2, startHead: null, rec: null };
+  }
   const rec = loadRecord(root, name);
   if (rec === 'missing') { o.say(`isolate: no candidate "${name}" registered here — see: canary isolate --list`); return { code: 2, startHead: null, rec: null }; }
   if (rec === 'invalid') { o.say(`isolate: registry record "${name}" is malformed (hand-edited?) — refusing to verify from it; fix or remove .canary/${CANDIDATES_SUBDIR}/${name}.json`); return { code: 2, startHead: null, rec: null }; }
@@ -232,6 +293,42 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     if (next) o.say(`next: ${next}`);
     return { code: 2, startHead: null, rec };
   };
+  // M9 §9 — the mandated verdict for an authority touch: three lines, the
+  // event recorded in a blocked bundle with both state tokens, exit 2.
+  // startHead stays null: an authority-blocked verify hands promotion NO
+  // identity to apply, so the M8 sandwich cannot be laundered around it.
+  const authorityBlock = (when: string, changes: AuthorityChange[]): VerifyOutcome => {
+    // F2: a during/after-execution mandate is caught INSIDE the judged run —
+    // persist the state so the next run cannot re-baseline on the same
+    // mutated bytes and read them as innocence. The containment pre-gate
+    // ('before execution') stays deliberately grudgeless: its restore path is
+    // writing the promised bytes back (S7), not a re-seal ceremony, and a
+    // quarantine it stamps would turn honest recovery into a setup ritual.
+    if (when !== 'before execution') stampQuarantine(path.join(root, CONFIG_DIR, QUARANTINE_FILE), when, changes);
+    const dir = writeVerificationBundle(root, 'candidate', [], 'blocked', prov, {
+      evidenceRoot: root, subjectRoot: rec.root,
+      extra: { ...extra, authorityEvent: { when, changes } },
+    });
+    o.say('CANARY BLOCKED COMPLETION — Verification authority was modified by the candidate.');
+    if (when !== 'before execution') o.say('CANARY QUARANTINED — verify and promote refuse this base until a HUMAN re-runs canary setup; re-running the same tampering cannot re-baseline it into innocence.');
+    // a wholesale evidence wipe turns EVERY file into a change — print a cap,
+    // the bundle carries the complete list (evidence stays the full record).
+    for (const c of changes.slice(0, 8)) o.say(`  ${c.file}: ${shortState(c.before)} → ${shortState(c.after)} (${when})`);
+    if (changes.length > 8) o.say(`  …and ${changes.length - 8} more change(s) — all listed in the bundle`);
+    o.say('Do not allow candidate-modified Canary to judge its own mutation.');
+    o.say(`next: the change is proven inside Canary's window but not attributable to a specific writer (same-user code is the honest ceiling) — restore the bytes deliberately (setup can re-seal), evidence: ${dir ?? path.join(root, CONFIG_DIR, 'evidence')}`);
+    return { code: 2, startHead: null, rec };
+  };
+  // M9 §9 containment, BEFORE execution: a harness hook entry that setup
+  // promised for this base must still be there. A strip that happened
+  // outside the window is exactly what the fingerprint sandwich cannot see.
+  const settings = settingsPath(root);
+  if (cfg.touched.some((t) => samePath(t.path, settings))) {
+    const doc = parseJsonOrNull(settings);
+    if (!doc || !hasCanaryEntry(doc, new Set(cfg.hookCommands))) {
+      return authorityBlock('before execution', [{ file: settings, before: 'hook entry promised by setup', after: doc ? 'entry missing' : 'unreadable' }]);
+    }
+  }
   const cid = candidateIdentity(rec.root);
   if (!cid.resolved) return blocked(`candidate "${name}" is not a resolvable git tree at ${rec.root} (moved? deleted? corrupted?) — nothing ran`, 'canary isolate --list, then --remove + re-isolate');
   const baseCd = commonDir(root); const candCd = commonDir(rec.root);
@@ -249,33 +346,85 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   if (!Array.isArray(cfg.plan) || cfg.plan.length === 0) {
     return blocked('the base\'s verification plan is empty — a pass here would certify nothing', 'configure a real plan via canary setup');
   }
-  // guarantee 6, BEFORE execution: the human-sealed authority must hold over
-  // the candidate's package.json — the candidate cannot redefine its test.
-  const drift = planAuthorityDrift(rec.root, cfg);
-  if (drift) return blocked(`sealed verification authority drifted before anything ran: ${drift}`, `restore package.json in the candidate to the sealed text (git -C "${rec.root}" checkout -- package.json), or a HUMAN re-runs canary setup`);
-  // The seal covers only the listed scripts' texts. pre/post hooks around a
-  // sealed step run automatically under the same command, and a candidate
-  // .npmrc rewrites what the package manager fetches and executes — both are
-  // worker-defined execution outside the seal, refused HERE (candidate-only:
-  // a base that ships pretest was human-approved at setup).
-  const pkg = parseJsonOrNull(path.join(rec.root, 'package.json'));
-  const scripts = pkg && typeof pkg.scripts === 'object' && pkg.scripts !== null && !Array.isArray(pkg.scripts) ? pkg.scripts as Record<string, unknown> : null;
-  if (scripts) for (const s of cfg.plan) {
-    if (Object.hasOwn(scripts, `pre${s.script}`) || Object.hasOwn(scripts, `post${s.script}`)) {
-      return blocked(`the candidate defines a lifecycle hook around sealed step "${s.script}" (pre${s.script}/post${s.script}) — the package manager runs it automatically and the seal does not cover it`, `remove the pre${s.script}/post${s.script} entry from the candidate's package.json`);
+  // Guarantee 6 (directive §9), checked at BOTH edges (review F3): the
+  // human-sealed authority must hold over the candidate's package.json. The
+  // seal covers only the listed scripts' texts — pre/post lifecycle hooks run
+  // automatically under the same command, .npmrc flags rewrite what the
+  // package manager fetches and executes, and npm re-reads the on-disk
+  // package.json at EVERY spawn: a candidate-side step can rewrite a LATER
+  // step's sealed text mid-window and the base's fingerprinted bytes never
+  // move (the candidate's package.json is its own workspace — deliberately
+  // outside the authority set). So these candidate-side checks run before
+  // anything executes AND again after the window; a post-window hit is an
+  // authority event, not a step verdict — the mandate, never a FAIL the
+  // candidate gets to size. (Candidate-only rules: a base that ships pretest
+  // was human-approved at setup.)
+  const sealViolation = (timing: string): { file: string; why: string; next?: string } | null => {
+    const drift = planAuthorityDrift(rec.root, cfg);
+    if (drift) return { file: path.join(rec.root, 'package.json'), why: `sealed verification authority drifted ${timing}: ${drift}`, next: `restore package.json in the candidate to the sealed text (git -C "${rec.root}" checkout -- package.json), or a HUMAN re-runs canary setup` };
+    const pkg = parseJsonOrNull(path.join(rec.root, 'package.json'));
+    const scripts = pkg && typeof pkg.scripts === 'object' && pkg.scripts !== null && !Array.isArray(pkg.scripts) ? pkg.scripts as Record<string, unknown> : null;
+    if (scripts) for (const s of cfg.plan) {
+      if (Object.hasOwn(scripts, `pre${s.script}`) || Object.hasOwn(scripts, `post${s.script}`)) {
+        return { file: path.join(rec.root, 'package.json'), why: `the candidate defines a lifecycle hook around sealed step "${s.script}" (pre${s.script}/post${s.script}) — the package manager runs it automatically and the seal does not cover it`, next: `remove the pre${s.script}/post${s.script} entry from the candidate's package.json` };
+      }
     }
-  }
-  if (fs.existsSync(path.join(rec.root, '.npmrc'))) {
-    const baseNpmrc = gitWithinRoot(rec.root, ['show', `${rec.baseHead}:.npmrc`]);
-    if (baseNpmrc === null) return blocked('.npmrc exists in the candidate but not in the isolated base — npm/pnpm flags rewrite what the sealed steps execute', 'delete the candidate-side .npmrc (if the BASE needs one, that is a setup-time human decision)');
-    const changed = gitWithinRoot(rec.root, ['diff', '--name-only', '--end-of-options', rec.baseHead, '--', '.npmrc']);
-    if (changed === null) return blocked('.npmrc cannot be compared against the isolated base — Canary does not guess past a flag-bearing config file', 'restore the worktree or re-isolate');
-    if (changed.trim() !== '') return blocked('.npmrc changed in the candidate vs the isolated base — npm/pnpm flags there rewrite what the sealed steps execute', `git -C "${rec.root}" checkout -- .npmrc`);
-  }
+    if (fs.existsSync(path.join(rec.root, '.npmrc'))) {
+      const npmrc = path.join(rec.root, '.npmrc');
+      const baseNpmrc = gitWithinRoot(rec.root, ['show', `${rec.baseHead}:.npmrc`]);
+      if (baseNpmrc === null) return { file: npmrc, why: '.npmrc exists in the candidate but not in the isolated base — npm/pnpm flags rewrite what the sealed steps execute', next: 'delete the candidate-side .npmrc (if the BASE needs one, that is a setup-time human decision)' };
+      const changed = gitWithinRoot(rec.root, ['diff', '--name-only', '--end-of-options', rec.baseHead, '--', '.npmrc']);
+      if (changed === null) return { file: npmrc, why: '.npmrc cannot be compared against the isolated base — Canary does not guess past a flag-bearing config file', next: 'restore the worktree or re-isolate' };
+      if (changed.trim() !== '') return { file: npmrc, why: '.npmrc changed in the candidate vs the isolated base — npm/pnpm flags there rewrite what the sealed steps execute', next: `git -C "${rec.root}" checkout -- .npmrc` };
+    }
+    return null;
+  };
+  const preSeal = sealViolation('before anything ran');
+  if (preSeal) return blocked(preSeal.why, preSeal.next);
+  // M9 §9 sandwich: fingerprint the authority bytes AND the evidence tree,
+  // run the sealed plan, re-fingerprint. ANY difference forces BLOCKED —
+  // mutated bytes can judge nothing, a planted PASS bundle authorizes nothing
+  // it did not earn, and the PASS/FAIL path below is structurally never
+  // reached. The throw arm checks too: an earlier step may have run before
+  // the guard fired. Canary's own writes land OUTSIDE the window (see
+  // authority.ts); a concurrent canary invocation can only ever add a false
+  // BLOCK, never a false PASS.
+  const authority = [configPath(root), settings, recordPath(root, name), path.join(root, CONFIG_DIR, TASK_FILE), CLI_ENTRY];
+  const evidenceDir = path.join(root, CONFIG_DIR, EVIDENCE_DIR);
+  const cliDir = path.dirname(CLI_ENTRY); // the verifier's OWN code tree (dist/src) — F1
+  const preAuth = snapshotAuthority(authority);
+  const preEvidence = snapshotTree(evidenceDir);
+  const preCli = snapshotTree(cliDir);
+  const preHead = headToken(root);
+  const inWindowDrift = (): AuthorityChange[] => {
+    const postHead = headToken(root);
+    return [
+      ...authorityDrift(preAuth, authority),
+      ...treeDrift(preEvidence, evidenceDir).map((c) => ({ ...c, file: path.join(evidenceDir, c.file) })), // absolute, like the other entries
+      ...treeDrift(preCli, cliDir).map((c) => ({ ...c, file: path.join(cliDir, c.file) })), // F1: §9's "must never control its verifier" includes the verifier's bytes — an in-window write is inert THIS run (modules loaded at start) and executes NEXT run (promote's fresh re-verify included), so "the judge at verdict time" demands binding them. @canary-rn workspace imports resolve outside dist/src: that slice stays the stated dep-tree ceiling.
+      ...(postHead !== preHead ? [{ file: `${root}: base HEAD ref`, before: preHead, after: postHead }] : []), // F4: shared ref store — a moved base ref is moved promotion authority
+    ];
+  };
   let results: StepResult[];
   try { results = cfg.plan.map((step) => runPlanStep(rec.root, cfg.pm, step)); }
-  catch (e) { return blocked(`plan step refused: ${(e as Error).message} — execution stopped before any step ran`, 'the base plan names a script Canary will not execute; fix the plan via canary setup'); }
-  for (const r of results) o.step(r);
+  catch (e) {
+    const threwDrift = inWindowDrift();
+    if (threwDrift.length) return authorityBlock('during execution', threwDrift);
+    const threwSeal = sealViolation('during execution');
+    if (threwSeal) return authorityBlock('during execution', [{ file: threwSeal.file, before: 'sealed at setup — held when the window opened', after: threwSeal.why }]);
+    return blocked(`plan step refused: ${(e as Error).message} — execution stopped before any step ran`, 'the base plan names a script Canary will not execute; fix the plan via canary setup');
+  }
+  const authDrift = inWindowDrift();
+  if (authDrift.length) return authorityBlock('during execution', authDrift);
+  for (const r of results) o.step(r); // printed FIRST — the operator sees the step verdicts the tampered run claimed before the post-window check flips them
+  // F3 post-window edge: the seal re-checked after execution, before the
+  // verdict is read. A step that rewrote its sibling's script text executed
+  // unsealed words inside a "sealed" window; green output on tampered plan
+  // text is a CANARY-BLOCKED-COMPLETION, never a CANDIDATE PASS. The
+  // during/after stamp also sets the quarantine — the next window starts
+  // refused, so the mutated plan surface cannot re-baseline to a PASS.
+  const postSeal = sealViolation('after execution');
+  if (postSeal) return authorityBlock('after execution', [{ file: postSeal.file, before: 'sealed at setup — held when the window opened', after: postSeal.why }]);
   const failed = results.filter((r) => !r.ok);
   const status = failed.length ? 'fail' : 'pass';
   writeVerificationBundle(root, 'candidate', results, status, prov, { evidenceRoot: root, subjectRoot: rec.root, extra });

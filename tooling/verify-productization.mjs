@@ -80,8 +80,29 @@
  *      PASS — every refusal leaves the base byte-identical and writes a blocked
  *      bundle; candidate-planted local config + a git shim on PATH cannot edit
  *      the sealed authority the plan actually ran; malformed record delegates;
- *      the one recorded M9-scope residual: a plan step CAN write the base
- *      evidence dir — proven behaviorally inert, prevention is M9's job)
+ *      the former M8-scope residual — a plan step writing the base evidence
+ *      dir — is now CLOSED by M9's whole-tree evidence fingerprint, step 14c)
+ *  14c. M9 real-git authority probe (§9 end to end: a sealed plan step that
+ *      touches ANY authority byte — config, harness settings (rewrite +
+ *      drop), registry record, task intent, the evidence store (forged PASS
+ *      bundle planted, observed bundle edited, whole dir wiped), the
+ *      VERIFIER'S OWN dist/src code tree, or the base HEAD ref — is caught by
+ *      the fingerprint sandwich at both window edges: the §9 mandate, exit 2,
+ *      a zero-step blocked bundle carrying authorityEvent; the PASS path is
+ *      structurally never reached. Review hardening, all proven here: the
+ *      sealed-plan checks re-run AFTER the window (a step rewriting a later
+ *      step's script text executes unsealed words yet cannot PASS — the
+ *      after-execution mandate catches it with on-disk proof the swap ran);
+ *      a during/after catch QUARANTINES the base — re-verify and promote
+ *      refuse before judging, writing no bundle, until a human setup re-seal
+ *      clears it (a byte-idempotent tampering can no longer re-baseline into
+ *      innocence, and gate 6 can never read an attacker-moved base ref as
+ *      ALREADY APPLIED); the containment pre-gate stays grudgeless (restore
+ *      recovers PASS with no marker). Untouched authority still passes (the
+ *      guard must not shout at innocence); prevention is honestly
+ *      detection-at-edges — no kernel lock exists to claim (m9-lock-facts),
+ *      the ref really moved under S13, and a same-UID hand can delete the
+ *      marker by hand (what quarantine closes is the automated laundering))
  *  15. M6 real-git probe (a CLEAN setup baseline really can attribute blame;
  *      a green plan + deleted test = BLOCK — worktree, STAGED, or committed —
  *      and the printed restore advice unmutes; renames out of (and staying
@@ -118,6 +139,7 @@ const STEPS = [
   ['M6 proof-orchestration contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m6-proof-orchestration.test.js'], {}],
   ['M7 candidate-isolation contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m7-candidate-isolation.test.js'], {}],
   ['M8 promotion contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m8-promotion.test.js'], {}],
+  ['M9 authority contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m9-authority.test.js'], {}],
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: M2 claims-not-evidence (real git)', process.execPath, ['tooling/probes/m2-claims-not-evidence.mjs'], {}],
   ['probe: M3 trust-classes (real git)', process.execPath, ['tooling/probes/m3-trust-classes.mjs'], {}],
@@ -126,6 +148,7 @@ const STEPS = [
   ['probe: M6 proof orchestration (real git)', process.execPath, ['tooling/probes/m6-proof-orchestration.mjs'], {}],
   ['probe: M7 candidate isolation (real git)', process.execPath, ['tooling/probes/m7-candidate-isolation.mjs'], {}],
   ['probe: M8 promotion (real git)', process.execPath, ['tooling/probes/m8-promotion.mjs'], {}],
+  ['probe: M9 authority guard (real git)', process.execPath, ['tooling/probes/m9-authority.mjs'], {}],
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
   ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],

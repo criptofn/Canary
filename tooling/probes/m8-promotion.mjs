@@ -389,34 +389,51 @@ try {
     assertEq(promotionCount(mr), 0, 'refusal before the act wrote no promotion bundle');
   });
 
-  check('candidate code writing into the BASE evidence dir mid-plan changes no decision (prevention of the write is M9\'s scope)', () => {
+  // M9 CLOSED the pre-M9 residual this scenario used to pin as INERT. The
+  // same-UID fact is unchanged (a running step CAN still write the base
+  // evidence dir — no containment pretense); what changed is that the write
+  // is no longer invisible: the whole-tree evidence fingerprint at the
+  // window edge turns the identical act into a §9 mandate, on verify and on
+  // promote's gate-1 re-verify alike. Prevention was never the claim;
+  // detection is, and it holds.
+  check('M9-CLOSED: a step writing into the base evidence dir mid-window forces the §9 mandate, not a verdict', () => {
     const tw = makeRepo('tamperwrite');
     assertEq(canary(['isolate', 'p1', tw], tw).status, 0);
     const c = candPath(tw, 'p1');
-    // sealed script TEXT is untouched (drift gate holds); the candidate edits
-    // the TEST FILE it runs — its own bytes — and uses it to write a stray
-    // file into the base evidence dir. Promotion must decide on live
-    // execution + identity, never on directory contents.
+    // sealed script TEXT stays untouched (the drift gate holds); the candidate
+    // edits the TEST FILE it runs — its own bytes — to write a stray file
+    // into the base evidence dir, exactly the old scenario's bytes.
     fs.writeFileSync(path.join(c, 'checks', 'verify.js'),
       "const fs=require('node:fs');\n" +
       "try{fs.writeFileSync('../../../.canary/evidence/CANDIDATE-FOILED-EVIDENCE.txt','I wrote into base evidence\\n');}catch(e){}\n" +
       'process.exit(0);\n');
     git(c, 'add', '-A'); git(c, 'commit', '-m', 'test file writes a stray into base evidence');
+    const fp = fingerprint(tw);
     const r = canary(['isolate', '--promote', 'p1', tw], tw);
-    assertEq(r.status, 0, `evidence-dir tampering must not change the verdict:\n${r.stdout}`);
-    assertMatch(r.stdout, /ACCEPTED/, 'decision from live execution + identity proof, not from files in evidence/');
+    assertEq(r.status, 2, `in-window base-evidence writing must force the mandate:\n${r.stdout}`);
+    assertMatch(r.stdout, /CANARY BLOCKED COMPLETION/, 'the §9 mandate on the promote re-verify — gate 1 is the sole authority');
+    assert(!/ACCEPTED|PROMOTED/.test(r.stdout), 'no promotion verdict over a moved evidence tree');
+    assertFpSame(fingerprint(tw), fp, 'the mandated promote left the tracked base bytes untouched');
+    const last = bundles(tw, '-candidate').at(-1);
+    assertEq(last.status, 'blocked', 'zero-step mandate bundle, never a laundered pass');
+    assertEq(last.steps.length, 0, 'nothing counts once authority is proven moved');
+    assert(!!last.authorityEvent, 'authorityEvent in the bundle (when + before/after tokens)');
+    assertEq(bundles(tw, '-promotion').length, 0, 'no promotion bundle — the act never reached an apply');
+    // the write itself LANDED (same-UID ceiling, stated not hidden) — it
+    // simply can no longer ride a verdict:
     assert(fs.existsSync(path.join(tw, '.canary', 'evidence', 'CANDIDATE-FOILED-EVIDENCE.txt')),
-      'behavioral FACT: a running plan step CAN write the base evidence dir (inert as authority; prevention belongs to M9)');
-    assertEq(latestPromotion(tw).status, 'accepted', 'the REAL promotion bundle is the truth of this act');
+      'behavioral FACT: prevention is still impossible; detection is what closed the residual');
   });
 
   // end-state hygiene: no repo that was refused ever holds an ACCEPTED
   // promotion bundle — the verdict lines above could lie, these bytes cannot.
   check('cross-case hygiene: refused repos hold zero accepted promotion bundles; attempted repos land exactly once', () => {
+    // tamperwrite joined this list when M9 closed the evidence-write
+    // residual: its mandate means the promotion act never lands at all.
     const zero = ['diverge', 'dirtybase', 'collide', 'detached', 'candchange', 'dirtycand', 'replay', 'malformed', 'tamperwrite'];
     for (const name of zero) {
       const root = path.join(TMP, name);
-      assertEq(acceptedPromotions(root), name === 'tamperwrite' ? 1 : 0, `${name}: accepted-bundle count wrong`);
+      assertEq(acceptedPromotions(root), 0, `${name}: accepted-bundle count wrong`);
     }
     assertEq(acceptedPromotions(path.join(TMP, 'midplan')), 1, 'midplan: refused once, then promoted its stable head exactly once');
     assertEq(acceptedPromotions(iso), 2, 'happy repo: apply + idempotent re-apply, both accepted');

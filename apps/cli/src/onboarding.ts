@@ -53,6 +53,10 @@ import readline from 'node:readline/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+// M9 §9.5 — the quarantine marker filename. authority.ts imports only node
+// builtins, so this direction adds no cycle (candidate.ts already imports it).
+import { QUARANTINE_FILE } from './authority.js';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The absolute path of the built CLI entry — what harness hooks invoke. */
 export const CLI_ENTRY = path.join(HERE, 'main.js');
@@ -60,9 +64,12 @@ export const CLI_ENTRY = path.join(HERE, 'main.js');
 export const CONFIG_DIR = '.canary';
 const CONFIG_FILE = 'canary.local.json';
 const CHECKPOINT_FILE = 'last-checkpoint.json';
-const EVIDENCE_DIR = 'evidence';
+/** M9: exported — evidence storage is protected authority bytes (§9). */
+export const EVIDENCE_DIR = 'evidence';
 const CLAIMS_FILE = path.join('claims', 'latest.json');
-const TASK_FILE = path.join('task', 'current.json');
+/** M9: exported for the authority fingerprint set — task intent is protected
+ *  authority bytes (directive §9), even while it carries zero verdict weight. */
+export const TASK_FILE = path.join('task', 'current.json');
 /** bundles kept before the oldest are pruned — evidence must not grow unbounded */
 const EVIDENCE_KEEP = 10;
 const RAW_CAP = 256 * 1024;
@@ -1037,7 +1044,9 @@ export function cmdTask(rawArgs: string[]): number {
  * raw streams (capped files + full-byte digests), exit codes, derived
  * observation counts. BEST-EFFORT: evidence plumbing must never crash or
  * alter the harness hook, and nothing reads this back for a verdict (S4
- * doctrine extended to the whole evidence dir).
+ * doctrine extended to the whole evidence dir). Returns the bundle dir it
+ * wrote, or null when nothing was written (containment refusal, any failure)
+ * — so callers' `next:` lines can point at real evidence paths (review F7).
  */
 /** Keys the bundle writer itself owns — `extra` may add, never overwrite. */
 const BUNDLE_RESERVED = new Set(['schema', 'at', 'source', 'status', 'trustClass', 'note',
@@ -1051,14 +1060,14 @@ export function writeVerificationBundle(root: string, source: string, results: S
   subjectRoot?: string;
   /** additive, plainly-labeled observation fields (never read back for verdicts) */
   extra?: Record<string, unknown>;
-}): void {
+}): string | null {
   try {
     const evidenceRoot = o?.evidenceRoot ?? root;
     const subjectRoot = o?.subjectRoot ?? root;
-    if (containedRealPath(evidenceRoot, path.join(evidenceRoot, CONFIG_DIR)) === null) return; // linked .canary: no writes through it (S3)
+    if (containedRealPath(evidenceRoot, path.join(evidenceRoot, CONFIG_DIR)) === null) return null; // linked .canary: no writes through it (S3)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const dir = path.join(evidenceRoot, CONFIG_DIR, EVIDENCE_DIR, `${stamp}-${source}`);
-    if (containedRealPath(evidenceRoot, dir) === null) return;
+    if (containedRealPath(evidenceRoot, dir) === null) return null;
     fs.mkdirSync(dir, { recursive: true });
     const steps = results.map((r, i) => {
       const files: Record<'out' | 'err', string> = { out: '', err: '' };
@@ -1119,7 +1128,8 @@ export function writeVerificationBundle(root: string, source: string, results: S
     for (const d of mine.slice(0, Math.max(0, mine.length - EVIDENCE_KEEP))) {
       try { fs.rmSync(path.join(parent, d), { recursive: true, force: true }); } catch { /* churn-tolerant */ }
     }
-  } catch { /* evidence is best-effort; never crash the harness hook over it */ }
+    return dir;
+  } catch { /* evidence is best-effort; never crash the harness hook over it */ return null; }
 }
 
 /** The agent's latest UNTRUSTED hint — read ONLY to annotate a block Canary
@@ -1270,6 +1280,12 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     o.verdict('NEEDS ATTENTION', `could not write the .canary config (${String(e).slice(0, 140)}) — the hook entry is installed, but Canary cannot verify anything here without its config. Nothing was half-written.`, 'close whatever holds the file, then run setup again');
     return 2;
   }
+  // M9 §9.5 — the human running setup IS the clearing act. A caught in-window
+  // tampering quarantines the base (verify/promote refuse until re-seal); a
+  // fresh writeConfig + re-installed hook means a human re-authorized these
+  // bytes, so the marker's debt is paid. Cleared only on success: if the
+  // config write threw above, quarantine stands (fail-closed).
+  try { fs.rmSync(path.join(root, CONFIG_DIR, QUARANTINE_FILE), { force: true }); } catch { /* absent is the common case */ }
   o.say(`Claude Code will run Canary automatically when the agent finishes a turn here.${prev && prev !== 'corrupt' ? ' (re-run: existing Canary hook refreshed, no duplicates)' : ''}`);
   o.detail('authority sealed: the plan and the exact text of every script it runs — candidate edits to the verification surface block completion until a human re-runs setup.');
 
@@ -1418,13 +1434,12 @@ export function cmdUninstall(rawArgs: string[]): number {
   if (!cfg) { o.say('Canary is not installed in this repo — nothing to remove.'); return 0; }
   const distrust = untrustedConfigReason(root, cfg);
   if (distrust) { o.verdict('NEEDS ATTENTION', `Canary will not remove settings based on a config it does not trust (${distrust}) — it cannot prove which entries are its own.`, 'run: canary setup --yes (recreates the record as this machine\'s own), then canary uninstall'); return 2; }
-  const { removed, problems } = uninstallHooks(root, cfg);
-  if (problems.length) {
-    // keep .canary: it is the ownership record the advertised retry needs (S6)
-    o.verdict('NEEDS ATTENTION', `Canary removed ${removed} of its hook entries but ${problems.length} file(s) could not be cleaned completely; its ownership record (.canary) is kept so a retry can finish the job:`, 'fix the listed files, then re-run: canary uninstall is safe to repeat');
-    for (const p of problems) console.log(`  - ${p}`);
-    return 2;
-  }
+  // M9 additive: BOTH refusal checks run BEFORE any hook is touched. An
+  // uninstall that ends up refusing must not leave a repo with its hooks
+  // stripped while the config stays live — that is a modified verification
+  // authority (the pre-execution containment gate in candidate.ts blocks on
+  // exactly that state), and a refusal should never manufacture it. These are
+  // preconditions of the teardown, not after-the-fact exceptions.
   if (containedRealPath(root, path.join(root, CONFIG_DIR)) === null) {
     o.verdict('NEEDS ATTENTION', '.canary resolves outside the repository (a link?) — Canary will not delete through it.', 'replace it with a real folder, then re-run: canary uninstall'); return 2;
   }
@@ -1436,6 +1451,13 @@ export function cmdUninstall(rawArgs: string[]): number {
       o.verdict('NEEDS ATTENTION', "candidates are still registered under .canary/candidates — uninstall would remove Canary's registry while the worktrees (and the worker's edits in them) remain.", 'canary isolate --list, then --remove each (or --discard), then re-run: canary uninstall'); return 2;
     }
   } catch { /* absent or empty: nothing to protect */ }
+  const { removed, problems } = uninstallHooks(root, cfg);
+  if (problems.length) {
+    // keep .canary: it is the ownership record the advertised retry needs (S6)
+    o.verdict('NEEDS ATTENTION', `Canary removed ${removed} of its hook entries but ${problems.length} file(s) could not be cleaned completely; its ownership record (.canary) is kept so a retry can finish the job:`, 'fix the listed files, then re-run: canary uninstall is safe to repeat');
+    for (const p of problems) console.log(`  - ${p}`);
+    return 2;
+  }
   fs.rmSync(path.join(root, CONFIG_DIR), { recursive: true, force: true });
   o.say(`removed ${removed} Canary hook entr${removed === 1 ? 'y' : 'ies'}; every other settings entry was kept (content preserved — re-serialization may reformat whitespace).`);
   o.verdict('READY', 'Canary is fully removed from this repo.', 'to bring it back: canary setup');
