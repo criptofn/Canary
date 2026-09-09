@@ -1,0 +1,53 @@
+=== M10.2 before/after repro — CLI=/home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js ===
+
+--- F4-GATE-1: post-isolation task registration mints authority? ---
+  CMD setup  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js setup --yes <root>
+  CMD isolate  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js isolate g1 <root>
+  SETUP  fresh git base at <tmp>/gate1; canary setup; taskless isolate 'g1'
+  CMD register AFTER isolation  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js task fix the timer crash --kind refactor
+  CMD verify  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js isolate --verify g1 <root>
+  VERDICT: CANDIDATE NOT PROVEN — the sealed plan is green, but proof obligations for this task are UNPROVEN (NO PROOF, NO DONE):
+           obligation [task-authority] UNPROVEN (objective): NO task-obligation authority FROZEN at isolation: no task was registered when this candidate was opened. Registering afterwards is growth — it adds duties, it cannot mint this authority retroactively. Register the work (canary task "..." --kind ...) and RE-ISOLATE, then verify the new candidate; omitting registration is not a way through §10, it is exactly what makes §10 unprovable.
+           obligation [tests-green] MET (objective): the sealed test run passed against the candidate
+           obligation [coverage-loss] MET (objective): no test file was deleted in the candidate diff — verification coverage intact
+  VERIFY exit=2
+  CMD promote  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js isolate --promote g1 <root>
+  PROMOTE exit=2 line=promotion stays locked — no PASS was earned.
+  BASE HEAD before=705a3dc03733 after=705a3dc03733 moved=false
+  PROMOTION BUNDLES count=0 status=[]
+  => BYPASS CLOSED (no PASS, no promotion, base untouched)
+
+--- F4-GATE-2: stripping rec.intent makes the record read as legacy? ---
+  CMD setup  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js setup --yes <root>
+  CMD isolate  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js isolate g2 <root>
+  SETUP  fresh git base at <tmp>/gate2; canary setup; taskless isolate 'g2'
+  EDIT   delete rec.intent from <base>/.canary/candidates/g2.json (was present)
+  CMD verify  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js isolate --verify g2 <root>
+  VERDICT: CANDIDATE NOT PROVEN — the sealed plan is green, but proof obligations for this task are UNPROVEN (NO PROOF, NO DONE):
+           obligation [task-authority] UNPROVEN (objective): NO task-obligation authority: this record carries no intent snapshot — it either predates task authority or the snapshot was removed, and the record is agent-writable bytes between windows, so absence proves nothing and fails safe. Register the work (canary task "..." --kind ...) and RE-ISOLATE so a fresh snapshot freezes the authority; there is no pre-M10 PASS path.
+           obligation [tests-green] MET (objective): the sealed test run passed against the candidate
+  VERIFY exit=2
+  CMD promote  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js isolate --promote g2 <root>
+  PROMOTE exit=2 line=promotion stays locked — no PASS was earned.
+  BASE HEAD before=e86d52a810ed after=e86d52a810ed moved=false
+  PROMOTION BUNDLES count=0 status=[]
+  => BYPASS CLOSED (no PASS, no promotion, base untouched)
+
+--- RECOVERY (legitimate): register → re-isolate → evidence → verify → promote ---
+  CMD setup  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js setup --yes <root>
+  CMD register BEFORE isolation  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js task fix the timer crash --kind bugfix
+  CMD isolate (task registered → authority frozen)  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js isolate r1 <root>
+  CMD verify  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js isolate --verify r1 <root>
+  VERDICT: CANDIDATE PASS — "r1" @ ea76589ca46a (1 commit(s) beyond the isolated base) verified against the sealed plan. ELIGIBLE for promotion — nothing applied; promotion is a separate act.
+  VERIFY exit=0
+  CMD promote  $ node /home/jan/qwen-builder-cage/canary/apps/cli/dist/src/main.js isolate --promote r1 <root>
+  PROMOTE exit=0 line=promotion — nothing applied; promotion is a separate act.
+  BASE HEAD before=0d11d018d41d after=ea76589ca46a moved=true
+  PROMOTION BUNDLES count=1 status=["accepted"]
+  => HONEST PATH LANDS (PASS → ACCEPTED, base moved)
+
+=== SUMMARY ===
+F4-GATE-1 (post-isolation registration): CLOSED
+F4-GATE-2 (rec.intent deletion):         CLOSED
+legitimate recovery path:                LANDS
+pattern=closed expect=closed → matches expectation

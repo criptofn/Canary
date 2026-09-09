@@ -10,15 +10,19 @@
  * is a branch no check actually pins. Exit 0 only when every mutation was
  * caught. NO PROOF, NO DONE.
  *
- * 20 mutations: 1–2 pin the record-write freeze (snapshot + task); 3–8 pin
+ * 22 mutations: 1–2 pin the record-write freeze (snapshot + task); 3–8 pin
  * the guard arms (drop, re-seal, kind/requirement shrink, intentEvent bytes);
  * 9–12 pin the ladder (unmet branch, unproven branch, unproven's honest
  * status, obligations riding every bundle — incl. the FAIL arm); 13–15 pin
  * the obligation ENGINE in onboarding.js (regression evidence, tests-green,
  * attributable deletion); 16–19 pin the review-round gates (lying-index fold
  * into dirty, the suffix-surviving rename escape, pre-window signal capture,
- * the clean-at-birth isolate assert); 20 pins the M10.1 TASK-AUTHORITY gate
- * (GLM F4) — removing it re-opens the taskless bypass and S12 goes PASS.
+ * the clean-at-birth isolate assert); 20–22 pin the M10.2 FROZEN task-
+ * AUTHORITY gate (GLM re-audit, F4-GATE-1/2): removing it re-opens the
+ * taskless bypass (S12 goes PASS), reading the LIVE task instead of the
+ * frozen snapshot re-opens post-isolation self-minting (S12's GATE-1 leg),
+ * and re-conditioning the gate on rec.intent re-opens the legacy-PASS
+ * strip-the-snapshot bypass (S5).
  * Mutation 5/7 INVERT rather than delete —
  * a guard that shouts at innocence fails the positive control, which is the
  * same evidence that the comparison is load-bearing.
@@ -94,9 +98,13 @@ const MUTS = [
     search: 'obligationsFor(task?.kinds ?? [], sig,', replace: 'obligationsFor(task?.kinds ?? [], candidateDiffSignals(rec.root, rec.baseHead),', count: 1, own: 'S10' },
   { id: 'isolate asserts the worktree is provably CLEAN at birth, not just the right commit (correctness isolate post-check)', file: CAND,
     search: 'if (!cid.resolved || cid.head !== sha || cid.dirty) {', replace: 'if (!cid.resolved || cid.head !== sha) {', count: 1, own: 'S11' },
-  // --- M10.1 (GLM F4): the task-obligation authority ---
-  { id: 'a taskless intent-bearing record is NOT PROVEN for missing authority — remove it and the F4 bypass re-opens (S12 taskless goes PASS)', file: CAND,
-    search: 'if (rec.intent && !(task?.kinds.length ?? 0) && !(rec.intent.task?.kinds.length ?? 0)) {', replace: 'if (false) {', count: 1, own: 'S12' },
+  // --- M10.2 (GLM re-audit F4-GATE-1/2): the FROZEN task-authority gate ---
+  { id: 'the authority gate exists at all — remove it and the taskless bypass re-opens (S12 taskless goes PASS)', file: CAND,
+    search: 'if (!frozenKinds.length) {', replace: 'if (false) {', count: 1, own: 'S12' },
+  { id: 'authority reads ONLY the frozen snapshot — read the live task instead and post-isolation registration mints it again (F4-GATE-1 re-opens)', file: CAND,
+    search: 'const frozenTask = rec.intent?.task ?? null;', replace: 'const frozenTask = task ?? null;', count: 1, own: 'S12' },
+  { id: 'a missing snapshot fails SAFE — condition the gate on rec.intent again and the legacy-PASS strip bypass (F4-GATE-2) re-opens', file: CAND,
+    search: 'if (!frozenKinds.length) {', replace: 'if (rec.intent && !frozenKinds.length) {', count: 1, own: 'S5' },
 ];
 
 function runProbe(m) {

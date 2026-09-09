@@ -187,3 +187,42 @@ base changes to force green, no deleted or reshaped tests, no remote, no
 push, no touch to the real Windows repository. The `npm install` side-effects
 (`resolveNpmCli` host fix) were pre-existing R-track work from this pass's
 toolchain recovery and are reported above.
+
+---
+
+## CORRECTIONS — appended by the M10.2 pass (same date; GLM re-audit of frozen `0981edf`)
+
+The re-audit CONFIRMED two HIGH bypasses (F4-GATE-1, F4-GATE-2) that the
+wording above overstated. The original text is kept verbatim as the record of
+what was believed at delivery; the claims were wrong as stated and are fixed
+in M10.2 (see `NIGHT-M10.2-FROZEN-AUTHORITY-2026-09-09.md`).
+
+1. **Line 41 — "no agent-writable metadata." WRONG as a protection claim.**
+   The candidate record (`<base>/.canary/candidates/<name>.json`) is
+   agent-writable bytes OUTSIDE the execution window; M9's fingerprint
+   sandwich covers only the window DURATION, so deleting `rec.intent` after
+   isolation (F4-GATE-2) was invisible to it. M10.2 closes this not by
+   protecting the bytes but by making a missing snapshot FAIL SAFE — absence
+   now proves nothing instead of proving "legacy", so no metadata edit
+   reaches PASS.
+2. **Lines 47–49 — "the only state that opens the door is a `canary task`
+   registration, which requires the work to actually satisfy its derived
+   duties." WRONG mechanism.** M10.1 discharged authority from the LIVE task
+   at verify time, so a `refactor` registered AFTER isolation self-minted
+   the missing authority, its duties floor-satisfied by the green tests plan
+   (F4-GATE-1). Post-isolation registration is growth: it may ADD duties, it
+   cannot mint retroactively. M10.2 discharges authority ONLY from the
+   snapshot frozen at isolation; the legitimate recovery is register →
+   RE-ISOLATE → verify.
+3. **Lines 52–58 and the R5 bullet "Pre-M10 intent-less records verify
+   exactly as before" (~line 140) — the compatibility posture WAS the
+   bypass.** A hand-stripped snapshot read as a pre-M10 record and passed
+   tasklessly; "forging the pre-M10 shape … M9 already catches" relied on
+   the window-scoped sandwich, which does not cover out-of-window record
+   edits. There is NO pre-M10 PASS path any more: intent-less records get
+   `[task-authority] UNPROVEN` with re-isolate advice (S5 flipped, contract
+   test renamed accordingly).
+4. **R5 first bullet "(none now, none frozen at isolation)"** — superseded:
+   "none now" (the live reading) is exactly what re-opened the door. M10.2
+   reads ONLY the frozen snapshot; the live task feeds duties, never
+   authority, and §11 keeps live ⊇ frozen or blocks.

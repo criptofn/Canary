@@ -1,0 +1,532 @@
+
+> canary-reliability-network@0.0.0 verify:productization
+> node tooling/verify-productization.mjs
+
+
+=== build (tsc -b) ===
+> canary-reliability-network@0.0.0 build
+> tsc -b
+
+=== onboarding contract tests ===
+  ✔ S4: a FORGED or stale checkpoint file can never produce READY — only this run can (451.909449ms)
+  ✔ never set up -> NEEDS ATTENTION with the one command; outside git -> UNSUPPORTED (91.810655ms)
+  ✔ uninstall removes exactly Canary, preserves everything else; repeat is safe (573.725042ms)
+  ✔ S1: an out-of-repo touched path in the config is refused, untouched, loudly (299.124006ms)
+  ✔ S6: partial cleanup keeps .canary so the promised retry can actually finish (297.524476ms)
+  ✔ S2-adjacent: uninstall of a foreign-cliPath config is refused (cannot prove ownership) (251.424323ms)
+✔ doctor + uninstall (3040.573857ms)
+▶ degenerate empty plan (hand-edited config must not fake green)
+  ✔ checkpoint: zero checks executed -> UNVERIFIED systemMessage, never a silent pass; doctor flags it (372.518768ms)
+✔ degenerate empty plan (hand-edited config must not fake green) (372.636648ms)
+▶ link containment (S3)
+  ✔ checkpoint evidence is never written through a link pointing outside the repo (450.541784ms)
+  ✔ setup refuses outright when a managed file is a link (dangling included) (43.949256ms)
+✔ link containment (S3) (494.615653ms)
+▶ hook entry shape + ownership
+  ✔ hasCanaryEntry matches exact command only (0.184228ms)
+✔ hook entry shape + ownership (0.253841ms)
+ℹ tests 35
+ℹ suites 8
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8220.711417
+
+=== M2 claims-not-evidence contract tests ===
+  ✔ diverging claim annotates an already-decided block with claim-vs-observed, both sides parsed (418.439458ms)
+  ✔ without a claim the block reason is exactly the pre-M2 shape — no note (393.164802ms)
+  ✔ a claim that MATCHES the printed lie still cannot stop the block (exit code is the oracle) (420.54816ms)
+  ✔ forged evidence + forged last-checkpoint never produce a pass: nothing is read back (374.53909ms)
+  ✔ a claim whose timestamp is not ISO-shaped cannot smuggle prose into the block reason (391.36877ms)
+  ✔ an ISO-PREFIXED prose tail cannot smuggle into the note either (end anchor) (416.644759ms)
+  ✔ a corrupt claims file is inert: the block stands, unannotated, no crash (418.77118ms)
+  ✔ a claims file linked outside the repo is never read (S3) (389.344208ms)
+✔ claims are hints: never a pass, never a block, at most an annotation (3660.205569ms)
+▶ claim intake guards
+  ✔ empty claim is misuse (exit 3) and writes nothing (51.509167ms)
+  ✔ claims without a usable repo are refused with exit 2, nothing written (49.349874ms)
+  ✔ inside a repo Canary does not trust: NEEDS ATTENTION, no claim written (53.699393ms)
+  ✔ a set-up repo stores the claim labeled UNTRUSTED HINT, capped, and says so (264.650604ms)
+  ✔ a claims/ dir linked outside the repo refuses the write (S3, exact path) (246.707914ms)
+  ✔ a config from another installation refuses claims too (S2) (261.346617ms)
+✔ claim intake guards (927.616056ms)
+ℹ tests 24
+ℹ suites 5
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6241.995685
+
+=== M3 trust-classes contract tests ===
+▶ writers stamp their own class, honestly
+  ✔ every verification bundle Canary writes is CANARY_OBSERVED (setup/doctor/checkpoint) (740.08951ms)
+  ✔ the claim envelope is stamped AGENT_REPORTED next to its UNTRUSTED HINT authority (249.516173ms)
+✔ writers stamp their own class, honestly (990.483421ms)
+▶ labels are inert as input — no promotion by declaring or copying
+  ✔ a hand-written claim self-declaring CANARY_OBSERVED/"VERIFIED" changes nothing but annotation prose (416.482735ms)
+  ✔ a forged CANARY_OBSERVED pass bundle cannot stop a block and is kept as inert data (403.950045ms)
+  ✔ no side door: extras handed to the bundle writer can never shadow its reserved fields (16.440969ms)
+  ✔ doctor re-derives despite a forged pass bundle: NEEDS ATTENTION, never READY (433.071985ms)
+✔ labels are inert as input — no promotion by declaring or copying (1270.450964ms)
+▶ class coverage and UX
+  ✔ EXTERNALLY_VERIFIED has no producer: nothing under .canary ever carries it (723.597955ms)
+  ✔ trust classes are verbose-only — default output stays simple (721.987268ms)
+✔ class coverage and UX (1445.976139ms)
+ℹ tests 8
+ℹ suites 3
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3771.329051
+
+=== M4 provenance contract tests ===
+▶ the bundle answers the M4 questions
+  ✔ setup records planDigest (matching the in-memory plan), baseline, and ordered per-step stamps (257.348551ms)
+  ✔ planDigest is deterministic, order-sensitive, and binds kind AND script (0.272843ms)
+✔ the bundle answers the M4 questions (258.451194ms)
+▶ the task label is a digest with zero verdict authority
+  ✔ checkpoint records taskDigest on a pass and never stores the prose anywhere (379.584137ms)
+  ✔ on a failing plan the block is byte-identical with or without a task label (757.193331ms)
+  ✔ absent or empty task yields taskDigest null; an old sender without task still gets full provenance (507.034785ms)
+✔ the task label is a digest with zero verdict authority (1644.103995ms)
+▶ the companion hash binds bytes — and says what it is not
+  ✔ verification.sha256 matches the bundle bytes, detects a one-byte tamper, and is labeled tamper-evidence only (520.054629ms)
+✔ the companion hash binds bytes — and says what it is not (520.220298ms)
+▶ baseline honesty
+  ✔ a pre-M4 config (no baseline) yields baseline null, never an invented identity (425.088948ms)
+✔ baseline honesty (425.316874ms)
+ℹ tests 7
+ℹ suites 4
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2920.8922
+
+=== M5 trusted-plan contract tests ===
+▶ setup seals the verification authority
+  ✔ the seal binds the plan digest and the verbatim text of each script it runs (626.977996ms)
+✔ setup seals the verification authority (627.78792ms)
+▶ the spec attack: honest command -> "echo all good"
+  ✔ a swapped script text that WOULD pass by exit code is blocked as authority drift (233.972191ms)
+  ✔ the loop guard holds on authority drift: one repair attempt, then honest stop (245.117657ms)
+  ✔ restoring the sealed text restores silent verification (drift detection, not a grudge) (637.099394ms)
+✔ the spec attack: honest command -> "echo all good" (1116.519588ms)
+▶ the config side of the same attack
+  ✔ editing cfg.plan mid-task without re-sealing blocks (239.406322ms)
+  ✔ a malformed hand-planted seal fails closed (255.716575ms)
+  ✔ a pre-M5 config (no seal) verifies exactly as before — additive (759.650441ms)
+✔ the config side of the same attack (1255.053704ms)
+▶ re-sealing and visibility
+  ✔ re-running setup re-seals the new text under a visible smoke; then it verifies (575.690232ms)
+  ✔ doctor refuses READY on drifted authority (337.658574ms)
+✔ re-sealing and visibility (913.585903ms)
+ℹ tests 9
+ℹ suites 4
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3978.587238
+
+=== M6 proof-orchestration contract tests ===
+  ✔ a fully-covered refactor with a green sealed plan yields ONLY met obligations (silent path exists) (0.109689ms)
+  ✔ kinds never declared still get the diff-implied floor: no kinds + clean signals = no obligations beyond tests-green (0.116685ms)
+✔ obligationsFor — the one-way obligation engine (2.650019ms)
+▶ canary task — an AGENT_REPORTED hint with zero authority
+  ✔ setup + register: digest-only storage, inferred kinds, explicit zero-authority line (276.733757ms)
+  ✔ --kind overrides inference; --requirement forces multi; hostile input is usage, not a crash (421.117283ms)
+  ✔ registering a task against no setup / no git says so; nothing is written (49.341449ms)
+✔ canary task — an AGENT_REPORTED hint with zero authority (747.412607ms)
+▶ checkpoint/doctor integration — the sealed plan passes, obligations decide the tone
+  ✔ no task record, no prose, fake git: byte-identical pre-M6 silence (additive) (493.276055ms)
+  ✔ registered bugfix with no test change: the pass rides an honest UNPROVEN systemMessage, never silence (432.556953ms)
+  ✔ hook-stdin task prose infers kinds even without a registration (368.969977ms)
+  ✔ a malformed/hand-planted record degrades to the no-record posture, hostile kinds filtered (750.438997ms)
+  ✔ fake git makes diff signals unresolvable: a registered refactor is UNPROVEN, never a silent met (456.405783ms)
+  ✔ doctor lists open obligations instead of a bare READY (776.190464ms)
+  ✔ config rewrite keeps the seal: obligations never execute anything unsealed (416.228494ms)
+✔ checkpoint/doctor integration — the sealed plan passes, obligations decide the tone (3694.509134ms)
+ℹ tests 27
+ℹ suites 5
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4525.394516
+
+=== M7 candidate-isolation contract tests ===
+✔ built CLI exists (run npm run build first) (0.915603ms)
+✔ isolate misuse exits 3 with usage, and never touches the repo (733.706656ms)
+✔ isolate refuses a repo Canary does not verify (no config, exit 2) (47.046198ms)
+✔ isolate refuses a base whose own config is distrusted (262.078466ms)
+✔ create refuses under fake git — an unresolvable base cannot be isolated from (and nothing registers) (255.405532ms)
+✔ verify refuses a malformed or name-mismatched record without executing anything (302.462422ms)
+✔ verify refuses a record whose baseRoot is not this repo (impersonation guard, before any identity read) (245.054296ms)
+✔ verify of a LOST candidate (fake git => unresolvable) blocks honestly and writes a BLOCKED bundle (257.826217ms)
+✔ under fake git, verify can NEVER report PASS — the fail-closed ceiling of the whole contract layer (258.153329ms)
+✔ list is honest with no registry, survives invalid records, and exits 0 (it never executes anything) (319.053197ms)
+✔ remove refuses unregistered names; a vanished candidate is pruned honestly (record deleted, exit 0) (306.924126ms)
+✔ uninstall refuses to delete .canary while candidates are registered (worker trees stay protectable) (307.238775ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3359.226422
+
+=== M8 promotion contract tests ===
+✔ built CLI exists (run npm run build first) (4.921775ms)
+✔ isolate --promote misuse exits 3 (name required, flags scoped, one mode) (505.026152ms)
+✔ promote refuses a repo Canary does not trust (exit 2, before any record read) (47.001868ms)
+✔ promote of a missing or malformed record delegates to verify (exit 2, identical refusal) (330.577627ms)
+✔ promote refuses an impersonated record (different baseRoot) with the canonical guard (239.98246ms)
+✔ under fake git, promote BLOCKS via live verify and can never apply or accept (326.94589ms)
+✔ promotion bundles obey bounded evidence retention (nothing is kept forever) (281.564783ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1805.198765
+
+=== M9 authority contract tests ===
+✔ intact harness entry keeps the pre-gate SILENT: LOST-style block, zero §9 lines (304.963976ms)
+✔ harness entry deleted outside the window → §9 before execution (containment pre-gate) (292.121172ms)
+✔ harness entry scrubbed (valid JSON, entry gone) → §9 with after "entry missing" (268.975908ms)
+✔ gate order: record refusals (ghost / malformed / impostor) precede the pre-gate even with settings deleted (359.421198ms)
+✔ evidence tree is in the fingerprint set: plant / edit / wipe all drift, untouched tree stays quiet (3.157068ms)
+✔ §9.5 quarantine refusal out-ranks EVERY gate — even record refusals — and writes no bundle (289.373602ms)
+✔ a human re-seal (setup) is the clearing act — the marker vanishes with the deliberate restore (477.196418ms)
+✔ the containment pre-gate stays grudgeless: a before-execution mandate stamps NO marker, and restoring bytes recovers cleanly (308.445496ms)
+✔ a config that promised nothing runs no containment gate (hand-written touched: []) (257.660282ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2624.033924
+
+=== M10 obligations contract tests ===
+✔ gate order: quarantine refusal and impersonation outrank the intent guard (310.136457ms)
+✔ committed test deletion in the candidate diff is ATTRIBUTABLE (the worktree began provably clean) (43.244998ms)
+✔ renaming a test OUT of test paths counts as attributable coverage loss (43.585327ms)
+✔ the suffix-surviving escape: tests/x.test.js → src/x.test.js is STILL coverage loss (adversary F3) (46.040896ms)
+✔ the directory rule does not shout at innocence: suffix-only moves and in-dir moves stay intact (89.196799ms)
+✔ the isolation premise names what the candidate boundary can NOT prove (correctness #5): never "setup" (34.276157ms)
+✔ an unanswerable baseHead probe fails SAFE: deletions UNATTRIBUTABLE, never a false met (34.307375ms)
+✔ added test file: changes carries it, deletions stay empty (regression evidence, not loss) (40.721455ms)
+✔ F4-A: no registered task + green sealed plan → CANDIDATE NOT PROVEN, never PASS; the missing authority is named (598.844737ms)
+✔ F4-B: promotion of a taskless candidate is locked — gate 1 refuses, zero promotion bundles, base unmoved (841.788724ms)
+✔ F4-C: a task frozen at isolation whose obligations are all MET still reaches PASS and ACCEPTED promotion (the gate must not shout at innocence) (959.523699ms)
+✔ F4-D: registration is not a mask — a bugfix without regression evidence stays NOT PROVEN on its real duty, authority gate silent (642.939042ms)
+✔ F4-E: an objective violation still BLOCKS while taskless — unmet outranks the new unproven duty (612.222859ms)
+✔ F4-F: no knob opens it — an env var and an unknown flag cannot restore the authority that registration must give (633.839249ms)
+✔ F4-G: precedence holds with the gate in play — fail > unmet > unproven(taskless) > pass (685.379649ms)
+✔ F4-H (GLM F4-GATE-1): registering AFTER isolation adds duties but mints no authority — still NOT PROVEN, promote locked (1172.860565ms)
+✔ F4-I (GLM F4-GATE-2): deleting rec.intent does not restore a legacy-PASS shape — absence fails safe to NOT PROVEN (1167.175756ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10663.601599
+
+=== probe: empty-plan checkpoint ===
+PASS: setup READY on a green sample repo
+PASS: checkpoint exits 0 (never fights the harness)
+PASS: empty plan -> UNVERIFIED systemMessage
+PASS: empty plan -> NOT a block, NOT silence
+PASS: doctor flags the empty plan and never prints READY
+PROBE-PASS
+
+=== probe: M2 claims-not-evidence (real git) ===
+PASS setup on a real repo: READY and bundle candidate binds to the actual HEAD
+PASS dirty+fail: checkpoint bundle records dirty=true; claim only annotates the block
+PASS after repairing the script, checkpoint is silent and records a pass from its own run
+PASS doctor with .canary/evidence pointing outside the repo: no writes escape, verdict intact
+PASS forged pass bundle + matching printed lie: block stands on exit code alone
+M2 claims-not-evidence: ALL PASS
+
+=== probe: M3 trust-classes (real git) ===
+PASS real-repo setup: bundle is CANARY_OBSERVED and bound to the actual HEAD
+PASS claim on a real repo: envelope is AGENT_REPORTED with UNTRUSTED HINT authority
+PASS forged CANARY_OBSERVED pass bundle: checkpoint still blocks on exit code alone
+PASS same forged bundle against doctor: re-derivation wins, NEEDS ATTENTION not READY
+PASS plain doctor shows no trust-class prose; --verbose explains the classes
+M3 trust-classes: ALL PASS
+
+=== probe: M4 provenance (real git) ===
+PASS setup binds the bundle to the real commit AND tree, baseline = same moment
+PASS timestamps: steps ordered inside the bundle window
+PASS after a new commit, baseline stays at wiring; candidate tracks the move
+PASS checkpoint with task: block unchanged, taskDigest stored, prose never stored
+PASS verification.sha256 matches bundle bytes; a flipped byte is detectable and inert
+PASS doctor bundle inherits the setup-time baseline from trusted config
+M4 provenance: ALL PASS
+
+=== probe: M5 trusted plan (real git) ===
+PASS setup seals plan + verbatim script text; clean repo verifies silently and doctor is READY
+PASS the echo-all-good swap is BLOCKED before execution, though the exit code would say pass
+PASS git-restoring the sealed file returns silent pass (detection, not a grudge)
+PASS setup re-run executes the swapped command in smoke and only then seals it; checkpoint passes
+PASS hand-editing .canary/canary.local.json plan without re-sealing blocks on authority
+M5 proof-plan: ALL PASS
+
+=== probe: M6 proof orchestration (real git) ===
+PASS setup on a clean real repo: baseline resolved + CLEAN — Canary's own wiring write does not blind blame
+PASS registered refactor + green sealed plan: checkpoint silent, doctor READY without obligation noise
+PASS WORKTREE deletion of a test on a clean baseline: the green plan BLOCKS — evidence still says pass
+PASS loop guard holds for obligation blocks: one repair attempt, then honest stop (no re-block)
+PASS git checkout restores the deleted test: silent verification returns (a gate, not a grudge)
+PASS a STAGED (uncommitted) deletion on a CLEAN baseline blocks, and the printed advice really unmutes (review #3)
+PASS a COMMITTED deletion blocks via the sealed baseline; a committed restore unblocks
+PASS renames on a clean baseline: out of test paths = coverage loss; staying a test = not (review #5)
+PASS a committed lockfile ADDS the dependency obligation with NO declaration (diff-implied)
+PASS a registered task NEVER lifts the sealed authority — the floor is the floor
+PASS a NON-ASCII committed test deletion blocks: git C-quoting cannot defeat the gate (review #1/#8)
+PASS a TRACKED settings.json cannot blind the baseline stamp via Canary's own backup (review #2)
+PASS dirty-at-setup baseline: staged AND worktree deletions are UNPROVEN with an honest premise (review #3/#6)
+M6 proof-orchestration: ALL PASS
+
+=== probe: M7 candidate isolation (real git) ===
+PASS isolate creates a detached worktree of the EXACT base commit; registry records it; base stays status-clean
+PASS verify PASS: sealed plan ran INSIDE the candidate; evidence landed in the BASE; nothing applied
+PASS a committed failing change in the candidate FAILS verification; base byte-identical
+PASS worker repairs inside the candidate; verification PASSes again (fail → repair → PASS loop)
+PASS swapping the sealed script BLOCKS BEFORE EXECUTION — the replacement never ran
+PASS committed advancement is visible: list says ADVANCED, PASS names the commit count
+PASS worker-added pretest hook around a sealed step BLOCKS before execution — hooks live outside the seal
+PASS candidate-side .npmrc ABSENT from the base BLOCKS (flags outside the seal)
+PASS dirty base: honest note, candidate holds the COMMITTED base only, stray work untouched; duplicate name refused
+PASS spaces and Unicode in --path work for create and verify (argv plumbing, no shell round-trip)
+PASS remove refuses a dirty candidate without --discard; --discard removes exactly worktree + record
+PASS vanished candidate (crash/deleted dir): list LOST, verify blocks honestly, remove prunes the stale registration
+PASS a forged record pointing at an UNRELATED real repo is caught by git-common-dir binding; that repo is untouched
+PASS unregistered worktrees are reported and NEVER touched (user work, not Canary's)
+PASS a COMMITTED gitlink blocks as submodule even with NO .gitmodules — the old existence gate was blind to this
+PASS .npmrc IDENTICAL to base passes; CHANGED in the candidate blocks; checkout restores
+PASS EMPTY on-disk plan blocks honestly — no plan, no fake green (pre-M5-shaped hand edit)
+PASS --path OUTSIDE the base: registers, verifies, and CLEAN-removes (record dir created on demand)
+PASS whole story end-state: base identity unchanged, registry holds only w1, no stray evidence in candidates
+M7 candidate-isolation: ALL PASS
+
+=== probe: M8 promotion (real git) ===
+PASS promote of a verified, advanced candidate fast-forwards the branch; post-proof binds tree identity; ACCEPTED
+PASS re-promote is idempotent and honest: ALREADY APPLIED, no second act, base untouched
+PASS promote removes nothing and leaves the candidate honest in list (promotion != cleanup)
+PASS divergence (case O): base moved past the candidate → REFUSED, base byte-identical, blocked promotion bundle
+PASS TRACKED-dirty trusted base (concurrent user edit): REFUSED before any apply; the edit is byte-preserved
+PASS UNTRACKED base stray is NOT base-dirt (design: setup itself leaves strays) but an untracked COLLISION is refused by git itself
+PASS detached trusted base: REFUSED — promotion fast-forwards a BRANCH, never a detached pointer
+PASS mid-plan commit attack: candidate HEAD moved during verification → REFUSED (sandwich), honest recovery on re-run
+PASS candidate changed after a PASS verify: promote decides on LIVE bytes — a failing head refuses with no promotion bundle
+PASS dirty candidate after a PASS (uncommitted scratch): REFUSED — promotion applies committed bytes only
+PASS stale evidence replay: forged PASS candidate bundle cannot carry a broken tree; live bytes rule
+PASS evidence from A used for B: B gets its OWN live verdict (broken B refuses despite fresh A PASS)
+PASS candidate-tampered authority (its own canary config + fake git shim) is INERT for promotion
+PASS malformed record (baseHead tampered to garbage): honest refusal via the delegated live verify
+PASS M9-CLOSED: a step writing into the base evidence dir mid-window forces the §9 mandate, not a verdict
+PASS cross-case hygiene: refused repos hold zero accepted promotion bundles; attempted repos land exactly once
+M8 promotion: ALL PASS
+
+=== probe: M9 authority guard (real git) ===
+PASS positive control: untouched authority verifies CANDIDATE PASS, zero §9 lines
+PASS during-execution drift via sealed step: mode=config flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=settings flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=settingsdrop flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=record flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=task flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=evidenceplant flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=evidenceedit flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=evidencedel flips PASS into the §9 mandate
+PASS stripped harness entry before execution → §9 (containment pre-gate); restore recovers PASS
+PASS isolate --promote over tampering authority: §9 text in promote output, exit 2, no PROMOTED, base byte-identical
+PASS S10: §9.5 quarantine refusal — a byte-idempotent tampering cannot re-baseline into a PASS
+PASS S11: verifier code tree fingerprint — a step editing dist/src/authority.js is caught (verifier code)
+PASS S12: post-window seal recheck — step 1 rewriting step 2's sealed text EXECUTES but never PASSes (post-window)
+PASS S13: base HEAD token — a sealed step moving the base branch is witnessed; promote never reads the moved ref as applied (base HEAD)
+PASS cross-case hygiene: every drift repo ends on a blocked mandate bundle; only the control repo passes
+M9 authority: ALL PASS
+
+=== probe: M10 obligations + intent (real git) ===
+PASS S1 positive control: bugfix candidate WITH a test change → CANDIDATE PASS, 2/2 obligations MET, intent frozen in the record
+PASS S2 green plan + bugfix WITHOUT a test → CANDIDATE NOT PROVEN exit 2, unproven bundle still carries steps; promote refuses; adding the test recovers PASS
+PASS S3 committed test deletion → CANDIDATE BLOCKED exit 2 (steps + coverage-loss UNMET in the bundle); restore + commit → PASS; promote refused the whole time
+PASS S4a plan step dropped after isolation (re-setup with a smaller script set) → zero-step intent block, intentEvent names it, promote refused, record snapshot NOT re-baselined; restoring the bytes recovers
+PASS S4a2 sealed text re-locked to different (green) commands after isolation → intent block names the re-seal; restore recovers
+PASS S4b task kinds+requirements shrink after isolation → intent block; growing back (and beyond) is allowed and verifies
+PASS S5 record with the intent hand-stripped → NOT PROVEN naming [task-authority], RE-ISOLATE advice, promote locked — never a legacy PASS
+PASS S6 red plan → CANDIDATE FAIL (exit 2) whose bundle carries the obligations (M11 repair fuel); removing the cause recovers
+PASS S8 lying index (--assume-unchanged) is seen as dirty: verify reports it, promote refuses; clearing the flag still refuses until the bytes are honest
+PASS S9 committed git mv tests→src keeping the .test.js suffix → CANDIDATE BLOCKED coverage-loss (F3); moving it back recovers
+PASS S10 a plan step writing a test mid-window cannot mint its own regression evidence → NOT PROVEN; a COMMITTED test (pre-window) passes
+PASS S11 isolate refuses to register a candidate that is not provably clean (post-checkout hook); removing the hook recovers
+PASS S12 taskless green candidate → NOT PROVEN naming [task-authority]; promote locked, zero bundles; post-isolation registration CANNOT self-mint; register + RE-ISOLATE recovers PASS
+PASS cross-case hygiene: no quarantine stamped anywhere; every base HEAD unchanged
+=== M10 PROBE SUMMARY ===
+M10 obligations+intent: ALL PASS
+
+=== probe: M10.1 F4 taskless-bypass repro (real git) ===
+     F4-OBSERVE verify-exit=2 bundle=["unproven","unproven"]
+     F4-OBSERVE promote-exit=2 promotion-bundles=[] base-moved=false applied=false
+PASS f4-leg1: taskless testless candidate runs verify+promote end to end (observations recorded)
+PASS f4-leg1-closed: verify is NOT PROVEN with the missing-authority obligation named
+PASS f4-leg1-closed: promotion is locked — zero promotion bundles, base HEAD byte-unchanged
+PASS f4-leg2 positive control: registered bugfix + committed regression test → PASS → promote ACCEPTED
+F4-BYPASS: CLOSED — taskless candidates can no longer reach PASS or promotion; the honest path still lands (M10-f4-repro: ALL PASS)
+
+=== probe: M10.2 adversarial authority battery (real git) ===
+PASS A taskless at isolation, green plan, real work → NOT PROVEN naming [task-authority]; promote locked
+PASS B register refactor AFTER isolation, every refactor duty MET → the old candidate is STILL NOT PROVEN; promotion locked
+PASS C post-isolation registration of bugfix/dependency/performance/ui/multi mints nothing (bugfix even adds an UNMET-grade duty it cannot discharge)
+PASS D register → re-isolate under a fresh name → the new snapshot freezes the authority → PASS (old candidate stays blocked throughout)
+PASS E delete rec.intent after isolation (out of window, agent-writable bytes) → NOT PROVEN fails safe; promote locked
+PASS F intent {} / null / malformed / task null / task missing / kinds [] / kinds non-array — none reaches PASS; invalid shapes refuse as malformed, readable ones fail safe to UNPROVEN
+PASS G a record hand-WRITTEN in the pre-M10 shape (never had an intent, backdated createdAt) → NOT PROVEN; there is no legacy-PASS interpretation
+PASS H remove/re-add of the task record after isolation cannot change the frozen verdict either way
+PASS I env vars (CANARY_NO_TASK_OK / CANARY_LEGACY / CANARY_FORCE_PASS / ...) and invented flags cannot open the gate
+PASS J a hand-planted PASS bundle (byte-copied from a genuinely-PASSED repo) changes no verdict and no promotion
+PASS K fail > unmet > unproven > pass holds on every combination the agent can build
+PASS L POSITIVE CONTROL: bugfix registered BEFORE isolation + committed regression test + green plan → PASS → promote ACCEPTED, base moved, exactly one accepted bundle
+PASS hygiene: no quarantine stamped by any modeled attack (all record edits are out-of-window, all windows stable)
+PASS hygiene: every blocked case left its trusted base byte-unchanged
+=== M10.2 ADVERSARIAL SUMMARY ===
+M10.2 authority battery: ALL PASS (both former bypasses modeled; honest path lands)
+
+=== probe: M10 lying-index letters (git premise) ===
+status after assume-unchanged edit: ""
+ls-files -v raw: "H src.js\nh tests/b.test.js\n"
+  line: "H src.js"
+  line: "h tests/b.test.js"
+  line: ""
+fold regex matches: true
+status after skip-worktree: ""
+fold regex matches (both flags): true
+PASS letters confirmed
+
+=== probe: clean-room lazy vibecoder ===
+STEP-2 PASS: installation: CLI built and invocable (docs give the real one-time install)
+STEP-3 PASS: one command configured everything (exit 0)
+STEP-3 PASS: ends with READY for a healthy repo
+STEP-4 PASS: detected package manager from lockfile
+STEP-4 PASS: disclosed inferred plan in compact form
+STEP-4 PASS: detected the harness
+STEP-5 PASS: Stop hook registered pointing at the Canary CLI
+STEP-5 PASS: local config + self-ignoring .canary/ created
+STEP-5 PASS: smoke evidence recorded
+STEP-6 PASS: doctor says READY (exit 0)
+STEP-6 PASS: doctor re-ran the checks in this invocation (READY is earned now)
+STEP-7 PASS: green repo: agent finishes -> Canary allows silently (human NOT interrupted)
+STEP-7 PASS: broken repo: Canary BLOCKS the finish with a repair instruction (REPAIR)
+STEP-7 PASS: loop guard: second finish still-failing -> honest systemMessage, human told, no infinite loop
+STEP-8 PASS: doctor on failing checks: NEEDS ATTENTION, never READY
+STEP-8 PASS: hook removed by hand: loudly un-protected + one repair command
+STEP-9 PASS: re-run repairs registration (exactly one Canary entry, user entry intact)
+STEP-9 PASS: re-run stays honest while code is broken: NEEDS ATTENTION, not fake green
+STEP-9 PASS: backups taken before consequential config edits
+STEP-9 PASS: after the code is fixed: doctor re-proves READY (checks run every time)
+STEP-10 PASS: uninstall exit 0; Canary state gone
+STEP-10 PASS: unrelated config preserved exactly ($schema + user hook; no Canary entry)
+STEP-10 PASS: uninstall idempotent
+STEP-10 PASS: reinstall after uninstall
+ALL-ACCEPTANCE-PASS (10/10 acceptance steps)
+
+=== probe: HTG inline-interpreter corpus ===
+L1-ENGINE: source=npm-global(prefix-lib) version=0.1.3 sha256=33582714b28e01f807ba413d1d673fe352523606ba49d44bd3ff0ab25e423547
+L1-ENGINE: NOTE host-installed bytes are labeled as such — they are evidence of THIS host, not delivered repo bytes
+SKIP  L1-classifier  resolved engine (holdthegoblin@0.1.3) predates the inline-interpreter classifier this corpus pins (no scanInlineInterpreter export) — classifier-owned layers skipped on these bytes, not failed; the FULL acceptance runs where the delivered engine is installed
+SKIP  L2-all  wrapper (source: /home/jan/qwen-builder-cage/canary/tooling/hooks/holdthegoblin-pretooluse-local.mjs) delegates to a host-bound HoldTheGoblin CLI that is absent here (C:/Users/Johannes/AppData/Roaming/npm/node_modules/holdthegoblin/dist/src/cli.js) — LAYER 2 skipped, not passed; full acceptance runs on the host where the live hook is deployed
+--- LAYER 1: risk engine (evaluateCommandRisk) ---
+PASS  L1-keep-ask  ask: kubectl apply -f deployment.yaml
+PASS  L1-keep-ask  ask: terraform destroy -auto-approve
+PASS  L1-keep-ask  ask: docker compose down -v
+PASS  L1-keep-ask  ask: npm publish
+PASS  L1-keep-ask  ask: vercel deploy --prod
+PASS  L1-keep-ask  ask: psql prod -c "DROP TABLE users"
+PASS  L1-keep-ask  ask: sudo npm publish
+PASS  L1-keep-deny  deny: rm -rf /
+PASS  L1-keep-deny  deny: deny: sensitive-path cat (env file)
+PASS  L1-keep-deny  deny: deny: sensitive-path cat (ssh private key)
+PASS  L1-keep-deny  deny: git push --force origin main
+PASS  L1-keep-deny  deny: deny: remote script piped to shell
+PASS  L1-keep-deny  deny: deny: literal credential echo
+PASS  L1-keep-deny  deny: dropdb production
+PASS  L1-keep-deny  deny: deny: interpreter reading rc file (precedes inline ask)
+PASS  L1-keep-deny  deny: deny: literal credential inside shell -c (precedes inline ask)
+PROBE-PASS-WITH-SKIP — 2 explicit host-bound SKIP(s) above; NOT full acceptance on this host
+
+=== probe: packed-artifact clean room (spaces path) ===
+STEP-1 PASS: tooling/pack.mjs exits 0
+STEP-1 PASS: exactly one tarball produced
+STEP-2 PASS: tgz parses as a ustar archive with files
+  entries: ["package/dist/main.js","package/package.json"]
+STEP-2 PASS: every entry lives under package/
+STEP-2 PASS: allowlist holds: only package.json + dist/main.js ship
+STEP-2 PASS: no node_modules / .night-run / cage / secrets / absolute paths in the listing
+STEP-2 PASS: manifest: zero runtime deps, not private, bin -> dist/main.js
+STEP-2 PASS: bundle text carries no monorepo/home identity, no .night-run, no secrets
+STEP-3 PASS: temp repo path really contains spaces
+STEP-3 PASS: npm install of the EXACT tarball exits 0 (offline-capable: no scripts, no deps)
+STEP-3 PASS: installed bundle + bin shim present; no nested node_modules (zero-dep footprint)
+STEP-4 PASS: bin shim runs: setup --yes exits 0 with READY
+STEP-4 PASS: setup wrote its local config
+STEP-4 PASS: config cliPath points INTO the installed package (S1 corroboration will match)
+STEP-4 PASS: hookCommand carries the spaced path, double-quoted
+STEP-4 PASS: setup smoke-ran the plan through the bundle: pass recorded
+STEP-5 PASS: doctor: READY, earned this invocation
+STEP-6 PASS: green repo via literal hook string: silent allow (exit 0, empty stdout)
+STEP-6 PASS: broken repo via literal hook string: BLOCK with repair instruction
+STEP-6 PASS: loop guard: active retry -> honest systemMessage, no repeated block
+STEP-7 PASS: uninstall exits 0; Canary project state gone; user files untouched
+STEP-7 PASS: unrelated config preserved exactly (schema + permission + user Stop hook; no Canary entry)
+STEP-7 PASS: stale hook entry after uninstall: silent absence, never a fake pass or crash
+PACKED-CLEANROOM-PASS (7/7 acceptance steps)
+
+=== VERIFY-PRODUCTIZATION SUMMARY ===
+PASS  build (tsc -b)
+PASS  onboarding contract tests
+PASS  M2 claims-not-evidence contract tests
+PASS  M3 trust-classes contract tests
+PASS  M4 provenance contract tests
+PASS  M5 trusted-plan contract tests
+PASS  M6 proof-orchestration contract tests
+PASS  M7 candidate-isolation contract tests
+PASS  M8 promotion contract tests
+PASS  M9 authority contract tests
+PASS  M10 obligations contract tests
+PASS  probe: empty-plan checkpoint
+PASS  probe: M2 claims-not-evidence (real git)
+PASS  probe: M3 trust-classes (real git)
+PASS  probe: M4 provenance (real git)
+PASS  probe: M5 trusted plan (real git)
+PASS  probe: M6 proof orchestration (real git)
+PASS  probe: M7 candidate isolation (real git)
+PASS  probe: M8 promotion (real git)
+PASS  probe: M9 authority guard (real git)
+PASS  probe: M10 obligations + intent (real git)
+PASS  probe: M10.1 F4 taskless-bypass repro (real git)
+PASS  probe: M10.2 adversarial authority battery (real git)
+PASS  probe: M10 lying-index letters (git premise)
+PASS  probe: clean-room lazy vibecoder
+SKIP  probe: HTG inline-interpreter corpus  — host-bound: 16 check(s) EXECUTED, 2 explicit SKIP(s) — SKIP never counts as PASS
+PASS  probe: packed-artifact clean room (spaces path)
+VERIFY-PRODUCTIZATION: PASS WITH HOST-BOUND SKIP (26 PASS, 1 SKIP — NOT full 27/27 acceptance on this host; the SKIP lines above name what was not reproducible here)
+VERIFY-RAN-OK

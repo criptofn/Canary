@@ -19,7 +19,11 @@
  *                                          register the task INTENT so Canary derives
  *                                          proof obligations for its kind — an
  *                                          AGENT_REPORTED hint that can only ADD
- *                                          obligations, never lift the sealed plan
+ *                                          obligations, never lift the sealed plan.
+ *                                          Authority to judge a candidate AT ALL
+ *                                          freezes at ITS isolation: registering
+ *                                          afterwards adds duties but never mints
+ *                                          it — that path is RE-ISOLATION
  *
  * Exit codes: 0 proof holds fully on the proof host / CONFIRMED_REGRESSION as expected
  *             1 proof failed / PASS
@@ -74,9 +78,11 @@ usage:
                             performance|ui|multi, --requirement per part) so completion
                             checks derive the task's proof obligations — a hint with zero
                             authority: it can only ADD obligations, never weaken the plan.
-                            M10.1: at the candidate boundary the REGISTERED task is the
-                            authority to judge completion at all — zero kinds = NO task
-                            authority = NOT PROVEN, never PASS (there is no opt-out)
+                            M10.2: at the candidate boundary the task FROZEN IN THE
+                            CANDIDATE'S OWN RECORD at isolation is the authority to
+                            judge completion at all — none frozen = NOT PROVEN, never
+                            PASS, and registering after the fact cannot mint it:
+                            register, then re-isolate (there is no opt-out)
   canary isolate <name>     open an UNTRUSTED candidate: a detached git worktree of the
                             trusted base (--base <ref>, --path <dir>) for a worker to
                             edit — the base itself is never the workspace
@@ -84,8 +90,10 @@ usage:
                             run the base's sealed plan INSIDE the candidate, from outside
                             it; PASS = ELIGIBLE for promotion (a separate act — nothing
                             is applied), FAIL/BLOCKED/NOT-PROVEN leaves the base untouched;
-                            a green plan alone never PASSes — §10 also needs the
-                            registered task's obligations met (no task = NOT PROVEN)
+                            a green plan alone never PASSes — §10 needs the task
+                            frozen at THIS candidate's isolation to carry the duties
+                            it derives from the live record (no frozen authority =
+                            NOT PROVEN; recovery = register the task and re-isolate)
   canary isolate --list     live status of registered candidates (+ unregistered worktrees, reported never touched)
   canary isolate --remove <name> [--discard]
                             clean up a candidate; refuses a dirty one without --discard

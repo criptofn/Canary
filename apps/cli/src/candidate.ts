@@ -140,12 +140,19 @@ const HEX_RE = /^[0-9a-f]{40,64}$/;
 /**
  * M10 (directive §11) — the verification intent FROZEN at isolation: which
  * plan steps and which sealed script texts the candidate was opened against,
- * plus the registered task's shape. Records written before M10 have no
- * `intent` and verify exactly as before (additive). The snapshot exists so
+ * plus the registered task's shape. The snapshot is the ONLY place task
+ * AUTHORITY can come from (M10.2, after the GLM re-audit of M10.1): a record
+ * with no `intent` — whether it predates M10 or the field was deleted — is
+ * NOT legacy-compatible-PASS material, it has no frozen authority and
+ * verifies NOT PROVEN until re-isolated. The snapshot also exists so
  * authority weakened AFTER isolation cannot launder an old candidate: the
  * worker may add proof obligations, never silently shrink them. It is frozen
- * at record-write (never re-baselined at window edges) and the record itself
- * is inside M9's fingerprint set — there is no in-window laundering vector.
+ * at record-write (never re-baselined at window edges). Trust boundary,
+ * stated precisely: the record is inside M9's fingerprint set for the
+ * DURATION of a verification window — in-window tamper is detected and
+ * quarantined — but between windows this file is agent-writable bytes, so
+ * its SHAPE (present/absent, edited) is never trusted as evidence of
+ * anything; only the fact that a FRESH isolation wrote it counts.
  */
 interface CandidateIntent {
   at: string;
@@ -535,32 +542,45 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   // M10 §10 — the obligation ladder over the CANDIDATE diff (baseHead frozen
   // in the record; the worktree started provably clean at isolation, so every
   // deletion here is the candidate's). The sealed plan passing is the FLOOR,
-  // not the finish: TESTS PASSING != TASK PROVEN COMPLETE. Task kinds come
-  // from the registered record only (no hook stdin here — the doctor posture).
+  // not the finish: TESTS PASSING != TASK PROVEN COMPLETE. Duties here derive
+  // from the LIVE registered record (no hook stdin — the doctor posture);
+  // AUTHORITY to judge at all derives only from the FROZEN snapshot (below).
   const task = readTaskRecord(root);
   const obligations = obligationsFor(task?.kinds ?? [], sig,
     new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'isolation');
-  // M10.1 (GLM F4 — material Northstar bypass) — the task-obligation AUTHORITY.
-  // obligationsFor derives proof duties from REGISTERED kinds; a candidate that
-  // registers nothing derived nothing and walked straight through §10 on the
-  // sealed-plan floor alone — omitting registration was the strongest agent
-  // move precisely because registration can only ADD obligations. The fix is
-  // not a fabricated duty and no task is guessed: with zero registered kinds
-  // (now AND frozen at isolation) Canary simply REFUSES to claim a completion
-  // it holds no authority to judge — NOT PROVEN, exit 2, promotion locked.
-  // Boundaries held honest:
-  //  - pre-M10 records (no intent snapshot) verify exactly as before — the
-  //    committed compatibility posture; forging one's shape means editing the
-  //    record, which M9's fingerprint sandwich already blocks;
-  //  - kinds registered AFTER isolation are growth (always allowed): they
-  //    discharge this obligation exactly like any other — by being real work
-  //    (the note prints the path), never by being absent;
-  //  - shrink of frozen kinds is blocked earlier by the §11 guard;
+  // M10.2 (GLM re-audit of M10.1, F4-GATE-1/2) — the task-obligation
+  // AUTHORITY is FROZEN AT ISOLATION and only the frozen snapshot can
+  // discharge it. obligationsFor derives proof duties from LIVE registered
+  // kinds; a candidate that registers nothing derived nothing and walked
+  // through §10 on the sealed-plan floor alone. The M10.1 gate closed that
+  // but read its authority from bytes an agent can write AFTER the fact:
+  // registering a task post-isolation minted it (F4-GATE-1), and deleting
+  // `intent` from the record made the gate conditional on an agent-writable
+  // field, returning the taskless bypass (F4-GATE-2). Law now:
+  //  - authority = kinds frozen in THIS candidate's own intent snapshot.
+  //    No snapshot, null/missing task, or empty frozen kinds → the duty
+  //    stands UNPROVEN, exit 2, promotion locked. Absence is never
+  //    interpreted as "pre-M10 legacy, PASS-compatible" — the record is
+  //    agent-writable between windows, so its shape proves nothing about
+  //    its age; it fails safe;
+  //  - registration AFTER isolation is growth (always allowed): it ADDS
+  //    duties via the live ladder above, but can never retroactively mint
+  //    the frozen authority. The recovery is register the work, then
+  //    RE-ISOLATE — the fresh snapshot carries the honest task;
+  //  - shrink of frozen kinds vs the live record is blocked earlier by the
+  //    §11 guard; forged NON-EMPTY frozen kinds plus matching live
+  //    registration is byte-equivalent to a real re-isolation — that is the
+  //    documented same-UID ceiling (file header), not a gap in this gate;
+  //  - no flag, env var, or compatibility escape hatch exists (F4-F);
   //  - precedence stays fail > unmet > unproven > pass: this rides as an
   //    'unproven' and can never outrank an objective violation or a FAIL.
-  if (rec.intent && !(task?.kinds.length ?? 0) && !(rec.intent.task?.kinds.length ?? 0)) {
+  const frozenTask = rec.intent?.task ?? null;
+  const frozenKinds = frozenTask && Array.isArray(frozenTask.kinds) ? frozenTask.kinds : [];
+  if (!frozenKinds.length) {
     obligations.unshift({ id: 'task-authority', mode: 'objective', status: 'unproven',
-      note: 'NO task-obligation authority: no task registered (none now, none frozen at isolation) — completion cannot be PROVEN against nothing. Register the work (canary task "..." --kind ...) and re-verify; omitting registration is not a way through §10, it is exactly what makes §10 unprovable.' });
+      note: rec.intent
+        ? 'NO task-obligation authority FROZEN at isolation: no task was registered when this candidate was opened. Registering afterwards is growth — it adds duties, it cannot mint this authority retroactively. Register the work (canary task "..." --kind ...) and RE-ISOLATE, then verify the new candidate; omitting registration is not a way through §10, it is exactly what makes §10 unprovable.'
+        : 'NO task-obligation authority: this record carries no intent snapshot — it either predates task authority or the snapshot was removed, and the record is agent-writable bytes between windows, so absence proves nothing and fails safe. Register the work (canary task "..." --kind ...) and RE-ISOLATE so a fresh snapshot freezes the authority; there is no pre-M10 PASS path.' });
   }
   const obList = obligations.map((x) => ({ id: x.id, mode: x.mode, status: x.status, note: x.note }));
   const failed = results.filter((r) => !r.ok);

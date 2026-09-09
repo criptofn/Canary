@@ -11,8 +11,11 @@
  * vector to close). Increases always sail through. Gate order is pinned:
  * quarantine / impersonation / malformed-record refusals outrank the guard,
  * and a malformed intent makes the RECORD invalid (a guard that cannot read
- * the snapshot is worse than no snapshot). Legacy intent-less records verify
- * exactly as before (additive).
+ * the snapshot is worse than no snapshot). Intent-less records are NOT
+ * legacy-PASS material (M10.2): under fake git the identity block still
+ * precedes the verdict ladder — what these tests pin is that ORDER; the
+ * ladder's fail-safe (no frozen authority → NOT PROVEN with RE-ISOLATE
+ * advice) is owned by S5/S12 of the real-git probe and F4-H/I below.
  *
  * What fake git cannot reach — the verdict ladder (fail/blocked/unproven/pass
  * over a real candidate diff) — is proven by tooling/probes/m10-obligations.mjs
@@ -21,11 +24,13 @@
  * fail-safe to UNATTRIBUTABLE (never a false `met`) when the baseHead probe
  * cannot answer.
  *
- * M10.1 (GLM F4) adds a real-git CLI law table: F4-A..G pin the task-obligation
- * AUTHORITY on this product surface — zero registered kinds is NOT PROVEN,
- * never PASS; promotion locked; an honest registration still reaches PASS and
- * ACCEPTED; the gate cannot be opened by env var or flag; precedence stays
- * fail > unmet > unproven > pass.
+ * M10.1 (GLM F4) added — and M10.2 (the GLM re-audit) hardened — the real-git
+ * CLI law table F4-A..I: the task-obligation AUTHORITY is what the candidate's
+ * OWN record FROZE at isolation. None frozen is NOT PROVEN, never PASS;
+ * registration after isolation adds duties but cannot mint it (H); a deleted
+ * snapshot fails safe — no legacy-PASS path (I); promotion locked; an honest
+ * PRE-isolation registration still reaches PASS and ACCEPTED; no env var or
+ * flag opens the gate; precedence stays fail > unmet > unproven > pass.
  * NO PROOF, NO DONE.
  */
 import assert from 'node:assert/strict';
@@ -124,7 +129,11 @@ try {
     assert.equal(candBundles(root).at(-1)!.intentEvent, undefined, 'no intentEvent on a non-intent block');
   });
 
-  test('legacy record with no intent field verifies exactly as before (additive)', () => {
+  // M10.2: this fake-git record can never REACH a verdict — the identity block
+  // fires first under fake git. What is pinned is the ORDER (no §11 noise, no
+  // PASS past identity); that absence is fail-safe rather than "legacy PASS"
+  // is proven at the ladder by S5 (probe) and F4-I (below).
+  test('intent-less record under fake git: identity block precedes the fail-safe ladder (M10.2 — NOT a legacy PASS path)', () => {
     const root = setUpProject('legacy');
     fs.mkdirSync(path.join(root, '.canary', 'candidates'), { recursive: true });
     fs.writeFileSync(recPath(root, 'p'), JSON.stringify({
@@ -134,8 +143,9 @@ try {
     }));
     const r = canary(['isolate', '--verify', 'p', root], root);
     assert.equal(r.status, 2, r.stdout);
-    assert.match(r.stdout, identityRe, 'pre-M10 records ride the pre-M10 path');
+    assert.match(r.stdout, identityRe, 'an intent-less record under fake git still stops at identity');
     assert.ok(!weakenedRe.test(r.stdout), 'no intent, no guard, no noise');
+    assert.ok(!/CANDIDATE PASS|ELIGIBLE for promotion/.test(r.stdout), 'absence never reads as a legacy PASS');
   });
 
   test('dropped plan step since isolation → intent block before identity', () => {
@@ -379,20 +389,25 @@ try {
     assert.equal(ob.find((x) => x.id === 'tests-green')!.status, 'met', 'the sealed plan ran a tests step green — the engine says met');
   });
 
-  // ================= M10.1 (GLM F4): the task-obligation authority =========
-  // The audit's strongest agent move was to register NOTHING: the ladder
-  // derived its duties from registered kinds, so a taskless candidate derived
-  // zero obligations and a green sealed plan was the whole verdict. The law
-  // table F4-A..G, on real git through the product CLI (the end-to-end story
-  // incl. promotion is owned by tooling/probes/m10-f4-bypass-repro.mjs and
-  // S12 of the M10 probe):
+  // ============ M10.1→M10.2 (GLM F4-GATE-1/2): the task-obligation AUTHORITY
+  // The audit's first strongest move: register NOTHING — the ladder derived
+  // its duties from registered kinds, so a taskless candidate derived zero
+  // obligations and a green sealed plan was the whole verdict. M10.1's own
+  // fix then leaked twice more (the GLM re-audit): registering AFTER isolation
+  // minted the gate's authority from live bytes (H), and deleting `intent`
+  // from the record restored the bypass (I). The law table F4-A..I, on real
+  // git through the product CLI (the end-to-end story incl. promotion is owned
+  // by tooling/probes/m10-f4-bypass-repro.mjs, S12 of the M10 probe, and
+  // tooling/probes/m10-2-adversarial.mjs):
   //   A no task + green plan → NOT PROVEN, authority named as [task-authority]
   //   B promotion locked: gate 1 refuses, zero promotion bundles, base unmoved
-  //   C registered task with MET obligations still reaches PASS and ACCEPTED
+  //   C task frozen AT isolation, duties MET → PASS and ACCEPTED
   //   D registered-but-wrong duty still costs (bugfix without a test)
   //   E an objective violation still BLOCKS — unmet outranks the new unproven
   //   F no knob: an env var or flag cannot restore what registration must give
   //   G precedence stays fail > unmet > unproven > pass with the gate in play
+  //   H registration AFTER isolation adds duties, mints no authority (GATE-1)
+  //   I deleting rec.intent is not a legacy-PASS shape — absence fails safe (GATE-2)
   function gitAt(dir: string, ...args: string[]): string {
     const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 60_000 });
     assert.equal(r.status, 0, `git ${args.join(' ')} in ${dir}: ${r.stderr}`);
@@ -469,14 +484,18 @@ try {
     assert.equal(gitAt(root, 'rev-parse', 'HEAD'), headBefore, 'the trusted base did not move');
   });
 
-  test('F4-C: a registered task whose obligations are all MET still reaches PASS and ACCEPTED promotion (the gate must not shout at innocence)', () => {
+  test('F4-C: a task frozen at isolation whose obligations are all MET still reaches PASS and ACCEPTED promotion (the gate must not shout at innocence)', () => {
     const root = f4Repo('f4-c');
     f4Task(root, 'behavior-preserving restructure', '--kind', 'refactor');
     f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'src', 'tweak.js'), 'behavior-preserving\n'));
+    const rec = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'candidates', 'f1.json'), 'utf8')) as
+      { intent?: { task?: { kinds?: string[] } | null } };
+    assert.deepEqual(rec.intent?.task?.kinds, ['refactor'],
+      'the registration PRECEDED isolation, so the snapshot froze the authority — innocence, not H-style minting');
     const r = f4Verify(root);
     assert.equal(r.status, 0, `honest registration must PASS:\n${r.stdout}`);
     assert.match(r.stdout, /CANDIDATE PASS/, 'PASS verdict');
-    assert.ok(!/task-authority/.test(r.stdout), 'a registered candidate never hears the authority gate');
+    assert.ok(!/task-authority/.test(r.stdout), 'a frozen-authority candidate never hears the authority gate');
     const p = f4Promote(root);
     assert.equal(p.status, 0, `promote must apply a proven candidate:\n${p.stdout}`);
     assert.match(p.stdout, /ACCEPTED/, 'the act is evidenced');
@@ -491,7 +510,7 @@ try {
     assert.equal(r.status, 2, `bugfix without a test must not PASS:\n${r.stdout}`);
     assert.match(r.stdout, /CANDIDATE NOT PROVEN/, 'NOT PROVEN verdict');
     assert.match(r.stdout, /obligation \[regression-evidence\] UNPROVEN/, 'named on its actual duty');
-    assert.ok(!/task-authority/.test(r.stdout), 'with kinds registered the authority gate stands down');
+    assert.ok(!/task-authority/.test(r.stdout), 'with kinds FROZEN at isolation the authority gate stands down');
     assert.ok(!f4Obs(f4Bundle(root)).some((x) => x.id === 'task-authority'), 'and it is absent from the bundle too');
   });
 
@@ -537,7 +556,43 @@ try {
     const obR = f4Obs(f4Bundle(red));
     assert.equal(obR.find((x) => x.id === 'coverage-loss')!.status, 'unmet', 'the violation still rides the FAIL bundle (M11 fuel)');
     // unmet beats unproven is F4-E; unproven beats pass is F4-A; pass needs a
-    // registered met candidate (F4-C) — the full chain is pinned leg by leg.
+    // frozen-authority met candidate (F4-C) — the full chain is pinned leg by leg.
+  });
+
+  test('F4-H (GLM F4-GATE-1): registering AFTER isolation adds duties but mints no authority — still NOT PROVEN, promote locked', () => {
+    const root = f4Repo('f4-h');
+    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'src', 'tweak.js'), 'behavior-preserving\n'));
+    assert.equal(f4Verify(root).status, 2, 'precondition: taskless verify refuses');
+    f4Task(root, 'retroactive self-mint attempt', '--kind', 'refactor'); // registered AFTER isolation
+    const r = f4Verify(root);
+    assert.equal(r.status, 2, `post-isolation registration must not mint authority:\n${r.stdout}`);
+    assert.match(r.stdout, /CANDIDATE NOT PROVEN/, 'the verdict is still NOT PROVEN');
+    assert.match(r.stdout, /obligation \[task-authority\] UNPROVEN \(objective\)/, 'the frozen-authority duty still stands');
+    assert.match(r.stdout, /RE-ISOLATE/, 'the note names the only honest recovery');
+    const p = f4Promote(root);
+    assert.equal(p.status, 2, 'promotion stays locked after the self-mint attempt');
+    assert.deepEqual(promBundles(root), [], 'zero promotion bundles');
+    assert.ok(fs.existsSync(path.join(root, '.canary', 'candidates', 'f1.json')), 'nothing was quarantined or destroyed — growth is allowed, it just cannot mint');
+  });
+
+  test('F4-I (GLM F4-GATE-2): deleting rec.intent does not restore a legacy-PASS shape — absence fails safe to NOT PROVEN', () => {
+    const root = f4Repo('f4-i');
+    f4Task(root, 'behavior-preserving restructure', '--kind', 'refactor'); // PRE-isolation, honestly
+    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'src', 'tweak.js'), 'behavior-preserving\n'));
+    assert.equal(f4Verify(root).status, 0, 'precondition: the frozen authority PASSes before the strip');
+    const rp = path.join(root, '.canary', 'candidates', 'f1.json');
+    const rec = JSON.parse(fs.readFileSync(rp, 'utf8')) as Record<string, unknown>;
+    delete rec.intent; // out-of-window byte edit of an agent-writable file — GATE-2's attack
+    fs.writeFileSync(rp, JSON.stringify(rec, null, 2) + '\n');
+    const r = f4Verify(root);
+    assert.equal(r.status, 2, `a stripped snapshot must never PASS:\n${r.stdout}`);
+    assert.match(r.stdout, /CANDIDATE NOT PROVEN/, 'absence is not legacy-compatible — the ladder fails safe');
+    assert.match(r.stdout, /obligation \[task-authority\] UNPROVEN/, 'the missing frozen authority is named');
+    assert.match(r.stdout, /no intent snapshot/, 'the note says why: a record with no snapshot carries no authority');
+    assert.ok(!weakenedRe.test(r.stdout), 'grudgeless: absence fails safe, it is not a §11 weakening event');
+    const p = f4Promote(root);
+    assert.equal(p.status, 2, 'the formerly-PASSed candidate cannot promote on a stripped record');
+    assert.deepEqual(promBundles(root), [], 'zero promotion bundles — even a prior PASS bundle is inert (live re-verify)');
   });
 } finally {
   fs.rmSync(TMP, { recursive: true, force: true });

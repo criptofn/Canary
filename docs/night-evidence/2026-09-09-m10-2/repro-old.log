@@ -1,0 +1,48 @@
+=== M10.2 before/after repro — CLI=/home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js ===
+
+--- F4-GATE-1: post-isolation task registration mints authority? ---
+  CMD setup  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js setup --yes <root>
+  CMD isolate  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js isolate g1 <root>
+  SETUP  fresh git base at <tmp>/gate1; canary setup; taskless isolate 'g1'
+  CMD register AFTER isolation  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js task fix the timer crash --kind refactor
+  CMD verify  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js isolate --verify g1 <root>
+  VERDICT: CANDIDATE PASS — "g1" @ d18d401aa58e (1 commit(s) beyond the isolated base) verified against the sealed plan. ELIGIBLE for promotion — nothing applied; promotion is a separate act.
+  VERIFY exit=0
+  CMD promote  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js isolate --promote g1 <root>
+  PROMOTE exit=0 line=promotion — nothing applied; promotion is a separate act.
+  BASE HEAD before=965fe0a56303 after=d18d401aa58e moved=true
+  PROMOTION BUNDLES count=1 status=["accepted"]
+  => BYPASS OPEN (reached PASS/promotion)
+
+--- F4-GATE-2: stripping rec.intent makes the record read as legacy? ---
+  CMD setup  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js setup --yes <root>
+  CMD isolate  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js isolate g2 <root>
+  SETUP  fresh git base at <tmp>/gate2; canary setup; taskless isolate 'g2'
+  EDIT   delete rec.intent from <base>/.canary/candidates/g2.json (was present)
+  CMD verify  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js isolate --verify g2 <root>
+  VERDICT: CANDIDATE PASS — "g2" @ 7467c777ce38 (1 commit(s) beyond the isolated base) verified against the sealed plan. ELIGIBLE for promotion — nothing applied; promotion is a separate act.
+  VERIFY exit=0
+  CMD promote  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js isolate --promote g2 <root>
+  PROMOTE exit=0 line=promotion — nothing applied; promotion is a separate act.
+  BASE HEAD before=a41f0198c453 after=7467c777ce38 moved=true
+  PROMOTION BUNDLES count=1 status=["accepted"]
+  => BYPASS OPEN (reached PASS/promotion)
+
+--- RECOVERY (legitimate): register → re-isolate → evidence → verify → promote ---
+  CMD setup  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js setup --yes <root>
+  CMD register BEFORE isolation  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js task fix the timer crash --kind bugfix
+  CMD isolate (task registered → authority frozen)  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js isolate r1 <root>
+  CMD verify  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js isolate --verify r1 <root>
+  VERDICT: CANDIDATE PASS — "r1" @ b43098c8fc62 (1 commit(s) beyond the isolated base) verified against the sealed plan. ELIGIBLE for promotion — nothing applied; promotion is a separate act.
+  VERIFY exit=0
+  CMD promote  $ node /home/jan/canary-audit-cage/scratch/wt-0981edf/apps/cli/dist/src/main.js isolate --promote r1 <root>
+  PROMOTE exit=0 line=promotion — nothing applied; promotion is a separate act.
+  BASE HEAD before=c3533282ba1d after=b43098c8fc62 moved=true
+  PROMOTION BUNDLES count=1 status=["accepted"]
+  => HONEST PATH LANDS (PASS → ACCEPTED, base moved)
+
+=== SUMMARY ===
+F4-GATE-1 (post-isolation registration): OPEN
+F4-GATE-2 (rec.intent deletion):         OPEN
+legitimate recovery path:                LANDS
+pattern=open expect=open → matches expectation

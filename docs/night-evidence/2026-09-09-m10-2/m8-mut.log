@@ -1,0 +1,13 @@
+PASS caught: gate 1 — live verify result is the sole authority (probe exit 1; failing checks: FAIL candidate changed after a PASS verify: promote decides on LIVE bytes — a failing head refuses with no promotion bundle | FAIL stale evidence replay: forged PASS candidate bundle cannot carry a broken tree; live bytes rule | FAIL evidence from A used for B: B gets its OWN live verdict (broken B refuses despite fresh A PASS))
+PASS caught: sandwich — candidate HEAD moved during verification (probe exit 1; failing checks: FAIL mid-plan commit attack: candidate HEAD moved during verification → REFUSED (sandwich), honest recovery on re-run)
+PASS caught: sandwich — dirty candidate cannot promote (probe exit 1; failing checks: FAIL dirty candidate after a PASS (uncommitted scratch): REFUSED — promotion applies committed bytes only | FAIL cross-case hygiene: refused repos hold zero accepted promotion bundles; attempted repos land exactly once)
+PASS caught: gate 4 — TRACKED-dirty base cannot be promoted into (probe exit 1; failing checks: FAIL TRACKED-dirty trusted base (concurrent user edit): REFUSED before any apply; the edit is byte-preserved | FAIL cross-case hygiene: refused repos hold zero accepted promotion bundles; attempted repos land exactly once)
+PASS caught: gate 5 — detached base refuses (probe exit 1; failing checks: FAIL detached trusted base: REFUSED — promotion fast-forwards a BRANCH, never a detached pointer)
+PASS caught: gate 6 — idempotent re-promote takes no second act (probe exit 1; failing checks: FAIL re-promote is idempotent and honest: ALREADY APPLIED, no second act, base untouched)
+PASS caught: apply is fast-forward-only (spawn argv + recorded argv) (probe exit 1; failing checks: FAIL promote of a verified, advanced candidate fast-forwards the branch; post-proof binds tree identity; ACCEPTED | FAIL re-promote is idempotent and honest: ALREADY APPLIED, no second act, base untouched | FAIL divergence (case O): base moved past the candidate → REFUSED, base byte-identical, blocked promotion bundle)
+PASS caught: gate 7 — git refuse status honored, no false ACCEPTED (probe exit 1; failing checks: FAIL divergence (case O): base moved past the candidate → REFUSED, base byte-identical, blocked promotion bundle | FAIL UNTRACKED base stray is NOT base-dirt (design: setup itself leaves strays) but an untracked COLLISION is refused by git itself)
+PASS caught: --discard stays --remove-only under --promote too (test exit 1)
+PASS caught: promotion bundles obey bounded evidence retention (test exit 1)
+restore verified: every mutated dist file is byte-identical to its pre-battery bytes
+M8-MUTATION-BATTERY: 10/10 mutations caught — survivors: 0
+M8-RAN-OK

@@ -14,12 +14,17 @@
  *     deleted file and committing recovers PASS. A red plan stays CANDIDATE
  *     FAIL — and the FAIL bundle now carries the obligation read (M11 repair
  *     fuel), recovered by deleting the marker the same run.
- *   - M10.1 (GLM F4): registering NOTHING is not a way through either — a
- *     candidate whose intent snapshot froze no task kinds is NOT PROVEN
- *     against nothing (exit 2; obligation [task-authority] UNPROVEN names
- *     the missing authority; promotion locked, zero bundles), and the
- *     recovery is the honest registration itself — growth, always allowed
- *     (S12; pre-M10 records with no snapshot verify as before, S5).
+ *   - M10.2 (GLM re-audit, F4-GATE-1/2): registering NOTHING is not a way
+ *     through, and neither is minting authority after the fact — task
+ *     AUTHORITY must be FROZEN in the candidate's own record at isolation.
+ *     A candidate with no frozen task kinds is NOT PROVEN against nothing
+ *     (exit 2; obligation [task-authority] UNPROVEN names the missing
+ *     authority; promotion locked, zero bundles); registering afterwards
+ *     ADDS duties but can never mint it — the recovery is register +
+ *     RE-ISOLATE (S12 owns that law). A record with no snapshot at all is
+ *     never "pre-M10 legacy, PASS-compatible": its shape is agent-writable
+ *     between windows, so absence fails safe to the same NOT PROVEN with
+ *     RE-ISOLATE advice (S5 owns that law).
  *   - §11: the candidate record freezes {plan, script digests, task} at
  *     isolation; weakening that authority AFTER isolation — dropping a step
  *     via re-setup, re-sealing a step's text to other commands, shrinking the
@@ -29,8 +34,8 @@
  *     and the record rides M9's fingerprint set). Restoring the authority
  *     bytes IS the recovery; re-running the block does not re-baseline the
  *     snapshot (record bytes identical before/after). Growing the plan or the
- *     task is always allowed. A pre-M10 record (intent hand-stripped) verifies
- *     exactly as before — the feature is additive.
+ *     task is always allowed — but growth can never restore a stripped
+ *     snapshot or mint frozen authority (S5/S12).
  * Positive control first: the guard and the ladder must not shout when the
  * candidate is genuinely proven. NO PROOF, NO DONE.
  */
@@ -312,21 +317,35 @@ check('S4b task kinds+requirements shrink after isolation → intent block; grow
   assertEq(obOf(latest(root), 'per-requirement').status, 'unproven', 'S4b-grow: per-requirement rides the bundle');
 });
 
-// ================= S5: pre-M10 record (no intent) verifies as before =====
-check('S5 record with the intent hand-stripped (pre-M10 shape) verifies exactly as before — additive', () => {
+// ================= S5: an intent-less record FAILS SAFE (M10.2) ===========
+// M10.1 read a missing `intent` as "pre-M10 shape, verify exactly as
+// before" — but the record is agent-writable bytes BETWEEN windows (M9's
+// sandwich only covers the duration of a run), so hand-stripping the
+// snapshot re-opened the taskless bypass end to end (GLM F4-GATE-2). Law
+// now: absence of the snapshot proves nothing about the record's age — it
+// means NO FROZEN AUTHORITY → NOT PROVEN with RE-ISOLATE advice, never a
+// legacy PASS.
+check('S5 record with the intent hand-stripped → NOT PROVEN naming [task-authority], RE-ISOLATE advice, promote locked — never a legacy PASS', () => {
   const root = pinBase(makeRepo('s5', TWO));
   isolate(root, 'c');
   const recP = path.join(root, '.canary', 'candidates', 'c.json');
   const rec = recOf(root, 'c');
   delete rec.intent;
   fs.writeFileSync(recP, JSON.stringify(rec, null, 2) + '\n');
-  candCommit(root, 'c', { 'src/tweak.js': 'legacy candidate\n' });
+  candCommit(root, 'c', { 'src/tweak.js': 'taskless, snapshot-less\n' });
   const r = canary(['isolate', '--verify', 'c', root], root);
-  assertEq(r.status, 0, `S5-legacy: must verify as before: ${r.stdout}`);
-  assert(!weakenedRe.test(r.stdout), 'S5-legacy: no guard, no snapshot, no noise');
+  assertEq(r.status, 2, `S5-failsafe: an intent-less record must never PASS:\n${r.stdout}`);
+  assertMatch(r.stdout, notProvenRe, 'S5-failsafe: NOT PROVEN verdict');
+  assertMatch(r.stdout, /obligation \[task-authority\] UNPROVEN/, 'S5-failsafe: the missing frozen authority is named');
+  assertMatch(r.stdout, /RE-ISOLATE/, 'S5-failsafe: the advice is re-isolation, not "verify as before"');
+  assert(!weakenedRe.test(r.stdout), 'S5-failsafe: no snapshot, no §11 guard, no noise — the ladder fails safe');
   const b = latest(root);
-  assertEq(b.status, 'pass', 'S5-legacy: PASS path intact');
-  assertEq(b.intentEvent, undefined, 'S5-legacy: nothing intent-shaped in the bundle');
+  assertEq(b.status, 'unproven', 'S5-failsafe: unproven bundle, never pass');
+  assertEq(b.intentEvent, undefined, 'S5-failsafe: grudgeless — absence fails safe, it is not a §11 weakening event');
+  assertEq(obOf(b, 'task-authority').status, 'unproven', 'S5-failsafe: the duty rides the bundle bytes');
+  const p = canary(['isolate', '--promote', 'c', root], root);
+  assertEq(p.status, 2, 'S5-failsafe: promote rides the refusal');
+  assertEq(bundles(root, '-promotion').length, 0, 'S5-failsafe: zero promotion bundles');
 });
 
 // ================= S6: FAIL stays FAIL and carries the obligation read ====
@@ -473,17 +492,19 @@ check('S11 isolate refuses to register a candidate that is not provably clean (p
   assertEq(r2.status, 0, `S11: with the hook gone, isolation verifies clean: ${r2.stdout}`);
 });
 
-// ================= S12: the task-obligation AUTHORITY (M10.1, GLM F4) =====
-// The audit's strongest agent move was to register NOTHING: obligationsFor
-// derives duties from registered kinds, so a taskless candidate derived zero
-// duties, a green plan was the whole verdict, and promotion applied it. The
-// law now: a record whose intent snapshot froze no task kinds (none now,
-// none at isolation) cannot be proven against nothing — NOT PROVEN, exit 2,
-// the missing authority named as obligation [task-authority], promotion
-// locked with zero bundles. The way through is REAL WORK: register the task
-// the change honestly is — growth after isolation discharges it. No flag,
-// env var, or agent-writable field bypasses this.
-check('S12 taskless green candidate → NOT PROVEN naming [task-authority]; promote locked, zero bundles; the honest registration recovers PASS', () => {
+// ================= S12: the task-obligation AUTHORITY is FROZEN (M10.2) ===
+// The audit's two strongest agent moves both lived here. (1) Register
+// NOTHING: obligationsFor derives duties from registered kinds, so a
+// taskless candidate derived zero duties and a green plan was the whole
+// verdict. (2) M10.1's own fix leaked — register AFTER isolation and the
+// gate read the LIVE bytes as authority (GLM F4-GATE-1). The law now:
+// authority is what THIS candidate's snapshot froze at isolation. Nothing
+// frozen → NOT PROVEN, exit 2, [task-authority] named, promotion locked
+// with zero bundles. Post-isolation registration ADDS duties (the live
+// ladder) but can never mint the authority retroactively; the honest
+// recovery is register + RE-ISOLATE, and the fresh candidate then proves
+// normally. No flag, env var, or agent-writable field bypasses this.
+check('S12 taskless green candidate → NOT PROVEN naming [task-authority]; promote locked, zero bundles; post-isolation registration CANNOT self-mint; register + RE-ISOLATE recovers PASS', () => {
   const root = pinBase(makeRepo('s12', TWO));
   isolate(root, 'c');
   const c = candPath(root, 'c');
@@ -494,6 +515,7 @@ check('S12 taskless green candidate → NOT PROVEN naming [task-authority]; prom
   assertMatch(r.stdout, notProvenRe, 'S12: NOT PROVEN verdict');
   assertMatch(r.stdout, /obligation \[task-authority\] UNPROVEN/, 'S12: names the missing authority');
   assertMatch(r.stdout, /canary task/, 'S12: the note points at the honest path');
+  assertMatch(r.stdout, /RE-ISOLATE/, 'S12: the note names re-isolation, not re-verification');
   const b = latest(root);
   assertEq(b.status, 'unproven', 'S12: unproven bundle');
   const ta = obOf(b, 'task-authority');
@@ -503,10 +525,26 @@ check('S12 taskless green candidate → NOT PROVEN naming [task-authority]; prom
   assertEq(p.status, 2, 'S12: promote locked by gate 1');
   assert(!/PROMOTED|ALREADY APPLIED|ACCEPTED/.test(p.stdout), 'S12: no apply wording');
   assertEq(bundles(root, '-promotion').length, 0, 'S12: zero promotion bundles');
-  registerWork(root, 'tidy the module layout'); // growth from nothing registered — allowed, and the discharge
+  // F4-GATE-1 pinned here: register AFTER isolation — growth is allowed and
+  // adds duties, but the OLD candidate must stay NOT PROVEN. Self-minting
+  // the frozen authority from live bytes is dead.
+  registerWork(root, 'tidy the module layout');
   const r2 = canary(['isolate', '--verify', 'c', root], root);
-  assertEq(r2.status, 0, `S12: honest registration must recover: ${r2.stdout}`);
-  assertMatch(r2.stdout, /CANDIDATE PASS/, 'S12: PASS after real registration');
+  assertEq(r2.status, 2, `S12-mint: post-isolation registration must NOT mint authority:\n${r2.stdout}`);
+  assertMatch(r2.stdout, notProvenRe, 'S12-mint: still NOT PROVEN after the self-mint attempt');
+  assertMatch(r2.stdout, /obligation \[task-authority\] UNPROVEN/, 'S12-mint: the authority duty still stands');
+  const p2 = canary(['isolate', '--promote', 'c', root], root);
+  assertEq(p2.status, 2, 'S12-mint: promote still locked after the self-mint attempt');
+  assertEq(bundles(root, '-promotion').length, 0, 'S12-mint: still zero promotion bundles');
+  // the legitimate recovery: the registered task rides into a NEW isolation,
+  // whose snapshot then freezes it.
+  isolate(root, 'c2');
+  candCommit(root, 'c2', { 'src/tweak.js': 'behavior-preserving\n' });
+  assertEq(recOf(root, 'c2').intent.task.kinds.join(','), 'refactor',
+    'S12-reisolate: the fresh snapshot froze the registered authority');
+  const r3 = canary(['isolate', '--verify', 'c2', root], root);
+  assertEq(r3.status, 0, `S12-reisolate: register + re-isolate must recover: ${r3.stdout}`);
+  assertMatch(r3.stdout, /CANDIDATE PASS/, 'S12-reisolate: PASS on the frozen authority');
 });
 
 // ================= cross-case hygiene =====================================

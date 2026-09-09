@@ -121,8 +121,11 @@
  *      bundle carrying intentEvent, refuse on promote, NO quarantine stamp
  *      (grudgeless: the snapshot itself rides M9's fingerprint set), record
  *      NOT re-baselined by refusal; restoring the bytes IS the recovery,
- *      growth is always allowed, and a pre-M10 record (no snapshot) verifies
- *      exactly as before — the feature is additive. Review-round gates: a
+ *      growth is always allowed. M10.2 (GLM re-audit, F4-GATE-2) corrected
+ *      what a no-snapshot record does: it FAILS SAFE to NOT PROVEN — the
+ *      record is agent-writable bytes between windows, so absence is never
+ *      read as "pre-M10, PASS-compatible"; the recovery is register +
+ *      re-isolate (see step 14f). Review-round gates: a
  *      lying index (--assume-unchanged/--skip-worktree) reads dirty so gate 2
  *      refuses; a test renamed out of the test DIRECTORY is coverage loss
  *      even keeping the .test.js suffix; obligation signals are frozen
@@ -142,6 +145,21 @@
  *      honest path (registered bugfix + committed regression test) still
  *      lands PASS → PROMOTED → ACCEPTED — the gate blocks laundering, not
  *      work.)
+ *  14f. M10.2 adversarial authority battery (real git, real CLI — the GLM
+ *      re-audit's two CONFIRMED bypasses plus every neighbouring agent move,
+ *      cases A–L: A taskless-at-isolation and B post-isolation refactor
+ *      self-mint (F4-GATE-1) stay NOT PROVEN — registering later ADDS duties,
+ *      it never mints the frozen authority; C no other kind mints it either;
+ *      D/H register + RE-ISOLATE is the only recovery and task churn cannot
+ *      move a frozen verdict; E/F/G deleting or spoofing rec.intent —
+ *      backdated legacy dressing included — fail safe, there is no pre-M10
+ *      interpretation and unreadable shapes refuse as malformed; I env vars
+ *      and invented flags are inert; J planted and stale PASS bundles are
+ *      inert because promotion live-re-verifies; K precedence holds exactly
+ *      (fail > unmet > unproven > pass); L positive control — an honest
+ *      pre-isolation bugfix with a committed regression test lands PASS →
+ *      ACCEPTED. Every blocked case: exit 2, zero promotion bundles, base
+ *      HEAD byte-unchanged.)
  *  15. M6 real-git probe (a CLEAN setup baseline really can attribute blame;
  *      a green plan + deleted test = BLOCK — worktree, STAGED, or committed —
  *      and the printed restore advice unmutes; renames out of (and staying
@@ -200,6 +218,7 @@ const STEPS = [
   ['probe: M9 authority guard (real git)', process.execPath, ['tooling/probes/m9-authority.mjs'], {}],
   ['probe: M10 obligations + intent (real git)', process.execPath, ['tooling/probes/m10-obligations.mjs'], {}],
   ['probe: M10.1 F4 taskless-bypass repro (real git)', process.execPath, ['tooling/probes/m10-f4-bypass-repro.mjs'], {}],
+  ['probe: M10.2 adversarial authority battery (real git)', process.execPath, ['tooling/probes/m10-2-adversarial.mjs'], {}],
   ['probe: M10 lying-index letters (git premise)', process.execPath, ['tooling/probes/m10-lsfiles-letters.mjs'], {}],
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
@@ -225,7 +244,13 @@ for (const [label, cmd, args] of STEPS) {
     ? out.split(/\r?\n/).filter((l) => l.startsWith('SKIP')).map((l) => l.slice(0, 140))
     : [];
   const verdict = r.status === 0 ? 'PASS' : (SKIP_AWARE.has(label) && r.status === 3 ? 'SKIP' : 'FAIL');
-  results.push([label, verdict, verdict === 'SKIP' ? `host-bound: ${skipLines.length} explicit SKIP(s)` : (verdict === 'FAIL' ? `(exit ${r.status}${r.error ? `: ${r.error.message}` : ''})` : '')]);
+  // M10.2 Fix 6: a SKIP that EXECUTED checks is a different fact from one that
+  // ran zero because the environment is absent — the note must distinguish
+  // them. Neither kind is ever counted as a PASS.
+  const ran = SKIP_AWARE.has(label) ? out.split(/\r?\n/).filter((l) => /^(?:PASS|FAIL)  L/.test(l)).length : 0;
+  const skipNote = `host-bound: ${ran} check(s) EXECUTED, ${skipLines.length} explicit SKIP(s) — SKIP never counts as PASS` +
+    (ran === 0 ? '; nothing here was accepted by execution' : '');
+  results.push([label, verdict, verdict === 'SKIP' ? skipNote : (verdict === 'FAIL' ? `(exit ${r.status}${r.error ? `: ${r.error.message}` : ''})` : '')]);
   if (verdict === 'FAIL' && label.startsWith('build')) break; // later steps judge stale bytes — stop honestly
 }
 
@@ -238,7 +263,8 @@ const incomplete = results.length < STEPS.length && !failed; // build aborted ea
 if (failed || incomplete) {
   console.log(`VERIFY-PRODUCTIZATION: FAIL (${failed} step(s) failed${incomplete ? '; chain aborted before all steps ran' : ''} of ${STEPS.length})`);
 } else if (skipped) {
-  console.log(`VERIFY-PRODUCTIZATION: PASS WITH HOST-BOUND SKIP (${passed} PASS, ${skipped} SKIP — NOT full ${STEPS.length}/${STEPS.length} acceptance on this host; the SKIP lines above name what was not reproducible here)`);
+  const zeroExec = results.filter(([, v, n]) => v === 'SKIP' && /^host-bound: 0 check\(s\) EXECUTED/.test(n)).length;
+  console.log(`VERIFY-PRODUCTIZATION: PASS WITH HOST-BOUND SKIP (${passed} PASS, ${skipped} SKIP — NOT full ${STEPS.length}/${STEPS.length} acceptance on this host; the SKIP lines above name what was not reproducible here${zeroExec ? `; ${zeroExec} SKIP step(s) EXECUTED ZERO checks — environment absent, accepted as nothing` : ''})`);
 } else {
   console.log(`VERIFY-PRODUCTIZATION: PASS (${passed}/${STEPS.length} steps green)`);
 }
