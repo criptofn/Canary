@@ -1,0 +1,1670 @@
+
+> canary-reliability-network@0.0.0 test
+> npm run build && node --test "packages/**/dist/test/*.test.js" "apps/**/dist/test/*.test.js"
+
+
+> canary-reliability-network@0.0.0 build
+> tsc -b
+
+▶ panel K layer 1 — the validator refuses hostile frame streams
+  ✔ CONTROL: an honest watched lifecycle validates VALID (the battery needs a standing baseline) (2.825585ms)
+  ✔ post-glm F6b: capture DELIBERATELY honors a complete stream paired with exit -1 — the veto lives in classification, not here (0.343529ms)
+  ✔ (ii) injected round with ZERO frames on the channel is INVALID (0.256758ms)
+  ✔ (iii) a missing bye — and a misplaced bye — are INVALID boundary violations (0.434706ms)
+  ✔ (iv) a reject frame (adapter caught a forged/dup event LIVE) condemns the round (0.381121ms)
+  ✔ (v) text claiming "2 passing" over 1 watched pass is INVALID — and a lying bye cannot fix it (0.69182ms)
+  ✔ (vi) a forged hello.mochaVersion is INVALID — vs the pin and vs its own shape (1.308039ms)
+  ✔ panel 1 extras: flood truncation, duplicate credits, unknown kinds and no-summary all fail closed (0.311317ms)
+  ✔ (xi) garbage lines, non-object frames, adapter-error and masked exit each condemn the round (0.463133ms)
+✔ panel K layer 1 — the validator refuses hostile frame streams (9.883632ms)
+▶ panel K layer 2 — the pipeline end-to-end refuses unattested execution
+  ✖ (i) a plain-node text stub that reads as a clean run degrades to INCONCLUSIVE rule 14 (690.442564ms)
+  ✖ (vii) an UNPINNED double running the observer protocol on fd 3 gets stray-bytes forensics, zero credit (484.785644ms)
+  ✖ (viii) AM-1 kill test: double CLAIMS the pinned version, bytes are wrong -> ABSENT, strong unreachable (478.814997ms)
+  ✔ (ix) a subject --require in spec argv is refused fail-closed (protected preload flag) (168.058335ms)
+  ✔ (x) process.exit() mid-round: watched lifecycle never ends -> INVALID, never strong (396.660909ms)
+✖ panel K layer 2 — the pipeline end-to-end refuses unattested execution (2219.834057ms)
+▶ post-GLM F1 — off-position runner token earns no execution credit
+  ✔ refused fail-closed: forging `node -e` with the token trailing (135.982025ms)
+  ✔ refused fail-closed: forging prelude script with the token after it (115.244731ms)
+  ✖ positive control: the executed-position token still earns VALID and a strong verdict (397.498302ms)
+✖ post-GLM F1 — off-position runner token earns no execution credit (649.569312ms)
+▶ post-GLM F4 — infra prose cannot mask an attested regression
+  ✖ a VALID round whose stdout trips the infra signature still yields CONFIRMED_REGRESSION (349.595236ms)
+✖ post-GLM F4 — infra prose cannot mask an attested regression (349.986487ms)
+▶ post-GLM F5 — an untrusted spec cannot select the canary double
+  ✖ double bytes staged by the spec itself: NO injection, every round ABSENT, INCONCLUSIVE rule 14 (325.465756ms)
+  ✖ trusted control: with the in-process grant the SAME spec earns VALID + a strong verdict (324.618629ms)
+✖ post-GLM F5 — an untrusted spec cannot select the canary double (650.582047ms)
+▶ audit M8 — CLI subprocess exit-code contract
+  ✖ check on honest evidence exits 0 and prints PASS (653.02325ms)
+  ✖ check on a tampered artifact exits 3 and names the tampered file (518.402467ms)
+  ✖ report refuses a fabricated bundle (exit 3) and renders a valid one (exit 0) (510.587674ms)
+  ✖ audit F12: report with NO argument defaults to the latest run and renders bundle-persisted failing identities (450.836287ms)
+  ✔ version exits 0; no command prints usage and exits 3 (misuse) (131.477731ms)
+  ✔ round-3 secondary: an infrastructure abort exits 2 (environment fault), never 3 (misuse) (117.953505ms)
+✖ audit M8 — CLI subprocess exit-code contract (2384.552959ms)
+▶ FINDING A — subject text alone can never create a strong verdict
+  ✖ the GLM counterexample (console.log "128 passing") is never PASS (639.488418ms)
+  ✖ test command node -e printing mocha-shaped prose is never PASS (503.692158ms)
+  ✖ a printed failing summary is never CONFIRMED_REGRESSION (484.474667ms)
+✖ FINDING A — subject text alone can never create a strong verdict (1629.926571ms)
+▶ KNOWN_RUNNER_RELEASES — table == disk (canary-double)
+  ✔ the pinned double hash equals the treeSha256 of the repo fixture bytes (2.548097ms)
+  ✔ no placeholder digests survive, every entry is well-formed, versions unique per package (0.317132ms)
+✔ KNOWN_RUNNER_RELEASES — table == disk (canary-double) (3.833562ms)
+✔ intent matching the live authority stays SILENT (the guard must not shout at innocence) (671.148ms)
+✔ legacy record with no intent field verifies exactly as before (additive) (514.627353ms)
+✔ dropped plan step since isolation → intent block before identity (531.230781ms)
+✔ re-sealed script text (digest differs) → intent block (446.966614ms)
+✔ seal vanished (authority re-created without one) → intent block (422.335333ms)
+✔ task kind registered at isolation gone now → intent block (394.438298ms)
+✔ registered requirements shrink → intent block (407.228041ms)
+✔ INCREASES are allowed: richer plan + richer task sail past the guard (404.934561ms)
+✔ restore = recovery: re-adding the dropped step clears the block, still grudgeless (447.749961ms)
+✔ malformed intent fields make the RECORD invalid (a guard cannot read a snapshot it will not parse) (468.254827ms)
+✔ gate order: quarantine refusal and impersonation outrank the intent guard (410.690343ms)
+✔ committed test deletion in the candidate diff is ATTRIBUTABLE (the worktree began provably clean) (76.538424ms)
+✔ renaming a test OUT of test paths counts as attributable coverage loss (55.146551ms)
+✔ the suffix-surviving escape: tests/x.test.js → src/x.test.js is STILL coverage loss (adversary F3) (61.447608ms)
+✔ the directory rule does not shout at innocence: suffix-only moves and in-dir moves stay intact (110.191221ms)
+✔ the isolation premise names what the candidate boundary can NOT prove (correctness #5): never "setup" (53.98112ms)
+✔ an unanswerable baseHead probe fails SAFE: deletions UNATTRIBUTABLE, never a false met (54.800663ms)
+✔ added test file: changes carries it, deletions stay empty (regression evidence, not loss) (54.051566ms)
+▶ deriveObservedCounts (pure): parses bytes, never judges them
+  ✔ knows the four summary dialects (2.384398ms)
+  ✔ last match wins; free text with no counts is null (0.304716ms)
+  ✔ adversarial output cannot stall the parse (bounded tail + bounded jest gap) (30.869617ms)
+✔ deriveObservedCounts (pure): parses bytes, never judges them (34.981782ms)
+▶ candidateIdentity (pure): unknown candidate stays unknown
+  ✔ a fake .git that cannot answer is recorded UNIDENTIFIED, never upgraded (9.494926ms)
+  ✔ a fake .git under a REAL parent repo is still UNIDENTIFIED — git never lends ancestor identity (140.119625ms)
+✔ candidateIdentity (pure): unknown candidate stays unknown (150.13116ms)
+▶ verification bundle: what Canary EXECUTED, recorded from its own run
+  ✔ setup writes argv/cwd/runtime/candidate/raw-bytes+digests/counts; empty output hashes truthfully (483.336249ms)
+  ✔ a failing check records exit code + observed counts, and the bundle does not change the verdict (693.710111ms)
+  ✔ a hostile plan-step kind in config cannot shape a path out of the bundle dir (S3, per-component) (726.818053ms)
+  ✔ retention is bounded and owns only its own directory names (703.582099ms)
+✔ verification bundle: what Canary EXECUTED, recorded from its own run (2608.284972ms)
+▶ claims are hints: never a pass, never a block, at most an annotation
+  ✔ claim + green run stays SILENT even when the claim is absurd (622.645557ms)
+  ✔ diverging claim annotates an already-decided block with claim-vs-observed, both sides parsed (592.806126ms)
+  ✔ without a claim the block reason is exactly the pre-M2 shape — no note (542.885026ms)
+  ✔ a claim that MATCHES the printed lie still cannot stop the block (exit code is the oracle) (549.427749ms)
+  ✔ forged evidence + forged last-checkpoint never produce a pass: nothing is read back (461.486829ms)
+  ✔ a claim whose timestamp is not ISO-shaped cannot smuggle prose into the block reason (425.360608ms)
+  ✔ an ISO-PREFIXED prose tail cannot smuggle into the note either (end anchor) (433.85677ms)
+  ✔ a corrupt claims file is inert: the block stands, unannotated, no crash (398.638447ms)
+  ✔ a claims file linked outside the repo is never read (S3) (373.701455ms)
+✔ claims are hints: never a pass, never a block, at most an annotation (4401.431752ms)
+▶ claim intake guards
+  ✔ empty claim is misuse (exit 3) and writes nothing (44.34085ms)
+  ✔ claims without a usable repo are refused with exit 2, nothing written (46.895746ms)
+  ✔ inside a repo Canary does not trust: NEEDS ATTENTION, no claim written (41.798433ms)
+  ✔ a set-up repo stores the claim labeled UNTRUSTED HINT, capped, and says so (267.768605ms)
+  ✔ a claims/ dir linked outside the repo refuses the write (S3, exact path) (246.987696ms)
+  ✔ a config from another installation refuses claims too (S2) (300.681263ms)
+✔ claim intake guards (948.807689ms)
+▶ writers stamp their own class, honestly
+  ✔ every verification bundle Canary writes is CANARY_OBSERVED (setup/doctor/checkpoint) (1341.083169ms)
+  ✔ the claim envelope is stamped AGENT_REPORTED next to its UNTRUSTED HINT authority (490.927085ms)
+✔ writers stamp their own class, honestly (1833.282771ms)
+▶ labels are inert as input — no promotion by declaring or copying
+  ✔ a hand-written claim self-declaring CANARY_OBSERVED/"VERIFIED" changes nothing but annotation prose (621.237938ms)
+  ✔ a forged CANARY_OBSERVED pass bundle cannot stop a block and is kept as inert data (553.137903ms)
+  ✔ no side door: extras handed to the bundle writer can never shadow its reserved fields (60.46701ms)
+  ✔ doctor re-derives despite a forged pass bundle: NEEDS ATTENTION, never READY (608.274336ms)
+✔ labels are inert as input — no promotion by declaring or copying (1843.68475ms)
+▶ class coverage and UX
+  ✔ EXTERNALLY_VERIFIED has no producer: nothing under .canary ever carries it (872.448442ms)
+  ✔ trust classes are verbose-only — default output stays simple (827.897734ms)
+✔ class coverage and UX (1700.790167ms)
+▶ the bundle answers the M4 questions
+  ✔ setup records planDigest (matching the in-memory plan), baseline, and ordered per-step stamps (528.200675ms)
+  ✔ planDigest is deterministic, order-sensitive, and binds kind AND script (0.3765ms)
+✔ the bundle answers the M4 questions (529.881854ms)
+▶ the task label is a digest with zero verdict authority
+  ✔ checkpoint records taskDigest on a pass and never stores the prose anywhere (708.95458ms)
+  ✔ on a failing plan the block is byte-identical with or without a task label (1297.700988ms)
+  ✔ absent or empty task yields taskDigest null; an old sender without task still gets full provenance (806.667811ms)
+✔ the task label is a digest with zero verdict authority (2813.828726ms)
+▶ the companion hash binds bytes — and says what it is not
+  ✔ verification.sha256 matches the bundle bytes, detects a one-byte tamper, and is labeled tamper-evidence only (783.315736ms)
+✔ the companion hash binds bytes — and says what it is not (783.52699ms)
+▶ baseline honesty
+  ✔ a pre-M4 config (no baseline) yields baseline null, never an invented identity (554.472254ms)
+✔ baseline honesty (554.791494ms)
+▶ setup seals the verification authority
+  ✔ the seal binds the plan digest and the verbatim text of each script it runs (1358.788195ms)
+✔ setup seals the verification authority (1360.235813ms)
+▶ the spec attack: honest command -> "echo all good"
+  ✔ a swapped script text that WOULD pass by exit code is blocked as authority drift (499.650581ms)
+  ✔ the loop guard holds on authority drift: one repair attempt, then honest stop (411.166105ms)
+  ✔ restoring the sealed text restores silent verification (drift detection, not a grudge) (1023.935897ms)
+✔ the spec attack: honest command -> "echo all good" (1935.22363ms)
+▶ the config side of the same attack
+  ✔ editing cfg.plan mid-task without re-sealing blocks (367.782277ms)
+  ✔ a malformed hand-planted seal fails closed (361.961497ms)
+  ✔ a pre-M5 config (no seal) verifies exactly as before — additive (1030.051084ms)
+✔ the config side of the same attack (1760.197298ms)
+▶ re-sealing and visibility
+  ✔ re-running setup re-seals the new text under a visible smoke; then it verifies (681.888503ms)
+  ✔ doctor refuses READY on drifted authority (352.669115ms)
+✔ re-sealing and visibility (1034.870918ms)
+▶ task-kind inference from prose (union — a mislabel adds work, never removes it)
+  ✔ one phrase can raise several kinds at once (2.567456ms)
+  ✔ prose matching nothing infers no kinds (the pre-M6 posture stays reachable) (0.226803ms)
+  ✔ the whole word "defect" infers bugfix (review #7: a leading-space typo dropped the word) (0.251959ms)
+✔ task-kind inference from prose (union — a mislabel adds work, never removes it) (4.596634ms)
+▶ git output parsers (-z raw bytes: no quoting to outsmart, never crash, never invent paths)
+  ✔ name-status -z: NUL-separated; renames consume both paths; unknown codes degrade to mod (0.595351ms)
+  ✔ porcelain -z: ??=add, staged/working D=del, R/C take a SECOND NUL token as the new name (0.781911ms)
+  ✔ delPaths: deletes count; a rename AWAY from a test path is coverage loss; a rename that stays a test is not (review #5) (0.599125ms)
+✔ git output parsers (-z raw bytes: no quoting to outsmart, never crash, never invent paths) (2.309992ms)
+▶ obligationsFor — the one-way obligation engine
+  ✔ bugfix: test ADDED/MODIFIED = met; nothing touched = UNPROVEN, never silent (1.017454ms)
+  ✔ a pure test-file DELETION is never regression evidence (review #4) (0.359453ms)
+  ✔ refactor: needs tests-green AND a coverage-loss answer; no-tests plan says so honestly (0.380777ms)
+  ✔ attributable test deletion is UNMET (the block signal); unattributable is UNPROVEN only (0.296281ms)
+  ✔ unattributable note: "already dirty at setup" ONLY when the stamp proved it (review #6) (0.305968ms)
+  ✔ path rendering: 8-path cap and odd-path collapse (candidate text never rides the note) (0.233366ms)
+  ✔ dependencies: implied by diff even without any declaration — and always non-objective (0.249771ms)
+  ✔ performance/UI: met ONLY through a human-sealed bench/e2e step; else UNPROVEN with the honest exit (0.366607ms)
+  ✔ multi-part: counted requirements and the one-concise-question variant (0.169454ms)
+  ✔ a fully-covered refactor with a green sealed plan yields ONLY met obligations (silent path exists) (0.220674ms)
+  ✔ kinds never declared still get the diff-implied floor: no kinds + clean signals = no obligations beyond tests-green (0.219107ms)
+✔ obligationsFor — the one-way obligation engine (4.543334ms)
+▶ canary task — an AGENT_REPORTED hint with zero authority
+  ✔ setup + register: digest-only storage, inferred kinds, explicit zero-authority line (645.504993ms)
+  ✔ --kind overrides inference; --requirement forces multi; hostile input is usage, not a crash (744.757499ms)
+  ✔ registering a task against no setup / no git says so; nothing is written (92.990224ms)
+✔ canary task — an AGENT_REPORTED hint with zero authority (1483.751944ms)
+▶ checkpoint/doctor integration — the sealed plan passes, obligations decide the tone
+  ✔ no task record, no prose, fake git: byte-identical pre-M6 silence (additive) (661.201212ms)
+  ✔ registered bugfix with no test change: the pass rides an honest UNPROVEN systemMessage, never silence (663.050536ms)
+  ✔ hook-stdin task prose infers kinds even without a registration (530.096241ms)
+  ✔ a malformed/hand-planted record degrades to the no-record posture, hostile kinds filtered (1018.526715ms)
+  ✔ fake git makes diff signals unresolvable: a registered refactor is UNPROVEN, never a silent met (508.007331ms)
+  ✔ doctor lists open obligations instead of a bare READY (952.81384ms)
+  ✔ config rewrite keeps the seal: obligations never execute anything unsealed (451.371136ms)
+✔ checkpoint/doctor integration — the sealed plan passes, obligations decide the tone (4785.666913ms)
+✔ built CLI exists (run npm run build first) (1.481158ms)
+✔ isolate misuse exits 3 with usage, and never touches the repo (1339.911759ms)
+✔ isolate refuses a repo Canary does not verify (no config, exit 2) (88.977237ms)
+✔ isolate refuses a base whose own config is distrusted (480.300594ms)
+✔ create refuses under fake git — an unresolvable base cannot be isolated from (and nothing registers) (393.72987ms)
+✔ verify refuses a malformed or name-mismatched record without executing anything (443.962282ms)
+✔ verify refuses a record whose baseRoot is not this repo (impersonation guard, before any identity read) (373.068614ms)
+✔ verify of a LOST candidate (fake git => unresolvable) blocks honestly and writes a BLOCKED bundle (401.683335ms)
+✔ under fake git, verify can NEVER report PASS — the fail-closed ceiling of the whole contract layer (401.7832ms)
+✔ list is honest with no registry, survives invalid records, and exits 0 (it never executes anything) (381.588256ms)
+✔ remove refuses unregistered names; a vanished candidate is pruned honestly (record deleted, exit 0) (367.086908ms)
+✔ uninstall refuses to delete .canary while candidates are registered (worker trees stay protectable) (348.482565ms)
+✔ built CLI exists (run npm run build first) (5.392919ms)
+✔ isolate --promote misuse exits 3 (name required, flags scoped, one mode) (1055.354281ms)
+✔ promote refuses a repo Canary does not trust (exit 2, before any record read) (80.774241ms)
+✔ promote of a missing or malformed record delegates to verify (exit 2, identical refusal) (573.257104ms)
+✔ promote refuses an impersonated record (different baseRoot) with the canonical guard (434.181109ms)
+✔ under fake git, promote BLOCKS via live verify and can never apply or accept (555.041845ms)
+✔ promotion bundles obey bounded evidence retention (nothing is kept forever) (374.36259ms)
+✔ intact harness entry keeps the pre-gate SILENT: LOST-style block, zero §9 lines (651.635019ms)
+✔ harness entry deleted outside the window → §9 before execution (containment pre-gate) (514.821715ms)
+✔ harness entry scrubbed (valid JSON, entry gone) → §9 with after "entry missing" (535.17036ms)
+✔ gate order: record refusals (ghost / malformed / impostor) precede the pre-gate even with settings deleted (582.283038ms)
+✔ evidence tree is in the fingerprint set: plant / edit / wipe all drift, untouched tree stays quiet (6.333283ms)
+✔ §9.5 quarantine refusal out-ranks EVERY gate — even record refusals — and writes no bundle (461.319918ms)
+✔ a human re-seal (setup) is the clearing act — the marker vanishes with the deliberate restore (739.652212ms)
+✔ the containment pre-gate stays grudgeless: a before-execution mandate stamps NO marker, and restoring bytes recovers cleanly (474.842171ms)
+✔ a config that promised nothing runs no containment gate (hand-written touched: []) (373.812563ms)
+▶ detection (pure)
+  ✔ lockfiles pick the package manager, first match wins in declared order (8.856865ms)
+  ✔ plan is conservative, ordered, and exact-name only (1.582695ms)
+  ✔ shell-shaped script names never enter a plan (0.823672ms)
+  ✔ a quote-bearing CLI path cannot be embedded — buildHookCommand refuses (0.244362ms)
+  ✔ containedRealPath: inside stays inside, outside resolves to null (S3 floor) (4.423162ms)
+✔ detection (pure) (17.863888ms)
+▶ setup
+  ✔ happy path: READY, hook registered, evidence written, user repo untouched otherwise (732.120206ms)
+  ✔ re-run is idempotent: one Canary entry, no duplicates, user entry preserved (759.364853ms)
+  ✔ malformed settings.json: refuse, exit NEEDS ATTENTION, bytes untouched (129.118423ms)
+  ✔ S5: valid JSON with a non-list hooks section gets a plain-words refusal, not an internal crash (203.886614ms)
+  ✔ failing project checks never print READY (NO PROOF, NO DONE) (723.720986ms)
+  ✔ unattended without --yes: installed but NOT READY — nothing executed, nothing proven (105.926318ms)
+  ✔ no supported harness: explicit message, not a fake integration (66.047485ms)
+  ✔ Windows path quoting survives E2E: a project path containing spaces onboards and self-checks (609.774221ms)
+✔ setup (3331.232103ms)
+▶ checkpoint (harness entry)
+  ✔ pass -> silent allow (human never interrupted) (527.330821ms)
+  ✔ failure -> decision:block with the reason (agent gets a repair turn) (465.717687ms)
+  ✔ loop guard: stop_hook_active allows with an honest systemMessage, never re-blocks (461.928733ms)
+  ✔ repo without Canary wiring: exit 0, silent (stay out of the way) (50.737051ms)
+  ✔ S2: a config written by a different installation never executes — loud UNVERIFIED instead (314.106348ms)
+  ✔ S7: a parseable-but-wrong-shape config is treated as corrupt everywhere, never a crash (633.255782ms)
+  ✔ F-1: a half-written (truncated) config is loud UNVERIFIED at checkpoint, never silent; doctor stays NEEDS ATTENTION (293.279373ms)
+✔ checkpoint (harness entry) (2746.819245ms)
+▶ atomic config writes (GLM F-2)
+  ✔ leaves no temp residue and round-trips exactly (26.293459ms)
+  ✔ a crash before the final rename leaves the PREVIOUS config byte-intact, never a corrupt half-file (22.623832ms)
+  ✔ every write is fsync-ed BEFORE its publish rename (durable-then-visible order is pinned) (8.364562ms)
+  ✔ a crash during the settings write surfaces as a problem — original untouched, backup kept, no residue (6.550122ms)
+✔ atomic config writes (GLM F-2) (64.034099ms)
+▶ doctor + uninstall
+  ✔ READY after a green setup; hook deletion is detected loudly; --run still works (now always-on) (1014.233637ms)
+  ✔ S4: a FORGED or stale checkpoint file can never produce READY — only this run can (442.341147ms)
+  ✔ never set up -> NEEDS ATTENTION with the one command; outside git -> UNSUPPORTED (86.339315ms)
+  ✔ uninstall removes exactly Canary, preserves everything else; repeat is safe (594.695983ms)
+  ✔ S1: an out-of-repo touched path in the config is refused, untouched, loudly (284.803069ms)
+  ✔ S6: partial cleanup keeps .canary so the promised retry can actually finish (314.271924ms)
+  ✔ S2-adjacent: uninstall of a foreign-cliPath config is refused (cannot prove ownership) (272.628901ms)
+✔ doctor + uninstall (3009.623326ms)
+▶ degenerate empty plan (hand-edited config must not fake green)
+  ✔ checkpoint: zero checks executed -> UNVERIFIED systemMessage, never a silent pass; doctor flags it (450.243167ms)
+✔ degenerate empty plan (hand-edited config must not fake green) (450.404983ms)
+▶ link containment (S3)
+  ✔ checkpoint evidence is never written through a link pointing outside the repo (428.749051ms)
+  ✔ setup refuses outright when a managed file is a link (dangling included) (46.040615ms)
+✔ link containment (S3) (474.967848ms)
+▶ hook entry shape + ownership
+  ✔ hasCanaryEntry matches exact command only (0.185338ms)
+✔ hook entry shape + ownership (0.299658ms)
+▶ audit M8 — offline pipeline end-to-end
+  ✖ confined regression: CONFIRMED_REGRESSION, real artifacts re-hash clean (633.780936ms)
+  ✖ unconfined tree drift is downgraded to INCONCLUSIVE rule 9 (F9 e2e) (514.46051ms)
+  ✔ a tampered artifact is caught end-to-end by the prove path (F4 e2e) (525.460938ms)
+  ✔ a fabricated self-contradictory bundle is refuted by validateBundle (F3 e2e) (431.655878ms)
+  ✔ round-3 secondary: a fetch failure is INFRASTRUCTURE (InfraAbort -> CLI exit 2), not generic error (4.555156ms)
+  ✔ round-3 secondary: an extraction failure is INFRASTRUCTURE too (4.971094ms)
+✖ audit M8 — offline pipeline end-to-end (2117.223129ms)
+node:internal/modules/cjs/loader:1573
+  throw err;
+  ^
+
+Error: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)
+    at Module._load (node:internal/modules/cjs/loader:1346:5)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v26.7.0
+node:internal/test_runner/harness:124
+      throw err;
+      ^
+
+Error: Command failed: /home/jan/.nvm/versions/node/v26.7.0/bin/node /home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js --version
+node:internal/modules/cjs/loader:1573
+  throw err;
+  ^
+
+Error: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)
+    at Module._load (node:internal/modules/cjs/loader:1346:5)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v26.7.0
+
+    at genericNodeError (node:internal/errors:999:15)
+    at wrappedFn (node:internal/errors:544:14)
+    at checkExecSyncError (node:child_process:942:11)
+    at execFileSync (node:child_process:978:15)
+    at actualHostFingerprint (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/src/prove.js:40:24)
+    at file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/proof-host.test.js:30:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)
+    at async node:internal/modules/esm/loader:650:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  status: 1,
+  signal: null,
+  output: [
+    null,
+    '',
+    'node:internal/modules/cjs/loader:1573\n' +
+      '  throw err;\n' +
+      '  ^\n' +
+      '\n' +
+      "Error: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'\n" +
+      '    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)\n' +
+      '    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)\n' +
+      '    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)\n' +
+      '    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)\n' +
+      '    at Module._load (node:internal/modules/cjs/loader:1346:5)\n' +
+      '    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n' +
+      '    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n' +
+      '    at node:internal/main/run_main_module:33:47 {\n' +
+      "  code: 'MODULE_NOT_FOUND',\n" +
+      '  requireStack: []\n' +
+      '}\n' +
+      '\n' +
+      'Node.js v26.7.0\n'
+  ],
+  pid: 310,
+  stdout: '',
+  stderr: 'node:internal/modules/cjs/loader:1573\n' +
+    '  throw err;\n' +
+    '  ^\n' +
+    '\n' +
+    "Error: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'\n" +
+    '    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)\n' +
+    '    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)\n' +
+    '    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)\n' +
+    '    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)\n' +
+    '    at Module._load (node:internal/modules/cjs/loader:1346:5)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n' +
+    '    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n' +
+    '    at node:internal/main/run_main_module:33:47 {\n' +
+    "  code: 'MODULE_NOT_FOUND',\n" +
+    '  requireStack: []\n' +
+    '}\n' +
+    '\n' +
+    'Node.js v26.7.0\n'
+}
+
+Node.js v26.7.0
+✖ apps/cli/dist/test/proof-host.test.js (198.843054ms)
+node:internal/modules/cjs/loader:1573
+  throw err;
+  ^
+
+Error: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)
+    at Module._load (node:internal/modules/cjs/loader:1346:5)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v26.7.0
+▶ verifyArtifacts — audit F4 (proof must rehash the real artifacts)
+  ✔ accepts a bundle whose every recorded hash matches the file on disk (6.460803ms)
+  ✔ rejects a tampered raw stdout (recorded hash kept, content swapped) (11.729311ms)
+  ✔ rejects a tampered normalized stdout independently of the raw one (6.554552ms)
+  ✔ rejects quietly deleted stderr artifacts (5.497746ms)
+  ✔ rejects all four substituted files of one round (raw, raw-err, norm, norm-err) (8.067366ms)
+  ✔ rejects a logPath that breaks the round-ownership contract (7.514398ms)
+✔ verifyArtifacts — audit F4 (proof must rehash the real artifacts) (47.961622ms)
+▶ verifyArtifacts — audit B3 (path confinement + ownership)
+  ✔ ../../ identical external substitution is refused (ownership), not verified against the external bytes (9.242937ms)
+  ✔ absolute external path in logPath is refused (6.466589ms)
+  ✔ cross-round swap (candidate#1 claims candidate#2 log) is refused (4.043672ms)
+  ✔ baseline pointing at a candidate artifact is refused (9.276202ms)
+  ✔ a valid canonical relative artifact path verifies clean (4.689012ms)
+  ✔ missing + modified artifacts are refused (14.208011ms)
+  ✔ a symlinked artifact resolving outside the dir is refused (symlink escape) (4.286025ms)
+✔ verifyArtifacts — audit B3 (path confinement + ownership) (53.583678ms)
+▶ assertProof — audit F11 + round-3 B3 (host-exactness from the ACTUAL runtime)
+  ✔ legacy proof (no proofHost): host-exact hashes NEVER assert — recorded-env match grants nothing (post-glm F6f) (8.353326ms)
+  ✔ post-glm F6f: an ABSENT proofHost can never grant host-exact trust — resealed env metadata cannot PASS the proof (3.416553ms)
+  ✔ matching proofHost + actual runtime on it: every assertion including hashes AND the environment binding evaluates (3.005938ms)
+  ✔ round-3 B3 core: resealing the evidence environment can NO LONGER skip strict checks — it FAILS the binding (5.396369ms)
+  ✔ off-proof-host: host-exact comparisons skip (flagged, not silent); portable assertions still evaluate; verdict is INCOMPLETE (2.562346ms)
+  ✔ off-proof-host with tampered committed hashes still passes portable checks (and this is exactly why verifyArtifacts exists) (13.102136ms)
+✔ assertProof — audit F11 + round-3 B3 (host-exactness from the ACTUAL runtime) (36.529177ms)
+▶ round-3 B3 — environment attestation + verdict helpers
+  ✔ environmentAttestationIssues: silent only when claim == ACTUAL runtime (2.318605ms)
+  ✔ proofVerdict: PASS requires zero failures AND zero skips (0.190876ms)
+✔ round-3 B3 — environment attestation + verdict helpers (2.709156ms)
+▶ round-3 B4-D — exact failing-identity set equality (proof vs candidate bytes)
+  ✔ faithful expectation: exact set holds (0.607461ms)
+  ✔ proof pinning a SUBSET (hiding a real failure) FAILS (0.422537ms)
+  ✔ proof pinning an EXTRA (non-existent) identity FAILS (0.234774ms)
+  ✔ the exact-set check is portable — it evaluates (never skips) off-host (0.263783ms)
+  ✔ a proof that does not pin the tarball digest FAILS the pin requirement (0.209312ms)
+  ✔ assertProof alone refuses a resealed experimentId the proof does not name (mutation N10) (0.361522ms)
+  ✔ a proof declaring a schema version the reader does not implement FAILS (portable) (0.348239ms)
+✔ round-3 B4-D — exact failing-identity set equality (proof vs candidate bytes) (4.055794ms)
+▶ post-sol secondary — host sampling is immune to the verifier process environment
+  ✖ a poisoned NODE_OPTIONS in the verifying process does NOT crash or steer the fingerprint (66.409993ms)
+✖ post-sol secondary — host sampling is immune to the verifier process environment (66.669284ms)
+node:internal/modules/cjs/loader:1573
+  throw err;
+  ^
+
+Error: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)
+    at Module._load (node:internal/modules/cjs/loader:1346:5)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v26.7.0
+node:internal/errors:999
+  const err = new Error(message);
+              ^
+
+Error: Command failed: /home/jan/.nvm/versions/node/v26.7.0/bin/node /home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js --version
+node:internal/modules/cjs/loader:1573
+  throw err;
+  ^
+
+Error: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)
+    at Module._load (node:internal/modules/cjs/loader:1346:5)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v26.7.0
+
+    at genericNodeError (node:internal/errors:999:15)
+    at wrappedFn (node:internal/errors:544:14)
+    at checkExecSyncError (node:child_process:942:11)
+    at execFileSync (node:child_process:978:15)
+    at actualHostFingerprint (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/src/prove.js:40:24)
+    at file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/provenance.test.js:51:17
+    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)
+    at async node:internal/modules/esm/loader:650:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  status: 1,
+  signal: null,
+  output: [
+    null,
+    '',
+    'node:internal/modules/cjs/loader:1573\n' +
+      '  throw err;\n' +
+      '  ^\n' +
+      '\n' +
+      "Error: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'\n" +
+      '    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)\n' +
+      '    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)\n' +
+      '    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)\n' +
+      '    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)\n' +
+      '    at Module._load (node:internal/modules/cjs/loader:1346:5)\n' +
+      '    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n' +
+      '    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n' +
+      '    at node:internal/main/run_main_module:33:47 {\n' +
+      "  code: 'MODULE_NOT_FOUND',\n" +
+      '  requireStack: []\n' +
+      '}\n' +
+      '\n' +
+      'Node.js v26.7.0\n'
+  ],
+  pid: 308,
+  stdout: '',
+  stderr: 'node:internal/modules/cjs/loader:1573\n' +
+    '  throw err;\n' +
+    '  ^\n' +
+    '\n' +
+    "Error: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'\n" +
+    '    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)\n' +
+    '    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)\n' +
+    '    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)\n' +
+    '    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)\n' +
+    '    at Module._load (node:internal/modules/cjs/loader:1346:5)\n' +
+    '    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n' +
+    '    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n' +
+    '    at node:internal/main/run_main_module:33:47 {\n' +
+    "  code: 'MODULE_NOT_FOUND',\n" +
+    '  requireStack: []\n' +
+    '}\n' +
+    '\n' +
+    'Node.js v26.7.0\n'
+}
+
+Node.js v26.7.0
+✖ apps/cli/dist/test/provenance.test.js (167.482238ms)
+▶ flattenNpmLsJson — npm 11.19 empty-object representation (pipeline path)
+  ✔ an empty {} node with no problems mention is expected-absent: no anomaly, no hole (2.880976ms)
+  ✔ the same {} node IS an anomaly when problems mentions it (unmet-optional-that-matters fails closed) (0.447545ms)
+  ✔ a version-less node with missing:true is an anomaly (uninstalled REQUIRED dep) (0.393714ms)
+  ✔ a version-less node carrying a declared subtree: missing-version + unwalked-subtree (0.708293ms)
+  ✔ problems name-matching is token-anchored: "util" is not matched by "bufferutil@1.0.0" (0.350457ms)
+  ✔ non-object node entries are malformed-node anomalies (0.361502ms)
+  ✔ empty / effectively-empty trees can NEVER become VALID (criterion 6) (0.4371ms)
+  ✔ a {} node for the STUDIED dependency itself is absence, not presence (criterion 7) (0.340633ms)
+  ✔ ANY anomaly caps the observation at INCOMPLETE even with the dep present (4.507416ms)
+✔ flattenNpmLsJson — npm 11.19 empty-object representation (pipeline path) (12.866498ms)
+▶ post-sol M-2 — empty-node semantics (narrowest exemption)
+  ✔ the REAL captured npm 11.19 shape (root fsevents {}, ws nested {} natives) stays VALID (1.214448ms)
+  ✔ R4-SR1 (self-review): problems WITH a silent stderr is npm's real extraneous-only shape — the observation is complete, not contradictory (0.392216ms)
+  ✔ an empty/absent problems field under an ELSPROBLEMS stderr IS the contradiction (stripped-report forgery) (0.42972ms)
+  ✔ problems ABSENT but stderr SCREAMING ELSPROBLEMS is equally a contradiction (stripped-stderr forgery) (0.183535ms)
+  ✔ a MALFORMED problems field (string, object, or array with non-strings) kills the exemption and is itself an anomaly (0.274484ms)
+  ✔ string-valued problems mentioning the node fail closed identically on BOTH parsers (N4 differential) (0.364114ms)
+  ✔ the STUDIED dependency appearing as {} is absence (INCOMPLETE via depPresent), never presence (0.293423ms)
+  ✔ drift caused by DISAPPEARANCE of a formerly-versioned dep is byte-visible, not exemption-hidden (outside-subtree drift -> unconfined) (0.354684ms)
+  ✔ deeply nested hostile trees are BOUNDED on both parsers (no stack exhaustion; fails closed) (3.068689ms)
+  ✔ the traversal budgets are IDENTICAL contracts in both implementations (0.222527ms)
+  ✔ anomalies from the two problem channels are DETERMINISTIC and deduped across repeated {} nodes (0.209943ms)
+✔ post-sol M-2 — empty-node semantics (narrowest exemption) (7.790529ms)
+▶ cross-implementation parity — pipeline flatten vs verify-tree re-flatten (criteria 2+3)
+  ✔ parity: plain (0.498735ms)
+  ✔ parity: 11.19 empty optionals (0.156595ms)
+  ✔ parity: empty optional + problems mention (0.166143ms)
+  ✔ parity: missing required (0.197508ms)
+  ✔ parity: scoped names (0.16096ms)
+  ✔ parity: nested copies (0.148456ms)
+  ✔ parity: malformed nodes (0.341599ms)
+  ✔ parity: version-less with subtree (0.253467ms)
+  ✔ parity: problems only (no deps) (0.23707ms)
+  ✔ parity: truncated json (0.260965ms)
+  ✔ parity: json scalar (0.141184ms)
+  ✔ parity: json null (0.184311ms)
+  ✔ parity: empty root (0.284919ms)
+✔ cross-implementation parity — pipeline flatten vs verify-tree re-flatten (criteria 2+3) (3.807635ms)
+▶ confinement semantics survive the compatibility fix (criterion 3)
+  ✔ a {} drift node is never a flat key, so drift sets stay byte-derived (0.289551ms)
+  ✔ drift OUTSIDE the subtree stays unconfined even next to {} nodes (0.238282ms)
+  ✔ scoped-name escape stays closed under segment semantics (3.201567ms)
+✔ confinement semantics survive the compatibility fix (criterion 3) (3.940841ms)
+▶ reflattenNpmLs — independent re-derivation of the tree observation
+  ✔ flattens nested/scoped trees with versions, no anomalies (problems ignored) (2.983312ms)
+  ✔ a missing-version node (npm unmet dependency) is an anomaly, never an "x" sentinel (0.410997ms)
+  ✔ an empty {} node with no problems mention is an expected-absent optional, not a hole (0.604927ms)
+  ✔ the same empty {} node IS an anomaly when problems mentions it (unmet-optional-that-matters fails closed) (0.45308ms)
+  ✔ problems name-matching is token-anchored: "util" is not mentioned by "bufferutil@1.0.0" (0.50786ms)
+  ✔ a {} node WITH a declared subtree is still missing-version + unwalked-subtree (0.355171ms)
+  ✔ a version-less NODE hides a whole subtree: missing-version + unwalked-subtree (0.642081ms)
+  ✔ truncated / malformed JSON => parsed=false (INVALID territory), never a partial success (0.487877ms)
+  ✔ copies are counted by full path segments; subtree containment is segment membership (1.157918ms)
+✔ reflattenNpmLs — independent re-derivation of the tree observation (11.270951ms)
+▶ retained tree snapshots — real pipeline bytes, independent verifier
+  ✖ a fresh confined CONFIRMED run retains arm-named artifacts that verify clean (611.886115ms)
+  ✖ naive tamper of retained raw bytes (no reseal) is caught (520.051976ms)
+  ✖ LAZY reseal (raw digest fixed, canonical/tree-hash left stale) is caught by the chain (530.932062ms)
+  ✖ reseal that rewrites bytes+digests but keeps the old attestation claim is caught by verify-tree (447.832723ms)
+  ✖ COHERENT full tree-side reseal: bundle layer catches the version lie (attestation invariant) (392.14101ms)
+  ✖ a coherent reseal claiming VALID over bytes with a missing-version hole is caught (status + anomaly re-derivation) (370.935883ms)
+  ✖ pointing one arm at the other arm bytes is caught by BOTH layers (342.868815ms)
+  ✖ flipping driftConfinedToDependency against the retained snapshots is caught (324.102123ms)
+  ✖ stripping snapshot refs from a trustful bundle: verifier says unverifiable, schema refuses to seal trust on it (322.525804ms)
+  ✖ post-GLM G: naive tamper/deletion of the retained attest bytes is caught by verifyArtifacts (332.827312ms)
+  ✖ post-GLM G: a resealed framesSha256 the retained bytes do not back is caught ONLY by the bytes binding (308.261587ms)
+  ✖ post-GLM G: reseal-everything-but-the-observation is REFUSED (the pre-G "clean 4-file resealed tuple" premise is forbidden by design) (305.205539ms)
+✖ retained tree snapshots — real pipeline bytes, independent verifier (4811.584794ms)
+▶ validateBundle — round-3 B6 snapshot/anomaly/version gates
+  ✔ trustful WITH snapshots + empty anomalies + consistent versions validates clean (0.978888ms)
+  ✔ trustful WITHOUT retained snapshots is rejected (resealed) (0.396595ms)
+  ✔ trustful with a MISSING anomaly array is rejected ("did not look" != "nothing found") (0.368756ms)
+  ✔ trustful with NON-EMPTY recorded anomalies is rejected (partial observation cannot anchor trust) (0.477285ms)
+  ✔ resolvedVersions contradicting the dependency block is rejected (resealed attestation forgery) (0.478535ms)
+  ✔ snapshot artifact names must be arm-derived (candidate pointing at baseline bytes dies sealed) (0.411786ms)
+  ✔ NON-trustful bundles may legitimately carry no snapshots (honest INCONCLUSIVE rule 10) (0.673733ms)
+  ✔ trustful label with rounds observation-ABSENT is rejected (rule-14 mirror, panel H) (0.595454ms)
+  ✔ trustful label with a VALID observation naming an UNPINNED runner is rejected (panel H/AM-1) (0.762874ms)
+  ✔ trustful label whose observed counts DISAGREE with the text channel is rejected (cross-channel gate cannot be bypassed) (1.150498ms)
+✔ validateBundle — round-3 B6 snapshot/anomaly/version gates (6.600581ms)
+▶ AI adapter boundary
+  ✔ noop provider attaches nothing (1.031899ms)
+  ✔ attachSummary cannot alter any pre-existing field, including classification (0.799332ms)
+✔ AI adapter boundary (7.359784ms)
+▶ classify — decision table (docs/PLAN.md section 6)
+  ✔ rule 3: baseline unanimous pass + candidate unanimous pass -> PASS (3.433373ms)
+  ✔ rule 5: baseline passes, all candidate rounds fail -> CONFIRMED_REGRESSION (0.456493ms)
+  ✔ rule 4: baseline fails with real summaries + candidate fails -> PRE_EXISTING_FAILURE (0.32194ms)
+  ✔ rule 1 (degenerate-run guard): failing round without runner summary -> INFRASTRUCTURE_FAILURE, never CONFIRMED_REGRESSION (0.312264ms)
+  ✔ rule 1: killed round (exit -1) -> INFRASTRUCTURE_FAILURE (0.239396ms)
+  ✔ rule 1: infra signal on a failing round outranks drift (1.095504ms)
+  ✔ rule 2: split baseline -> FLAKY (experiment invalid) (0.19537ms)
+  ✔ rule 7: clean baseline, mixed candidate -> FLAKY, not CONFIRMED (0.248037ms)
+  ✔ rule 6: failing baseline + all-pass candidate -> INCONCLUSIVE (inverted pattern) (0.515605ms)
+  ✔ rule 0: missing arms -> INCONCLUSIVE (3.633189ms)
+  ✔ rule 1 (F1 guard): nonzero exit whose summary reports 0 failing is infra, not drift (0.327044ms)
+  ✔ rule 1 (F5 guard): zero exit with masked failures in summary is never PASS (0.299769ms)
+  ✔ audit B2: zero-test execution (exit 0, "0 passing") is INFRA, never PASS (0.354004ms)
+  ✔ audit B2: a round with NO runner summary at exit 0 is INFRA, never PASS (0.209322ms)
+  ✔ audit B2: recognized infra signature at EXIT ZERO is INFRA (a harness that swallows errors) (0.229179ms)
+  ✔ audit B2: a candidate whose baseline is clean but rounds are zero-test is INFRA (never CONFIRMED) (0.190324ms)
+  ✔ audit B2 positive control: a valid zero-failure run (N>0 passing, exit 0) still PASSES (0.412308ms)
+  ✔ audit F1 (mocha-realistic): passing summary WITHOUT a failing line + nonzero exit -> INFRA, never CONFIRMED_REGRESSION (0.431671ms)
+  ✔ audit F2: candidate rounds failing DIFFERENT counts -> FLAKY rule 8, not CONFIRMED_REGRESSION (0.493444ms)
+  ✔ audit F2: same count but DIFFERENT failing-test identities -> FLAKY rule 8 (0.232518ms)
+  ✔ audit F2: identical failure profiles (golden shape) -> still CONFIRMED_REGRESSION rule 5 (0.380451ms)
+  ✔ audit F2: profile comparison is order-independent (sorted identities) (0.24245ms)
+  ✔ audit F2: unstable baseline failure identities block PRE_EXISTING_FAILURE -> FLAKY (0.16161ms)
+  ✔ audit F1 contract: summary-present failing round WITHOUT any failing count is INFRA, not regression (0.302046ms)
+  ✔ is pure: same facts always yield the same verdict (1.261806ms)
+✔ classify — decision table (docs/PLAN.md section 6) (19.392809ms)
+▶ audit F9/B6 — applyConfinementGuard (rules 9 + 10, enforced not decorative)
+  ✔ downgrades CONFIRMED_REGRESSION to INCONCLUSIVE rule 9 when drift is unconfined (0.53809ms)
+  ✔ is identity when drift IS confined and both trees VALID (a legit CONFIRMED survives) (0.177899ms)
+  ✔ never masks an INFRASTRUCTURE_FAILURE (higher-fidelity reason kept) (0.163769ms)
+  ✔ downgrades PASS and PRE_EXISTING_FAILURE too (any trustful verdict needs comparable arms) (0.281146ms)
+  ✔ audit B6: an empty/partial tree observation downgrades to INCONCLUSIVE rule 10 even when drift is confined (0.244352ms)
+  ✔ audit B6: tree-invalidity takes precedence over unconfined drift (rule 10 not 9) (0.380767ms)
+  ✔ guard removal would flip the outcome: identical facts, opposite confinement (0.172283ms)
+✔ audit F9/B6 — applyConfinementGuard (rules 9 + 10, enforced not decorative) (2.602046ms)
+▶ round-3 blocker 1 — identity coverage gates trustful verdicts
+  ✔ identityCoverage: exact match COMPLETE; fewer / more / missing => INCOMPLETE / NOT_OBSERVED (0.37854ms)
+  ✔ two DIFFERENT root-level failures that collapsed to equal EMPTY sets can never CONFIRM (rule 11) (0.209608ms)
+  ✔ repeated "2 failing" with only ONE extractable identity -> INCONCLUSIVE rule 11, never CONFIRMED (1.120424ms)
+  ✔ single failing round claiming 9 failures with 0 identities -> INCONCLUSIVE rule 11 (0.327359ms)
+  ✔ under-accounted BASELINE blocks PRE_EXISTING_FAILURE too (coverage is not candidate-only) (0.378342ms)
+  ✔ genuinely distinct root failures stay distinct (rule 8 FLAKY, not coverage, not CONFIRMED) (0.314934ms)
+  ✔ fully-accounted root-level identities CONFIRM (conservatism must not break real proofs) (0.297976ms)
+✔ round-3 blocker 1 — identity coverage gates trustful verdicts (3.646831ms)
+▶ round-3 blocker 2 — pending tests are NOT executed assertions
+  ✔ all-pending candidate (0/0/7, exit 0) can never PASS -> INFRA (0.721882ms)
+  ✔ infraCause flags a pending-only round directly (was: null) (0.27482ms)
+  ✔ healthy baseline + ALL-skipped candidate: the run proves nothing executed (0.222033ms)
+  ✔ summary present with NO machine-readable counts at all -> INFRA (prose "summary" proves nothing) (0.172075ms)
+  ✔ pending-only counts (no passing/failing line — the real mocha shape) -> INFRA zero-executed (0.387733ms)
+  ✔ zero-test with NO summary at all stays INFRA (B2 path unchanged) (0.274465ms)
+  ✔ a single executed assertion (1 passing, 0 failing, N pending) is enough to be a VALID run (2.476491ms)
+  ✔ decoy early summary lines cannot steer a nonzero-exit round into CONFIRMED (probe P2) (0.232488ms)
+  ✔ duplicate identical suite-qualified identities under-account -> rule 11, never trust (probe P4) (1.968407ms)
+✔ round-3 blocker 2 — pending tests are NOT executed assertions (7.405887ms)
+▶ post-sol RB-2 — coverage consistency gates strong verdicts
+  ✔ Sol case 1: baseline 128 passing, candidate 1 passing is NOT PASS (0.46744ms)
+  ✔ Sol case 2: baseline repetitions 128 then 1 (both exit 0) is NOT PASS (0.180766ms)
+  ✔ Sol case 3: baseline 128, candidate 1 passing / 127 pending is NOT PASS (0.14748ms)
+  ✔ Sol case 4: baseline 128, candidate 1 stable failing test is NOT CONFIRMED_REGRESSION (0.171258ms)
+  ✔ Axios golden shape (128 passing -> 125 passing / 3 failing) STILL classifies CONFIRMED_REGRESSION rule 5 (0.77185ms)
+  ✔ a passing->failing move at stable totals is a regression, not a coverage gap (0.180904ms)
+  ✔ one executed test on BOTH arms, stable across repetitions, still PASSES (no hard-coded minimum) (0.141006ms)
+  ✔ pending that SHRINKS candidate-side is caught by the observed total (5 executed + 0 pending vs 5 + 5 pending) (0.162448ms)
+  ✔ candidate executing MORE than baseline is equally non-comparable (strong verdicts need both directions) (0.122895ms)
+  ✔ rule 12 fires on candidate-side instability too (one repeat loses a test, both exit 0) (0.133321ms)
+  ✔ PRE_EXISTING_FAILURE also demands comparability (baseline fails with fewer executed than candidate) (0.186994ms)
+  ✔ weak outputs are never inflated by the new rules: mixed candidate with a coverage gap stays FLAKY (rule 7), infra wins over coverage (rule 1) (0.234203ms)
+  ✔ treats undefined counts as zero consistently with rule 1 (mocha omits the 0-failing line): 5 passing vs 5 passing+3 failing is NOT comparable (0.133824ms)
+  ✔ a stable-coverage collapse on BOTH arms (128 -> 1 -> uniform) is comparable and can still PASS — and is reported honestly (0.141588ms)
+✔ post-sol RB-2 — coverage consistency gates strong verdicts (4.007992ms)
+▶ post-GLM — execution-observation gate (rule 14)
+  ✔ the GLM shape: unanimous "passing" prose with NO observation -> INCONCLUSIVE rule 14, never PASS (0.402513ms)
+  ✔ a VALID observation that LIES about counts is caught (text 5/0/0 vs observed 42/0/0) (0.190955ms)
+  ✔ a VALID observation whose failing identities differ from the text is caught (0.155167ms)
+  ✔ FLAKY is gated too: a split baseline WITHOUT observation is rule 14, not FLAKY (0.250255ms)
+  ✔ PRE_EXISTING_FAILURE is gated: fail/fail/fail prose is rule 14 (the guard also gates the honest direction) (0.135015ms)
+  ✔ status ABSENT is not "weak-but-fine": an explicit ABSENT observation gates like a missing one (0.23981ms)
+  ✔ the gate reports the FIRST offending round in bundle order (deterministic reason) (0.136543ms)
+  ✔ observationGateIssue: both exit-contradiction directions fail a VALID observation (0.166714ms)
+  ✔ observationSatisfied agrees with the gate on both paths (0.232071ms)
+  ✔ a VALID observation whose identity array is missing/malformed is a REFUSAL, not a crash (0.193753ms)
+  ✔ post-GLM F4: infra TEXT signature alone cannot veto an attested execution (precedence) (0.335322ms)
+  ✔ post-glm F6b: the ACTUAL containment of a VALID-observed killed round — gate blind, rule 1 absolute (0.313035ms)
+  ✔ post-GLM F4 twin: WITHOUT attestation the same prose still yields rule 1 INFRA (0.209568ms)
+  ✔ post-GLM F4 residual: a crash-signature TEXT cannot veto an attested execution either (0.408189ms)
+  ✔ post-GLM F4 residual twin: WITHOUT attestation crash prose still yields rule 1 INFRA (0.134256ms)
+  ✔ weak paths are NOT gated: rule 0/rule 1 keep their rule numbers without any observation (0.361124ms)
+✔ post-GLM — execution-observation gate (rule 14) (4.701758ms)
+▶ post-GLM round 5 F1 — PRE_EXISTING requires failing-set containment
+  ✔ a candidate failure Canary never saw fail in baseline is NOT pre-existing — INCONCLUSIVE 13 (never a swallowed regression) (0.590937ms)
+  ✔ disjoint failing sets ({A} baseline vs {B} candidate) at equal totals describe no comparable transition — INCONCLUSIVE 13 (0.512789ms)
+  ✔ an honest PRE_EXISTING_FAILURE (identical failing sets) keeps rule 4 — containment must not over-block (0.368358ms)
+  ✔ CONFIRMED_REGRESSION is untouched by containment (baseline has zero failing identities) (0.289334ms)
+  ✔ DOCUMENTED CEILING: version-gated passing-test substitution still PASSes (F3/§8.1) — equality of cardinality + failing sets is the exact invariant (0.266159ms)
+✔ post-GLM round 5 F1 — PRE_EXISTING requires failing-set containment (2.424956ms)
+▶ post-GLM round 5 F4 — rule 14 downgrades EVERY FLAKY producer (6/7/8/12)
+  ✔ un-attested producer rule 6 (non-unanimous candidate under failing baseline) -> INCONCLUSIVE 14, never FLAKY (0.487837ms)
+  ✔ un-attested producer rule 7 (clean baseline, mixed candidate) -> INCONCLUSIVE 14, never FLAKY (0.20612ms)
+  ✔ un-attested producer rule 8 (failing rounds within an arm differ in identity) -> INCONCLUSIVE 14, never FLAKY (0.262187ms)
+  ✔ un-attested producer rule 12 (repetitions differ in coverage totals) -> INCONCLUSIVE 14, never FLAKY (0.159383ms)
+✔ post-GLM round 5 F4 — rule 14 downgrades EVERY FLAKY producer (6/7/8/12) (1.468319ms)
+▶ inDependencySubtree
+  ✔ matches the dep itself and its nested copies at any depth (escaped keys) (1.294194ms)
+  ✔ scoped name collisions cannot masquerade when keys are escaped (F4) (0.502794ms)
+  ✔ round-3 B6: descendants of a NESTED copy are inside the subtree (0.494537ms)
+  ✔ audit F10: a SCOPED dependency matches its own escaped keys (0.268031ms)
+✔ inDependencySubtree (4.630104ms)
+▶ diffTrees — the arms-equality proof
+  ✔ audit F10: scoped dependency drift inside its subtree is confined (0.537214ms)
+  ✔ audit F10: scoped dep PLUS real external drift is still NOT confined (1.929088ms)
+  ✔ golden case: only the dependency subtree changed (0.388399ms)
+  ✔ detects contamination outside the dependency (2.851603ms)
+  ✔ audit B6 exposes the vacuous-confinement hazard (empty trees report confined) (0.739529ms)
+✔ diffTrees — the arms-equality proof (7.027812ms)
+▶ audit B6 — classifyTreeObservation (tree completeness)
+  ✔ a parsed, non-empty tree containing the dependency is VALID (1.699073ms)
+  ✔ empty tree (no data observed) is INVALID, not a proof of confinement (0.185023ms)
+  ✔ unparseable / no-root-deps is INVALID (0.31654ms)
+  ✔ tree present but the studied dependency absent is INCOMPLETE (0.153127ms)
+  ✔ scoped dependency presence is detected via the escaped key (dependencyInTree) (0.13803ms)
+  ✔ round-3 B6: ANY observation anomaly caps the status at INCOMPLETE (0.162862ms)
+✔ audit B6 — classifyTreeObservation (tree completeness) (3.515296ms)
+▶ log parsing (auxiliary — never decides classification)
+  ✔ extracts canonical suite-qualified identities from mocha output (audit B1) (1.457695ms)
+  ✔ audit B1: same leaf title in DIFFERENT suites stays DISTINCT (0.631346ms)
+  ✔ audit B1: nested describe paths survive as multi-segment identities (0.197182ms)
+  ✔ audit B1: progress-list lines (N) followed by a passing line yield NO identity (0.187181ms)
+  ✔ audit B1: identical identities in one run dedupe deterministically; distinct never collapse (0.163295ms)
+  ✔ audit B1: ava identities keep the full suite path (0.325222ms)
+  ✔ parses summary counts (0.725715ms)
+  ✔ round-3 B1: ROOT-level failure ("1) title:" — colon on the numbered line) yields its identity (0.630756ms)
+  ✔ round-3 B1: repeated root-level titles across rounds re-extract identically (deterministic) (0.276446ms)
+  ✔ round-3 B1: mixed root + nested blocks do not corrupt each other (0.186984ms)
+  ✔ round-3 B1: a nested block is abandoned at the summary line, never past it (0.291433ms)
+  ✔ round-3 B1: malformed/truncated output yields NO fabricated identities (0.141667ms)
+  ✔ round-3 B1: reordered distinct failures extract the same SET (profile order-independence) (0.160951ms)
+✔ log parsing (auxiliary — never decides classification) (6.460839ms)
+▶ streamsStable
+  ✔ true only for identical hashes across all rounds (0.187763ms)
+✔ streamsStable (0.30983ms)
+▶ post-sol secondary — lone-CR line endings parse identically to LF/CRLF
+  ✔ parseSummaryCounts reads the same totals across LF, CRLF and CR-only (0.323753ms)
+  ✔ extractFailingTestNames finds the same identities across LF, CRLF and CR-only (0.145785ms)
+✔ post-sol secondary — lone-CR line endings parse identically to LF/CRLF (0.632941ms)
+▶ post-GLM F3 — ANSI-colored output parses identically to plain output
+  ✔ parseSummaryCounts reads the same totals colored as plain (1.164116ms)
+  ✔ extractFailingTestNames finds the same identities colored as plain (0.238972ms)
+  ✔ F3 false-PASS battery: an ANSI-wrapped failing line cannot hide from the masked-failure count (0.213668ms)
+  ✔ precision control: stripping never fabricates counts (0.351787ms)
+  ✔ ANSI and lone-CR compose: colored CR-only stream matches colored LF stream (0.200069ms)
+✔ post-GLM F3 — ANSI-colored output parses identically to plain output (3.31483ms)
+▶ validateSpec
+  ✔ accepts the golden shape (4.411488ms)
+  ✔ rejects branch/tag names instead of full SHAs (0.589577ms)
+  ✔ rejects a swap that does not install the candidate (0.323822ms)
+  ✔ requires >=2 candidate repetitions (a regression must reproduce) (0.368125ms)
+  ✔ requires >=2 baseline rounds so the FLAKY guard is reachable (F8) (0.279835ms)
+  ✔ rejects identical baseline/candidate (0.281845ms)
+  ✔ rejects malformed prepare argv (not array-of-arrays) (0.27341ms)
+  ✔ rejects non-object input without throwing (0.647486ms)
+✔ validateSpec (9.846535ms)
+▶ planArms
+  ✔ orders steps with toolchain between prepare and build (2.963577ms)
+  ✔ omits toolchain/build when absent (0.496498ms)
+✔ planArms (3.974289ms)
+▶ normalizers
+  ✔ canonicalizes line endings, trailing ws, final newline (5.84713ms)
+  ✔ collapses timestamps, dates, durations (0.461351ms)
+  ✔ collapses uuids and long hex addresses but not short hex (0.322827ms)
+  ✔ collapses ports on localhost (0.393084ms)
+  ✔ normalizes the run workspace, temp, home, user, host (0.547747ms)
+  ✔ pathVariants covers slash forms and drive case (0.447876ms)
+  ✔ the stability invariant: same logical run shape at different moments collapses to identical bytes (1.670673ms)
+  ✔ result lines are never rewritten by value-shape rules (0.409446ms)
+✔ normalizers (15.408832ms)
+▶ renderHtml
+  ✔ renders the deterministic verdict verbatim (1.17528ms)
+  ✔ shows hash prefixes and log paths for audit (0.164852ms)
+  ✔ states the drift-confinement result (0.203962ms)
+  ✔ escapes hostile content from downstream logs/names (no HTML injection) (0.274524ms)
+  ✔ audit F12: renders failing-test identities derived from the BUNDLE (no extras) (0.540741ms)
+  ✔ audit F12: a bundle with no failing identities omits the section (0.301612ms)
+✔ renderHtml (4.133991ms)
+▶ post-sol F1 — the verification banner says SELF-CONSISTENT, not VERIFIED
+  ✔ a fully local-consistent render is labeled SELF-CONSISTENT and disclaims the committed proof (0.5078ms)
+  ✔ a failing consistency render is labeled NOT SELF-CONSISTENT and still warns (0.370233ms)
+  ✔ no verification argument at all renders NOT SELF-CONSISTENT (absence of checking is not success) (0.917871ms)
+✔ post-sol F1 — the verification banner says SELF-CONSISTENT, not VERIFIED (2.311549ms)
+▶ validateBundle
+  ✔ accepts a well-formed bundle (6.91101ms)
+  ✔ rejects an unknown classification label (3.758515ms)
+  ✔ rejects short/hexless commit SHAs (no branch pins in evidence) (1.769074ms)
+  ✔ rejects a bundle missing an arm (1.202053ms)
+  ✔ rejects malformed stream hashes (3.074865ms)
+  ✔ rejects a round whose envKeys leak outside the sanitized allowlist (F9) (4.723036ms)
+  ✔ rejects reproductionCount < 1 (0.977506ms)
+✔ validateBundle (25.606006ms)
+▶ validateBundle — semantic integrity (audit F3)
+  ✔ rejects a CONFIRMED_REGRESSION label whose own rounds say PASS (4.221176ms)
+  ✔ rejects a CONFIRMED_REGRESSION built from rounds whose failure identities differ (must re-derive FLAKY rule 8) (4.886803ms)
+  ✔ rejects masked-failure rounds (exit 0 with reported failures) under a PASS label (3.760309ms)
+  ✔ rejects killedByTimeout=true alongside a normal exit code (0.644994ms)
+  ✔ rejects an inflated reproductionCount not backed by candidate rounds (0.729893ms)
+  ✔ rejects a trustful verdict while drift says NOT confined (rule-9 guard bypassed) (0.567672ms)
+  ✔ accepts the legitimate rule-9 override: unconfined drift + INCONCLUSIVE rule 9 (0.629218ms)
+  ✔ audit B6: rejects a trustful verdict built on a non-VALID tree observation (1.624008ms)
+  ✔ audit B6: accepts the legitimate rule-10 override (confined drift but weak observation) (4.427021ms)
+  ✔ audit B6: rejects a FABRICATED rule-10 downgrade even with a valid manifest (semantic layer alone catches it) (0.863322ms)
+  ✔ audit B6: observationStatus is mandatory (0.67891ms)
+  ✔ refuses to treat a CONFIRMED_REGRESSION as trustworthy when round facts are too sparse to re-derive (1.188612ms)
+  ✔ self-review N3: the sparse-facts refusal covers a PASS claim too (was: CONFIRMED/PRE_EXISTING only) (0.803618ms)
+  ✔ robustness H1: rejects duplicate (arm,round) indices (resealed) (2.73576ms)
+  ✔ round-3 B1: a RESEALED CONFIRMED whose failing identities under-account the count dies twice over (2.287112ms)
+  ✔ post-sol RB-2: a resealed trustful bundle over incomparable arm coverage dies twice over (1.258726ms)
+  ✔ post-sol RB-2: a trustful label with only ONE round per arm is refused (0.81565ms)
+  ✔ post-sol RB-2: unstable repetition coverage under a trustful label is refused (baseline 5 vs 4 passing) (3.209162ms)
+  ✔ post-sol RB-2: weak labels carry no parity requirement (honest INCONCLUSIVE rule 13 validates) (0.915961ms)
+  ✔ round-3 B2: a PASS label over zero-assertion (pending-only) rounds is rejected (3.098673ms)
+✔ validateBundle — semantic integrity (audit F3) (40.815174ms)
+▶ post-sol M-1 — contract.ts is the single source of truth
+  ✔ the committed schemas/evidence.schema.json EQUALS the generated contract (no drift) (1.830994ms)
+  ✔ every always-required contract field is refused at runtime when DELETED (Sol: commands, killedByTimeout, startedAt, durationMs included) (47.495964ms)
+  ✔ intentionally-optional fields may be absent (we do not blind-strictify) (0.803432ms)
+  ✔ unknown fields are refused at root, round, and treeComparison scopes (policy is intentional) (4.497888ms)
+  ✔ post-glm F6c: unknown fields NAMED LIKE Object.prototype members are refused too (own-property check, not `in`) (9.700325ms)
+  ✔ trustful-tier fields: deleted infraSignal/snapshots/anomalies kill a trustful claim but validate clean under a weak honest label (5.442976ms)
+  ✔ round indices must be contiguous per arm (an omitted round shrinks the claimed reproduction) (1.17464ms)
+✔ post-sol M-1 — contract.ts is the single source of truth (71.600673ms)
+▶ post-GLM round 5 — mirror constant independence + containment restatement
+  ✔ STRONG_MIRROR_LABELS is a distinct copy of the classifier strong set with pinned equivalence (0.360852ms)
+  ✔ refuses PRE_EXISTING_FAILURE whose candidate fails identities baseline did not (containment at 3d) (0.984533ms)
+  ✔ accepts an honest PRE_EXISTING_FAILURE (identical failing sets across arms) — no over-blocking (0.515269ms)
+✔ post-GLM round 5 — mirror constant independence + containment restatement (2.0569ms)
+▶ Recorder.expandArgv — token expansion + enforced isolation
+  ✔ expands $bin via resolver to node + bin path (8.261076ms)
+  ✔ ALWAYS appends --ignore-scripts and cache isolation to install commands (9.205088ms)
+  ✔ F6: flags are detected past leading options ($npm --loglevel install) (3.408532ms)
+  ✔ F6: npm ci (runs lifecycle scripts by default) is also covered (2.482621ms)
+  ✔ post-glm F6e: the controlled empty npm config is RE-ESTABLISHED immediately before install (tamper-between-creation-and-use) (7.591682ms)
+  ✔ F6: $yarn install gets yarn-appropriate flags after -- and --ignore-scripts on the npx bootstrap (9.039311ms)
+  ✔ F8: $npm -u evil.npmrc install x is REJECTED (was silent injection-skip) (3.256667ms)
+  ✔ F8: conflicting config flags rejected BEFORE and AFTER the subcommand (4.03714ms)
+  ✔ F8: unknown bare option before subcommand rejected; --key=value passes (6.396213ms)
+  ✔ F8: exec/dlx/shell-style subcommands rejected; run of a local script is not (3.613495ms)
+  ✔ F8: conflicting flags rejected in CASE VARIANTS too (red-team) (1.976035ms)
+  ✔ F8: install-family options with = or after the subcommand still expand normally (1.752796ms)
+  ✔ non-install commands get no injected flags (1.756323ms)
+✔ Recorder.expandArgv — token expansion + enforced isolation (65.951207ms)
+▶ summary/infra matchers (F1/F5 hardening)
+  ✔ strict summary matcher rejects prose and accepts runner lines (0.461015ms)
+  ✔ environmental error patterns are infra (F1/F2) (0.63312ms)
+  ✔ audit B2: errno code in a PASSING test name is NOT infra; in an error line IS (2.443398ms)
+✔ summary/infra matchers (F1/F5 hardening) (3.853285ms)
+▶ Recorder.step/round — real subprocess, real artifacts (no mocks)
+  ✔ captures exit code, streams, hashes, counts; unique-ifies repeated labels (64.816634ms)
+  ✔ F1 shape: nonzero exit + summary claiming 0 failing is recorded with the count (51.318642ms)
+  ✔ F5 shape: exit 0 while summary reports failures is captured (classifier then infra-guards) (54.006852ms)
+  ✔ audit F13: failing-test identities from REAL subprocess output land in fact and evidence (45.512848ms)
+  ✔ audit B2 (real subprocess): 0 passing at exit 0 records reportedPassing=0 (classifier => INFRA) (47.765028ms)
+  ✔ audit B2 (real subprocess): ECONNREFUSED error line at exit 0 sets infraSignal true (not swallowed by exit) (51.935372ms)
+  ✔ audit B2 (real subprocess): a genuinely passing run records reportedPassing>0 and stays valid (48.906387ms)
+  ✔ audit B1 e2e: same leaf title, different SUITE across candidate rounds -> FLAKY (158.857375ms)
+  ✔ audit B1 e2e: identical SUITE-QUALIFIED identity across rounds stays CONFIRM-eligible (206.273657ms)
+  ✔ timeout kills produce exit -1 (and tree-kill runs without throwing) (1012.06991ms)
+✔ Recorder.step/round — real subprocess, real artifacts (no mocks) (1743.799415ms)
+▶ audit B5 — canonical package-manager policy (closed allowlist)
+  ✔ B5: install ALIASES (the pre-fix silent-skip) now receive full injection (3.590885ms)
+  ✔ B5: unknown/unvetted subcommands are REJECTED, not run without policy (3.032198ms)
+  ✔ B5: RAW package-manager forms rejected for ANY command position (2.052615ms)
+  ✔ B5: $bin:npm bypass is rejected; $bin:mocha still works (3.329365ms)
+  ✔ B5: user `--` in an install command is rejected (was the trailing-flag dead-weight bypass) (2.544703ms)
+  ✔ B5 invariant (property): accepted install => isolation flags in EFFECTIVE position after the subcommand, none after a `--` (2.444455ms)
+  ✔ B5: closed-allowlist families classified correctly by the policy parser (0.147825ms)
+✔ audit B5 — canonical package-manager policy (closed allowlist) (17.50814ms)
+▶ round-3 B5 — wrapper-mediated / frontend package-manager execution is refused
+  ✔ cmd /c npm install … is refused (the canonical Windows wrapper bypass) (1.48158ms)
+  ✔ powershell / pwsh … npm is refused (2.892909ms)
+  ✔ env / nohup / xargs / sh -c / sudo npm are refused (POSIX wrappers) (1.284015ms)
+  ✔ package-manager FRONTENDS (pnpm/bun/corepack/volta) are refused (2.901737ms)
+  ✔ node executed ON a package-manager file (node npm / node npm-cli.js) is refused (3.144231ms)
+  ✔ any other unenumerated literal executable fails closed (not silently expanded) (1.874203ms)
+  ✔ REGRESSION: every SUPPORTED form still expands (allowlist does not over-reject) (3.638619ms)
+  ✔ REGRESSION: raw npm / npm.cmd / direct npm-cli / $bin:npm still rejected (pre-existing B5.1) (4.372305ms)
+✔ round-3 B5 — wrapper-mediated / frontend package-manager execution is refused (22.045532ms)
+▶ round-3 secondary — crash & sweep signals reach the classification
+  ✔ hasCrashSignature: matches V8/native abort phrasing, skips pass-glyph lines (0.447693ms)
+  ✔ glyph discrimination (self-review N4): ava ✖ (U+2716) fires infra; ✗-titled (U+2717) prose does not (0.388768ms)
+  ✔ isInfraOutput: a hard infra phrase inside a PASSING test title is not false-INFRA (round-3 secondary) (0.154269ms)
+  ✔ round() records crashSignal from a real post-summary crash -> classify says INFRA rule 1 (46.181099ms)
+  ✔ round() records sweepFailed (when the run outcome flags it) -> classify says INFRA rule 1 (4.817686ms)
+  ✔ post-sol secondary: CR-only line endings are matched like LF/CRLF (summary + anchored crash banner) (0.43846ms)
+  ✔ assertSupportedSpecExecutable: the allowlist is small and explicit (0.450521ms)
+✔ round-3 secondary — crash & sweep signals reach the classification (53.318583ms)
+▶ observation hardening — expandArgvWithPlan injection decision
+  ✔ the double fixture is actually pinned (fails if the pin table drifted) (0.222881ms)
+  ✔ post-GLM F5: the canary double is UNSELECTABLE by default — pinned bytes, no execution authority (8.74778ms)
+  ✔ pinned bytes at the canonical anchor: injected, --require appended LAST, plan from the PIN (7.065935ms)
+  ✔ unpinned bytes at the canonical anchor: NO injection, runner-identity-unpinned + observed hash recorded (10.165525ms)
+  ✔ pinned bytes OUTSIDE the canonical anchor (hoisted): not injectable (9.297738ms)
+  ✔ post-glm F6a: pinned bytes reached through a LINK at the anchor are not injectable (root case) (6.245885ms)
+  ✔ post-glm F6a: a LINK ABOVE the anchor (node_modules junctioned out) is not injectable either (3.444622ms)
+  ✔ post-audit F6a coverage sentinel — the link-escape regression was ACTUALLY exercised on this platform (0.108835ms)
+  ✔ a subject-supplied --require/-r in a mocha argv is refused fail-closed (9.113645ms)
+  ✔ post-GLM F1: an off-position $bin:mocha token is refused, never credited (5.348164ms)
+  ✔ non-mocha commands: no injection attempted, absentKind not-mocha-bin (4.095946ms)
+  ✔ the ABSENT path end-to-end: an unpinned double runs REAL rounds and rule 14 refuses the strong label (92.625923ms)
+✔ observation hardening — expandArgvWithPlan injection decision (157.262364ms)
+▶ post-sol RB-1 — semantic package-manager policy (equivalence classes)
+  ✔ Sol's accepted forms are now rejected in install-family commands (1.787333ms)
+  ✔ property: for EVERY protected key, every abbreviation/negation/case/= spelling is refused (install family) (43.006989ms)
+  ✔ property: the per-package config family (@scope:registry, //…:auth) is refused everywhere (3.539843ms)
+  ✔ property: accepted install argv ends with Canary protected flags after every user token (1.646583ms)
+  ✔ invariant: no allowed install spelling resolves to a protected key (prefix-disjoint) (0.529203ms)
+  ✔ legitimate script-family passthrough and fixture install shapes still expand (3.166002ms)
+  ✔ resolveOptionToken normalizes case, =-values, and one leading no- (0.160211ms)
+  ﹣ empirical: npm applies abbreviation + negation + LAST-WINS ordering (the semantic premises) (0.15426ms) # no local npm-cli.js
+✔ post-sol RB-1 — semantic package-manager policy (equivalence classes) (54.361562ms)
+▶ FINDING B — infra matching is case/encoding symmetric (must-match direction)
+  ✔ exact GLM counterexample: mixed-case npm error + fake summary (1.67836ms)
+  ✔ all case variants of npm error / npm ERR! fire (0.443702ms)
+  ✔ hard patterns fire in any case (module/ERESOLVE/SyntaxError shapes) (0.290802ms)
+  ✔ CR-only and CRLF line endings still see the signatures (0.318342ms)
+  ✔ ANSI-wrapped signatures still fire (real colored npm output) (0.203291ms)
+  ✔ SOFT errno lines fold case too (0.577827ms)
+  ✔ crash signatures survive ANSI decoration (0.639081ms)
+  ✔ runner summary is recognized through ANSI colors (real colored mocha) (0.574464ms)
+✔ FINDING B — infra matching is case/encoding symmetric (must-match direction) (8.288864ms)
+▶ FINDING B — benign prose NEVER flips to infrastructure (false-positive direction)
+  ✔ passing test TITLES quoting error phrases are not infra (2.346886ms)
+  ✔ intentional E404 assertions and historical logs inside test prose are not infra (1.221868ms)
+  ✔ summary regexes stay anchored (prose containing "5 passing" mid-sentence) (0.264689ms)
+✔ FINDING B — benign prose NEVER flips to infrastructure (false-positive direction) (4.381677ms)
+▶ post-GLM F3 — summary recognition and count parsing share one view
+  ✔ an ANSI-wrapped failing line is counted as surely as it is recognized (0.898785ms)
+  ✔ a fully colored genuine run is recognized AND counted (no false infra) (2.017101ms)
+  ✔ lone-CR and ANSI compose identically across both functions (0.284082ms)
+✔ post-GLM F3 — summary recognition and count parsing share one view (3.578804ms)
+▶ auditPackageManifestText — lifecycle hooks refuse execution
+  ✔ accepts a clean manifest (3.472556ms)
+  ✔ refuses preinstall hook (0.232873ms)
+  ✔ refuses install hook (0.15832ms)
+  ✔ refuses postinstall hook (0.200621ms)
+  ✔ refuses prepare hook (0.187457ms)
+  ✔ rejects invalid JSON without throwing (0.54016ms)
+✔ auditPackageManifestText — lifecycle hooks refuse execution (6.681121ms)
+▶ auditFixtureDir — rc-file injection gate
+  ✔ refuses a fixture shipping .npmrc (9.269146ms)
+  ✔ F10: finds rc files nested anywhere in the pinned source (7.71616ms)
+  ✔ F7: refuses an UPPERCASE .NPMRC (Windows/macOS load it as project config) (3.77876ms)
+  ✔ F7: also catches mixed-case nested .YarnRc.yml (3.82208ms)
+✔ auditFixtureDir — rc-file injection gate (26.475255ms)
+▶ expectedExtractedDir
+  ✔ matches codeload tarball root naming (0.233346ms)
+✔ expectedExtractedDir (0.414762ms)
+▶ audit F6 — child env observation: declared == observed
+  ✔ the child sees EXACTLY the declared allowlist keys (nothing undeclared) (69.495391ms)
+  ✔ Windows session identity vars are neutralized, not merely absent from the block (55.054452ms)
+  ✔ the real account identity is not reachable via any observed value (48.523941ms)
+✔ audit F6 — child env observation: declared == observed (175.922335ms)
+▶ KNOWN_RUNNER_RELEASES — npm pins equal their reviewed manifests (offline)
+  ✔ every npm-origin entry has a manifest and the hashes agree (7.797506ms)
+  ✔ canary-double entries are the ONLY non-manifested pins (offline e2e bytes live in-repo) (0.395ms)
+✔ KNOWN_RUNNER_RELEASES — npm pins equal their reviewed manifests (offline) (11.035404ms)
+▶ post-GLM F5 — findRunnerPin: origin is an execution-authority gate
+  ✔ double bytes are UNSELECTABLE by default: pinned hash, zero execution authority (0.371179ms)
+  ✔ only the explicit in-process grant selects the double (0.172213ms)
+  ✔ npm pins stay selectable in BOTH postures — the gate is origin-scoped, not blanket (0.376963ms)
+✔ post-GLM F5 — findRunnerPin: origin is an execution-authority gate (1.735286ms)
+▶ audit F5 — sweep mechanism (live parent, positive proof)
+  ✔ sweepDescendants finds and kills a live parent's child process (258.93644ms)
+✔ audit F5 — sweep mechanism (live parent, positive proof) (260.512878ms)
+▶ audit F5 — containment through runCommand
+  ✔ normal exit-0 of a child that left a helper behind: sweep clean, no survivors (258.639146ms)
+  ✔ a clean exit with no descendants sweeps nothing and does not fail (45.618997ms)
+  ✔ timeout: tree kill + sweep leave no survivors and do not fail (2014.739067ms)
+  ✔ the swept child PID itself is never listed as killed (only descendants) (39.018831ms)
+✔ audit F5 — containment through runCommand (2358.979172ms)
+▶ audit S1 — POSIX session-membership predicate (setpgid escapees)
+  ✔ a member of the child session is caught even after it setpgid()s (0.357019ms)
+  ✔ a member of the child group is caught (0.264089ms)
+  ✔ an unrelated process is not swept (0.434174ms)
+✔ audit S1 — POSIX session-membership predicate (setpgid escapees) (1.587086ms)
+ℹ tests 589
+ℹ suites 96
+ℹ pass 557
+ℹ fail 31
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 10298.961814
+
+✖ failing tests:
+
+test at apps/cli/dist/test/attested-channel.test.js:268:5
+✖ (i) a plain-node text stub that reads as a clean run degrades to INCONCLUSIVE rule 14 (690.442564ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  10 !== 14
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/attested-channel.test.js:289:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1889:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 10,
+    expected: 14,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/attested-channel.test.js:295:5
+✖ (vii) an UNPINNED double running the observer protocol on fd 3 gets stray-bytes forensics, zero credit (484.785644ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  10 !== 14
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/attested-channel.test.js:330:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 10,
+    expected: 14,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/attested-channel.test.js:334:5
+✖ (viii) AM-1 kill test: double CLAIMS the pinned version, bytes are wrong -> ABSENT, strong unreachable (478.814997ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  10 !== 14
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/attested-channel.test.js:348:16)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 10,
+    expected: 14,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/attested-channel.test.js:441:5
+✖ positive control: the executed-position token still earns VALID and a strong verdict (397.498302ms)
+  AssertionError [ERR_ASSERTION]: dependency-tree observation is not trustworthy (baseline=INVALID, candidate=INVALID) — confinement cannot be proven
+  + actual - expected
+  
+  + 'INCONCLUSIVE'
+  - 'CONFIRMED_REGRESSION'
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/attested-channel.test.js:447:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'INCONCLUSIVE',
+    expected: 'CONFIRMED_REGRESSION',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/attested-channel.test.js:462:5
+✖ a VALID round whose stdout trips the infra signature still yields CONFIRMED_REGRESSION (349.595236ms)
+  AssertionError [ERR_ASSERTION]: dependency-tree observation is not trustworthy (baseline=INVALID, candidate=INVALID) — confinement cannot be proven
+  + actual - expected
+  
+  + 'INCONCLUSIVE'
+  - 'CONFIRMED_REGRESSION'
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/attested-channel.test.js:476:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1889:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'INCONCLUSIVE',
+    expected: 'CONFIRMED_REGRESSION',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/attested-channel.test.js:495:5
+✖ double bytes staged by the spec itself: NO injection, every round ABSENT, INCONCLUSIVE rule 14 (325.465756ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  10 !== 14
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/attested-channel.test.js:525:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1889:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 10,
+    expected: 14,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/attested-channel.test.js:527:5
+✖ trusted control: with the in-process grant the SAME spec earns VALID + a strong verdict (324.618629ms)
+  AssertionError [ERR_ASSERTION]: dependency-tree observation is not trustworthy (baseline=INVALID, candidate=INVALID) — confinement cannot be proven
+  + actual - expected
+  
+  + 'INCONCLUSIVE'
+  - 'CONFIRMED_REGRESSION'
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/attested-channel.test.js:535:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'INCONCLUSIVE',
+    expected: 'CONFIRMED_REGRESSION',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/cli.test.js:103:5
+✖ check on honest evidence exits 0 and prints PASS (653.02325ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'INCONCLUSIVE'
+  - 'CONFIRMED_REGRESSION'
+  
+      at stage (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/cli.test.js:74:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/cli.test.js:104:40)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1889:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'INCONCLUSIVE',
+    expected: 'CONFIRMED_REGRESSION',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/cli.test.js:109:5
+✖ check on a tampered artifact exits 3 and names the tampered file (518.402467ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'INCONCLUSIVE'
+  - 'CONFIRMED_REGRESSION'
+  
+      at stage (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/cli.test.js:74:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/cli.test.js:110:54)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'INCONCLUSIVE',
+    expected: 'CONFIRMED_REGRESSION',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/cli.test.js:116:5
+✖ report refuses a fabricated bundle (exit 3) and renders a valid one (exit 0) (510.587674ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'INCONCLUSIVE'
+  - 'CONFIRMED_REGRESSION'
+  
+      at stage (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/cli.test.js:74:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/cli.test.js:117:44)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'INCONCLUSIVE',
+    expected: 'CONFIRMED_REGRESSION',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/cli.test.js:141:5
+✖ audit F12: report with NO argument defaults to the latest run and renders bundle-persisted failing identities (450.836287ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'INCONCLUSIVE'
+  - 'CONFIRMED_REGRESSION'
+  
+      at stage (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/cli.test.js:74:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/cli.test.js:142:44)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'INCONCLUSIVE',
+    expected: 'CONFIRMED_REGRESSION',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/execution-authority.test.js:98:5
+✖ the GLM counterexample (console.log "128 passing") is never PASS (639.488418ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  10 !== 14
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/execution-authority.test.js:107:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1889:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 10,
+    expected: 14,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/execution-authority.test.js:115:5
+✖ test command node -e printing mocha-shaped prose is never PASS (503.692158ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  10 !== 14
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/execution-authority.test.js:119:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 10,
+    expected: 14,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/execution-authority.test.js:123:5
+✖ a printed failing summary is never CONFIRMED_REGRESSION (484.474667ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  10 !== 14
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/execution-authority.test.js:170:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 10,
+    expected: 14,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/pipeline-e2e.test.js:94:5
+✖ confined regression: CONFIRMED_REGRESSION, real artifacts re-hash clean (633.780936ms)
+  AssertionError [ERR_ASSERTION]: bundle must self-validate: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/pipeline-e2e.test.js:96:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1889:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/pipeline-e2e.test.js:151:5
+✖ unconfined tree drift is downgraded to INCONCLUSIVE rule 9 (F9 e2e) (514.46051ms)
+  AssertionError [ERR_ASSERTION]: guard-produced bundle must still validate: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/pipeline-e2e.test.js:153:16)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/proof-host.test.js:1:1
+✖ apps/cli/dist/test/proof-host.test.js (198.843054ms)
+  'test failed'
+
+test at apps/cli/dist/test/prove.test.js:564:5
+✖ a poisoned NODE_OPTIONS in the verifying process does NOT crash or steer the fingerprint (66.409993ms)
+  Error: Command failed: /home/jan/.nvm/versions/node/v26.7.0/bin/node /home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js --version
+  node:internal/modules/cjs/loader:1573
+    throw err;
+    ^
+  
+  Error: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'
+      at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)
+      at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)
+      at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)
+      at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)
+      at Module._load (node:internal/modules/cjs/loader:1346:5)
+      at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+      at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+      at node:internal/main/run_main_module:33:47 {
+    code: 'MODULE_NOT_FOUND',
+    requireStack: []
+  }
+  
+  Node.js v26.7.0
+  
+      at genericNodeError (node:internal/errors:999:15)
+      at wrappedFn (node:internal/errors:544:14)
+      at checkExecSyncError (node:child_process:942:11)
+      at execFileSync (node:child_process:978:15)
+      at actualHostFingerprint (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/src/prove.js:40:24)
+      at TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/prove.test.js:568:24)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.start (node:internal/test_runner/test:1257:17)
+      at node:internal/test_runner/test:1887:71 {
+    status: 1,
+    signal: null,
+    output: [ null, '', "node:internal/modules/cjs/loader:1573\n  throw err;\n  ^\n\nError: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)\n    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)\n    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)\n    at Module._load (node:internal/modules/cjs/loader:1346:5)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  code: 'MODULE_NOT_FOUND',\n  requireStack: []\n}\n\nNode.js v26.7.0\n" ],
+    pid: 564,
+    stdout: '',
+    stderr: "node:internal/modules/cjs/loader:1573\n  throw err;\n  ^\n\nError: Cannot find module '/home/jan/.nvm/versions/node/v26.7.0/bin/node_modules/npm/bin/npm-cli.js'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)\n    at wrapResolveFilename (node:internal/modules/cjs/loader:1123:27)\n    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1147:10)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1174:12)\n    at Module._load (node:internal/modules/cjs/loader:1346:5)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  code: 'MODULE_NOT_FOUND',\n  requireStack: []\n}\n\nNode.js v26.7.0\n"
+  }
+
+test at apps/cli/dist/test/provenance.test.js:1:1
+✖ apps/cli/dist/test/provenance.test.js (167.482238ms)
+  'test failed'
+
+test at apps/cli/dist/test/verify-tree.test.js:226:5
+✖ a fresh confined CONFIRMED run retains arm-named artifacts that verify clean (611.886115ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:227:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1889:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:260:5
+✖ naive tamper of retained raw bytes (no reseal) is caught (520.051976ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:261:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:268:5
+✖ LAZY reseal (raw digest fixed, canonical/tree-hash left stale) is caught by the chain (530.932062ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:269:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:285:5
+✖ reseal that rewrites bytes+digests but keeps the old attestation claim is caught by verify-tree (447.832723ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:286:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:309:5
+✖ COHERENT full tree-side reseal: bundle layer catches the version lie (attestation invariant) (392.14101ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:310:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:339:5
+✖ a coherent reseal claiming VALID over bytes with a missing-version hole is caught (status + anomaly re-derivation) (370.935883ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:340:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:365:5
+✖ pointing one arm at the other arm bytes is caught by BOTH layers (342.868815ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:366:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:373:5
+✖ flipping driftConfinedToDependency against the retained snapshots is caught (324.102123ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:374:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:380:5
+✖ stripping snapshot refs from a trustful bundle: verifier says unverifiable, schema refuses to seal trust on it (322.525804ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:381:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:395:5
+✖ post-GLM G: naive tamper/deletion of the retained attest bytes is caught by verifyArtifacts (332.827312ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:396:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:405:5
+✖ post-GLM G: a resealed framesSha256 the retained bytes do not back is caught ONLY by the bytes binding (308.261587ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:406:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at apps/cli/dist/test/verify-tree.test.js:418:5
+✖ post-GLM G: reseal-everything-but-the-observation is REFUSED (the pre-G "clean 4-file resealed tuple" premise is forbidden by design) (305.205539ms)
+  AssertionError [ERR_ASSERTION]: pipeline bundle must validate cleanly: environment.npmVersion missing/empty
+  + actual - expected
+  
+  + [
+  +   'environment.npmVersion missing/empty'
+  + ]
+  - []
+  
+      at offlineRun (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:222:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///home/jan/qwen-builder-cage/canary/apps/cli/dist/test/verify-tree.test.js:424:42)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:969:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'environment.npmVersion missing/empty' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+npm notice
+npm notice New major version of npm available! 11.19.0 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice
+suite exit: 1

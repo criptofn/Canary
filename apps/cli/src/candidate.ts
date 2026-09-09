@@ -540,6 +540,28 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   const task = readTaskRecord(root);
   const obligations = obligationsFor(task?.kinds ?? [], sig,
     new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'isolation');
+  // M10.1 (GLM F4 — material Northstar bypass) — the task-obligation AUTHORITY.
+  // obligationsFor derives proof duties from REGISTERED kinds; a candidate that
+  // registers nothing derived nothing and walked straight through §10 on the
+  // sealed-plan floor alone — omitting registration was the strongest agent
+  // move precisely because registration can only ADD obligations. The fix is
+  // not a fabricated duty and no task is guessed: with zero registered kinds
+  // (now AND frozen at isolation) Canary simply REFUSES to claim a completion
+  // it holds no authority to judge — NOT PROVEN, exit 2, promotion locked.
+  // Boundaries held honest:
+  //  - pre-M10 records (no intent snapshot) verify exactly as before — the
+  //    committed compatibility posture; forging one's shape means editing the
+  //    record, which M9's fingerprint sandwich already blocks;
+  //  - kinds registered AFTER isolation are growth (always allowed): they
+  //    discharge this obligation exactly like any other — by being real work
+  //    (the note prints the path), never by being absent;
+  //  - shrink of frozen kinds is blocked earlier by the §11 guard;
+  //  - precedence stays fail > unmet > unproven > pass: this rides as an
+  //    'unproven' and can never outrank an objective violation or a FAIL.
+  if (rec.intent && !(task?.kinds.length ?? 0) && !(rec.intent.task?.kinds.length ?? 0)) {
+    obligations.unshift({ id: 'task-authority', mode: 'objective', status: 'unproven',
+      note: 'NO task-obligation authority: no task registered (none now, none frozen at isolation) — completion cannot be PROVEN against nothing. Register the work (canary task "..." --kind ...) and re-verify; omitting registration is not a way through §10, it is exactly what makes §10 unprovable.' });
+  }
   const obList = obligations.map((x) => ({ id: x.id, mode: x.mode, status: x.status, note: x.note }));
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {

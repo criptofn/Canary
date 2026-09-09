@@ -20,6 +20,12 @@
  * directly: attribution of committed test deletions and renames-out, and the
  * fail-safe to UNATTRIBUTABLE (never a false `met`) when the baseHead probe
  * cannot answer.
+ *
+ * M10.1 (GLM F4) adds a real-git CLI law table: F4-A..G pin the task-obligation
+ * AUTHORITY on this product surface — zero registered kinds is NOT PROVEN,
+ * never PASS; promotion locked; an honest registration still reaches PASS and
+ * ACCEPTED; the gate cannot be opened by env var or flag; precedence stays
+ * fail > unmet > unproven > pass.
  * NO PROOF, NO DONE.
  */
 import assert from 'node:assert/strict';
@@ -371,6 +377,167 @@ try {
     const ob = obligationsFor(['bugfix'], sig, new Set(['tests']), 0);
     assert.equal(ob.find((x) => x.id === 'regression-evidence')!.status, 'met');
     assert.equal(ob.find((x) => x.id === 'tests-green')!.status, 'met', 'the sealed plan ran a tests step green — the engine says met');
+  });
+
+  // ================= M10.1 (GLM F4): the task-obligation authority =========
+  // The audit's strongest agent move was to register NOTHING: the ladder
+  // derived its duties from registered kinds, so a taskless candidate derived
+  // zero obligations and a green sealed plan was the whole verdict. The law
+  // table F4-A..G, on real git through the product CLI (the end-to-end story
+  // incl. promotion is owned by tooling/probes/m10-f4-bypass-repro.mjs and
+  // S12 of the M10 probe):
+  //   A no task + green plan → NOT PROVEN, authority named as [task-authority]
+  //   B promotion locked: gate 1 refuses, zero promotion bundles, base unmoved
+  //   C registered task with MET obligations still reaches PASS and ACCEPTED
+  //   D registered-but-wrong duty still costs (bugfix without a test)
+  //   E an objective violation still BLOCKS — unmet outranks the new unproven
+  //   F no knob: an env var or flag cannot restore what registration must give
+  //   G precedence stays fail > unmet > unproven > pass with the gate in play
+  function gitAt(dir: string, ...args: string[]): string {
+    const r = spawnSync('git', ['-C', dir, ...args], { encoding: 'utf8', timeout: 60_000 });
+    assert.equal(r.status, 0, `git ${args.join(' ')} in ${dir}: ${r.stderr}`);
+    return r.stdout.trim();
+  }
+  function f4Repo(name: string): string {
+    const root = path.join(TMP, name);
+    fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+    // 'test' (green at setup; red once the candidate commits red.flag) seals
+    // as plan kind 'tests' — the ladder floor is a REAL green plan.
+    fs.writeFileSync(path.join(root, 'check.cjs'), "const fs = require('node:fs');\nprocess.exit(fs.existsSync('red.flag') ? 1 : 0);\n");
+    fs.writeFileSync(path.join(root, 'tests', 'keep.test.js'), 'test();\n');
+    fs.writeFileSync(path.join(root, 'src', 'a.js'), '1\n');
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(
+      { name, private: true, scripts: { test: 'node check.cjs' } }, null, 2));
+    gitAt(root, 'init', '-b', 'main'); gitAt(root, 'config', 'user.email', 't@t'); gitAt(root, 'config', 'user.name', 't');
+    gitAt(root, 'add', '-A'); gitAt(root, 'commit', '-m', 'base');
+    const s = canary(['setup', '--yes', root], root);
+    assert.equal(s.status, 0, `setup failed: ${s.stdout}${s.stderr}`);
+    return root;
+  }
+  function f4Candidate(root: string, mutate: (c: string) => void): string {
+    const name = 'f1';
+    const i = canary(['isolate', name, root], root);
+    assert.equal(i.status, 0, `isolate failed: ${i.stdout}${i.stderr}`);
+    const c = path.join(root, '.canary', 'candidates', name);
+    mutate(c);
+    gitAt(c, 'add', '-A'); gitAt(c, 'commit', '-m', 'candidate work');
+    return name;
+  }
+  const f4Verify = (root: string) => canary(['isolate', '--verify', 'f1', root], root);
+  const f4Promote = (root: string) => canary(['isolate', '--promote', 'f1', root], root);
+  const f4Task = (root: string, ...args: string[]) => {
+    const t = canary(['task', ...args], root);
+    assert.equal(t.status, 0, `task failed: ${t.stdout}${t.stderr}`);
+  };
+  const f4Bundle = (root: string) => candBundles(root).at(-1)!;
+  const f4Obs = (b: Record<string, unknown>) => (b.obligations ?? []) as { id: string; mode: string; status: string; note: string }[];
+  const promBundles = (root: string) => {
+    const d = path.join(root, '.canary', 'evidence');
+    return fs.existsSync(d) ? fs.readdirSync(d).filter((x) => x.endsWith('-promotion')) : [];
+  };
+
+  test('F4-A: no registered task + green sealed plan → CANDIDATE NOT PROVEN, never PASS; the missing authority is named', () => {
+    const root = f4Repo('f4-a');
+    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'src', 'tweak.js'), 'behavior-preserving\n'));
+    const r = f4Verify(root);
+    assert.equal(r.status, 2, `taskless must not exit 0:\n${r.stdout}`);
+    assert.match(r.stdout, /CANDIDATE NOT PROVEN/, 'the verdict is NOT PROVEN');
+    assert.ok(!/CANDIDATE PASS|ELIGIBLE for promotion/.test(r.stdout), 'no PASS, no eligibility wording');
+    assert.match(r.stdout, /obligation \[task-authority\] UNPROVEN \(objective\)/, 'the authority duty is named');
+    assert.match(r.stdout, /canary task/, 'the note points at the honest path — register the work');
+    const b = f4Bundle(root);
+    assert.equal(b.status, 'unproven', 'honest unproven bundle');
+    const ta = f4Obs(b).find((x) => x.id === 'task-authority');
+    assert.ok(ta && ta.status === 'unproven' && ta.mode === 'objective', 'bundle carries the authority obligation');
+    assert.match(ta.note, /canary task/, 'the recovery path is in the bundle bytes');
+    const steps = b.steps as { ok: boolean }[];
+    assert.equal(steps.length, 1, 'the green executed step still rides the bundle');
+    assert.ok(steps[0]!.ok, 'the step was green — what failed is the AUTHORITY, not the plan');
+  });
+
+  test('F4-B: promotion of a taskless candidate is locked — gate 1 refuses, zero promotion bundles, base unmoved', () => {
+    const root = f4Repo('f4-b');
+    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'src', 'tweak.js'), 'behavior-preserving\n'));
+    assert.equal(f4Verify(root).status, 2, 'precondition: verify refuses');
+    const headBefore = gitAt(root, 'rev-parse', 'HEAD');
+    const p = f4Promote(root);
+    assert.equal(p.status, 2, `promote must ride the NOT PROVEN verdict:\n${p.stdout}`);
+    assert.ok(!/PROMOTED|ALREADY APPLIED|ACCEPTED/.test(p.stdout), 'no apply wording, ever');
+    assert.deepEqual(promBundles(root), [], 'a gate-1 refusal is not an act — zero promotion bundles');
+    assert.equal(gitAt(root, 'rev-parse', 'HEAD'), headBefore, 'the trusted base did not move');
+  });
+
+  test('F4-C: a registered task whose obligations are all MET still reaches PASS and ACCEPTED promotion (the gate must not shout at innocence)', () => {
+    const root = f4Repo('f4-c');
+    f4Task(root, 'behavior-preserving restructure', '--kind', 'refactor');
+    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'src', 'tweak.js'), 'behavior-preserving\n'));
+    const r = f4Verify(root);
+    assert.equal(r.status, 0, `honest registration must PASS:\n${r.stdout}`);
+    assert.match(r.stdout, /CANDIDATE PASS/, 'PASS verdict');
+    assert.ok(!/task-authority/.test(r.stdout), 'a registered candidate never hears the authority gate');
+    const p = f4Promote(root);
+    assert.equal(p.status, 0, `promote must apply a proven candidate:\n${p.stdout}`);
+    assert.match(p.stdout, /ACCEPTED/, 'the act is evidenced');
+    assert.equal(f4Bundle(root).status, 'pass', 'pass bundle');
+  });
+
+  test('F4-D: registration is not a mask — a bugfix without regression evidence stays NOT PROVEN on its real duty, authority gate silent', () => {
+    const root = f4Repo('f4-d');
+    f4Task(root, 'fix the crash', '--kind', 'bugfix');
+    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'src', 'fix.js'), 'no test added\n'));
+    const r = f4Verify(root);
+    assert.equal(r.status, 2, `bugfix without a test must not PASS:\n${r.stdout}`);
+    assert.match(r.stdout, /CANDIDATE NOT PROVEN/, 'NOT PROVEN verdict');
+    assert.match(r.stdout, /obligation \[regression-evidence\] UNPROVEN/, 'named on its actual duty');
+    assert.ok(!/task-authority/.test(r.stdout), 'with kinds registered the authority gate stands down');
+    assert.ok(!f4Obs(f4Bundle(root)).some((x) => x.id === 'task-authority'), 'and it is absent from the bundle too');
+  });
+
+  test('F4-E: an objective violation still BLOCKS while taskless — unmet outranks the new unproven duty', () => {
+    const root = f4Repo('f4-e');
+    f4Candidate(root, (c) => {
+      fs.rmSync(path.join(c, 'tests', 'keep.test.js'));
+      fs.writeFileSync(path.join(c, 'src', 'a.js'), '2\n');
+    });
+    const r = f4Verify(root);
+    assert.equal(r.status, 2, `violated coverage must block:\n${r.stdout}`);
+    assert.match(r.stdout, /CANDIDATE BLOCKED — the sealed/, 'BLOCKED, not NOT PROVEN — the violation outranks the missing authority');
+    assert.match(r.stdout, /obligation \[coverage-loss\] UNMET/, 'the violation is named');
+    const obs = f4Obs(f4Bundle(root));
+    assert.equal(obs.find((x) => x.id === 'coverage-loss')!.status, 'unmet', 'violation rides the bundle');
+    assert.ok(obs.some((x) => x.id === 'task-authority' && x.status === 'unproven'), 'the authority duty rides too — visible, but not deciding');
+  });
+
+  test('F4-F: no knob opens it — an env var and an unknown flag cannot restore the authority that registration must give', () => {
+    const root = f4Repo('f4-f');
+    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'src', 'tweak.js'), 'behavior-preserving\n'));
+    const withEnv = spawnSync(process.execPath,
+      [CLI, 'isolate', '--verify', 'f1', root],
+      { cwd: root, encoding: 'utf8', timeout: 120_000, env: { ...process.env, CANARY_NO_TASK_OK: '1', CANARY_SKIP_TASK_AUTHORITY: '1' } });
+    assert.equal(withEnv.status, 2, `an env var must be inert:\n${withEnv.stdout}`);
+    assert.match(withEnv.stdout, /CANDIDATE NOT PROVEN/, 'and the verdict is unchanged');
+    const withFlag = canary(['isolate', '--verify', 'f1', root, '--no-task-ok'], root);
+    assert.notEqual(withFlag.status, 0, 'an invented flag cannot reach PASS either');
+    assert.ok(!/CANDIDATE PASS|ELIGIBLE for promotion/.test(withFlag.stdout), 'no PASS through any knob');
+  });
+
+  test('F4-G: precedence holds with the gate in play — fail > unmet > unproven(taskless) > pass', () => {
+    // fail beats everything: red plan while an unmet violation also stands
+    const red = f4Repo('f4-g-red');
+    f4Task(red, 'restructure', '--kind', 'refactor');
+    f4Candidate(red, (c) => {
+      fs.writeFileSync(path.join(c, 'red.flag'), 'red\n');
+      fs.rmSync(path.join(c, 'tests', 'keep.test.js'));
+    });
+    const rf = f4Verify(red);
+    assert.equal(rf.status, 2, `red plan:\n${rf.stdout}`);
+    assert.match(rf.stdout, /CANDIDATE FAIL/, 'FAIL outranks the violation read');
+    const obR = f4Obs(f4Bundle(red));
+    assert.equal(obR.find((x) => x.id === 'coverage-loss')!.status, 'unmet', 'the violation still rides the FAIL bundle (M11 fuel)');
+    // unmet beats unproven is F4-E; unproven beats pass is F4-A; pass needs a
+    // registered met candidate (F4-C) — the full chain is pinned leg by leg.
   });
 } finally {
   fs.rmSync(TMP, { recursive: true, force: true });

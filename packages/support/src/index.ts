@@ -86,6 +86,28 @@ export function sanitizedEnvKeys(env: NodeJS.ProcessEnv): string[] {
   return Object.keys(env).sort();
 }
 
+/**
+ * R2 host-neutrality: resolve the npm BUNDLED WITH THE RUNNING node, not some
+ * npm found on PATH. Two real install layouts exist: the Windows/audit-host
+ * layout (the directory containing the node executable carries
+ * node_modules/npm) and the POSIX prefix layout (bin/node belongs to
+ * <prefix>, whose npm lives at <prefix>/lib/node_modules/npm). Probing order
+ * is legacy-first, so hosts that already resolved the old way keep resolving
+ * to the SAME byte-for-byte path. PATH and env are never consulted: an
+ * untrusted shell must not be able to steer which npm Canary samples.
+ * Returns null when NO bundled npm exists — callers must fail or skip
+ * explicitly, never record an empty sample as if it were a measurement.
+ */
+export function resolveNpmCli(): string | null {
+  const nodeDir = path.dirname(process.execPath);
+  const candidates = [
+    path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    path.join(nodeDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  for (const c of candidates) if (fs.existsSync(c)) return c;
+  return null;
+}
+
 export interface RunOptions {
   ws: WorkspaceLayout;
   nodeDir: string;

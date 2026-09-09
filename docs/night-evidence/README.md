@@ -32,3 +32,15 @@ of the same commit contained **none** of the cited evidence.
   logs. Index: `2026-09-05-F6/DONE` and
   `docs/NIGHT-F6-HARDENING-2026-09-05.md` (errata section records what was
   wrong in attempt 1).
+- `2026-09-06-productization/` — productization workbench night
+  (commit `2b72cc4`): clean-room runs (including the lazy-vibecoder
+  post-fix log), full-suite before/after logs, and the HTG inline-classifier
+  pre-fix/post-fix evidence. No prose report accompanies it; the logs speak
+  for themselves.
+- `2026-09-09-m10-1-hardening/` — M10.1 hardening (F4 taskless-obligation
+  bypass closure + R1–R5): before-fix `F4-BYPASS: OPEN` repro (attempt-1 and
+  attempt-2 logs kept byte-identical next to the authoritative OPEN run),
+  after-fix CLOSED repro, baseline/intermediate/final suite logs, the M7–M10
+  mutation batteries, per-probe finals, dist sha byte-stability notes, and the
+  `verify:productization` chain log. Report:
+  `docs/NIGHT-M10.1-HARDENING-2026-09-09.md`.

@@ -1,0 +1,2 @@
+6c2fadc80c0cd97b01c0b6d81725eeb2aa84895dfbed80666b331622f335135e  apps/cli/dist/src/candidate.js
+7df5e16aace808aa519f5880195d952367f32ce994d75d58b3aa48d480080361  apps/cli/dist/src/onboarding.js

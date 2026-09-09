@@ -1,0 +1,9 @@
+status after assume-unchanged edit: ""
+ls-files -v raw: "H src.js\nh tests/b.test.js\n"
+  line: "H src.js"
+  line: "h tests/b.test.js"
+  line: ""
+fold regex matches: true
+status after skip-worktree: ""
+fold regex matches (both flags): true
+PASS letters confirmed

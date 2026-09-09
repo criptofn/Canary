@@ -105,7 +105,10 @@
  *      marker by hand (what quarantine closes is the automated laundering))
  *  14d. M10 real-git obligations+intent probe (§10/§11 end to end: the sealed
  *      plan passing is the FLOOR, not the finish — a green plan with a missing
- *      proof obligation is CANDIDATE NOT PROVEN (exit 2, honest 'unproven'
+ *      proof obligation (or with NO obligations at all: M10.1/GLM F4 — zero
+ *      registered task kinds means NO task-obligation authority, so Canary
+ *      refuses to claim completion it cannot judge; see step 14e) is
+ *      CANDIDATE NOT PROVEN (exit 2, honest 'unproven'
  *      bundle that still carries the executed steps) and promotion stays
  *      locked; an objectively violated obligation (committed test deletion)
  *      is CANDIDATE BLOCKED with the obligation named and restore advice
@@ -129,6 +132,16 @@
  *      no half-created candidate; its lying-index premise — --assume-unchanged
  *      prints lowercase and --skip-worktree prints 'S' in git ls-files -v,
  *      both invisible to git status — is pinned by the lsfiles-letters probe)
+ *  14e. M10.1 F4 taskless-bypass repro (the GLM audit's strongest agent move
+ *      — register NOTHING — run end to end and pinned CLOSED: a taskless
+ *      candidate with a green sealed plan is CANDIDATE NOT PROVEN (exit 2,
+ *      obligation [task-authority] UNPROVEN naming the missing authority),
+ *      promotion is locked with zero promotion bundles and the base HEAD
+ *      byte-unchanged; a pre-fix run of this same probe logged the bypass
+ *      OPEN in docs/night-evidence. Positive control in the same probe: the
+ *      honest path (registered bugfix + committed regression test) still
+ *      lands PASS → PROMOTED → ACCEPTED — the gate blocks laundering, not
+ *      work.)
  *  15. M6 real-git probe (a CLEAN setup baseline really can attribute blame;
  *      a green plan + deleted test = BLOCK — worktree, STAGED, or committed —
  *      and the printed restore advice unmutes; renames out of (and staying
@@ -140,14 +153,23 @@
  *      worktree deletions UNPROVEN with an honest premise)
  *  16. clean-room lazy-vibecoder acceptance (one-command full journey)
  *  17. HTG inline-interpreter corpus (real hook autonomy: 0 routine prompts,
- *      every dangerous case still gated) — classification only, nothing runs
+ *      every dangerous case still gated) — classification only, nothing runs.
+ *      R2 host-neutrality: the wrapper under test defaults to the TRACKED
+ *      canonical bytes (not a personal live-hook path); the engine resolves
+ *      via env or the real npm-global layouts and is labeled by source,
+ *      package version and sha256; a layer that cannot reproduce on this
+ *      host exits 3 with explicit SKIP lines — counted as SKIP here, never
+ *      as a PASS, never as a module-not-found crash.
  *  18. packed-artifact clean room (tooling/pack.mjs -> npm pack -> install the
  *      exact .tgz into a spaces-path temp repo; full vibecoder journey through
  *      the installed bundle; tarball audited: no monorepo, no secrets)
  * Brief items 5-7 (setup twice, partial repair, uninstall/reinstall, harness
  * preservation, quoting) are asserted inside steps 2 and 16.
  *
- * Exit code: 0 only when every step passed. NO PROOF, NO DONE.
+ * Exit code: 0 only when every step passed OR ended in an explicit,
+ * listed host-bound SKIP (headline then says PASS WITH HOST-BOUND SKIP —
+ * a skip is never counted into a 25/25-style pass claim); 1 on any FAIL or
+ * an aborted chain. NO PROOF, NO DONE.
  */
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -177,27 +199,47 @@ const STEPS = [
   ['probe: M8 promotion (real git)', process.execPath, ['tooling/probes/m8-promotion.mjs'], {}],
   ['probe: M9 authority guard (real git)', process.execPath, ['tooling/probes/m9-authority.mjs'], {}],
   ['probe: M10 obligations + intent (real git)', process.execPath, ['tooling/probes/m10-obligations.mjs'], {}],
+  ['probe: M10.1 F4 taskless-bypass repro (real git)', process.execPath, ['tooling/probes/m10-f4-bypass-repro.mjs'], {}],
   ['probe: M10 lying-index letters (git premise)', process.execPath, ['tooling/probes/m10-lsfiles-letters.mjs'], {}],
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
   ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],
 ];
 
-const results = [];
+// R4 honest evidence: three per-step states, never collapsed. A probe may
+// signal exit 3 = "passed what THIS host could run, with explicit host-bound
+// SKIP lines" (see htg-inline-interpreter-corpus.mjs) — that is NOT a PASS
+// and is never counted as one; the SKIP lines are echoed into the summary.
+// Exit code contract: 0 = zero failures (all PASS, or PASS + listed
+// host-bound SKIPs — the headline distinguishes); 1 = any FAIL or a step
+// aborted mid-chain so later steps judged stale bytes.
+const SKIP_AWARE = new Set(['probe: HTG inline-interpreter corpus']);
+const results = []; // [label, 'PASS'|'SKIP'|'FAIL', note]
 for (const [label, cmd, args] of STEPS) {
   console.log(`\n=== ${label} ===`);
   const r = spawnSync(cmd, args, { cwd: CANARY, encoding: 'utf8', shell: SH && cmd === 'npm', timeout: 900_000, maxBuffer: 64 * 1024 * 1024 });
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
   const tail = out.split(/\r?\n/).filter(Boolean).slice(-25).join('\n');
   console.log(tail);
-  const ok = r.status === 0;
-  results.push([label, ok]);
-  if (!ok) console.log(`(exit ${r.status}${r.error ? `: ${r.error.message}` : ''})`);
-  if (!ok && label.startsWith('build')) break; // later steps judge stale bytes — stop honestly
+  const skipLines = SKIP_AWARE.has(label)
+    ? out.split(/\r?\n/).filter((l) => l.startsWith('SKIP')).map((l) => l.slice(0, 140))
+    : [];
+  const verdict = r.status === 0 ? 'PASS' : (SKIP_AWARE.has(label) && r.status === 3 ? 'SKIP' : 'FAIL');
+  results.push([label, verdict, verdict === 'SKIP' ? `host-bound: ${skipLines.length} explicit SKIP(s)` : (verdict === 'FAIL' ? `(exit ${r.status}${r.error ? `: ${r.error.message}` : ''})` : '')]);
+  if (verdict === 'FAIL' && label.startsWith('build')) break; // later steps judge stale bytes — stop honestly
 }
 
 console.log('\n=== VERIFY-PRODUCTIZATION SUMMARY ===');
-for (const [label, ok] of results) console.log(`${ok ? 'PASS' : 'FAIL'}  ${label}`);
-const failed = results.filter(([, ok]) => !ok).length;
-console.log(failed ? `VERIFY-PRODUCTIZATION: FAIL (${failed}/${STEPS.length} steps failed or skipped after failure)` : 'VERIFY-PRODUCTIZATION: PASS (all steps green)');
-process.exit(failed ? 1 : 0);
+for (const [label, verdict, note] of results) console.log(`${verdict}  ${label}${note ? `  — ${note}` : ''}`);
+const failed = results.filter(([, v]) => v === 'FAIL').length;
+const skipped = results.filter(([, v]) => v === 'SKIP').length;
+const passed = results.filter(([, v]) => v === 'PASS').length;
+const incomplete = results.length < STEPS.length && !failed; // build aborted early
+if (failed || incomplete) {
+  console.log(`VERIFY-PRODUCTIZATION: FAIL (${failed} step(s) failed${incomplete ? '; chain aborted before all steps ran' : ''} of ${STEPS.length})`);
+} else if (skipped) {
+  console.log(`VERIFY-PRODUCTIZATION: PASS WITH HOST-BOUND SKIP (${passed} PASS, ${skipped} SKIP — NOT full ${STEPS.length}/${STEPS.length} acceptance on this host; the SKIP lines above name what was not reproducible here)`);
+} else {
+  console.log(`VERIFY-PRODUCTIZATION: PASS (${passed}/${STEPS.length} steps green)`);
+}
+process.exit(failed || incomplete ? 1 : 0);

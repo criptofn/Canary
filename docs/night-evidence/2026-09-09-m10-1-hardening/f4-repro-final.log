@@ -1,0 +1,7 @@
+     F4-OBSERVE verify-exit=2 bundle=["unproven","unproven"]
+     F4-OBSERVE promote-exit=2 promotion-bundles=[] base-moved=false applied=false
+PASS f4-leg1: taskless testless candidate runs verify+promote end to end (observations recorded)
+PASS f4-leg1-closed: verify is NOT PROVEN with the missing-authority obligation named
+PASS f4-leg1-closed: promotion is locked — zero promotion bundles, base HEAD byte-unchanged
+PASS f4-leg2 positive control: registered bugfix + committed regression test → PASS → promote ACCEPTED
+F4-BYPASS: CLOSED — taskless candidates can no longer reach PASS or promotion; the honest path still lands (M10-f4-repro: ALL PASS)

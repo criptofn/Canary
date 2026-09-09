@@ -1,0 +1,9 @@
+
+> canary-reliability-network@0.0.0 build
+> tsc -b
+
+npm notice
+npm notice New major version of npm available! 11.19.0 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice

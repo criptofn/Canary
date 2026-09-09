@@ -17,7 +17,7 @@ import {
 import { sha256File } from '@canary-rn/hashing';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
 import { classify, applyConfinementGuard, type ExecutionObservation, type RoundFact } from '@canary-rn/classification';
-import { sanitizedEnv, sanitizedEnvKeys, KNOWN_RUNNER_RELEASES, type WorkspaceLayout } from '@canary-rn/support';
+import { sanitizedEnv, sanitizedEnvKeys, resolveNpmCli, KNOWN_RUNNER_RELEASES, type WorkspaceLayout } from '@canary-rn/support';
 import { deriveArmTreeFacts } from './verify-tree.js';
 
 export interface SummaryExpectation { passing: number; failing?: number | undefined }
@@ -121,7 +121,14 @@ export interface AssertionResult {
  */
 export function actualHostFingerprint(): HostFingerprint {
   const nodeDir = path.dirname(process.execPath);
-  const npmCli = path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  // R2 host-neutrality: probe both bundled-npm layouts (Windows exe-dir and
+  // POSIX prefix lib/); never PATH. Absent on both → throw (callers treat an
+  // unsamplable host as INCOMPLETE, never as a pass) — no empty sample rides
+  // a bundle pretending to be a measurement.
+  const npmCli = resolveNpmCli();
+  if (!npmCli) {
+    throw new Error(`cannot sample npm: no bundled npm-cli.js under ${nodeDir}/node_modules/npm or ${path.join(nodeDir, '..', 'lib', 'node_modules', 'npm')}`);
+  }
   const npmVersion = execFileSync(process.execPath, [npmCli, '--version'], {
     encoding: 'utf8', shell: false, timeout: 60_000, windowsHide: true,
     env: sanitizedEnv({ ws: { root: os.tmpdir(), fixture: process.cwd() }, nodeDir }),
@@ -758,9 +765,11 @@ export interface TrustedRunSpec {
   commands: { test: string[]; [k: string]: unknown };
 }
 
-/** Same npm-CLI resolution the pipeline itself uses (dirname of the running node). */
+/** Same npm-CLI resolution the pipeline itself uses (both bundled layouts,
+ *  legacy exe-dir first — see resolveNpmCli). */
 const proofNpmCli = (): string =>
-  path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  resolveNpmCli()
+  ?? path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
 
 /** Mirror of the pipeline's resolveBin over the RETAINED fixture install. */
 function fixtureResolveBin(fixtureDir: string): (pkg: string, key?: string) => string {

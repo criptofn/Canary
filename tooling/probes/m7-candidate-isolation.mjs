@@ -70,6 +70,17 @@ function makeRepo(name) {
   git(root, 'commit', '-m', 'initial');
   const s = canary(['setup', '--yes', root], root);
   assert(s.status === 0, `setup failed: ${s.stdout}\n${s.stderr}`);
+  // M10.1 (GLM F4 close): §10 at the candidate boundary no longer PROVES
+  // completion without task-obligation authority — a taskless record with the
+  // intent snapshot is NOT PROVEN (tooling/probes/m10-f4-bypass-repro.mjs
+  // owns that law). Every candidate this probe passes is behavior-preserving
+  // work under a sealed test plan, so REFACTOR is its honest description —
+  // and registration adds only obligations this fixture already METS
+  // (tests-green via the sealed 'test' step, coverage-loss via a resolvable
+  // diff without deletions). It lifts no floor: block scenarios die before
+  // the ladder and cannot be masked by a declaration.
+  const t = canary(['task', 'behavior-preserving probe change', '--kind', 'refactor'], root);
+  assert(t.status === 0, `task registration failed: ${t.stdout}\n${t.stderr}`);
   return root;
 }
 const candPath = (root, name, custom) => custom ?? path.join(root, '.canary', 'candidates', name);

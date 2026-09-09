@@ -111,6 +111,19 @@ function bundles(root, suffix) {
     .map((x) => JSON.parse(fs.readFileSync(path.join(d, x, 'verification.json'), 'utf8')));
 }
 const latestCandidate = (root) => { const bs = bundles(root, '-candidate'); assert(bs.length > 0, 'no candidate bundle'); return bs.at(-1); };
+// M10.1 (GLM F4 close): §10 refuses to PROVE a candidate that has no
+// task-obligation authority, so the PASS legs of this probe register their
+// behavior-preserving .m9mode commit honestly as REFACTOR (adds only
+// obligations already MET: tests-green via the sealed 'test' plan step,
+// coverage-loss via a resolvable diff without deletions). The drift repos
+// deliberately stay taskless: their verdicts die at the §9 mandate BEFORE
+// the ladder, and the mode='task' drift asserts the task file is ABSENT
+// before the window — a registration would break that premise, proving
+// precisely that this file is authority Canary fingerprints.
+function registerRefactor(root) {
+  const t = canary(['task', 'behavior-preserving probe change', '--kind', 'refactor'], root);
+  assertEq(t.status, 0, `task registration failed: ${t.stdout}\n${t.stderr}`);
+}
 function verifyExpectingMandate(root, name, ownFile, whenRe) {
   const r = canary(['isolate', '--verify', name, root], root);
   assertEq(r.status, 2, `${ownFile}: authority write must exit 2 — got ${r.status}:\n${r.stdout}`);
@@ -132,6 +145,7 @@ function verifyExpectingMandate(root, name, ownFile, whenRe) {
 try {
   // ============ S1: positive control — the guard must NOT shout ============
   const ok = makeRepo('control');
+  registerRefactor(ok); // M10.1 — the PASS it asserts needs task-obligation authority
   check('positive control: untouched authority verifies CANDIDATE PASS, zero §9 lines', () => {
     isolateWithMode(ok, 'g1', 'none');
     const r = canary(['isolate', '--verify', 'g1', ok], ok);
@@ -179,6 +193,7 @@ try {
 
   // ============ S7: containment pre-gate — stripped OUTSIDE the window ============
   const pre = makeRepo('pregate');
+  registerRefactor(pre); // M10.1 — the recovery PASS it asserts needs task-obligation authority
   check('stripped harness entry before execution → §9 (containment pre-gate); restore recovers PASS', () => {
     isolateWithMode(pre, 'g3', 'none');
     const settings = path.join(pre, '.claude', 'settings.json');

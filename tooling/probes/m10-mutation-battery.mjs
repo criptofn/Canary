@@ -10,14 +10,16 @@
  * is a branch no check actually pins. Exit 0 only when every mutation was
  * caught. NO PROOF, NO DONE.
  *
- * 19 mutations: 1–2 pin the record-write freeze (snapshot + task); 3–8 pin
+ * 20 mutations: 1–2 pin the record-write freeze (snapshot + task); 3–8 pin
  * the guard arms (drop, re-seal, kind/requirement shrink, intentEvent bytes);
  * 9–12 pin the ladder (unmet branch, unproven branch, unproven's honest
  * status, obligations riding every bundle — incl. the FAIL arm); 13–15 pin
  * the obligation ENGINE in onboarding.js (regression evidence, tests-green,
  * attributable deletion); 16–19 pin the review-round gates (lying-index fold
  * into dirty, the suffix-surviving rename escape, pre-window signal capture,
- * the clean-at-birth isolate assert). Mutation 5/7 INVERT rather than delete —
+ * the clean-at-birth isolate assert); 20 pins the M10.1 TASK-AUTHORITY gate
+ * (GLM F4) — removing it re-opens the taskless bypass and S12 goes PASS.
+ * Mutation 5/7 INVERT rather than delete —
  * a guard that shouts at innocence fails the positive control, which is the
  * same evidence that the comparison is load-bearing.
  *
@@ -92,6 +94,9 @@ const MUTS = [
     search: 'obligationsFor(task?.kinds ?? [], sig,', replace: 'obligationsFor(task?.kinds ?? [], candidateDiffSignals(rec.root, rec.baseHead),', count: 1, own: 'S10' },
   { id: 'isolate asserts the worktree is provably CLEAN at birth, not just the right commit (correctness isolate post-check)', file: CAND,
     search: 'if (!cid.resolved || cid.head !== sha || cid.dirty) {', replace: 'if (!cid.resolved || cid.head !== sha) {', count: 1, own: 'S11' },
+  // --- M10.1 (GLM F4): the task-obligation authority ---
+  { id: 'a taskless intent-bearing record is NOT PROVEN for missing authority — remove it and the F4 bypass re-opens (S12 taskless goes PASS)', file: CAND,
+    search: 'if (rec.intent && !(task?.kinds.length ?? 0) && !(rec.intent.task?.kinds.length ?? 0)) {', replace: 'if (false) {', count: 1, own: 'S12' },
 ];
 
 function runProbe(m) {

@@ -6,12 +6,15 @@ import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
 
 import { Recorder, roundEvidence, hasRunnerSummary, isInfraOutput, hasCrashSignature, pmArgvPolicy, assertCanonicalPmForm, assertSupportedSpecExecutable, NPM_REGISTRY_PIN, SPEC_LITERAL_EXECUTABLES, NPM_PROTECTED_CONFIG_KEYS, NPM_INSTALL_OPTION_ALLOW, YARN_PROTECTED_CONFIG_KEYS, YARN_INSTALL_OPTION_ALLOW, resolveOptionToken, observerPreloadPath, OBSERVER_PRELOAD_SOURCE, type ExpansionPlan } from '../src/index.js';
-import { sanitizedEnv, sanitizedEnvKeys, KNOWN_RUNNER_RELEASES } from '@canary-rn/support';
+import { sanitizedEnv, sanitizedEnvKeys, resolveNpmCli, KNOWN_RUNNER_RELEASES } from '@canary-rn/support';
 import { classify, type RoundFact } from '@canary-rn/classification';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
 
 const NODE = process.execPath;
 const NODE_DIR = path.dirname(NODE);
+// R2 host-neutrality: same bundled-npm resolution the product uses (both
+// layouts, legacy exe-dir first). Fallback keeps absence loud, not fake.
+const NPM_CLI = resolveNpmCli() ?? path.join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js');
 
 const armBase = (round = 1): RoundFact => ({
   arm: 'baseline', round, exitCode: 0, hasRunnerSummary: true, infraSignal: false, reportedPassing: 5,
@@ -1275,7 +1278,7 @@ describe('post-sol RB-1 — semantic package-manager policy (equivalence classes
   // ---- 7. The empirical premises (executed against the host npm; skipped
   // when no local npm-cli). These pin WHY the textual denylist failed: npm
   // itself applies abbreviations, negations, and last-wins ordering. ----
-  const hostNpmCli = path.join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  const hostNpmCli = NPM_CLI;
   const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-rb1-'));
   const spawnProbe = (args: string[]): string => {
     const r = spawnSync(process.execPath, [hostNpmCli, ...args], {

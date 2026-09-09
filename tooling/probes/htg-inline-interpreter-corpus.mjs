@@ -21,15 +21,57 @@
  * (the hook's path rule treats text as data — same category of concern
  * this probe exists to fix, from the other side).
  *
- * Run BEFORE and AFTER a classifier change. Exit 0 only when everything
- * passed. Fixtures: none — classification is pure.
+ * R2 host-neutrality (M10.1, GLM): NO builder-host absolute path is an
+ * authoritative default. Resolution order is explicit and printed:
+ *   wrapper: HTG_WRAPPER env → the TRACKED canonical bytes
+ *            (tooling/hooks/holdthegoblin-pretooluse-local.mjs — on the
+ *            builder host byte-identical to the live hook, pinned by
+ *            hook-policy-test's STRUCT drift check, so this is the SAME
+ *            evidence, delivered in-repo).
+ *   engine:  HTG_RISK_JS env → the npm-global layouts a host really has
+ *            (exe-dir, POSIX prefix lib/, win32 %APPDATA%/npm). PATH and
+ *            personal home dirs are never consulted.
+ * A genuinely host-bound component that cannot resolve is an EXPLICIT
+ * SKIP with a human-readable reason — never a module-not-found stack,
+ * never a pass. The engine the corpus runs against is named by path,
+ * package version and sha256; a resolved engine that predates the
+ * inline-interpreter classifier (no scanInlineInterpreter export) gates
+ * OFF the classifier-owned layers rather than failing them — that is the
+ * host's artifact mismatch, not the product's.
+ *
+ * Run BEFORE and AFTER a classifier change. Exit codes: 0 = every layer
+ * reproduced and passed (full acceptance); 3 = passed-with-explicit
+ * host-bound SKIP(s) (NOT full acceptance — the SKIP lines say what was
+ * not reproducible here); 1 = a real failure. Fixtures: none —
+ * classification is pure.
  */
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
-const WRAPPER = process.env.HTG_WRAPPER || 'C:/Users/Johannes/.claude/hooks/holdthegoblin-pretooluse-local.mjs';
-const RISK_JS = process.env.HTG_RISK_JS || 'C:/Users/Johannes/AppData/Roaming/npm/node_modules/holdthegoblin/dist/src/core/risk.js';
-const CANARY = 'C:/Users/Johannes/Desktop/canary-observation-hardening';
+const REPO = path.resolve(import.meta.dirname, '..', '..');
+const WRAPPER = process.env.HTG_WRAPPER
+  || path.join(REPO, 'tooling', 'hooks', 'holdthegoblin-pretooluse-local.mjs');
+const CANARY = REPO;
+
+function resolveRiskEngine() {
+  const nodeDir = path.dirname(process.execPath);
+  const candidates = [];
+  if (process.env.HTG_RISK_JS) candidates.push(['HTG_RISK_JS env', process.env.HTG_RISK_JS]);
+  candidates.push(
+    ['npm-global(exe-dir)', path.join(nodeDir, 'node_modules', 'holdthegoblin', 'dist', 'src', 'core', 'risk.js')],
+    ['npm-global(prefix-lib)', path.join(nodeDir, '..', 'lib', 'node_modules', 'holdthegoblin', 'dist', 'src', 'core', 'risk.js')],
+  );
+  if (process.platform === 'win32' && process.env.APPDATA) {
+    candidates.push(['npm-global(appdata)', path.join(process.env.APPDATA, 'npm', 'node_modules', 'holdthegoblin', 'dist', 'src', 'core', 'risk.js')]);
+  }
+  for (const [src, p] of candidates) {
+    if (fs.existsSync(p)) return { src, p: path.resolve(p) };
+  }
+  return null;
+}
 
 // Runtime-assembled sensitive path fragments (kept off disk as literals).
 const DOT = '.';
@@ -38,11 +80,56 @@ const PRIVKEY = 'id_e' + 'd25519';
 const NPMRC = `${DOT}npm` + 'rc';
 const ENVFILE = `${DOT}` + 'env';
 
-const risk = await import(pathToFileURL(RISK_JS).href);
-
 let failures = 0;
+let skips = 0;
+const skip = (layer, reason) => { skips += 1; console.log(`SKIP  ${layer}  ${reason}`); };
+
 let routineTotal = 0;
 let routinePrompts = 0;
+
+// ---- engine resolution: explicit source, never a silent substitution ----
+const engine = resolveRiskEngine();
+let risk = null;
+let classifierEngine = false;
+if (!engine) {
+  skip('L1-all', 'risk engine UNAVAILABLE on this host — no HTG_RISK_JS and no npm-global holdthegoblin install found; LAYER 1 skipped, not passed');
+} else {
+  const sha = createHash('sha256').update(fs.readFileSync(engine.p)).digest('hex');
+  let pkgVersion = 'unknown';
+  try {
+    pkgVersion = JSON.parse(fs.readFileSync(path.join(engine.p, '..', '..', '..', '..', 'package.json'), 'utf8')).version;
+  } catch { /* labeling only — never fatal */ }
+  console.log(`L1-ENGINE: source=${engine.src} version=${pkgVersion} sha256=${sha}`);
+  console.log('L1-ENGINE: NOTE host-installed bytes are labeled as such — they are evidence of THIS host, not delivered repo bytes');
+  try {
+    risk = await import(pathToFileURL(engine.p).href);
+    classifierEngine = typeof risk.scanInlineInterpreter === 'function';
+    if (!classifierEngine) {
+      skip('L1-classifier', `resolved engine (holdthegoblin@${pkgVersion}) predates the inline-interpreter classifier this corpus pins (no scanInlineInterpreter export) — classifier-owned layers skipped on these bytes, not failed; the FULL acceptance runs where the delivered engine is installed`);
+    }
+  } catch (e) {
+    skip('L1-all', `resolved engine failed to load (${e?.code ?? e?.name ?? 'error'}) — treated as UNAVAILABLE, never as a pass`);
+    risk = null; classifierEngine = false;
+  }
+}
+
+// ---- wrapper resolution + delegation preflight (no misleading DENY/stack) ----
+let wrapperRunnable = fs.existsSync(WRAPPER);
+if (!wrapperRunnable) {
+  skip('L2-all', `wrapper UNAVAILABLE — HTG_WRAPPER unset/unresolvable and the tracked canonical copy is missing: ${WRAPPER}`);
+} else {
+  // The wrapper delegates everything it cannot locally prove to the installed
+  // HoldTheGoblin CLI. If that delegate target cannot exist on this host the
+  // wrapper fails closed to DENY — measuring DENYs there would test the
+  // sandbox, not the hook policy. Preflight the delegate path from the bytes.
+  const wsrc = fs.readFileSync(WRAPPER, 'utf8');
+  const m = /const CLI =\s*'([^']+)'/.exec(wsrc);
+  const cliPath = m ? m[1].replace(/\\\\/g, '/').replace(/\\/g, '/') : null;
+  if (!cliPath || !fs.existsSync(cliPath)) {
+    skip('L2-all', `wrapper (source: ${WRAPPER}) delegates to a host-bound HoldTheGoblin CLI that is absent here (${cliPath ?? 'unparseable CLI constant'}) — LAYER 2 skipped, not passed; full acceptance runs on the host where the live hook is deployed`);
+    wrapperRunnable = false;
+  }
+}
 const check = (layer, label, cond, detail = '') => {
   if (cond) console.log(`PASS  ${layer}  ${label}`);
   else { failures += 1; console.log(`FAIL  ${layer}  ${label}${detail ? `  <<${detail}>>` : ''}`); }
@@ -250,31 +337,36 @@ const DANGEROUS = [
 
 const INLINE_REASON = /inline interpreter/i;
 console.log('--- LAYER 1: risk engine (evaluateCommandRisk) ---');
-for (const cmd of FP_ALLOW) {
-  const r = risk.evaluateCommandRisk(cmd);
-  check('L1-fp', `allow: ${cmd.slice(0, 70)}`, r.decision === 'allow', `${r.decision}: ${r.reason}`);
+// KEEP_* classes predate the classifier and must hold on ANY engine.
+if (risk) {
+  for (const cmd of KEEP_ASK) {
+    const r = risk.evaluateCommandRisk(cmd);
+    check('L1-keep-ask', `ask: ${cmd.slice(0, 70)}`, r.decision === 'ask', `${r.decision}: ${r.reason}`);
+  }
+  for (const e of KEEP_DENY) {
+    const r = risk.evaluateCommandRisk(run(e));
+    check('L1-keep-deny', `deny: ${disp(e)}`, r.decision === 'deny', `${r.decision}: ${r.reason}`);
+  }
 }
-for (const cmd of TRUE_INLINE_ASK) {
-  const r = risk.evaluateCommandRisk(cmd);
-  check('L1-inline', `ask: ${cmd.slice(0, 70)}`, r.decision === 'ask' && INLINE_REASON.test(r.reason), `${r.decision}: ${r.reason}`);
-}
-for (const cmd of STRUCTURE_ASK) {
-  const r = risk.evaluateCommandRisk(cmd);
-  check('L1-structure', `ask: ${cmd.slice(0, 70)}`, r.decision === 'ask', `${r.decision}: ${r.reason}`);
-}
-for (const cmd of EVASION_ASK) {
-  const r = risk.evaluateCommandRisk(cmd);
-  check('L1-evasion', `ask: ${cmd.slice(0, 70)}`, r.decision === 'ask', `${r.decision}: ${r.reason}`);
-}
-for (const cmd of KEEP_ASK) {
-  const r = risk.evaluateCommandRisk(cmd);
-  check('L1-keep-ask', `ask: ${cmd.slice(0, 70)}`, r.decision === 'ask', `${r.decision}: ${r.reason}`);
-}
-for (const e of KEEP_DENY) {
-  const r = risk.evaluateCommandRisk(run(e));
-  check('L1-keep-deny', `deny: ${disp(e)}`, r.decision === 'deny', `${r.decision}: ${r.reason}`);
-}
-if (typeof risk.scanInlineInterpreter === 'function') {
+// Classifier-owned layers — gated so a pre-classifier engine is an explicit
+// SKIP, not a wall of spurious FAILs and never a silent pass.
+if (risk && classifierEngine) {
+  for (const cmd of FP_ALLOW) {
+    const r = risk.evaluateCommandRisk(cmd);
+    check('L1-fp', `allow: ${cmd.slice(0, 70)}`, r.decision === 'allow', `${r.decision}: ${r.reason}`);
+  }
+  for (const cmd of TRUE_INLINE_ASK) {
+    const r = risk.evaluateCommandRisk(cmd);
+    check('L1-inline', `ask: ${cmd.slice(0, 70)}`, r.decision === 'ask' && INLINE_REASON.test(r.reason), `${r.decision}: ${r.reason}`);
+  }
+  for (const cmd of STRUCTURE_ASK) {
+    const r = risk.evaluateCommandRisk(cmd);
+    check('L1-structure', `ask: ${cmd.slice(0, 70)}`, r.decision === 'ask', `${r.decision}: ${r.reason}`);
+  }
+  for (const cmd of EVASION_ASK) {
+    const r = risk.evaluateCommandRisk(cmd);
+    check('L1-evasion', `ask: ${cmd.slice(0, 70)}`, r.decision === 'ask', `${r.decision}: ${r.reason}`);
+  }
   const SCAN = [
     ['clean', `echo "node -e x"`], ['clean', `node file.mjs -v`], ['clean', `grep -rn "python -c" src/`],
     ['inline', `node -e "x"`], ['inline', `foo && node -e "x"`], ['inline', `$(node -e "x")`],
@@ -284,8 +376,6 @@ if (typeof risk.scanInlineInterpreter === 'function') {
     const got = risk.scanInlineInterpreter(cmd);
     check('L1-scan', `${want}: ${cmd.slice(0, 60)}`, got === want, got);
   }
-} else {
-  console.log('SKIP  L1-scan  scanInlineInterpreter export (pre-fix engine)');
 }
 
 // ---- layer 2: the REAL effective hook --------------------------------------
@@ -301,24 +391,39 @@ function hookDecision(cmd) {
   } catch { return `unparsable:${out.slice(0, 60)}`; }
 }
 
-console.log('--- LAYER 2: live PreToolUse hook (wrapper -> engine) ---');
-for (const cmd of ROUTINE) {
-  routineTotal += 1;
-  const d = hookDecision(cmd);
-  const prompt = d === 'ask' || d === 'deny';
-  if (prompt) routinePrompts += 1;
-  check('L2-routine', `no prompt: ${cmd.slice(0, 70)}`, !prompt, d);
-}
-for (const cmd of READONLY_AUTONOMY) {
-  const d = hookDecision(cmd);
-  check('L2-readonly', `autonomous: ${cmd.slice(0, 70)}`, d === 'abstain' || d === 'allow', d);
-}
-for (const e of DANGEROUS) {
-  const d = hookDecision(run(e));
-  check('L2-danger', `ask/deny: ${disp(e)}`, d === 'ask' || d === 'deny', d);
+if (wrapperRunnable) {
+  console.log('--- LAYER 2: effective PreToolUse hook (wrapper bytes under test -> engine) ---');
+  console.log(`L2-WRAPPER: source=${WRAPPER === path.join(REPO, 'tooling', 'hooks', 'holdthegoblin-pretooluse-local.mjs') ? 'tracked-canonical' : 'HTG_WRAPPER env'} sha256=${createHash('sha256').update(fs.readFileSync(WRAPPER)).digest('hex')}`);
+  for (const cmd of ROUTINE) {
+    routineTotal += 1;
+    const d = hookDecision(cmd);
+    const prompt = d === 'ask' || d === 'deny';
+    if (prompt) routinePrompts += 1;
+    check('L2-routine', `no prompt: ${cmd.slice(0, 70)}`, !prompt, d);
+  }
+  for (const cmd of READONLY_AUTONOMY) {
+    const d = hookDecision(cmd);
+    check('L2-readonly', `autonomous: ${cmd.slice(0, 70)}`, d === 'abstain' || d === 'allow', d);
+  }
+  for (const e of DANGEROUS) {
+    const d = hookDecision(run(e));
+    check('L2-danger', `ask/deny: ${disp(e)}`, d === 'ask' || d === 'deny', d);
+  }
+  console.log('');
+  console.log(`ROUTINE: ${routineTotal} commands, ${routinePrompts} approval prompts (acceptance: 0 prompts)`);
 }
 
 console.log('');
-console.log(`ROUTINE: ${routineTotal} commands, ${routinePrompts} approval prompts (acceptance: 0 prompts)`);
-console.log(failures ? `PROBE-FAIL (${failures} failed checks)` : 'PROBE-PASS');
-process.exit(failures ? 1 : 0);
+if (failures) {
+  console.log(`PROBE-FAIL (${failures} failed checks)`);
+  process.exit(1);
+}
+// A skip is NEVER a pass: exit 3 says "everything that could run on THIS
+// host passed; the listed layer(s) were not reproducible here" — full
+// acceptance only where it exits 0 with zero SKIP lines.
+if (skips) {
+  console.log(`PROBE-PASS-WITH-SKIP — ${skips} explicit host-bound SKIP(s) above; NOT full acceptance on this host`);
+  process.exit(3);
+}
+console.log('PROBE-PASS');
+process.exit(0);

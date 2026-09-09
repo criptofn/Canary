@@ -1,0 +1,6 @@
+     F4-OBSERVE verify-exit=0 bundle=["pass","pass"]
+     F4-OBSERVE promote-exit=0 promotion-bundles=["accepted"] base-moved=true applied=true
+PASS f4-leg1: taskless testless candidate runs verify+promote end to end (observations recorded)
+F4-BYPASS: OPEN — a taskless candidate PASSED, promoted, and was APPLIED to the trusted base (this is the audit finding, unfixed)
+PASS f4-leg2 positive control: registered bugfix + committed regression test → PASS → promote ACCEPTED
+F4-VERDICT: NOT CLOSED

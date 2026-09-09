@@ -14,6 +14,12 @@
  *     deleted file and committing recovers PASS. A red plan stays CANDIDATE
  *     FAIL — and the FAIL bundle now carries the obligation read (M11 repair
  *     fuel), recovered by deleting the marker the same run.
+ *   - M10.1 (GLM F4): registering NOTHING is not a way through either — a
+ *     candidate whose intent snapshot froze no task kinds is NOT PROVEN
+ *     against nothing (exit 2; obligation [task-authority] UNPROVEN names
+ *     the missing authority; promotion locked, zero bundles), and the
+ *     recovery is the honest registration itself — growth, always allowed
+ *     (S12; pre-M10 records with no snapshot verify as before, S5).
  *   - §11: the candidate record freezes {plan, script digests, task} at
  *     isolation; weakening that authority AFTER isolation — dropping a step
  *     via re-setup, re-sealing a step's text to other commands, shrinking the
@@ -87,6 +93,18 @@ function reSeal(root, scripts) { // the mechanical "revision" an agent could do 
   fs.writeFileSync(pkgOf(root), JSON.stringify({ name: path.basename(root), private: true, scripts }, null, 2) + '\n');
   const s = canary(['setup', '--yes', root], root);
   assert(s.status === 0, `re-setup failed: ${s.stdout}\n${s.stderr}`);
+}
+// M10.1 (GLM F4 close): the ladder needs TASK-OBLIGATION AUTHORITY — a
+// taskless record with an intent snapshot is NOT PROVEN (S12 owns that law;
+// m10-f4-bypass-repro.mjs proves the promotion lock end to end). The
+// recovery-PASS legs of S4a/S4a2/S8/S9/S11 do behavior-preserving work under
+// a sealed test plan, so REFACTOR is their honest description — registration
+// adds only obligations this fixture already METS (tests-green via the sealed
+// 'test' step, coverage-loss via a resolvable diff without deletions) and
+// lifts no floor: intents and violations still block on their own grounds.
+function registerWork(root, text) {
+  const t = canary(['task', text, '--kind', 'refactor'], root);
+  assertEq(t.status, 0, `task registration failed: ${t.stdout}\n${t.stderr}`);
 }
 const candPath = (root, name) => path.join(root, '.canary', 'candidates', name);
 const recOf = (root, name) => JSON.parse(fs.readFileSync(path.join(root, '.canary', 'candidates', `${name}.json`), 'utf8'));
@@ -208,6 +226,7 @@ check('S3 committed test deletion → CANDIDATE BLOCKED exit 2 (steps + coverage
 // plan drop and re-seal — blocked before ANYTHING runs =================
 check('S4a plan step dropped after isolation (re-setup with a smaller script set) → zero-step intent block, intentEvent names it, promote refused, record snapshot NOT re-baselined; restoring the bytes recovers', () => {
   const root = pinBase(makeRepo('s4a', TWO));
+  registerWork(root, 'tidy the module layout'); // M10.1: the PASS legs need task authority (S12 owns the law)
   isolate(root, 'c');
   candCommit(root, 'c', { 'src/tweak.js': 'ready to pass\n' });
   const pre = canary(['isolate', '--verify', 'c', root], root);
@@ -242,6 +261,7 @@ check('S4a plan step dropped after isolation (re-setup with a smaller script set
 
 check('S4a2 sealed text re-locked to different (green) commands after isolation → intent block names the re-seal; restore recovers', () => {
   const root = pinBase(makeRepo('s4a2', TWO));
+  registerWork(root, 'tidy the module layout'); // M10.1: restore-recovery asserts PASS — needs task authority
   isolate(root, 'c');
   candCommit(root, 'c', { 'src/tweak.js': 'ready\n' });
   reSeal(root, { test: FBUILD, build: FBUILD }); // same step NAMES, different sealed texts (all green — the laundering target)
@@ -343,6 +363,7 @@ check('S6 red plan → CANDIDATE FAIL (exit 2) whose bundle carries the obligati
 // dirty (fail-closed), so the refusal happens at the apply gate.
 check('S8 lying index (--assume-unchanged) is seen as dirty: verify reports it, promote refuses; clearing the flag still refuses until the bytes are honest', () => {
   const root = pinBase(makeRepo('s8', TWO));
+  registerWork(root, 'add src/a.js honestly'); // M10.1: the honest-bytes recovery asserts PASS — needs task authority
   isolate(root, 'c');
   const c = candPath(root, 'c');
   candCommit(root, 'c', { 'src/a.js': 'committed candidate work\n' });
@@ -377,6 +398,7 @@ check('S8 lying index (--assume-unchanged) is seen as dirty: verify reports it, 
 // like a test. delPaths now attributes it: coverage-loss UNMET, BLOCKED.
 check('S9 committed git mv tests→src keeping the .test.js suffix → CANDIDATE BLOCKED coverage-loss (F3); moving it back recovers', () => {
   const root = pinBase(makeRepo('s9', TWO));
+  registerWork(root, 'relocate a module'); // M10.1: the move-back recovery asserts PASS — needs task authority; UNMET coverage-loss still blocks (unmet > unproven precedence rides live on this repo)
   isolate(root, 'c');
   const c = candPath(root, 'c');
   git(c, 'mv', 'tests/baseline.test.js', 'src/baseline.test.js');
@@ -432,7 +454,14 @@ check('S10 a plan step writing a test mid-window cannot mint its own regression 
 // began provably clean") and leave NOTHING registered.
 check('S11 isolate refuses to register a candidate that is not provably clean (post-checkout hook); removing the hook recovers', () => {
   const root = pinBase(makeRepo('s11', TWO));
-  fs.writeFileSync(path.join(root, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\necho injected > hooked.txt\n');
+  registerWork(root, 'clean-isolation control'); // M10.1: the final clean verify asserts exit 0 — needs task authority
+  const hookFile = path.join(root, '.git', 'hooks', 'post-checkout');
+  fs.writeFileSync(hookFile, '#!/bin/sh\necho injected > hooked.txt\n');
+  // R1 (M10.1, GLM): on POSIX git executes hooks only when the executable
+  // bit is set — a mode-0644 hook is silently skipped and S11 would pass
+  // VACUOUSLY (isolate "clean" because the injection never ran). Windows
+  // ignores the exec bit; git runs the hook there either way.
+  if (process.platform !== 'win32') fs.chmodSync(hookFile, 0o755);
   const r = canary(['isolate', 'c', root], root);
   assertEq(r.status, 2, 'S11: a dirty-at-birth candidate is refused');
   assertMatch(r.stdout, /not provably clean/, 'S11: the refusal names the premise it protects');
@@ -442,6 +471,42 @@ check('S11 isolate refuses to register a candidate that is not provably clean (p
   isolate(root, 'c'); // the helper asserts exit 0 — recovery
   const r2 = canary(['isolate', '--verify', 'c', root], root);
   assertEq(r2.status, 0, `S11: with the hook gone, isolation verifies clean: ${r2.stdout}`);
+});
+
+// ================= S12: the task-obligation AUTHORITY (M10.1, GLM F4) =====
+// The audit's strongest agent move was to register NOTHING: obligationsFor
+// derives duties from registered kinds, so a taskless candidate derived zero
+// duties, a green plan was the whole verdict, and promotion applied it. The
+// law now: a record whose intent snapshot froze no task kinds (none now,
+// none at isolation) cannot be proven against nothing — NOT PROVEN, exit 2,
+// the missing authority named as obligation [task-authority], promotion
+// locked with zero bundles. The way through is REAL WORK: register the task
+// the change honestly is — growth after isolation discharges it. No flag,
+// env var, or agent-writable field bypasses this.
+check('S12 taskless green candidate → NOT PROVEN naming [task-authority]; promote locked, zero bundles; the honest registration recovers PASS', () => {
+  const root = pinBase(makeRepo('s12', TWO));
+  isolate(root, 'c');
+  const c = candPath(root, 'c');
+  fs.writeFileSync(path.join(c, 'src', 'tweak.js'), 'behavior-preserving\n');
+  git(c, 'add', '-A'); git(c, 'commit', '-m', 'tweak');
+  const r = canary(['isolate', '--verify', 'c', root], root);
+  assertEq(r.status, 2, `S12: taskless must never PASS:\n${r.stdout}`);
+  assertMatch(r.stdout, notProvenRe, 'S12: NOT PROVEN verdict');
+  assertMatch(r.stdout, /obligation \[task-authority\] UNPROVEN/, 'S12: names the missing authority');
+  assertMatch(r.stdout, /canary task/, 'S12: the note points at the honest path');
+  const b = latest(root);
+  assertEq(b.status, 'unproven', 'S12: unproven bundle');
+  const ta = obOf(b, 'task-authority');
+  assert(ta && ta.status === 'unproven' && ta.mode === 'objective', 'S12: bundle carries the authority obligation');
+  assertEq(b.steps.length, 2, 'S12: the executed green steps still ride the bundle');
+  const p = canary(['isolate', '--promote', 'c', root], root);
+  assertEq(p.status, 2, 'S12: promote locked by gate 1');
+  assert(!/PROMOTED|ALREADY APPLIED|ACCEPTED/.test(p.stdout), 'S12: no apply wording');
+  assertEq(bundles(root, '-promotion').length, 0, 'S12: zero promotion bundles');
+  registerWork(root, 'tidy the module layout'); // growth from nothing registered — allowed, and the discharge
+  const r2 = canary(['isolate', '--verify', 'c', root], root);
+  assertEq(r2.status, 0, `S12: honest registration must recover: ${r2.stdout}`);
+  assertMatch(r2.stdout, /CANDIDATE PASS/, 'S12: PASS after real registration');
 });
 
 // ================= cross-case hygiene =====================================

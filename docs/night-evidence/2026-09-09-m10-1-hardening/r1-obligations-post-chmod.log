@@ -1,0 +1,17 @@
+PASS S1 positive control: bugfix candidate WITH a test change → CANDIDATE PASS, 2/2 obligations MET, intent frozen in the record
+PASS S2 green plan + bugfix WITHOUT a test → CANDIDATE NOT PROVEN exit 2, unproven bundle still carries steps; promote refuses; adding the test recovers PASS
+PASS S3 committed test deletion → CANDIDATE BLOCKED exit 2 (steps + coverage-loss UNMET in the bundle); restore + commit → PASS; promote refused the whole time
+PASS S4a plan step dropped after isolation (re-setup with a smaller script set) → zero-step intent block, intentEvent names it, promote refused, record snapshot NOT re-baselined; restoring the bytes recovers
+PASS S4a2 sealed text re-locked to different (green) commands after isolation → intent block names the re-seal; restore recovers
+PASS S4b task kinds+requirements shrink after isolation → intent block; growing back (and beyond) is allowed and verifies
+PASS S5 record with the intent hand-stripped (pre-M10 shape) verifies exactly as before — additive
+PASS S6 red plan → CANDIDATE FAIL (exit 2) whose bundle carries the obligations (M11 repair fuel); removing the cause recovers
+PASS S8 lying index (--assume-unchanged) is seen as dirty: verify reports it, promote refuses; clearing the flag still refuses until the bytes are honest
+PASS S9 committed git mv tests→src keeping the .test.js suffix → CANDIDATE BLOCKED coverage-loss (F3); moving it back recovers
+PASS S10 a plan step writing a test mid-window cannot mint its own regression evidence → NOT PROVEN; a COMMITTED test (pre-window) passes
+PASS S11 isolate refuses to register a candidate that is not provably clean (post-checkout hook); removing the hook recovers
+PASS cross-case hygiene: no quarantine stamped anywhere; every base HEAD unchanged
+
+=== M10 PROBE SUMMARY ===
+M10 obligations+intent: ALL PASS
+probe exit: 0

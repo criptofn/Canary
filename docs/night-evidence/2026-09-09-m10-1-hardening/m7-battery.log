@@ -1,0 +1,16 @@
+PASS caught: pre/post lifecycle-hook gate (probe exit 1; failing checks: FAIL worker-added pretest hook around a sealed step BLOCKS before execution — hooks live outside the seal)
+PASS caught: .npmrc absent-from-base gate (probe exit 1; failing checks: FAIL candidate-side .npmrc ABSENT from the base BLOCKS (flags outside the seal))
+PASS caught: .npmrc changed-vs-base gate (probe exit 1; failing checks: FAIL .npmrc IDENTICAL to base passes; CHANGED in the candidate blocks; checkout restores)
+PASS caught: committed-gitlink gate (probe exit 1; failing checks: FAIL a COMMITTED gitlink blocks as submodule even with NO .gitmodules — the old existence gate was blind to this)
+PASS caught: empty-plan gate (probe exit 1; failing checks: FAIL EMPTY on-disk plan blocks honestly — no plan, no fake green (pre-M5-shaped hand edit))
+PASS caught: candidate registry-dir creation (--path elsewhere) (probe exit 1; failing checks: FAIL --path OUTSIDE the base: registers, verifies, and CLEAN-removes (record dir created on demand))
+PASS caught: sealed-authority drift gate (probe exit 1; failing checks: FAIL swapping the sealed script BLOCKS BEFORE EXECUTION — the replacement never ran)
+PASS caught: git-common-dir binding (IMPOSTOR) (probe exit 1; failing checks: FAIL a forged record pointing at an UNRELATED real repo is caught by git-common-dir binding; that repo is untouched | FAIL whole story end-state: base identity unchanged, registry holds only w1, no stray evidence in candidates)
+PASS caught: dirty-remove refusal (probe exit 1; failing checks: FAIL remove refuses a dirty candidate without --discard; --discard removes exactly worktree + record)
+PASS caught: baseRoot impersonation guard (verify + remove) (test exit 1)
+PASS caught: candidate NAME_RE (registry keys are filenames) (test exit 1)
+SKIP Windows reserved device-name gate — win32-only mutation and win32-only test (honest gap, not a pass)
+PASS caught: uninstall candidate-registry gate (test exit 1)
+PASS caught: BUNDLE_RESERVED side-door filter (test exit 1)
+restore verified: every mutated dist file is byte-identical to its pre-battery bytes
+M7-MUTATION-BATTERY: 13/13 mutations caught (1 skipped) — survivors: 0

@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { runCommand, sanitizedEnv, CanaryError, type WorkspaceLayout } from '@canary-rn/support';
+import { runCommand, sanitizedEnv, resolveNpmCli, CanaryError, type WorkspaceLayout } from '@canary-rn/support';
 import { validateSpec, type ExperimentSpec } from '@canary-rn/planner';
 import { auditFixtureDir, expectedExtractedDir } from '@canary-rn/workspace';
 import { downloadTarball } from '@canary-rn/github';
@@ -25,7 +25,11 @@ import { sha256hex } from '@canary-rn/hashing';
 
 const NODE = process.execPath;
 const NODE_DIR = path.dirname(NODE);
-const NPM_CLI = path.join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js');
+// R2 host-neutrality: probe BOTH bundled-npm layouts (see resolveNpmCli).
+// The fallback keeps the historical path when neither exists, so absence
+// still fails LOUDLY downstream (empty sample → contract violation) —
+// never silently masquerades as a measurement.
+const NPM_CLI = resolveNpmCli() ?? path.join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js');
 const SYSTEMROOT = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
 export const CANARY_VERSION = '0.1.0';
 

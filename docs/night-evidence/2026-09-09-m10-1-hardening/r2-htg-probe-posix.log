@@ -1,0 +1,23 @@
+L1-ENGINE: source=npm-global(prefix-lib) version=0.1.3 sha256=33582714b28e01f807ba413d1d673fe352523606ba49d44bd3ff0ab25e423547
+L1-ENGINE: NOTE host-installed bytes are labeled as such — they are evidence of THIS host, not delivered repo bytes
+SKIP  L1-classifier  resolved engine (holdthegoblin@0.1.3) predates the inline-interpreter classifier this corpus pins (no scanInlineInterpreter export) — classifier-owned layers skipped on these bytes, not failed; the FULL acceptance runs where the delivered engine is installed
+SKIP  L2-all  wrapper (source: /home/jan/qwen-builder-cage/canary/tooling/hooks/holdthegoblin-pretooluse-local.mjs) delegates to a host-bound HoldTheGoblin CLI that is absent here (C:/Users/Johannes/AppData/Roaming/npm/node_modules/holdthegoblin/dist/src/cli.js) — LAYER 2 skipped, not passed; full acceptance runs on the host where the live hook is deployed
+--- LAYER 1: risk engine (evaluateCommandRisk) ---
+PASS  L1-keep-ask  ask: kubectl apply -f deployment.yaml
+PASS  L1-keep-ask  ask: terraform destroy -auto-approve
+PASS  L1-keep-ask  ask: docker compose down -v
+PASS  L1-keep-ask  ask: npm publish
+PASS  L1-keep-ask  ask: vercel deploy --prod
+PASS  L1-keep-ask  ask: psql prod -c "DROP TABLE users"
+PASS  L1-keep-ask  ask: sudo npm publish
+PASS  L1-keep-deny  deny: rm -rf /
+PASS  L1-keep-deny  deny: deny: sensitive-path cat (env file)
+PASS  L1-keep-deny  deny: deny: sensitive-path cat (ssh private key)
+PASS  L1-keep-deny  deny: git push --force origin main
+PASS  L1-keep-deny  deny: deny: remote script piped to shell
+PASS  L1-keep-deny  deny: deny: literal credential echo
+PASS  L1-keep-deny  deny: dropdb production
+PASS  L1-keep-deny  deny: deny: interpreter reading rc file (precedes inline ask)
+PASS  L1-keep-deny  deny: deny: literal credential inside shell -c (precedes inline ask)
+
+PROBE-PASS-WITH-SKIP — 2 explicit host-bound SKIP(s) above; NOT full acceptance on this host

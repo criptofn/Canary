@@ -73,14 +73,19 @@ usage:
   canary task "<intent>"    register task intent (--kind bugfix|refactor|dependency|
                             performance|ui|multi, --requirement per part) so completion
                             checks derive the task's proof obligations — a hint with zero
-                            authority: it can only ADD obligations, never weaken the plan
+                            authority: it can only ADD obligations, never weaken the plan.
+                            M10.1: at the candidate boundary the REGISTERED task is the
+                            authority to judge completion at all — zero kinds = NO task
+                            authority = NOT PROVEN, never PASS (there is no opt-out)
   canary isolate <name>     open an UNTRUSTED candidate: a detached git worktree of the
                             trusted base (--base <ref>, --path <dir>) for a worker to
                             edit — the base itself is never the workspace
   canary isolate --verify <name>
                             run the base's sealed plan INSIDE the candidate, from outside
                             it; PASS = ELIGIBLE for promotion (a separate act — nothing
-                            is applied), FAIL/BLOCKED leaves the base untouched
+                            is applied), FAIL/BLOCKED/NOT-PROVEN leaves the base untouched;
+                            a green plan alone never PASSes — §10 also needs the
+                            registered task's obligations met (no task = NOT PROVEN)
   canary isolate --list     live status of registered candidates (+ unregistered worktrees, reported never touched)
   canary isolate --remove <name> [--discard]
                             clean up a candidate; refuses a dirty one without --discard

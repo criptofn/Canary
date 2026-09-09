@@ -1,0 +1,17 @@
+PASS positive control: untouched authority verifies CANDIDATE PASS, zero §9 lines
+PASS during-execution drift via sealed step: mode=config flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=settings flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=settingsdrop flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=record flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=task flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=evidenceplant flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=evidenceedit flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=evidencedel flips PASS into the §9 mandate
+PASS stripped harness entry before execution → §9 (containment pre-gate); restore recovers PASS
+PASS isolate --promote over tampering authority: §9 text in promote output, exit 2, no PROMOTED, base byte-identical
+PASS S10: §9.5 quarantine refusal — a byte-idempotent tampering cannot re-baseline into a PASS
+PASS S11: verifier code tree fingerprint — a step editing dist/src/authority.js is caught (verifier code)
+PASS S12: post-window seal recheck — step 1 rewriting step 2's sealed text EXECUTES but never PASSes (post-window)
+PASS S13: base HEAD token — a sealed step moving the base branch is witnessed; promote never reads the moved ref as applied (base HEAD)
+PASS cross-case hygiene: every drift repo ends on a blocked mandate bundle; only the control repo passes
+M9 authority: ALL PASS
