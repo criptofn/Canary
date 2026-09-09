@@ -158,12 +158,38 @@ describe('setup', () => {
     assert.equal(cp2.status, 'fail');
     assert.ok(cp2.failed.includes('tests')); // doctor records real kinds too
   });
-  it('unattended without --yes: installed but NOT READY — nothing executed, nothing proven', () => {
+  it('unattended without --yes: the smoke test RUNS (like doctor always does) — READY only because checks actually passed', () => {
+    // Master-pass S1: this branch used to write all state then exit 2 demanding
+    // --yes. The flag guarded nothing doctor does not already do unasked.
     const root = makeProject('noyes');
     const r = canary(['setup', root]);
-    assert.equal(r.status, 2);
-    assert.match(r.stdout, /NEEDS ATTENTION/);
-    assert.equal(fs.existsSync(cpFile(root)), false);
+    assert.equal(r.status, 0, r.output.join(''));
+    assert.match(r.stdout, /READY/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'pass');
+    // executing is not forgiving: a failing project still never reads READY
+    const bad = makeProject('noyes-fail', { testScript: fx('f-boom.js') });
+    const rb = canary(['setup', bad]);
+    assert.equal(rb.status, 2);
+    assert.doesNotMatch(rb.stdout, /^READY/m);
+  });
+  it('S4: re-setup under byte-identical authority keeps the stamps; a real script change re-seals with fresh ones', () => {
+    const root = makeProject('stamps');
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const cfgPath = path.join(root, '.canary', 'canary.local.json');
+    const c1 = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { installedAt: string; planAuthority: { at: string }; baseline: { at: string } };
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const c2 = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as typeof c1;
+    assert.equal(c2.installedAt, c1.installedAt); // approval timestamps record the APPROVAL, not the last invocation
+    assert.equal(c2.planAuthority.at, c1.planAuthority.at);
+    assert.equal(c2.baseline.at, c1.baseline.at);
+    // sealed script TEXT changes = a genuine re-seal = honest fresh stamps
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
+    pkg.scripts.test = fx('f-boom.js');
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(pkg, null, 2));
+    assert.equal(canary(['setup', '--yes', root]).status, 2); // boom runs, fails; config was already rewritten
+    const c3 = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as typeof c1;
+    assert.notEqual(c3.installedAt, c1.installedAt);
+    assert.notEqual(c3.planAuthority.at, c1.planAuthority.at);
   });
   it('no supported harness: explicit message, not a fake integration', () => {
     const root = makeProject('noharness', { claudeDir: false });

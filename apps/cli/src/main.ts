@@ -51,7 +51,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
-import { cmdSetup, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask } from './onboarding.js';
+import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, findRepoRoot, readConfig } from './onboarding.js';
 import { cmdIsolate } from './candidate.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
@@ -69,6 +69,10 @@ usage:
                                           proof comparison; that is prove/check. exit 0 on
                                           self-consistency, else NOT SELF-CONSISTENT, exit 3)
   canary setup [--yes]      one-command onboarding for a Node project (AI-harness auto-wiring)
+  canary status             lazy reconnect: does Canary already know this repo, and is its
+                            wiring sound? READ-ONLY — zero commands executed, zero writes;
+                            CONNECTED / NEEDS ATTENTION / NOT CONNECTED. A statement about
+                            STATE, never a claim that anything passes
   canary doctor             is Canary actually protecting this repo? Runs the checks now;
                             READY / NEEDS ATTENTION / UNSUPPORTED (--run accepted, always on)
   canary uninstall          remove Canary's own changes, keep everything else
@@ -98,6 +102,15 @@ usage:
   canary isolate --remove <name> [--discard]
                             clean up a candidate; refuses a dirty one without --discard
   canary version`);
+  // Lazy-Connect: a bare `canary` inside a repo is a question, not only a
+  // mistake — answer the state part read-only so the next step is obvious.
+  // (exit stays 3: no command was given; the note is a courtesy, not a verdict.)
+  try {
+    const here = findRepoRoot(process.cwd());
+    const local = here ? readConfig(here) : null;
+    if (here && local && local !== 'corrupt') console.log(`\nnote: ${here} is a CONNECTED Canary repo — read-only state: canary status`);
+    else if (here) console.log(`\nnote: git repo ${here} has no trusted Canary setup — when you want protection: canary setup --yes`);
+  } catch { /* the footer is a convenience; usage always prints */ }
   process.exit(3);
 }
 
@@ -326,6 +339,7 @@ async function main(argv: string[]): Promise<number> {
   // promise from the proof pipeline above; exit codes: 0 READY/ELIGIBLE,
   // 2 NEEDS ATTENTION/UNSUPPORTED/BLOCKED, 3 misuse.
   if (cmd === 'setup') return cmdSetup(rest);
+  if (cmd === 'status') return cmdStatus(rest);
   if (cmd === 'doctor') return cmdDoctor(rest);
   if (cmd === 'uninstall') return cmdUninstall(rest);
   if (cmd === 'checkpoint') return cmdCheckpoint();

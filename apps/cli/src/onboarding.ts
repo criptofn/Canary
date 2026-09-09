@@ -208,10 +208,18 @@ function samePath(a: string, b: string): boolean {
 
 /** true = the config file is tracked in git (arrives from a clone — someone
  *  else's local state). false = not tracked. null = git cannot answer. */
+const configTrackedMemo = new Map<string, boolean | null>();
 export function configTracked(root: string): boolean | null {
+  // Once per process per root: cmdSetup asks twice (the pre-write tracked-config
+  // refusal and the prevUsable dedupe seed) and nothing in-process commits
+  // .canary between the two. Both non-false answers are refusals, so a
+  // remembered answer can only ever refuse as much as a re-ask would.
+  const seen = configTrackedMemo.get(root);
+  if (seen !== undefined) return seen;
   const r = spawnSync('git', ['-C', root, 'ls-files', '--', `${CONFIG_DIR}/${CONFIG_FILE}`], { encoding: 'utf8', timeout: 15_000 });
-  if (r.status !== 0) return null;
-  return r.stdout.trim().length > 0;
+  const out = r.status !== 0 ? null : r.stdout.trim().length > 0;
+  configTrackedMemo.set(root, out);
+  return out;
 }
 
 /** Why this config must not be honored as "our own local state" — or null.
@@ -505,6 +513,7 @@ export interface BaselineStamp extends Identity { at: string }
  *  is a misattribution, not information (see candidateIdentity's history:
  *  found via a stray zero-commit repo under the home dir). M6's diff
  *  signals and M7's protected-surface reads share this one door. */
+const withinRootGate = new Map<string, boolean>();
 export function gitWithinRoot(root: string, args: string[]): string | null {
   const run = (a: string[]): string | null => {
     // 32MB like every other spawn here: the 1MB default would turn a large
@@ -512,11 +521,22 @@ export function gitWithinRoot(root: string, args: string[]): string | null {
     const r = spawnSync('git', ['-C', root, ...a], { encoding: 'utf8', timeout: 15_000, maxBuffer: 32 * 1024 * 1024 });
     return r.status === 0 ? r.stdout : null;
   };
-  const top = run(['rev-parse', '--show-toplevel']);
-  if (top === null) return null; // not a repo at all (or git refuses to run)
+  // The gate is a fact about this process's filesystem ("is root its own git
+  // toplevel"), so it is computed ONCE per real path — one verify ran ~17
+  // identical `rev-parse --show-toplevel` children. What the memo NEVER caches
+  // is a probe's answer: every real query below still runs live, so a repo
+  // that vanished or was swapped mid-process fails its own probe (null =
+  // fail-closed) no matter what the gate remembers.
   const rootReal = containedRealPath(root, root);
-  const topReal = top.trim() ? containedRealPath(root, top.trim()) : null;
-  if (rootReal === null || topReal === null || topReal !== rootReal) return null; // answered about an ancestor, not about root
+  if (rootReal === null) return null; // root itself unresolvable — the same refusal as a failed gate
+  let gated = withinRootGate.get(rootReal);
+  if (gated === undefined) {
+    const top = run(['rev-parse', '--show-toplevel']);
+    const topReal = top === null ? null : (top.trim() ? containedRealPath(root, top.trim()) : null);
+    gated = top !== null && topReal !== null && topReal === rootReal;
+    withinRootGate.set(rootReal, gated);
+  }
+  if (!gated) return null; // not a repo at all — or answered about an ancestor, not about root
   return run(args);
 }
 
@@ -682,7 +702,7 @@ export function sealPlanAuthority(plan: PlanStep[], pkgScripts: Record<string, u
 /** How the current repo state deviates from the sealed verification authority
  *  — a human-readable sentence (script names sanitized; no candidate-controlled
  *  prose can ride the message), or null when there is no drift (or no seal). */
-export function planAuthorityDrift(root: string, cfg: CanaryConfig): string | null {
+export function planAuthorityDrift(root: string, cfg: CanaryConfig, pkg?: Record<string, unknown> | null): string | null {
   const seal = cfg.planAuthority;
   if (seal === undefined) return null; // pre-M5 config: nothing sealed, nothing to drift from
   if (typeof seal !== 'object' || seal === null
@@ -693,8 +713,10 @@ export function planAuthorityDrift(root: string, cfg: CanaryConfig): string | nu
   }
   const drift: string[] = [];
   if (planDigest(cfg.plan) !== seal.planDigest) drift.push('the plan no longer matches the sealed plan');
-  const pkg = parseJsonOrNull(path.join(root, 'package.json'));
-  const scripts = pkg ? (pkg.scripts ?? {}) as Record<string, unknown> : null;
+  // pkg may be the caller's already-read copy (candidate.ts's seal check reads
+  // the same file one line later for the lifecycle-hook scan); absent = read.
+  const pkgBytes = pkg === undefined ? parseJsonOrNull(path.join(root, 'package.json')) : pkg;
+  const scripts = pkgBytes ? (pkgBytes.scripts ?? {}) as Record<string, unknown> : null;
   if (scripts === null && cfg.plan.length > 0) drift.push('package.json cannot be read to compare the sealed scripts');
   for (const s of cfg.plan) {
     const name = isSafeScriptName(s.script) ? s.script : '<odd plan entry>'; // never echo raw config text
@@ -1221,7 +1243,9 @@ export class Out {
     console.log(`${r.ok ? '✓' : '✗'} ${r.kind}: ${r.display}${r.exitCode === null ? ' (could not run)' : ` (exit ${r.exitCode})`}`);
     if (!r.ok && r.tail) console.log(r.tail.split('\n').map((l) => `      ${l}`).join('\n'));
   }
-  verdict(v: 'READY' | 'NEEDS ATTENTION' | 'UNSUPPORTED', why: string, next?: string) {
+  // CONNECTED / NOT CONNECTED are the canary status (read-only) family: state
+  // facts, deliberately NOT READY (only a completed plan run earns READY).
+  verdict(v: 'READY' | 'CONNECTED' | 'NOT CONNECTED' | 'NEEDS ATTENTION' | 'UNSUPPORTED', why: string, next?: string) {
     console.log('');
     console.log(v === 'READY' ? `READY — ${why}` : `${v} — ${why}`);
     if (next) console.log(`next: ${next}`);
@@ -1316,15 +1340,30 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const baselineId = candidateIdentity(root);
   const ownSettings = rel(root, settingsPath(root)).split(path.sep).join('/');
   const baselineStatus = gitWithinRoot(root, ['status', '--porcelain', '--', '.', `:(exclude)${ownSettings}`]);
+  // M5: whatever plan and script texts are on disk RIGHT NOW are what the
+  // human running setup just approved — they become the sealed authority.
+  const seal = sealPlanAuthority(plan, (pkg.scripts ?? {}) as Record<string, unknown>);
+  // A re-setup under byte-identical authority keeps the ORIGINAL stamps:
+  // installedAt and planAuthority.at record WHEN A HUMAN APPROVED THESE BYTES,
+  // not when the command was last typed — so re-running setup on a connected
+  // repo is CORE-state idempotent (no spurious config churn for re-entry).
+  // Any real change (plan shape, script text, HEAD) re-stamps honestly, which
+  // is what a genuine re-seal means. prevUsable already proved this config is
+  // this installation's own trust, so reusing its fields is self-reference,
+  // never a clone's word.
+  const prevCfg = prevUsable && prev ? prev as CanaryConfig : null;
+  const prevAuth = prevCfg?.planAuthority;
+  const reuse = prevCfg && prevAuth && prevCfg.pm === pm
+    && prevAuth.planDigest === seal.planDigest
+    && JSON.stringify(prevAuth.scriptDigests) === JSON.stringify(seal.scriptDigests)
+    && prevCfg.baseline?.head === baselineId.head ? prevCfg : null;
   const cfg: CanaryConfig = {
-    version: 'product-0.1', installedAt: new Date().toISOString(), pm, plan,
+    version: 'product-0.1', installedAt: reuse?.installedAt ?? new Date().toISOString(), pm, plan,
     baseline: {
-      at: new Date().toISOString(), ...baselineId,
+      at: reuse?.baseline?.at ?? new Date().toISOString(), ...baselineId,
       dirty: baselineStatus === null ? baselineId.dirty : baselineStatus.trim().length > 0,
     },
-    // M5: whatever plan and script texts are on disk RIGHT NOW are what the
-    // human running setup just approved — they become the sealed authority.
-    planAuthority: sealPlanAuthority(plan, (pkg.scripts ?? {}) as Record<string, unknown>),
+    planAuthority: reuse?.planAuthority ?? seal,
     cliPath: CLI_ENTRY, hookCommand,
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
     touched: [res.touched!],
@@ -1357,7 +1396,14 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     }
   }
   if (!opts.yes && !interactive) {
-    o.verdict('NEEDS ATTENTION', 'Canary is installed here but the smoke test could not run unattended — nothing was executed, so nothing is proven yet.', 'run: canary setup --yes'); return 2;
+    // This branch used to write all of setup's state, then exit 2 demanding a
+    // memorized "--yes" — installed-yet-unproven, every agent re-typed the flag.
+    // It guards no real authority: whoever can invoke `canary setup` can invoke
+    // `canary doctor`, which runs the SAME plan unasked and unconditionally
+    // (READY is earned there, not from a handshake). Running the project's own
+    // sealed checks now proves the wiring instead of demanding consent that the
+    // command invocation already gave. A TTY is still asked first, above.
+    o.detail('unattended (no TTY, no --yes): running the smoke test directly — wiring without execution would prove nothing.');
   }
   o.say('\nsmoke test (running your own project scripts):');
   let allOk = true;
@@ -1391,18 +1437,10 @@ function writeCheckpoint(root: string, status: string, failed: string[], source:
   } catch { /* evidence is best-effort; never crash the harness hook over it */ }
 }
 
-export function cmdDoctor(rawArgs: string[]): number {
-  const { opts, rest } = parseGlobals(rawArgs);
-  const o = new Out(opts.verbose);
-  const root = findRepoRoot(dirArg(rest) ?? process.cwd());
-  if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository.', 'cd into your project'); return 2; }
-  if (!fs.existsSync(path.join(root, 'package.json'))) { o.verdict('UNSUPPORTED', 'this project has no package.json — the zero-config path supports Node projects today.', ''); return 2; }
-  const cfg = readConfig(root);
-  if (cfg === 'corrupt') { o.verdict('NEEDS ATTENTION', "Canary's local config (.canary/canary.local.json) is unreadable.", 'run: canary setup (rewrites it; your other settings are untouched)'); return 2; }
-  if (!cfg) { o.verdict('NEEDS ATTENTION', 'Canary is NOT fully active yet — this repo was never set up.', 'run: canary setup --yes'); return 2; }
-  const distrust = untrustedConfigReason(root, cfg);
-  if (distrust) { o.verdict('NEEDS ATTENTION', `Canary found a local config it does not trust (${distrust}) — it will not run plans from it.`, 'run: canary setup --yes (rewrites it as this machine\'s own)'); return 2; }
-
+// The config-trust checks doctor performs BEFORE it spends anything on a plan
+// run. Extracted verbatim (single owner) so `canary status` can answer "is
+// this repo's wiring sound?" with zero commands executed and zero writes.
+function readOnlyProblems(root: string, cfg: CanaryConfig): string[] {
   const problems: string[] = [];
   if (!Array.isArray(cfg.plan) || cfg.plan.length === 0) problems.push('the verification plan is empty — Canary would have nothing to check (a pass here would be fake)');
   if (!/^(npm|pnpm|yarn|bun)$/.test(cfg.pm) || spawnSync(cfg.pm, ['--version'], { encoding: 'utf8', timeout: 30_000, shell: process.platform === 'win32' }).status !== 0) {
@@ -1416,7 +1454,7 @@ export function cmdDoctor(rawArgs: string[]): number {
   }
   // M5: a sealed authority that drifted is a problem REGARDLESS of whether the
   // current commands pass — doctor must not certify READY on proof it never sealed.
-  const drift = planAuthorityDrift(root, cfg);
+  const drift = planAuthorityDrift(root, cfg, pkg);
   if (drift) problems.push(`verification authority changed since setup — ${drift}; restore the sealed checks, or re-run setup to re-seal deliberately`);
   if (!fs.existsSync(cfg.cliPath)) problems.push('the Canary command files moved or were removed — reinstall, then re-run setup');
   for (const t of cfg.touched) {
@@ -1427,6 +1465,60 @@ export function cmdDoctor(rawArgs: string[]): number {
       problems.push(`Canary's hook is no longer registered in ${rel(root, t.path)} — nothing will run automatically; re-run: canary setup`);
     }
   }
+  return problems;
+}
+
+/**
+ * canary status — the Lazy-Connect read surface: "Canary already recognizes
+ * this environment; what is its state?" Answers from config and wiring bytes
+ * on disk only — ZERO project commands executed, ZERO writes (one pm
+ * --version probe, same as doctor's pre-flight), so a full status run leaves
+ * the repo byte-identical. Every line is a fact about state, never a claim
+ * that the project passes; the checkpoint is reported as history, not health.
+ */
+export function cmdStatus(rawArgs: string[]): number {
+  const { opts, rest } = parseGlobals(rawArgs);
+  const o = new Out(opts.verbose);
+  const root = findRepoRoot(dirArg(rest) ?? process.cwd());
+  if (!root) { o.verdict('NOT CONNECTED', 'not inside a git repository — Canary has nothing to attach to here.', 'cd into your project, then: canary setup --yes'); return 2; }
+  const cfg = readConfig(root);
+  if (cfg === 'corrupt') { o.verdict('NOT CONNECTED', "Canary's local config (.canary/canary.local.json) is unreadable.", 'run: canary setup --yes (rewrites it; your other settings are untouched)'); return 2; }
+  if (!cfg) { o.verdict('NOT CONNECTED', `${root} is a git repository but Canary was never set up here — no config, no hooks, no proof.`, 'when you want protection here: canary setup --yes'); return 2; }
+  const distrust = untrustedConfigReason(root, cfg);
+  if (distrust) { o.verdict('NOT CONNECTED', `Canary found a local config it does not trust (${distrust}) — it will not run plans from it.`, "run: canary setup --yes (rewrites it as this machine's own)"); return 2; }
+  const problems = readOnlyProblems(root, cfg);
+  if (problems.length) {
+    o.verdict('NEEDS ATTENTION', `Canary is set up in ${root}, but its wiring is not sound:`, '');
+    for (const p of problems) console.log(`  - ${p}`);
+    console.log('next: canary setup --yes repairs the above; canary doctor proves the checks actually run');
+    return 2;
+  }
+  o.say(`repo: ${root}`);
+  o.say(`plan: ${cfg.plan.length} step(s): ${cfg.plan.map((s) => `${s.kind}:${s.script}`).join(', ')} — sealed authority intact`);
+  const task = readTaskRecord(root);
+  o.say(`task: ${task ? `${task.kinds.join('+')} (${task.requirementCount} requirement(s))` : 'none registered — verify will demand a frozen task before any PASS'}`);
+  let candidates: string[] = [];
+  try { candidates = fs.readdirSync(path.join(root, CONFIG_DIR, 'candidates')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)); } catch { /* no registry yet = none */ } // 'candidates' must match CANDIDATES_SUBDIR in candidate.ts
+  o.say(`candidates: ${candidates.length ? candidates.join(', ') : 'none'}`);
+  const cp = parseJsonOrNull(path.join(root, CONFIG_DIR, CHECKPOINT_FILE));
+  o.say(`last checkpoint: ${cp ? `${cp.status} (${cp.source}) at ${cp.at} — a past run, NOT a claim about now` : 'none'}`);
+  o.verdict('CONNECTED', 'Canary recognizes this repo: trusted config, wiring intact, sealed authority un-drifted. Nothing was executed to answer this — this is a statement about state, not about your code passing.', 'to run the checks: canary doctor');
+  return 0;
+}
+
+export function cmdDoctor(rawArgs: string[]): number {
+  const { opts, rest } = parseGlobals(rawArgs);
+  const o = new Out(opts.verbose);
+  const root = findRepoRoot(dirArg(rest) ?? process.cwd());
+  if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository.', 'cd into your project'); return 2; }
+  if (!fs.existsSync(path.join(root, 'package.json'))) { o.verdict('UNSUPPORTED', 'this project has no package.json — the zero-config path supports Node projects today.', ''); return 2; }
+  const cfg = readConfig(root);
+  if (cfg === 'corrupt') { o.verdict('NEEDS ATTENTION', "Canary's local config (.canary/canary.local.json) is unreadable.", 'run: canary setup (rewrites it; your other settings are untouched)'); return 2; }
+  if (!cfg) { o.verdict('NEEDS ATTENTION', 'Canary is NOT fully active yet — this repo was never set up.', 'run: canary setup --yes'); return 2; }
+  const distrust = untrustedConfigReason(root, cfg);
+  if (distrust) { o.verdict('NEEDS ATTENTION', `Canary found a local config it does not trust (${distrust}) — it will not run plans from it.`, 'run: canary setup --yes (rewrites it as this machine\'s own)'); return 2; }
+
+  const problems = readOnlyProblems(root, cfg);
   if (problems.length) {
     o.verdict('NEEDS ATTENTION', 'Canary is NOT fully active here:', '');
     for (const p of problems) console.log(`  - ${p}`);

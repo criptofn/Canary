@@ -464,10 +464,14 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   // authority event, not a step verdict — the mandate, never a FAIL the
   // candidate gets to size. (Candidate-only rules: a base that ships pretest
   // was human-approved at setup.)
+  // One package.json read per seal check. The pre-window and post-window
+  // checks each stay a LIVE disk read on purpose — sharing a parsed copy
+  // across them would hide an in-window rewrite, which is exactly what the
+  // F3 post-window check exists to catch.
   const sealViolation = (timing: string): { file: string; why: string; next?: string } | null => {
-    const drift = planAuthorityDrift(rec.root, cfg);
-    if (drift) return { file: path.join(rec.root, 'package.json'), why: `sealed verification authority drifted ${timing}: ${drift}`, next: `restore package.json in the candidate to the sealed text (git -C "${rec.root}" checkout -- package.json), or a HUMAN re-runs canary setup` };
     const pkg = parseJsonOrNull(path.join(rec.root, 'package.json'));
+    const drift = planAuthorityDrift(rec.root, cfg, pkg);
+    if (drift) return { file: path.join(rec.root, 'package.json'), why: `sealed verification authority drifted ${timing}: ${drift}`, next: `restore package.json in the candidate to the sealed text (git -C "${rec.root}" checkout -- package.json), or a HUMAN re-runs canary setup` };
     const scripts = pkg && typeof pkg.scripts === 'object' && pkg.scripts !== null && !Array.isArray(pkg.scripts) ? pkg.scripts as Record<string, unknown> : null;
     if (scripts) for (const s of cfg.plan) {
       if (Object.hasOwn(scripts, `pre${s.script}`) || Object.hasOwn(scripts, `post${s.script}`)) {
@@ -610,9 +614,25 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     // bench step) — not a bytes edit.
     writeVerificationBundle(root, 'candidate', results, 'unproven', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
     if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
-    o.say('CANDIDATE NOT PROVEN — the sealed plan is green, but proof obligations for this task are UNPROVEN (NO PROOF, NO DONE):');
-    for (const x of obligations) o.say(`  obligation [${x.id}] ${x.status.toUpperCase()} (${x.mode}): ${x.note}`);
-    o.say('next: close each UNPROVEN obligation with its actual proof, then re-verify. The trusted base was not touched; promotion stays locked — no PASS was earned.');
+    const met = obligations.filter((x) => x.status === 'met');
+    // PART II split semantics: when EVERY open obligation is one only a human
+    // can close (non-objective: ui/performance/dependency duties), the
+    // technical evidence is genuinely complete — saying so is honesty, not a
+    // softer verdict. Objective duties still unmet stay the plain mixed message.
+    if (unproven.every((x) => x.mode === 'non-objective')) {
+      o.say('CANDIDATE NOT PROVEN — the sealed plan is green and every technical duty is met; what remains is only acceptable by a HUMAN (NO PROOF, NO DONE still binds):');
+      o.say('  TECHNICAL EVIDENCE: PROVEN (sealed plan green; objective duties met)');
+      o.say('  SUBJECTIVE ACCEPTANCE: USER JUDGMENT REQUIRED');
+      o.say('  OVERALL COMPLETION: NOT PROVEN — promotion stays locked until a human accepts.');
+    } else {
+      o.say('CANDIDATE NOT PROVEN — the sealed plan is green, but proof obligations for this task are UNPROVEN (NO PROOF, NO DONE):');
+    }
+    // stdout lists what is MISSING; the full MET/UNPROVEN ledger stays in the
+    // evidence bundle (obligations: obList below) — printing met duties here
+    // was pure token tax on the agent that must read this.
+    for (const x of unproven) o.say(`  obligation [${x.id}] UNPROVEN (${x.mode}): ${x.note}`);
+    if (met.length) o.say(`  obligations: ${met.length}/${obligations.length} MET — full list in the evidence bundle.`);
+    o.say('next: close each UNPROVEN obligation with its actual proof (subjective ones need a HUMAN acceptance — a clarified criterion is frozen with: canary task --requirement BEFORE isolation), then re-verify. The trusted base was not touched; promotion stays locked — no PASS was earned.');
     return { code: 2, startHead: null, rec };
   }
   writeVerificationBundle(root, 'candidate', results, 'pass', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });

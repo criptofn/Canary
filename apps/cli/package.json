@@ -18,7 +18,6 @@
     "@canary-rn/normalizers": "*",
     "@canary-rn/hashing": "*",
     "@canary-rn/evidence-schema": "*",
-    "@canary-rn/report": "*",
-    "@canary-rn/ai": "*"
+    "@canary-rn/report": "*"
   }
 }
