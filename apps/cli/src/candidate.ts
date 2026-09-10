@@ -125,7 +125,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  ACCEPTANCE_SUBDIR, CLI_ENTRY, CONFIG_DIR, ENV_POLICY, EVIDENCE_DIR, Out, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
+  ACCEPTANCE_SUBDIR, CLI_ENTRY, CONFIG_DIR, ENV_POLICY, EVIDENCE_DIR, Out, acceptanceScopeDigestOf, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
   execDigest, findRepoRoot, gitCommand, gitExe, gitWithinRoot, hasCanaryEntry, intentDigestOf, obligationsFor, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readAcceptance, readConfig,
   readTaskRecord, runPlanStep, settingsPath, TASK_FILE, untrustedConfigReason, writeAcceptance, writeFileAtomic, writeVerificationBundle,
   type AcceptanceRecord, type CanaryConfig, type GitResult, type PlanStep, type StepResult, type TaskKind,
@@ -158,7 +158,7 @@ interface CandidateIntent {
   plan: PlanStep[];
   /** planAuthority.scriptDigests at isolation, or null (pre-M5 config) */
   seal: Record<string, string> | null;
-  task: { kinds: TaskKind[]; requirementCount: number } | null;
+  task: { kinds: TaskKind[]; requirementCount: number; requirementDigests?: string[] } | null;
 }
 
 interface CandidateRecord {
@@ -376,7 +376,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
       extra: { ...extra, authorityEvent: { when, changes } },
     });
     o.say('CANARY BLOCKED COMPLETION — Verification authority was modified by the candidate.');
-    if (when !== 'before execution') o.say('CANARY QUARANTINED — verify and promote refuse this base until a HUMAN re-runs canary setup; re-running the same tampering cannot re-baseline it into innocence.');
+    if (when !== 'before execution') o.say('CANARY QUARANTINED — verify and promote refuse this base until canary setup is re-run at the terminal; re-running the same tampering cannot re-baseline it into innocence.');
     // a wholesale evidence wipe turns EVERY file into a change — print a cap,
     // the bundle carries the complete list (evidence stays the full record).
     for (const c of changes.slice(0, 8)) o.say(`  ${c.file}: ${shortState(c.before)} → ${shortState(c.after)} (${when})`);
@@ -432,7 +432,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     }
     if (events.length) return blocked(
       'the verification intent was weakened after isolation — the candidate was opened against a stronger authority than the one now on disk: ' + events.join('; '),
-      'legitimate revision is a HUMAN act (directive §11): restore the plan/task this candidate was isolated under, or re-isolate against the new authority. Canary will not verify an old promise against a quietly-shrunk one.',
+      'legitimate revision is a deliberate local act (directive §11): restore the plan/task this candidate was isolated under, or re-isolate against the new authority. Canary will not verify an old promise against a quietly-shrunk one.',
       { intentEvent: { snapshotAt: rec.intent.at, events } });
   }
   const cid = candidateIdentity(rec.root);
@@ -464,7 +464,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   // anything executes AND again after the window; a post-window hit is an
   // authority event, not a step verdict — the mandate, never a FAIL the
   // candidate gets to size. (Candidate-only rules: a base that ships pretest
-  // was human-approved at setup.)
+  // was sealed as-is at setup — and setup --yes seals whatever ran it.)
   // One package.json read per seal check. The pre-window and post-window
   // checks each stay a LIVE disk read on purpose — sharing a parsed copy
   // across them would hide an in-window rewrite, which is exactly what the
@@ -472,7 +472,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   const sealViolation = (timing: string): { file: string; why: string; next?: string } | null => {
     const pkg = parseJsonOrNull(path.join(rec.root, 'package.json'));
     const drift = planAuthorityDrift(rec.root, cfg, pkg);
-    if (drift) return { file: path.join(rec.root, 'package.json'), why: `sealed verification authority drifted ${timing}: ${drift}`, next: `restore package.json in the candidate to the sealed text (git -C "${rec.root}" checkout -- package.json), or a HUMAN re-runs canary setup` };
+    if (drift) return { file: path.join(rec.root, 'package.json'), why: `sealed verification authority drifted ${timing}: ${drift}`, next: `restore package.json in the candidate to the sealed text (git -C "${rec.root}" checkout -- package.json), or deliberately re-run canary setup` };
     const scripts = pkg && typeof pkg.scripts === 'object' && pkg.scripts !== null && !Array.isArray(pkg.scripts) ? pkg.scripts as Record<string, unknown> : null;
     if (scripts) for (const s of cfg.plan) {
       if (Object.hasOwn(scripts, `pre${s.script}`) || Object.hasOwn(scripts, `post${s.script}`)) {
@@ -587,25 +587,32 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
         ? 'NO task-obligation authority FROZEN at isolation: no task was registered when this candidate was opened. Registering afterwards is growth — it adds duties, it cannot mint this authority retroactively. Register the work (canary task "..." --kind ...) and RE-ISOLATE, then verify the new candidate; omitting registration is not a way through §10, it is exactly what makes §10 unprovable.'
         : 'NO task-obligation authority: this record carries no intent snapshot — it either predates task authority or the snapshot was removed, and the record is agent-writable bytes between windows, so absence proves nothing and fails safe. Register the work (canary task "..." --kind ...) and RE-ISOLATE so a fresh snapshot freezes the authority; there is no pre-M10 PASS path.' });
   }
-  // blocker 3 — HUMAN ACCEPTANCE is consumed HERE and nowhere else. It can
-  // close ONLY non-objective duties standing UNPROVEN (an objective proof is
-  // never acceptance-material), and only while its binding is FRESH: the exact
-  // base HEAD, the exact candidate commit the human typed over, the exact
-  // frozen task state. Any of those moved ⇒ the record is STALE and the duty
-  // reopens (with named advice) — a given-once acceptance can never outlive
-  // what it was given for. No acceptance ⇒ nothing changes; NO PROOF, NO DONE
-  // is the same law it always was, now with an honest completion path.
+  // blocker 3 — ACCEPTANCE FROM AN INTERACTIVE TERMINAL is consumed HERE and
+  // nowhere else. It can close ONLY non-objective duties standing UNPROVEN (an
+  // objective proof is never acceptance-material), and only while its binding
+  // is FRESH: the exact base HEAD, the exact candidate commit the judgment was
+  // typed over, the exact frozen task state, AND — GLM F-3 — the exact
+  // acceptance-eligible duty set as it stood at signing, recomputed NOW from
+  // the LIVE registration. A terminal acceptance authorizes exactly the
+  // subjective duties that existed when it was given; if the duty set grew,
+  // shrank, or a requirement's identity changed since, the old acceptance is
+  // STALE and the duties reopen (with named advice) — a given-once acceptance
+  // can never outlive what it was given for. No acceptance ⇒ nothing changes;
+  // NO PROOF, NO DONE is the same law it always was, now with an honest
+  // completion path. (Promotion is covered for free: isolatePromote's gate 1
+  // is a LIVE verifyCandidate, which runs this same check again.)
   let acceptanceStale = false;
   const acc = readAcceptance(root, name);
   if (acc !== null) {
     const openSubjective = obligations.filter((x) => x.mode === 'non-objective' && x.status === 'unproven');
     if (openSubjective.length) {
       const fresh = cid.head !== null && acc.baseHead === rec.baseHead
-        && acc.candidateHead === cid.head && acc.intentDigest === intentDigestOf(frozenTask);
+        && acc.candidateHead === cid.head && acc.intentDigest === intentDigestOf(frozenTask)
+        && acc.acceptanceScopeDigest === acceptanceScopeDigestOf(task, obligations);
       if (fresh) {
         for (const x of openSubjective) {
           x.status = 'met';
-          x.note = `accepted by the HUMAN on ${acc.at} — record ${CONFIG_DIR}/${ACCEPTANCE_SUBDIR}/${name}.json, binding base ${short(rec.baseHead)} + candidate ${short(acc.candidateHead)} + the frozen task state. Subjective judgment closed this duty; it is NOT a technical proof.`;
+          x.note = `accepted from an interactive terminal on ${acc.at} — record ${CONFIG_DIR}/${ACCEPTANCE_SUBDIR}/${name}.json, binding base ${short(rec.baseHead)} + candidate ${short(acc.candidateHead)} + the frozen task state + the acceptance-eligible duty set at signing. Subjective judgment closed this duty; it is NOT a technical proof.`;
         }
       } else acceptanceStale = true;
     }
@@ -639,15 +646,16 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     writeVerificationBundle(root, 'candidate', results, 'unproven', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
     if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
     const met = obligations.filter((x) => x.status === 'met');
-    // PART II split semantics: when EVERY open obligation is one only a human
-    // can close (non-objective: ui/performance/dependency duties), the
+    // PART II split semantics: when EVERY open obligation is one only an
+    // interactive-terminal acceptance can close (non-objective: ui/
+    // performance/dependency duties), the
     // technical evidence is genuinely complete — saying so is honesty, not a
     // softer verdict. Objective duties still unmet stay the plain mixed message.
     if (unproven.every((x) => x.mode === 'non-objective')) {
-      o.say(`CANDIDATE NOT PROVEN — the sealed plan is green and every technical duty is met; what remains is only acceptable by a HUMAN at this machine's keyboard (NO PROOF, NO DONE still binds):`);
+      o.say(`CANDIDATE NOT PROVEN — the sealed plan is green and every technical duty is met; what remains can only be closed by acceptance from an interactive terminal (NO PROOF, NO DONE still binds):`);
       o.say('  TECHNICAL EVIDENCE: PROVEN (sealed plan green; objective duties met)');
       o.say('  SUBJECTIVE ACCEPTANCE: USER JUDGMENT REQUIRED');
-      o.say(`  OVERALL COMPLETION: NOT PROVEN — promotion stays locked until a HUMAN accepts: canary accept ${echoable(name)}`);
+      o.say(`  OVERALL COMPLETION: NOT PROVEN — promotion stays locked until acceptance from an interactive terminal: canary accept ${echoable(name)}`);
     } else {
       o.say('CANDIDATE NOT PROVEN — the sealed plan is green, but proof obligations for this task are UNPROVEN (NO PROOF, NO DONE):');
     }
@@ -655,9 +663,9 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     // evidence bundle (obligations: obList below) — printing met duties here
     // was pure token tax on the agent that must read this.
     for (const x of unproven) o.say(`  obligation [${x.id}] UNPROVEN (${x.mode}): ${x.note}`);
-    if (acceptanceStale) o.say(`  note: an acceptance for "${name}" EXISTS but is STALE — the candidate commit, its base, or the frozen task moved since the human signed it, so the duties reopened. A HUMAN must re-run: canary accept ${echoable(name)}`);
+    if (acceptanceStale) o.say(`  note: an acceptance for "${name}" EXISTS but is STALE — the candidate commit, its base, the frozen task, or the acceptance-eligible duty set changed since it was signed (a terminal acceptance authorizes ONLY the subjective duties that existed at signing), so the duties reopened. Re-run from an interactive terminal: canary accept ${echoable(name)}`);
     if (met.length) o.say(`  obligations: ${met.length}/${obligations.length} MET — full list in the evidence bundle.`);
-    o.say(`next: close each UNPROVEN obligation with its actual proof (objective ones), or let a HUMAN accept the subjective ones from a terminal: canary accept ${echoable(name)} — mixed tasks need BOTH proof AND acceptance. A clarified criterion can also be frozen with: canary task --requirement "<part>" per part, BEFORE isolation. Then re-verify. The trusted base was not touched; promotion stays locked — no PASS was earned.`);
+    o.say(`next: close each UNPROVEN obligation with its actual proof (objective ones), or accept the subjective ones from an interactive terminal: canary accept ${echoable(name)} — mixed tasks need BOTH proof AND acceptance. A clarified criterion can also be frozen with: canary task --requirement "<part>" per part, BEFORE isolation. Then re-verify. The trusted base was not touched; promotion stays locked — no PASS was earned.`);
     return { code: 2, startHead: null, rec };
   }
   writeVerificationBundle(root, 'candidate', results, 'pass', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
@@ -674,32 +682,38 @@ function isolateVerify(root: string, cfg: CanaryConfig, o: Out, name: string): n
 }
 
 /**
- * blocker 3 — `canary accept <candidate>`: the HUMAN completion path for
- * SUBJECTIVE duties. Authority boundary, stated exactly: an INTERACTIVE
- * TERMINAL on BOTH stdin and stdout. A coding agent's streams are pipes — it
- * cannot reach this gate without leaving its own machinery, and there is
- * deliberately NO --yes, NO env escape, NO config toggle: skipping the TTY
- * check would be the laundering vector this command exists to close. (A
- * same-UID attacker with a pty or a hand-written acceptance file is the
- * documented total-forgery ceiling of M2 — the gate takes the USUAL agent
- * path away, which is the threat model.) The record binds candidate name,
- * base HEAD, the candidate commit HEADED at acceptance, and the FROZEN task
- * state — verifyCandidate re-checks the triple and lets it close only
- * non-objective duties. Refused on purpose: candidates without frozen
- * authority (acceptance must never become the dead-end recommendation that
- * `--requirement` was) and any objective shortfall, which acceptance can
- * never paper over.
+ * blocker 3 — `canary accept <candidate>`: the human completion path for
+ * SUBJECTIVE duties. The claim, stated exactly as enforced: the SUPPORTED
+ * acceptance flow requires an interactive terminal on BOTH stdin and stdout —
+ * the normal non-interactive coding-agent path is refused, and there is
+ * deliberately NO --yes, NO env escape, NO config toggle: skipping the
+ * terminal check would be the laundering vector this command exists to close.
+ * A TTY is NOT cryptographic human identity: a same-UID process that can
+ * drive a PTY (e.g. `script -qec`) or hand-write this record (every field is
+ * derivable from local state) remains inside Canary's documented local
+ * forgery ceiling (M2). This is a policy/friction boundary on the USUAL agent
+ * path, not an OS security boundary — SECURITY.md carries the full model.
+ * The record binds candidate name, base HEAD, the candidate commit HEADED at
+ * acceptance, the FROZEN task state, and — GLM F-3 — the
+ * acceptanceScopeDigest: the canonical identity of the acceptance-eligible
+ * duty set exactly as it stood at signing. verifyCandidate re-checks all of
+ * it (and promotion re-runs that verification live), so a duty set that grew
+ * after the judgment is covered by NOTHING; it reads STALE and reopens. Only
+ * non-objective duties can ever close this way. Refused on purpose:
+ * candidates without frozen authority (acceptance must never become the
+ * dead-end recommendation that `--requirement` was) and any objective
+ * shortfall, which acceptance can never paper over.
  */
 export function cmdAccept(rawArgs: string[]): number {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose);
   const name = rest[0] ?? '';
-  if (rest.length !== 1 || !name) { o.say('usage: canary accept <candidate> — typed by a HUMAN in a terminal; no flags escape the terminal check'); return 3; }
+  if (rest.length !== 1 || !name) { o.say('usage: canary accept <candidate> — typed in an interactive terminal; no flags escape the terminal check'); return 3; }
   if (!NAME_RE.test(name)) { o.say(`candidate name must match ${NAME_RE}`); return 3; }
   const root = findRepoRoot(process.cwd());
   if (!root) { o.say('not inside a git repository — there is no candidate registry here to accept from'); return 2; }
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    o.say('REFUSED — acceptance is a HUMAN act at a keyboard. This session has no interactive terminal on both streams, so it cannot carry one. A coding agent cannot self-accept its own work; run canary accept <candidate> yourself, from a real terminal.');
+    o.say('REFUSED — the supported acceptance flow requires an interactive terminal on both streams; this session has none, so the non-interactive path is refused. (No flag or env var escapes this. A terminal is friction, not cryptographic human identity — see SECURITY.md.) To accept, run canary accept <candidate> yourself from a real terminal.');
     return 2;
   }
   const rec = loadRecord(root, name);
@@ -714,23 +728,42 @@ export function cmdAccept(rawArgs: string[]): number {
   }
   const cid = candidateIdentity(rec.root);
   if (!cid.resolved || cid.head === null) { o.say(`accept: candidate "${name}" has no resolvable commit — there are no reviewed bytes to bind an acceptance to`); return 2; }
-  const rc = frozenTask?.requirementCount ?? 0;
-  o.say(`ACCEPTING the SUBJECTIVE duties of candidate "${name}" — task [${frozenKinds.join(', ')}]${rc ? ` + ${rc} requirement(s)` : ''}`);
+  // GLM F-3 — the judgment signs WHAT is acceptance-eligible right now. The
+  // duty set is recomputed here with the same live derivation verifyCandidate
+  // uses (live task, candidate diff, sealed plan kinds); its canonical digest
+  // rides the record, so any later material change to that set — or to the
+  // identity of a registered requirement — makes this signature STALE instead
+  // of letting the old acceptance ride growth it never saw. No readable
+  // sealed plan ⇒ no computable scope ⇒ nothing to sign.
+  const cfg = readConfig(root);
+  if (cfg === 'corrupt' || !cfg) { o.say('REFUSED — the sealed plan here is unreadable, so the acceptance-eligible duty set cannot be computed; run canary setup, then verify, then accept'); return 2; }
+  const distrust = untrustedConfigReason(root, cfg);
+  if (distrust) { o.say(`REFUSED — this config is not trusted (${distrust}), so no acceptance scope can be computed against it; run canary setup --yes first`); return 2; }
+  const task = readTaskRecord(root);
+  const obligations = obligationsFor(task?.kinds ?? [], candidateDiffSignals(rec.root, rec.baseHead),
+    new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'isolation');
+  const scopeDigest = acceptanceScopeDigestOf(task, obligations);
+  const subjective = obligations.filter((x) => x.mode === 'non-objective').map((x) => x.id).sort();
+  const rc = task?.requirementCount ?? 0;
+  o.say(`ACCEPTING the SUBJECTIVE duties of candidate "${name}" — live registration [${(task?.kinds ?? []).join(', ') || 'no kinds'}]${rc ? ` + ${rc} requirement(s)` : ''}`);
   o.say(`  base ${short(rec.baseHead)} → candidate ${short(cid.head)}  (${rec.root})`);
+  o.say(`  duties this signature covers: ${subjective.length ? subjective.join(', ') : 'none currently open (any duty that later joins this set will NOT be covered — the record goes STALE)'}`);
+  o.say('  A terminal acceptance authorizes EXACTLY the duties above as registered now — never duties that appear after it.');
   o.say('  Objective proofs are NEVER closed by this: a green plan and every objective duty must already hold (verify first: canary isolate --verify <name>).');
   o.say('  Read the evidence before signing: .canary/evidence/*-candidate/verification.json');
-  fs.writeSync(1, `You are the human of record. Type the candidate name exactly ("${name}") to accept, or anything else to refuse: `);
+  fs.writeSync(1, `Accepting from this interactive terminal. Type the candidate name exactly ("${name}") to accept, or anything else to refuse: `);
   const buf = Buffer.alloc(160);
   let n = 0;
   try { n = fs.readSync(0, buf, 0, buf.length, null); } catch { n = 0; }
   const answer = buf.subarray(0, n).toString('utf8').trimEnd();
   if (answer !== name) { o.say('NOT ACCEPTED — the typed name did not match exactly. Nothing was written; the base is untouched.'); return 2; }
   const acc: AcceptanceRecord = {
-    schema: 'canary-acceptance/1', at: new Date().toISOString(), candidate: name,
-    baseHead: rec.baseHead, candidateHead: cid.head, intentDigest: intentDigestOf(frozenTask), acceptedBy: 'tty-human',
+    schema: 'canary-acceptance/2', at: new Date().toISOString(), candidate: name,
+    baseHead: rec.baseHead, candidateHead: cid.head, intentDigest: intentDigestOf(frozenTask),
+    acceptanceScopeDigest: scopeDigest, acceptedBy: 'tty-human',
   };
   if (!writeAcceptance(root, acc)) { o.say('acceptance could not be written (.canary containment refused it) — nothing accepted'); return 2; }
-  o.say(`ACCEPTED by the human at this terminal: ${path.join(CONFIG_DIR, ACCEPTANCE_SUBDIR, `${name}.json`)}`);
+  o.say(`ACCEPTED from this interactive terminal: ${path.join(CONFIG_DIR, ACCEPTANCE_SUBDIR, `${name}.json`)}`);
   o.say(`next: canary isolate --verify ${name} — subjective duties read MET (accepted, and bound to these exact bytes); objective proof still has to hold on its own.`);
   return 0;
 }

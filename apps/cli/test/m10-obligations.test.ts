@@ -102,7 +102,7 @@ function expectIntentBlock(root: string, eventRe: RegExp) {
   assert.equal(r.status, 2, r.stdout);
   assert.match(r.stdout, weakenedRe, 'the guard names the weakening');
   assert.match(r.stdout, eventRe, 'the guard names the specific event');
-  assert.match(r.stdout, /legitimate revision is a HUMAN act/, 'recovery is a human act, not a re-run');
+  assert.match(r.stdout, /legitimate revision is a deliberate local act/, 'recovery is a deliberate local act, not a quiet re-run');
   assert.ok(!identityRe.test(r.stdout), 'the guard fires BEFORE identity — nothing ran, nothing was probed');
   assert.ok(!/CANARY BLOCKED COMPLETION|QUARANTIN/.test(r.stdout), 'an intent block is not a §9 mandate');
   assert.ok(!fs.existsSync(path.join(root, QUARANTINE)), 'grudgeless: no quarantine stamp — restore is the recovery');

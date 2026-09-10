@@ -791,7 +791,8 @@ export interface BundleProvenance {
 // ---------- M5 trusted verification plan ----------
 /**
  * The worker must not redefine success after implementing its solution. The
- * plan and the script TEXTS a human approved at setup are TRUSTED authority;
+ * plan and the script TEXTS sealed at setup are TRUSTED authority — whoever or
+ * whatever ran setup (including --yes, no review) is what the seal attests;
  * the candidate controls only the implementation. This seal catches the
  * subtle attack the exit-code oracle cannot: `"test": "vitest"` swapped for
  * `"test": "echo all good"` still exits 0 — a "pass" of a hollowed-out check
@@ -814,14 +815,14 @@ export interface BundleProvenance {
  * is what creates the authority.
  */
 export interface PlanAuthority {
-  /** when a human ran setup and this seal was captured */
+  /** when this seal was captured (the last genuine setup run) */
   at: string;
   planDigest: string;
   /** sha256 of the exact package.json script text, keyed by script name */
   scriptDigests: Record<string, string>;
 }
 
-/** Capture the authority a human just approved: the plan plus the verbatim
+/** Capture the authority this setup run seals: the plan plus the verbatim
  *  text of every script it references. detectPlan guarantees plan scripts
  *  exist as non-empty strings in pkgScripts; anything else is left unsealed
  *  and the drift check fails closed on it. */
@@ -1114,7 +1115,7 @@ export interface Obligation { id: string; mode: 'objective' | 'non-objective'; s
 
 /** The obligation engine: pure over (kinds, signals, sealed-plan kinds, requirement count).
  *  `planKinds` comes from the SEALED plan — an obligation is only satisfiable
- *  by a command a human actually approved; Canary never executes an unsealed
+ *  by a command actually sealed at setup; Canary never executes an unsealed
  *  "benchmark" just because the task mentioned one. */
 /** `baseline` names the premise the signals were collected against: 'setup'
  *  for the checkpoint/doctor path, 'isolation' at the candidate boundary —
@@ -1164,29 +1165,30 @@ export function obligationsFor(
     // blocker 2: a duty must name its REAL completion path. Observed dep
     // evidence is listed (meaningful evidence, not mere declaration); a
     // declared-but-unobserved dependency task says so honestly instead of
-    // claiming a change it cannot see. Both close via a HUMAN acceptance —
+    // claiming a change it cannot see. Both close via an interactive-terminal
+    // acceptance —
     // never auto-met, never a dead end.
     const depFiles = sig.touched.filter(isDepPath);
     add(!sig.depTouched
-      ? { id: 'dependency-change', mode: 'non-objective', status: 'unproven', note: 'the task declares dependency work but the candidate diff touches no dependency file — nothing observed to compare, nothing observed to accept; UNPROVEN. Land the change, or a HUMAN accepts the candidate as-is: canary accept <candidate>' }
+      ? { id: 'dependency-change', mode: 'non-objective', status: 'unproven', note: 'the task declares dependency work but the candidate diff touches no dependency file — nothing observed to compare, nothing observed to accept; UNPROVEN. Land the change, or accept the candidate as-is from an interactive terminal: canary accept <candidate>' }
       : { id: 'dependency-change', mode: 'non-objective', status: 'unproven', note: sig.resolved
-        ? `dependency change observed (${formatPaths(depFiles)}): the sealed plan re-ran against the new graph, but downstream behavior needs a trusted baseline/candidate comparison — UNPROVEN. A HUMAN closes it after review: canary accept <candidate>`
-        : 'dependency change observed against an unresolvable baseline — comparison UNPROVEN. A HUMAN can still close it after review: canary accept <candidate>' });
+        ? `dependency change observed (${formatPaths(depFiles)}): the sealed plan re-ran against the new graph, but downstream behavior needs a trusted baseline/candidate comparison — UNPROVEN. Closes after review from an interactive terminal: canary accept <candidate>`
+        : 'dependency change observed against an unresolvable baseline — comparison UNPROVEN. It can still be closed after review from an interactive terminal: canary accept <candidate>' });
   }
   if (kinds.includes('performance')) {
     add(has('bench')
-      ? { id: 'performance-proof', mode: 'objective', status: 'met', note: 'the sealed benchmark ran and passed (its exit code is the threshold a human approved)' }
-      : { id: 'performance-proof', mode: 'non-objective', status: 'unproven', note: 'a performance obligation needs a repeatable benchmark with a defined threshold; the sealed plan has none — UNPROVEN. Paths to close it: a human adds a bench script and re-runs canary setup (seals + smokes it), or a HUMAN accepts the measured judgment: canary accept <candidate>' });
+      ? { id: 'performance-proof', mode: 'objective', status: 'met', note: 'the sealed benchmark ran and passed (its exit code is the threshold sealed at setup)' }
+      : { id: 'performance-proof', mode: 'non-objective', status: 'unproven', note: 'a performance obligation needs a repeatable benchmark with a defined threshold; the sealed plan has none — UNPROVEN. Paths to close it: add a bench script and re-run canary setup (seals + smokes it), or accept the measured judgment from an interactive terminal: canary accept <candidate>' });
   }
   if (kinds.includes('ui')) {
     add(has('e2e')
       ? { id: 'ui-proof', mode: 'objective', status: 'met', note: 'the sealed e2e/browser proof ran and passed' }
-      : { id: 'ui-proof', mode: 'non-objective', status: 'unproven', note: 'no browser/e2e/accessibility proof is available in the sealed plan — UI behavior UNPROVEN (visual truth is not pretend-deterministic). A HUMAN closes it by judgment: canary accept <candidate>' });
+      : { id: 'ui-proof', mode: 'non-objective', status: 'unproven', note: 'no browser/e2e/accessibility proof is available in the sealed plan — UI behavior UNPROVEN (visual truth is not pretend-deterministic). Closes only by judgment from an interactive terminal: canary accept <candidate>' });
   }
   if (kinds.includes('multi') || requirementCount > 0) {
     add({ id: 'per-requirement', mode: 'non-objective', status: 'unproven', note: requirementCount > 0
-      ? `multi-part task: ${requirementCount} registered requirement(s) — a green plan proves the plan, NOT each part; requirements without their own check end OBJECTIVELY PROVEN or SUBJECTIVELY ACCEPTED by the HUMAN (canary accept <candidate>) — until then UNPROVEN, never permanently dead`
-      : 'multi-part task detected but requirements were never enumerated — ask the human ONCE which parts must be proven separately, or register them: canary task "..." --requirement "..." per part (BEFORE isolation), or a HUMAN accepts the candidate as-is: canary accept <candidate>' });
+      ? `multi-part task: ${requirementCount} registered requirement(s) — a green plan proves the plan, NOT each part; requirements without their own check end OBJECTIVELY PROVEN or SUBJECTIVELY ACCEPTED from an interactive terminal (canary accept <candidate>) — until then UNPROVEN, never permanently dead`
+      : 'multi-part task detected but requirements were never enumerated — ask the human ONCE which parts must be proven separately, or register them: canary task "..." --requirement "..." per part (BEFORE isolation), or accept the candidate as-is from an interactive terminal: canary accept <candidate>' });
   }
   return out;
 }
@@ -1196,7 +1198,7 @@ export function obligationsFor(
  *  is exactly the pre-M6 posture: diff-implied obligations still apply.
  *  Exported for M10: the candidate intent snapshot freezes this record at
  *  isolation, and the shrink guard compares live-vs-frozen (candidate.ts). */
-export function readTaskRecord(root: string): { kinds: TaskKind[]; requirementCount: number } | null {
+export function readTaskRecord(root: string): { kinds: TaskKind[]; requirementCount: number; requirementDigests: string[] } | null {
   try {
     const p = path.join(root, CONFIG_DIR, TASK_FILE);
     if (containedRealPath(root, p) === null) return null;
@@ -1206,30 +1208,68 @@ export function readTaskRecord(root: string): { kinds: TaskKind[]; requirementCo
     const kinds = Array.isArray(v.kinds) ? v.kinds.filter((k): k is TaskKind => (TASK_KINDS as readonly string[]).includes(String(k))) : [];
     const rc = typeof v.requirementCount === 'number' && Number.isInteger(v.requirementCount) && v.requirementCount >= 0 && v.requirementCount <= 64
       ? v.requirementCount : 0;
-    return { kinds: [...new Set(kinds)], requirementCount: rc };
+    // GLM F-3 — per-requirement IDENTITY (digests, never prose; M3/M4 doctrine
+    // holds): an acceptance given over ["A","B"] must not fit ["C","D"] just
+    // because both records count 2. Records predating the field yield [] and
+    // bind by count alone — exactly the old posture, and re-registering the
+    // task with the current CLI replaces it with real identity.
+    const rd = Array.isArray(v.requirementDigests)
+      ? v.requirementDigests.filter((d): d is string => typeof d === 'string' && /^[0-9a-f]{64}$/.test(d)).slice(0, 64)
+      : [];
+    return { kinds: [...new Set(kinds)], requirementCount: rc, requirementDigests: rd };
   } catch { return null; }
 }
 
-// ---------- blocker 3: HUMAN ACCEPTANCE (the subjective completion path) ----------
-/** Acceptance is a HUMAN act at the human-authority boundary, never a
- *  promotion shortcut: it can close ONLY non-objective duties, never an
- *  objective proof. The record binds to the exact candidate, the exact base
- *  HEAD it was verified against, the exact committed bytes reviewed, and the
- *  frozen task state — any of those moving makes it STALE (the duty reopens).
+// ---------- blocker 3: ACCEPTANCE FROM AN INTERACTIVE TERMINAL (the subjective completion path) ----------
+/** Acceptance is the human-authority boundary, never a promotion shortcut:
+ *  it can close ONLY non-objective duties, never an objective proof. The
+ *  record binds to the exact candidate, the exact base HEAD it was verified
+ *  against, the exact committed bytes reviewed, the frozen task state, AND
+ *  the acceptance-eligible DUTY SET as it stood when the judgment was made
+ *  (GLM F-3) — any of those moving makes it STALE (the duties reopen).
+ *  Claim stated exactly (no more, no less): Canary refuses the normal
+ *  NON-INTERACTIVE acceptance path and requires an interactive terminal for
+ *  the supported acceptance flow. A TTY is not cryptographic human identity:
+ *  a same-UID process able to drive a PTY (e.g. `script -qec`) or to write
+ *  this file directly remains inside Canary's documented local forgery
+ *  ceiling (M2). The gate takes the USUAL agent path away; it is policy /
+ *  friction, not an OS security boundary.
  *  It lives OUTSIDE .canary/evidence by design: the evidence tree is inside
  *  M9's fingerprint window, and an acceptance written between windows must
- *  not look like authority-drift. A forged acceptance file is the same-UID
- *  total-forgery ceiling (M2) — the TTY gate is what takes the USUAL agent
- *  path away from it. */
+ *  not look like authority-drift. */
 export const ACCEPTANCE_SUBDIR = 'acceptance';
 export interface AcceptanceRecord {
-  schema: 'canary-acceptance/1'; at: string; candidate: string;
+  /** /2 = +acceptanceScopeDigest binding (GLM F-3). /1 records — made by an
+   *  older CLI that could not see duty-set growth — are rejected as unreadable
+   *  shapes: fail CLOSED to UNPROVEN, never honored. Recovery is one fresh
+   *  terminal acceptance; no dead end. */
+  schema: 'canary-acceptance/2'; at: string; candidate: string;
   baseHead: string; candidateHead: string; intentDigest: string;
+  acceptanceScopeDigest: string;
   acceptedBy: 'tty-human';
 }
-/** The frozen task state, digested — what an acceptance binds to. */
+/** The frozen task state, digested — one of the bindings an acceptance carries. */
 export const intentDigestOf = (task: { kinds: TaskKind[]; requirementCount: number } | null): string =>
   sha256(JSON.stringify(task ?? null));
+/** GLM F-3 — the canonical identity of WHAT a terminal acceptance authorizes:
+ *  exactly the acceptance-eligible (non-objective) duties that exist NOW, plus
+ *  the registered requirement identity (count + per-requirement digests).
+ *  Semantic inputs only — duty ids, requirement digests — never timestamps,
+ *  notes, evidence paths, or wording: ordering is canonicalized by sorting,
+ *  and the same obligationsFor derivation verify uses is the single source.
+ *  Material change to that set (add/remove/replace a duty, change a
+ *  requirement, a new subjective kind, a criterion swap) changes this digest,
+ *  so the old acceptance goes STALE instead of riding the growth. */
+export function acceptanceScopeDigestOf(
+  task: { requirementCount: number; requirementDigests: string[] } | null,
+  obligations: Obligation[],
+): string {
+  return sha256(JSON.stringify({
+    duties: obligations.filter((x) => x.mode === 'non-objective').map((x) => x.id).sort(),
+    requirementCount: task?.requirementCount ?? 0,
+    requirementDigests: [...(task?.requirementDigests ?? [])].sort(),
+  }));
+}
 export function readAcceptance(root: string, name: string): AcceptanceRecord | null {
   try {
     const p = path.join(root, CONFIG_DIR, ACCEPTANCE_SUBDIR, `${name}.json`);
@@ -1237,10 +1277,11 @@ export function readAcceptance(root: string, name: string): AcceptanceRecord | n
     if (!fs.existsSync(p)) return null;
     const v = JSON.parse(fs.readFileSync(p, 'utf8')) as Partial<AcceptanceRecord> | null;
     if (typeof v !== 'object' || v === null) return null;
-    if (v.schema !== 'canary-acceptance/1' || typeof v.at !== 'string' || v.candidate !== name) return null;
+    if (v.schema !== 'canary-acceptance/2' || typeof v.at !== 'string' || v.candidate !== name) return null;
     if (typeof v.baseHead !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.baseHead)) return null;
     if (typeof v.candidateHead !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.candidateHead)) return null;
     if (typeof v.intentDigest !== 'string' || !/^[0-9a-f]{64}$/.test(v.intentDigest)) return null;
+    if (typeof v.acceptanceScopeDigest !== 'string' || !/^[0-9a-f]{64}$/.test(v.acceptanceScopeDigest)) return null;
     if (v.acceptedBy !== 'tty-human') return null; // agent-authored shape: unreadable
     return v as AcceptanceRecord;
   } catch { return null; }
@@ -1275,15 +1316,19 @@ export function cmdTask(rawArgs: string[]): number {
   if (distrust) { o.verdict('NEEDS ATTENTION', `Canary will not record a task against a config it does not trust (${distrust}).`, "run: canary setup --yes (rewrites it as this machine's own)"); return 2; }
   let kindFlag: string | null = null;
   const prose: string[] = [];
-  let requirementCount = 0;
+  const requirements: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
     if (a === '--kind' && rest[i + 1] && !rest[i + 1]!.startsWith('--')) { kindFlag = rest[++i]!; continue; }
     if (a.startsWith('--kind=')) { kindFlag = a.slice(7); continue; }
-    if (a === '--requirement' && rest[i + 1] && !rest[i + 1]!.startsWith('--')) { requirementCount++; i++; continue; }
+    // GLM F-3: the requirement TEXT keeps its identity — hashed, prose never
+    // stored (M3/M4). Counting alone let ["A","B"] and ["C","D"] share one
+    // acceptance; an acceptance now binds to WHAT was listed.
+    if (a === '--requirement' && rest[i + 1] && !rest[i + 1]!.startsWith('--')) { requirements.push(rest[++i]!); continue; }
     if (a.startsWith('--')) continue;
     prose.push(a);
   }
+  const requirementCount = requirements.length;
   const text = prose.join(' ').trim();
   if (!text && kindFlag === null && requirementCount === 0) { o.say('usage: canary task "<intent>" [--kind bugfix|refactor|dependency|performance|ui|multi] [--requirement "<part>"]…'); return 3; }
   const inferred = inferTaskKinds(text);
@@ -1311,6 +1356,10 @@ export function cmdTask(rawArgs: string[]): number {
       // M3/M4 doctrine: prose is digested, never stored — the record cannot become a smuggling channel for agent text
       taskDigest: text ? sha256(text.slice(0, 4000)) : null,
       kinds, requirementCount,
+      // GLM F-3: one digest per listed requirement — identity without prose
+      // (M3/M4 doctrine unchanged). An acceptance binds to THESE, so replacing
+      // same-count requirements invalidates it.
+      requirementDigests: requirements.slice(0, 64).map((r) => sha256(r.slice(0, 4000))),
       trustClass: 'AGENT_REPORTED',
       authority: 'ZERO — registering a task can only ADD proof obligations; the sealed plan is the floor no declaration lifts',
     }, null, 2) + '\n');
@@ -1556,10 +1605,11 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const ownSettings = rel(root, settingsPath(root)).split(path.sep).join('/');
   const baselineStatus = gitWithinRoot(root, ['status', '--porcelain', '--', '.', `:(exclude)${ownSettings}`]);
   // M5: whatever plan and script texts are on disk RIGHT NOW are what the
-  // human running setup just approved — they become the sealed authority.
+  // setup run is now sealing — they become the sealed authority.
   const seal = sealPlanAuthority(plan, (pkg.scripts ?? {}) as Record<string, unknown>);
   // A re-setup under byte-identical authority keeps the ORIGINAL stamps:
-  // installedAt and planAuthority.at record WHEN A HUMAN APPROVED THESE BYTES,
+  // installedAt and planAuthority.at record WHEN THESE BYTES WERE LAST
+  // GENUINELY RE-SEALED by a setup run,
   // not when the command was last typed — so re-running setup on a connected
   // repo is CORE-state idempotent (no spurious config churn for re-entry).
   // Any real change (plan shape, script text, HEAD) re-stamps honestly, which
@@ -1591,14 +1641,14 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     o.verdict('NEEDS ATTENTION', `could not write the .canary config (${String(e).slice(0, 140)}) — the hook entry is installed, but Canary cannot verify anything here without its config. Nothing was half-written.`, 'close whatever holds the file, then run setup again');
     return 2;
   }
-  // M9 §9.5 — the human running setup IS the clearing act. A caught in-window
-  // tampering quarantines the base (verify/promote refuse until re-seal); a
-  // fresh writeConfig + re-installed hook means a human re-authorized these
-  // bytes, so the marker's debt is paid. Cleared only on success: if the
+  // M9 §9.5 — a deliberate setup re-run IS the clearing act. A caught
+  // in-window tampering quarantines the base (verify/promote refuse until
+  // re-seal); a fresh writeConfig + re-installed hook means these bytes were
+  // deliberately re-sealed, so the marker's debt is paid. Cleared only on success: if the
   // config write threw above, quarantine stands (fail-closed).
   try { fs.rmSync(path.join(root, CONFIG_DIR, QUARANTINE_FILE), { force: true }); } catch { /* absent is the common case */ }
   o.say(`Claude Code will run Canary automatically when the agent finishes a turn here.${prev && prev !== 'corrupt' ? ' (re-run: existing Canary hook refreshed, no duplicates)' : ''}`);
-  o.detail('authority sealed: the plan and the exact text of every script it runs — candidate edits to the verification surface block completion until a human re-runs setup.');
+  o.detail('authority sealed: the plan and the exact text of every script it runs — candidate edits to the verification surface block completion until setup is deliberately re-run.');
 
   // smoke = run the plan for real (this is the proof the wiring works)
   const interactive = process.stdin.isTTY === true;

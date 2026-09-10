@@ -14,6 +14,7 @@
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 
@@ -84,6 +85,73 @@ export function sanitizedEnv({ ws, nodeDir }: EnvOptions): NodeJS.ProcessEnv {
 /** Names of the env vars a child receives — recorded in evidence (names only). */
 export function sanitizedEnvKeys(env: NodeJS.ProcessEnv): string[] {
   return Object.keys(env).sort();
+}
+
+/**
+ * Audit F-6 (GLM minor closure): the containment helpers (taskkill / ps /
+ * powershell) ran with the FULL caller environment — an inconsistency with
+ * the hygiene every other Canary child gets. These paths are and remain
+ * NON-verdict-authoritative: no classification or promotion decision reads
+ * their success (a failed sweep is reported `failed: true`, never as
+ * "nothing survived"), so this closes env-inheritance hygiene, not a claimed
+ * attack. Same deny-by-omission posture as sanitizedEnv — system tools only
+ * need OS plumbing, so they get OS plumbing: no caller PATH, no NODE_OPTIONS,
+ * no npm auth, no PSModulePath (PowerShell's module loader is an env-var code
+ * vector; absent means its compiled-in defaults), and the Windows identity
+ * vars stay neutralized (audit F6's loader behavior). TEMP/TMP point at the
+ * host temp because these tools may scratch there; temp contents are not a
+ * code path for `taskkill`, bare `ps`, or `-NoProfile` `powershell -Command`.
+ * `SystemRoot` itself is still honored as-is — same-UID actors able to set
+ * the caller environment can equally overwrite Canary's own state, which is
+ * the documented local-forgery ceiling, not what this narrows.
+ */
+export function containmentEnv(): NodeJS.ProcessEnv {
+  const tmp = os.tmpdir();
+  if (process.platform === 'win32') {
+    const systemRoot = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
+    const sys32 = path.join(systemRoot, 'System32');
+    const tmpParsed = path.parse(tmp);
+    const tmpDrive = tmpParsed.root.slice(0, 2);
+    return {
+      PATH: `${sys32};${systemRoot}`,
+      PATHEXT: '.EXE;.CMD',
+      SystemRoot: systemRoot,
+      windir: systemRoot,
+      ComSpec: path.join(sys32, 'cmd.exe'),
+      TEMP: tmp,
+      TMP: tmp,
+      USERNAME: 'canary',
+      USERDOMAIN: 'CANARY',
+      LOGONSERVER: '\\\\CANARY',
+      HOMEDRIVE: tmpDrive,
+      HOMEPATH: tmp.slice(tmpParsed.root.length - 1),
+      SYSTEMDRIVE: tmpDrive,
+      HOME: tmp,
+      USERPROFILE: tmp,
+    };
+  }
+  return { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', TMPDIR: tmp };
+}
+
+/**
+ * Resolve an OS tool at its absolute System32 location when it exists there;
+ * otherwise fall back to the bare NAME, which containmentEnv restricts to
+ * System32 + windir — a caller PATH entry is never consulted either way.
+ */
+export function resolveSystemTool(...parts: string[]): string {
+  const systemRoot = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
+  const abs = path.join(systemRoot, 'System32', ...parts);
+  const bare = parts[parts.length - 1] ?? '';
+  return fs.existsSync(abs) ? abs : bare;
+}
+
+/** The POSIX `ps` fallback resolves absolutely from system dirs only, so a
+ *  lying `ps` placed on the caller PATH can never forge the process table the
+ *  sweep reads. Bare `ps` (sanitized PATH = /usr/bin:/bin) is the fail-safe
+ *  when no system copy exists; ENOENT then yields the honest failed sweep. */
+export function resolvePsBinary(): string {
+  for (const c of ['/usr/bin/ps', '/bin/ps']) if (fs.existsSync(c)) return c;
+  return 'ps';
 }
 
 /**
@@ -292,7 +360,11 @@ export function killTree(pid: number | undefined): void {
   if (!pid) return;
   try {
     if (process.platform === 'win32') {
-      spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { timeout: 15_000 });
+      // F-6: absolute trusted resolution + sanitized env. The catch below is
+      // the fail-safe: an unresolvable taskkill falls to direct SIGKILL, and
+      // killTree's whole contract (best-effort) is unchanged.
+      spawnSync(resolveSystemTool('taskkill.exe'), ['/PID', String(pid), '/T', '/F'],
+        { timeout: 15_000, env: containmentEnv() });
     } else {
       process.kill(-pid, 'SIGKILL');
     }
@@ -342,10 +414,37 @@ export function sweepDescendants(pid: number | undefined, spawnedAtMs: number): 
   }
 }
 
+/** Row shape collected by both process-table sources (sweep membership). */
+export type ProcessRow = { p: number; ppid: number; pgrp: number; sid: number };
+
+/**
+ * The `ps` fallback of sweepPosix (hosts without /proc), extracted with a
+ * default ARGUMENT so it is testable where /proc always exists: trusted
+ * resolution + sanitized env are the production shape. `null` means the tool
+ * could not run — the caller reports the sweep as FAILED ("could not look"
+ * is never rendered as "no survivors"; audit F5 honesty law unchanged).
+ */
+export function psTableRows(psBin: string = resolvePsBinary()): ProcessRow[] | null {
+  const ps = spawnSync(psBin, ['-o', 'pid=,ppid=,pgid=,sid='],
+    { timeout: 10_000, encoding: 'utf8', env: containmentEnv(), shell: false });
+  if (ps.error || ps.status !== 0 || typeof ps.stdout !== 'string') return null;
+  const rows: ProcessRow[] = [];
+  for (const line of ps.stdout.split('\n')) {
+    const [p, pp, pg, sd] = line.trim().split(/\s+/).map(Number);
+    if (p === undefined || pp === undefined || !Number.isFinite(p) || !Number.isFinite(pp)) continue;
+    rows.push({
+      p, ppid: pp,
+      pgrp: pg !== undefined && Number.isFinite(pg) ? pg : -1,
+      sid: sd !== undefined && Number.isFinite(sd) ? sd : -1,
+    });
+  }
+  return rows;
+}
+
 function sweepPosix(pid: number): SweepResult {
   const killed: number[] = [];
   // collect: [pid, ppid, pgrp, session]
-  const rows: Array<{ p: number; ppid: number; pgrp: number; sid: number }> = [];
+  const rows: ProcessRow[] = [];
   if (fs.existsSync('/proc')) {
     for (const entry of fs.readdirSync('/proc')) {
       if (!/^\d+$/.test(entry)) continue;
@@ -358,17 +457,9 @@ function sweepPosix(pid: number): SweepResult {
       rows.push({ p: Number(entry), ppid, pgrp, sid });
     }
   } else {
-    const ps = spawnSync('ps', ['-o', 'pid=,ppid=,pgid=,sid='], { timeout: 10_000, encoding: 'utf8' });
-    if (ps.status !== 0) return { killed, failed: true };
-    for (const line of ps.stdout.split('\n')) {
-      const [p, pp, pg, sd] = line.trim().split(/\s+/).map(Number);
-      if (p === undefined || pp === undefined || !Number.isFinite(p) || !Number.isFinite(pp)) continue;
-      rows.push({
-        p, ppid: pp,
-        pgrp: pg !== undefined && Number.isFinite(pg) ? pg : -1,
-        sid: sd !== undefined && Number.isFinite(sd) ? sd : -1,
-      });
-    }
+    const psRows = psTableRows();
+    if (psRows === null) return { killed, failed: true };
+    rows.push(...psRows);
   }
   // Membership: same session as the (setsid'd) child — catches descendants that
   // setpgid()ed into their own group but never escaped the session; OR stale
@@ -409,8 +500,9 @@ export function posixSessionMember(pgrp: number, sid: number, childPid: number):
 }
 
 function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
-  const systemRoot = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
-  const psExe = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  // F-6: same trusted absolute System32 resolution (bare-name fail-safe is
+  // unchanged), plus the sanitized environment on the spawn below.
+  const psExe = resolveSystemTool('WindowsPowerShell', 'v1.0', 'powershell.exe');
   // 60s clock slack: CIM CreationDate truncates to seconds.
   const cut = new Date(spawnedAtMs - 60_000).toISOString();
   const script =
@@ -425,9 +517,9 @@ function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
     `try{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; $k+=$_.ProcessId }catch{} ` +
     `} } };` +
     `$k -join ','`;
-  const r = spawnSync(fs.existsSync(psExe) ? psExe : 'powershell.exe',
+  const r = spawnSync(psExe,
     ['-NoProfile', '-NonInteractive', '-Command', script],
-    { timeout: 30_000, windowsHide: true, encoding: 'utf8', shell: false });
+    { timeout: 30_000, windowsHide: true, encoding: 'utf8', shell: false, env: containmentEnv() });
   if (r.error || r.status !== 0) return { killed: [], failed: true };
   const text = (r.stdout ?? '').trim();
   const killed = text

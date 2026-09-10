@@ -52,6 +52,24 @@ invisible (the loader does not append them).
 Evidence bundles record the allowlisted variable **names** per spawn, never
 values.
 
+**GLM F-6 — the containment helpers get the same hygiene.** The three OS
+process-management spawns (F5 sweep `ps` fallback, tree-kill `taskkill`,
+Windows `powershell -NoProfile` probe) previously ran with the FULL caller
+environment; they now run under `containmentEnv()` (packages/support) —
+deny-by-omission like every other Canary child, identity vars neutralized per
+the F6 loader law, `PSModulePath` structurally absent (PowerShell's module
+loader is an env-var code vector; absent means its compiled-in defaults).
+Their binaries resolve TRUSTED-FIRST: Windows tools at absolute System32
+paths, `ps` at `/usr/bin/ps`→`/bin/ps`, with the bare-name fail-safe searched
+ONLY under the sanitized system-path PATH — a lying `ps`/`taskkill` placed
+earlier on the CALLER PATH is never consulted. These paths are and remain
+**non-verdict-authoritative**: no classification or promotion decision reads
+their success, and a failed sweep is reported `failed: true`, never "no
+survivors" — this closes env-inheritance hygiene, not a claimed attack. Pinned
+by `packages/support/test/containment-hygiene.test.ts` (resolution + fail-
+safe; the lying-`ps` script harness is POSIX-only and says so) while sweep
+behavior stays pinned by `packages/support/test/lifecycle.test.ts`.
+
 ## Boundaries — what is enforced, what is convention, what is absent
 
 Audit F14 requires an honest tiering. Canary's isolation is **strongest at the
@@ -211,8 +229,108 @@ be a lie; here is the real picture.
   observer) remains unfixed *by construction* without an external root of
   trust — see docs/EXECUTION-AUTHORITY.md §8.
 
+- **Total same-UID forgery is out of contract (the umbrella ceiling, stated
+  once).** Every protection below protects agents operating *through the
+  supported interface* and cross-UID/remote adversaries. A same-UID actor can
+  rewrite any byte under `.canary/` — task registrations, acceptance records,
+  sealed config, evidence bundles — and can forge frozen kinds *together with*
+  matching live registration, defeating the live-intent guard as a pair. No
+  local design closes this; only an external root of trust can. Do not claim
+  protection against "the account itself".
+- **Digests record bytes at hashing time, not processes.** Provenance digests
+  (`execDigest` of the trusted git binary, node executable sampling,
+  `nodeExecSha256`) hash files when recorded. A same-UID actor able to rewrite
+  those files can swap them around the spawn: the digest describes what the
+  FILE was, not what the PROCESS did, and a node-entry digest never
+  authenticates "this exact node binary ran". Narrowed, not closed —
+  docs/EXECUTION-AUTHORITY.md §8.3.
+- **Candidate-chosen binaries inside candidate scripts.** The sealed plan is
+  the repo's own package.json commands; `npm test` resolves binaries from the
+  CANDIDATE's `node_modules/.bin` — interpreter and runner bytes there are
+  candidate-controlled. The pinned-runner attestation covers the *observed
+  mocha channel* only; a sealed script that execs some other same-UID-writable
+  binary runs those bytes with no attestation tier claimed for it.
+- **Registered intent is stated, not observed.** Task intake is agent-reported
+  with zero authority; an under-declared registration (`--kind refactor`, no
+  requirements) spawns exactly the duties of what was *stated*. See
+  docs/EXECUTION-AUTHORITY.md §13 — do not phrase verdicts as covering the
+  work's true intent.
+- **Obligation semantics are presence-based proxies.** `regression-evidence`
+  is met by any change under a test-matching path — a comment-only edit
+  satisfies presence (deletions never do: those are coverage loss).
+  `tests-green` means "the sealed tests command exited 0", never "the suite is
+  meaningful"; a refactor in a repo whose sealed plan has no tests step keeps
+  that duty honestly UNPROVEN until a human re-seals with one. Do not upgrade
+  these labels in prose past what the proxy measures.
+
 The failure posture below is about Tier A: when a *Tier-A-enforced* bound
 cannot hold, Canary stops. It does not promise to notice Tier-B/C violations.
+
+## Acceptance authority — what a terminal sign-off binds, and what "human" may mean here
+
+Some obligations are **non-objective** — whether a dialog got warmer, whether
+a dependency swap is acceptable. Canary cannot measure them; only a human
+judgment can close them, via `canary accept <candidate>` in an interactive
+terminal. The governing invariant (GLM F-3):
+
+> **A HUMAN ACCEPTANCE AUTHORIZES EXACTLY THE SUBJECTIVE / NON-OBJECTIVE DUTIES
+> THAT EXISTED WHEN THAT ACCEPTANCE WAS GIVEN.**
+
+**Enforced in code** (verify and promotion's live re-verification both check
+it — promotion's first gate IS the verify, so neither can be replayed past):
+
+- The acceptance is a `canary-acceptance/2` record binding candidate identity,
+  base HEAD, candidate HEAD, the frozen task's intent digest, and an
+  `acceptanceScopeDigest`: the canonical semantic identity of the
+  acceptance-eligible duty set *as computed live at signing time* — duty ids,
+  requirement count, and per-requirement content digests (sha256 of the
+  criterion; prose never stored), ordering canonicalized; timestamps, note
+  wording, terminal text and evidence paths excluded; objective duties never
+  in scope. Requirement IDENTITY is bound, not a count — two requirements are
+  never interchangeable with two other requirements.
+- If registration grows after signing (requirement added, criterion's content
+  changed, new subjective duty kind registered, candidate HEAD moved, intent
+  changed), the record reads **STALE**: verify reports
+  `SUBJECTIVE ACCEPTANCE: USER JUDGMENT REQUIRED` /
+  `OVERALL COMPLETION: NOT PROVEN`, promotion refuses (its live verify gate),
+  and the duties reopen until a FRESH acceptance of the new scope. Shrinking
+  back to exactly the signed set re-matches it — a stale detection is a scope
+  comparison, not a grudge. No dead ends: the recovery is always one
+  `canary accept` of the current scope.
+- Objective duties (sealed test runs, regression evidence, sealed-bench
+  performance proof, sealed-e2e ui proof) can NEVER be closed by acceptance.
+- Non-interactive acceptance is refused outright (exit 2, no file written):
+  piped stdin fails the both-streams `isTTY` gate; there is no `--yes`;
+  `CANARY_ACCEPT` / `CANARY_ACCEPTED_BY` environment values are not consulted
+  as authorization anywhere in the accept path. Acceptance also refuses
+  candidates with no frozen task authority and any unreadable/corrupt sealed
+  plan — it never becomes the dead-end recommendation.
+
+**NOT enforced — the exact claim.** Canary refuses normal non-interactive
+acceptance paths and requires an interactive terminal for the supported
+acceptance flow. **TTY presence is not cryptographic human identity.** A
+same-UID process capable of PTY automation or forging Canary-owned local state
+remains inside Canary's documented local threat ceiling: `script -qec "canary
+accept c1"` fed the candidate name satisfies `isTTY` (the f3 battery's own
+positive-path acceptances use exactly this real-PTY mechanism), and
+`.canary/acceptance/c1.json` is a plain file every same-UID process can write
+directly. Canary does NOT attempt cryptographic local-human identity — that
+requires an external root of trust which v0.1 does not claim (Tier C, and
+docs/EXECUTION-AUTHORITY.md §8). What the gate honestly buys: acceptance is
+removed from every ordinary agent posture (piped tool calls, CI, scripted
+`--yes`), and a same-UID forger must go through the *byte* ceiling openly
+rather than a supported interface — policy and friction, not an identity
+boundary. Wording rules for this repo's docs/verdicts: never "an agent cannot
+self-accept", never "TTY proves a human", never "human-authenticated
+acceptance".
+
+Batteries: `tooling/probes/f3-acceptance-growth.mjs` (exact GLM F-3 0→2 repro,
+A1–A10 attacks + mixed-task control through the real CLI, real-PTY acceptances
+— PTY harness is POSIX-only; the digest/record shapes it exercises are covered
+portably below), `apps/cli/test/acceptance-scope.test.ts` (portable:
+canonicalization, semantic sensitivity, prose-never-stored, v1/v2 fail-closed
+reader), `tooling/probes/pre10-acceptance.mjs` (non-TTY refusal, env no-bypass,
+forged-record attacks, positive promotion control).
 
 ## Network (what Canary itself touches)
 
@@ -550,22 +668,40 @@ fixes; the one skip remains the platform-conditional symlink test. The
 demonstrated class cannot recur silently: the counterexamples are now part
 of the permanent test contract.
 
-## Platform status (audit F15 — no unproven cross-platform claims)
+## Platform status (audit F15 — no unproven cross-platform claims; refreshed by the 2026-09-10 closure pass)
 
-- **Windows (win32/x64, Node 26):** the fully executed platform — entire
-  438-test suite (64 suites, 1 platform-conditional skip), including
-  real-subprocess lifecycle/env tests, and the golden Axios proof — 36
-  assertions executed with ZERO skips on the designated proof host
-  (win32/x64/node v26.3.0/npm 11.16.0; re-executed on the post-sol candidate
-  2026-09-01 with unchanged expectations), 22 portable assertions executing
-  and 6 host-exact skipping to an INCOMPLETE verdict on drifted hosts (fresh
-  full run verified on node v26.7.0 / npm 11.19.0 on 2026-09-01, which
-  additionally exercises the npm-11.19 empty-node tree representation
-  end-to-end under the narrowed M-2 rule).
-- **Linux (POSIX paths):** the offline test suite, POSIX branches of the
-  process sweep and env observation, and the pipeline's tar path are WRITTEN
-  but have NOT yet been executed on Linux (no Linux host in the remediation
-  session; CI's ubuntu legs run on push, not on this commit yet). The CI
-  `core` job (ubuntu) runs the offline suite; the golden-proof job remains
-  windows-only. Do not describe the golden proof as Linux-proven until a
-  Linux run exists.
+- **Windows (win32/x64):** genuinely executed, not assumed. The closure
+  tree's full unit suite — **669 tests / 665 pass / 0 fail / 4 skip**
+  (106 suites) — ran NATIVELY on node v26.7.0 / npm 11.19.0 / git
+  2.55.0.windows.3 (2026-09-10) after a clean Windows-side `npm install`
+  and `tsc -b`, with all 8 changed runtime/test/probe files verified
+  sha256-byte-identical between the Linux builder tree and the tested
+  Windows tree.
+  It includes the 18-test acceptance-scope battery (real `git init` +
+  `setup --yes` fixtures executing on Windows), the containment-hygiene
+  resolution/fail-safe arms INCLUDING the native win32 sanitized-env shape
+  test (the one that skips on Linux), the live-process containment sweeps
+  through the real taskkill channel, and the proof-host gate passing on
+  this machine with ZERO skipped assertions. The 4 skips are exactly the
+  POSIX sh-harness arms of containment-hygiene (caller-PATH `ps` liar
+  scripts, the forged-binary explicit-parser, the nonzero-exit liar, and
+  the spawn-site env leak canary); nothing else was skipped. The win32
+  spawn sites are pinned there by the native env-shape + trusted-resolution
+  tests, not by a runtime leak canary — stated as an environment limit.
+- **Linux (WSL Ubuntu-24.04, node v26.7.0):** no longer "written but
+  unexecuted". The offline suite and the POSIX sweep/env branches have real
+  execution evidence here — full run **667 tests / 666 pass / 0 fail / 1
+  skip** (the single skip is the Windows-only containment env-shape test,
+  the exact complement of the 4 above) — and every probe battery this
+  document names (F-3 acceptance-growth A1–A10 + mixed control,
+  environment-authority, PATH-liar, NODE_OPTIONS, obligation lifecycle,
+  dependency/requirement completion, `--kind` intent, mixed intent,
+  measurable-goal inference, F4 gates, forged/stale-bundle attacks,
+  positive promotion, productization, Lazy Connect/status) executes on that
+  host. This is local WSL evidence, not CI; the CI ubuntu leg remains the
+  push gate.
+- **POSIX-only by construction:** the real-PTY acceptance probes (`script
+  -qec` harnesses in `f3-acceptance-growth.mjs` / `pre10-acceptance.mjs`)
+  and the `/proc` sweep path. These did NOT run on Windows and are not
+  claimed there; the portable acceptance-scope unit battery above is what
+  covers the same bindings on Windows.

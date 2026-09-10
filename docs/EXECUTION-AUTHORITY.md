@@ -75,6 +75,29 @@ without ever running the suite. That is exactly why the tier names
 **bytes-pinned releases**, not "a test runner", and why the honest ceiling of
 the whole channel is stated in §7.
 
+**One more conflation this ladder rules out: sealed ≠ human-approved (GLM
+F-5).** The verification PLAN is itself a trust input, and
+`canary setup --yes` is **authority-sensitive**: whoever controls the trusted
+base bytes *and* invokes setup decides what Canary treats as objective proof.
+Sealing a bench script flips `performance-proof` from a human-judgment duty
+(non-objective) to a measured sealed-bench objective one; sealing an e2e step
+does the same for `ui-proof`; sealing a trivial `echo ok` as the `test` script
+makes `tests-green` mechanically reachable by the weakest evidence the word
+could mean. The setup smoke run EXECUTES the repo-authored commands before
+sealing them — execution proves wiring, never endorsement. A sealed command
+is human-*observed* only if a human actually ran that setup interactively; a
+headless `--yes` is the invoker (typically an agent) sealing its own proof
+plan, which is exactly what it is for and must be described as that. Claim
+discipline: say "sealed by a setup run" (naming who ran it where the
+distinction matters), never "human-approved command". Re-seal mechanics are
+pinned by `tooling/probes/m5-proof-plan.mjs` (a swapped command is blocked
+before execution; a deliberate setup re-run IS the clearing act); the
+acceptance-side counterpart — a sign-off riding only the subjective duty set
+that existed at signing — is docs/SECURITY.md §"Acceptance authority". No
+architecture change here: making plan-sealing require human identity hits the
+same unavailable-crypto-root wall as acceptance (§8); this pass fixes the
+CLAIM, not the mechanism.
+
 ## 3. The attested-execution channel (mechanism, truthfully)
 
 - **Where observation is born:** `Recorder.expandArgvWithPlan`
@@ -404,6 +427,8 @@ recorded as a known gap until then.
 | host-exactness is BYTES: same-machine trojan (identical metadata, foreign executable digest) → INCOMPLETE never PASS; proofHost without exec-digest pin → refused FAIL; sampler digest == sha256(process.execPath) | `apps/cli/test/proof-host.test.ts` (post-GLM F2 describe) |
 | the double's PUBLIC bytes are not an execution authority: pin-table posture matrix (default refuses the double, grant selects it, npm pins selectable in both), untrusted-capture e2e (spec-staged double bytes → every round ABSENT, INCONCLUSIVE rule 14), trusted-control twin (same bytes + grant → VALID + CONFIRMED_REGRESSION) | `packages/support/test/known-runners-manifest.test.ts` + `packages/runner/executor/test/executor.test.ts` + `apps/cli/test/attested-channel.test.ts` (post-GLM F5 describes) |
 | golden never re-anchored: 37 assertions on the committed proof host, `proof.json` byte-identical EXCEPT the authorized post-GLM F2 additive `nodeExecSha256` re-pin (spec + evidence fixtures untouched, by rule) | `fixtures/axios-0.27-to-1.0/specs/` |
+| acceptance cannot ride later scope growth: exact GLM F-3 0→2 repro, +1 requirement, same-count DIFFERENT requirements, new subjective kind, objective-duty growth control, candidate-HEAD move, criterion-content change, promotion live-recheck refuses with base untouched, fresh-accept recovery, mixed-task half-reopen | `tooling/probes/f3-acceptance-growth.mjs` (real CLI + real PTY accepts; PTY harness POSIX-only) + `apps/cli/test/acceptance-scope.test.ts` (portable digest/record/reader shapes) |
+| containment spawns are env-sanitized with trusted resolution: caller-PATH `ps` liar never consulted, absolute System32 resolution + bare-name fail-safe, unresolvable sweep tool ⇒ `failed: true` never "no survivors" | `packages/support/test/containment-hygiene.test.ts` (liar-script arms POSIX-only and labelled; resolution/fail-safe arms run on every platform) |
 
 ## 12. Local harness gates — wiring is not enforcement (stop-gate posture)
 
@@ -436,3 +461,44 @@ Auditor corollary: "the stop gate never blocked" is NOT evidence — with no
 config file it cannot block anything. The §2 tier ladder governs what counts as
 verification; the local harness adds nothing to it unless and until an explicit
 trusted command is configured.
+
+## 13. Registered intent is stated, not observed (GLM F-4 — under-declaration)
+
+Task registration (`canary task … --kind … --requirement …`) is
+**agent-reported input with the same zero authority as everything else a
+subject says**. What Canary seals is the *declaration*, never an understanding
+of the work. Everything downstream is mechanically derived from that
+declaration: `--kind refactor` without a single `--requirement` creates only
+refactor duties; a `ui` task with no sealed e2e command creates a non-objective
+`ui-proof` duty; per-requirement duties exist exactly in proportion to
+registered requirements. The obligation set is honest about the task that was
+*registered*. It cannot know the task that was *asked for*.
+
+Consequently the `--kind` union protects **stated / registered intent only** —
+never say it protects "the user's intent". Two guards bind the declaration once
+made: the live-intent guard refuses a silent kind removal or requirement-count
+shrink between the frozen task and the live registration (register broad,
+quietly narrow later is closed), and since F-3 the acceptance-scope digest
+makes an acceptance answerable only for the duties that existed when it was
+signed (accept early, let growth ride it is closed). What no local check can
+close is the *first* move: an agent that registers `--kind refactor` for work
+that is really a UI overhaul has under-declared at intake, and Canary will be
+honest about exactly that registration. Requirement prose is never stored —
+only digests — and a digest is an identity, not a review.
+
+Correct claim shape: **the verdict is complete with respect to the registered
+intent.** Anything phrased against what the human "actually wanted" overclaims.
+
+Deliberate non-fixes on this pass (architectural judgment reserved for final
+review, per spec):
+
+- **No NLP intent classifier.** §1 rejected treadmills a hostile string can
+  cross; a prose-understanding gate is exactly that, and would launder a guess
+  about intent into an authority decision.
+- **No intake-authority redesign.** Detecting under-declaration requires an
+  intent source *outside* the registering party — the crypto-root road §8
+  already declares unreachable here.
+
+Documented residual: under-declaration at intake remains open to whoever holds
+registration authority, and the system's silence about it is a property of the
+design, not an oversight to patch at the edges.

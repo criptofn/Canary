@@ -102,13 +102,16 @@ usage:
   canary isolate --list     live status of registered candidates (+ unregistered worktrees, reported never touched)
   canary isolate --remove <name> [--discard]
                             clean up a candidate; refuses a dirty one without --discard
-  canary accept <name>      the HUMAN closes SUBJECTIVE duties (ui/performance/
+  canary accept <name>      closes SUBJECTIVE duties (ui/performance/
                             dependency/requirements without their own check) by
                             typing the candidate's name in an interactive
-                            terminal — an agent CANNOT self-accept: no TTY, no
-                            flag, no env escape. Binds to the exact candidate
-                            commit, base, and frozen task; any of them moving
-                            makes it STALE and the duty reopens. Objective
+                            terminal — the non-interactive agent path is
+                            refused: no flag, no env escape. (A TTY is
+                            friction, not cryptographic human identity —
+                            see SECURITY.md.) Binds to the exact candidate
+                            commit, base, frozen task, AND the acceptance-
+                            eligible duty set at signing; any of those moving
+                            makes it STALE and the duties reopen. Objective
                             proofs are never acceptance-material; mixed tasks
                             need BOTH
   canary version`);

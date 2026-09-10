@@ -66,8 +66,8 @@ const MUTS = [
   { id: 'gate 6 — idempotent re-promote takes no second act', file: CAND,
     search: 'if (idb.head === H)', replace: 'if (false)', count: 1,
     probe: true, own: 're-promote is idempotent' },
-  { id: 'apply is fast-forward-only (spawn argv + recorded argv)', file: CAND,
-    search: "'--ff-only'", replace: "'--no-ff'", count: 2, // merge commit ≠ H → post-proof must trip
+  { id: 'apply is fast-forward-only (git call + spawn argv + recorded argv)', file: CAND,
+    search: "'--ff-only'", replace: "'--no-ff'", count: 3, // merge commit ≠ H → post-proof must trip
     probe: true, own: 'fast-forwards the branch' },
   { id: 'gate 7 — git refuse status honored, no false ACCEPTED', file: CAND,
     search: 'if (m.status !== 0)', replace: 'if (false)', count: 1,

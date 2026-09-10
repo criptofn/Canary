@@ -77,7 +77,7 @@ function makeRealGitRepo(name) {
 }
 
 try {
-  // ---- 1. the seal on a real repo binds the real bytes a human approved
+  // ---- 1. the seal on a real repo binds the real bytes sealed at setup
   const root = makeRealGitRepo('seal');
   check('setup seals plan + verbatim script text; clean repo verifies silently and doctor is READY', () => {
     assert.equal(canary(['setup', '--yes', root]).status, 0);

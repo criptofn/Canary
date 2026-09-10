@@ -72,8 +72,8 @@ const MUTS = [
     search: 'id.resolved && id.dirty && !discard', replace: 'id.resolved && id.dirty && discard', count: 1,
     probe: true, own: 'remove refuses a dirty candidate' },
   // --- gates the contract layer owns ---
-  { id: 'baseRoot impersonation guard (verify + remove)', file: CAND,
-    search: '!samePath(rec.baseRoot, root)', replace: 'false', count: 2,
+  { id: 'baseRoot impersonation guard (verify + accept + remove)', file: CAND,
+    search: '!samePath(rec.baseRoot, root)', replace: 'false', count: 3,
     probe: false, own: 'impersonation guard' },
   { id: 'candidate NAME_RE (registry keys are filenames)', file: CAND,
     search: '/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/', replace: '/^[\\s\\S]{0,64}$/', count: 1,

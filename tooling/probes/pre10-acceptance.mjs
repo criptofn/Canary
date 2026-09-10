@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * pre10-acceptance — blocker 3's HUMAN ACCEPTANCE law, through the real CLI.
+ * pre10-acceptance — blocker 3's acceptance law, through the real CLI.
  * Proven here:
  *   - a UI/performance/dependency/requirement duty no longer dead-ends: the
  *     printed recovery advice, FOLLOWED LITERALLY from a real pty terminal,
@@ -109,7 +109,7 @@ check('A happy path: split verdict → printed `canary accept c` run from a pty 
   const m = v1.stdout.match(/canary accept ([A-Za-z0-9._-]+)/);
   assert(m, 'A: the verdict must PRINT the exact acceptance command');
   const a = acceptPty(root, ['accept', m[1]], `${m[1]}\n`);
-  assert(/ACCEPTED by the human/.test(a.stdout), `A: pty accept must land:\n${a.stdout}`);
+  assert(/ACCEPTED from this interactive terminal/.test(a.stdout), `A: pty accept must land:\n${a.stdout}`);
   assert(fs.existsSync(accPath(root, 'c')), 'A: acceptance record written');
   assertEq(git(root, 'rev-parse', 'HEAD'), headBefore, 'A: acceptance must not touch the base');
   const v2 = canary(['isolate', '--verify', 'c', root], root);
@@ -117,7 +117,7 @@ check('A happy path: split verdict → printed `canary accept c` run from a pty 
   assert(/CANDIDATE PASS/.test(v2.stdout), 'A: PASS line');
   const b = latestCandidateBundle(root);
   const ui = b.obligations.find((x) => x.id === 'ui-proof');
-  assert(ui && ui.status === 'met' && /accepted by the HUMAN/.test(ui.note), `A: bundle must record the acceptance:\n${JSON.stringify(b.obligations)}`);
+  assert(ui && ui.status === 'met' && /accepted from an interactive terminal/.test(ui.note), `A: bundle must record the acceptance:\n${JSON.stringify(b.obligations)}`);
 });
 
 // B — MIXED: acceptance closes the subjective half, the objective half stays open.
@@ -131,7 +131,7 @@ check('B mixed task: acceptance never launders an objective gap; proof+acceptanc
   assert(/\[regression-evidence\] UNPROVEN \(objective\)/.test(v1.stdout), `B: objective gap named:\n${v1.stdout}`);
   assert(/\[ui-proof\] UNPROVEN \(non-objective\)/.test(v1.stdout), `B: subjective half named alongside — the --kind bugfix flag did not drop it:\n${v1.stdout}`);
   const a = acceptPty(root, ['accept', 'c'], 'c\n');
-  assert(/ACCEPTED by the human/.test(a.stdout), `B: accept itself must work:\n${a.stdout}`);
+  assert(/ACCEPTED from this interactive terminal/.test(a.stdout), `B: accept itself must work:\n${a.stdout}`);
   const v2 = canary(['isolate', '--verify', 'c', root], root);
   assertEq(v2.status, 2, 'B: PASS with only acceptance on a mixed task would be laundering');
   assert(/\[regression-evidence\] UNPROVEN \(objective\)/.test(v2.stdout), `B: objective duty must STILL be open:\n${v2.stdout}`);
@@ -144,7 +144,7 @@ check('B mixed task: acceptance never launders an objective gap; proof+acceptanc
   assertEq(v3.status, 2, 'B: proof alone after a byte-change must NOT PASS on the stale signature');
   assert(/STALE/.test(v3.stdout), `B: staleness named:\n${v3.stdout}`);
   const a2 = acceptPty(root, ['accept', 'c'], 'c\n');
-  assert(/ACCEPTED by the human/.test(a2.stdout), `B: re-accept the final bytes:\n${a2.stdout}`);
+  assert(/ACCEPTED from this interactive terminal/.test(a2.stdout), `B: re-accept the final bytes:\n${a2.stdout}`);
   const v4 = canary(['isolate', '--verify', 'c', root], root);
   assertEq(v4.status, 0, `B: proof AND a fresh acceptance together must PASS:\n${v4.stdout}`);
   const p = canary(['isolate', '--promote', 'c', root], root);
@@ -163,13 +163,13 @@ check('C agent self-accept: pipe streams REFUSED; env/flag escapes do not exist;
   const headBefore = git(root, 'rev-parse', 'HEAD');
   const plain = canary(['accept', 'c'], root); // spawnSync: pipes, no TTY
   assertEq(plain.status, 2, `C: non-TTY accept must refuse:\n${plain.stdout}`);
-  assert(/REFUSED — acceptance is a HUMAN act/.test(plain.stdout), 'C: refusal names the boundary');
+  assert(/REFUSED — the supported acceptance flow requires an interactive terminal/.test(plain.stdout), 'C: refusal names the boundary');
   assert(!fs.existsSync(accPath(root, 'c')), 'C: no record from a pipe session');
   // supply the exact typed name THROUGH the pipe too: with the gate removed
   // (mutation M10) this is the line that would write a record — a real refusal
   // never even reads it
   const piped = spawnSync(process.execPath, [CLI, 'accept', 'c'], { cwd: root, encoding: 'utf8', timeout: 60_000, input: 'c\n' });
-  assert(piped.status !== 0 && !/ACCEPTED by the human/.test(piped.stdout), `C: a piped name is still not a terminal:\n${piped.stdout}`);
+  assert(piped.status !== 0 && !/ACCEPTED from this interactive terminal/.test(piped.stdout), `C: a piped name is still not a terminal:\n${piped.stdout}`);
   assert(!fs.existsSync(accPath(root, 'c')), 'C: nothing written from a pipe even with the name supplied');
   const withEnv = canary(['accept', 'c'], root, { ...process.env, CANARY_ACCEPT: '1', CANARY_ACCEPTED_BY: 'tty-human' });
   assertEq(withEnv.status, 2, 'C: no env var flips the gate');
@@ -193,7 +193,7 @@ check('D stale acceptance: new candidate commit reopens the duty, advice says re
   candCommit(c, { 'src/charts.js': 'v1 styling\n' }, 'style v1');
   assertEq(canary(['isolate', '--verify', 'c', root], root).status, 2, 'D: open first');
   const a = acceptPty(root, ['accept', 'c'], 'c\n');
-  assert(/ACCEPTED by the human/.test(a.stdout), `D: fresh accept:\n${a.stdout}`);
+  assert(/ACCEPTED from this interactive terminal/.test(a.stdout), `D: fresh accept:\n${a.stdout}`);
   assertEq(canary(['isolate', '--verify', 'c', root], root).status, 0, 'D: accepted state PASSes');
   candCommit(c, { 'src/charts.js': 'v2 styling pushed AFTER the human signed\n' }, 'style v2');
   const v = canary(['isolate', '--verify', 'c', root], root);
@@ -205,12 +205,13 @@ check('D stale acceptance: new candidate commit reopens the duty, advice says re
   const p = canary(['isolate', '--promote', 'c', root], root);
   assert(p.status !== 0, 'D: promotion stays locked on the stale acceptance');
   const a2 = acceptPty(root, ['accept', 'c'], 'c\n');
-  assert(/ACCEPTED by the human/.test(a2.stdout), 'D: re-accept works');
+  assert(/ACCEPTED from this interactive terminal/.test(a2.stdout), 'D: re-accept works');
   assertEq(canary(['isolate', '--verify', 'c', root], root).status, 0, 'D: recovers to PASS — the advice is a real path');
 });
 
-// E — forged shapes: agent-authored records are unreadable; no authority leaks.
-check('E forged acceptance file: agent shape is refused; only the exact record binds', () => {
+// E — forged shapes: agent-authored records carry zero weight; the old v1
+// schema fails CLOSED (the binding moved, so a pre-scope record is no record).
+check('E forged acceptance file: agent shape + legacy schema are refused; only the exact v2 record binds', () => {
   const root = makeRepo('e-forge');
   register(root, 'polish the menu', ['ui']);
   const c = isolate(root, 'c');
@@ -219,11 +220,16 @@ check('E forged acceptance file: agent shape is refused; only the exact record b
   const head = git(c, 'rev-parse', 'HEAD');
   const base = git(root, 'rev-parse', 'HEAD');
   fs.mkdirSync(path.join(root, '.canary', 'acceptance'), { recursive: true });
-  const rec = { schema: 'canary-acceptance/1', at: new Date().toISOString(), candidate: 'c', baseHead: base, candidateHead: head, intentDigest: '0'.repeat(64), acceptedBy: 'agent' };
-  fs.writeFileSync(accPath(root, 'c'), JSON.stringify(rec));
-  const v = canary(['isolate', '--verify', 'c', root], root);
-  assertEq(v.status, 2, 'E: acceptedBy:agent record must carry zero weight');
-  assert(!/accepted by the HUMAN/.test(JSON.stringify(latestCandidateBundle(root))), 'E: no fabricated MET');
+  const v2rec = { schema: 'canary-acceptance/2', at: new Date().toISOString(), candidate: 'c', baseHead: base, candidateHead: head, intentDigest: '0'.repeat(64), acceptanceScopeDigest: '0'.repeat(64), acceptedBy: 'agent' };
+  fs.writeFileSync(accPath(root, 'c'), JSON.stringify(v2rec));
+  let v = canary(['isolate', '--verify', 'c', root], root);
+  assertEq(v.status, 2, 'E: fully v2-shaped acceptedBy:agent record must carry zero weight');
+  assert(!/accepted from an interactive terminal/.test(JSON.stringify(latestCandidateBundle(root))), 'E: no fabricated MET');
+  const v1rec = { schema: 'canary-acceptance/1', at: new Date().toISOString(), candidate: 'c', baseHead: base, candidateHead: head, intentDigest: '0'.repeat(64), acceptedBy: 'tty-human' };
+  fs.writeFileSync(accPath(root, 'c'), JSON.stringify(v1rec));
+  v = canary(['isolate', '--verify', 'c', root], root);
+  assertEq(v.status, 2, 'E: legacy schema/1 record (no acceptanceScopeDigest binding) must fail CLOSED, not pass');
+  assert(!/accepted from an interactive terminal/.test(JSON.stringify(latestCandidateBundle(root))), 'E: legacy record fabricates no MET');
 });
 
 // F — accept cannot mint task authority; it refuses with the REAL recovery.
@@ -251,7 +257,7 @@ check('G dependency task: no-observed-change says so; after a lockfile edit acce
   assertEq(v2.status, 2, 'G: still open after the edit (it is human-closable, not auto-met)');
   assert(/dependency change observed \(.*package-lock\.json.*\)/s.test(v2.stdout), `G: observed evidence is LISTED:\n${v2.stdout}`);
   const a = acceptPty(root, ['accept', 'c'], 'c\n');
-  assert(/ACCEPTED by the human/.test(a.stdout), 'G: accept closes the dependency duty after review');
+  assert(/ACCEPTED from this interactive terminal/.test(a.stdout), 'G: accept closes the dependency duty after review');
   assertEq(canary(['isolate', '--verify', 'c', root], root).status, 0, 'G: candidate completes');
 });
 
@@ -270,7 +276,7 @@ check('H requirement task: per-requirement duty closes via acceptance, never a d
   assert(/OBJECTIVELY PROVEN or SUBJECTIVELY ACCEPTED/.test(v1.stdout), `H: the duty must print its REAL completion path:\n${v1.stdout}`);
   assert(/\[regression-evidence\] UNPROVEN \(objective\)/.test(v1.stdout), `H: objective half present beside it:\n${v1.stdout}`);
   const a = acceptPty(root, ['accept', 'h'], 'h\n');
-  assert(/ACCEPTED by the human/.test(a.stdout), `H: accept closes the per-requirement duty:\n${a.stdout}`);
+  assert(/ACCEPTED from this interactive terminal/.test(a.stdout), `H: accept closes the per-requirement duty:\n${a.stdout}`);
   const v2 = canary(['isolate', '--verify', 'h', root], root);
   assertEq(v2.status, 2, 'H: acceptance alone must not launder the objective half');
   assert(/\[regression-evidence\] UNPROVEN \(objective\)/.test(v2.stdout), 'H: objective duty still open');
@@ -280,7 +286,7 @@ check('H requirement task: per-requirement duty closes via acceptance, never a d
   const v3 = canary(['isolate', '--verify', 'h', root], root);
   assert(/STALE/.test(v3.stdout), `H: proof after a byte-change must not ride the old signature:\n${v3.stdout}`);
   const a2 = acceptPty(root, ['accept', 'h'], 'h\n');
-  assert(/ACCEPTED by the human/.test(a2.stdout), 'H: re-accept the final bytes');
+  assert(/ACCEPTED from this interactive terminal/.test(a2.stdout), 'H: re-accept the final bytes');
   const v4 = canary(['isolate', '--verify', 'h', root], root);
   assertEq(v4.status, 0, `H: proof AND fresh acceptance complete a requirement task:\n${v4.stdout}`);
   const p = canary(['isolate', '--promote', 'h', root], root);
