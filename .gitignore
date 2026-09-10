@@ -38,3 +38,14 @@ Thumbs.db
 # M1 packaging scratch (staging manifest + bundle + packed .tgz) — the artifact
 # of record is proven by tooling/probes/cleanroom-packed-artifact.mjs, not committed
 /pack/
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+.envrc
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
