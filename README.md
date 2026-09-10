@@ -1,11 +1,14 @@
 # Canary
 
-Canary is an independent verification layer for AI-written code.
+Canary is an independent verification layer for software changes.
+
+It is designed especially for coding-agent workflows, where generated changes
+should be verified before they are treated as complete.
 
 > *"Cool diff. Prove that it actually made the project better."*
 
 **Canary checks coding-agent work before completion.** Setup connects
-Claude Code to the project's own checks. For isolated changes, the agent
+your coding agent to the project's own checks. For isolated changes, the agent
 registers the request, works in a candidate, commits it, and asks Canary to
 verify and promote. Explicitly subjective results need your review of the
 exact clean committed candidate. Acceptance never replaces objective proof.
