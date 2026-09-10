@@ -2,7 +2,7 @@ name: canary-ci
 
 on:
   push:
-    branches: [main, astra-pre1-closure]
+    branches: [main]
     tags: ['v*']
   pull_request:
   schedule:
@@ -37,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # Round-3 B3: this job IS the committed proof host (win32/x64/
-      # node 26.3.0/npm 11.16.0 + the nodeExecSha256 exec-bytes pin, post-GLM
+      # node 26.3.0/npm 11.16.0 + the nodeExecSha256 exec-bytes pin, independent-audit
       # F2, per the proof file's proofHost block — setup-node installs the
       # official nodejs.org binary whose bytes the digest was cut from).
       # EXACT pins — not "26": host-exactness is decided by the ACTUAL
