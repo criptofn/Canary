@@ -1,4 +1,4 @@
-# Canary v0.1 Audit Remediation Ledger — 2026-08-30
+# v0.1 audit remediation Ledger — 2026-08-30
 
 Authority for this work: the independent Codex audit finding list (relayed by the
 operator 2026-08-30). Each finding below was located in code at baseline

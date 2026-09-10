@@ -1,6 +1,6 @@
 # Canary Execution Authority — what a strong verdict actually proves
 
-**Scope:** v0.1, branch lineage post-GLM observation hardening (base `c1ff4e7`;
+**Scope:** v0.1, branch lineage post-audit observation hardening (base `c1ff4e7`;
 commits `d8fbcdb` RED batteries → `2f4a706` channel → `eb61f61` matcher
 symmetry). This document is the *claim contract*: it states, for each class of
 evidence, **who produced it and what it can and cannot prove**. The security
@@ -10,7 +10,7 @@ decides whether a run *counts as a test run*.
 
 ## 1. Why this document exists
 
-A GLM-5.3 audit (2026-08-31, finding A, HIGH) demonstrated that the shipped
+An independent audit (2026-08-31, finding A, HIGH) demonstrated that the shipped
 classifier could return **PASS** for:
 
 ```
@@ -75,7 +75,7 @@ without ever running the suite. That is exactly why the tier names
 **bytes-pinned releases**, not "a test runner", and why the honest ceiling of
 the whole channel is stated in §7.
 
-**One more conflation this ladder rules out: sealed ≠ human-approved (GLM
+**One more conflation this ladder rules out: sealed ≠ human-approved (audit
 F-5).** The verification PLAN is itself a trust input, and
 `canary setup --yes` is **authority-sensitive**: whoever controls the trusted
 base bytes *and* invokes setup decides what Canary treats as objective proof.
@@ -108,7 +108,7 @@ CLAIM, not the mechanism.
   the tree throws → treated as a pin miss) and compares `(name, version,
   hash)` against `KNOWN_RUNNER_RELEASES` (`packages/support/src/knownRunners.ts`).
   A hash match alone never earns injection: the located package must also
-  occupy the fixture's canonical anchor PHYSICALLY (post-glm F6a — the anchor
+  occupy the fixture's canonical anchor PHYSICALLY (post-audit F6a — the anchor
   check resolves realpaths, so a symlink/junction at the package root or
   anywhere above it, whose target's bytes would otherwise hash clean, fails
   closed to ABSENT; observed bytes are still honestly recorded).
@@ -119,7 +119,7 @@ CLAIM, not the mechanism.
   sentinel off-CI. **A green run on a link-less host does NOT certify
   this guard.**
 - **Injection is the whole gate:** injection credit additionally requires the
-  token to OCCUPY THE EXECUTED RUNNER POSITION (post-GLM F1): expanded argv
+  token to OCCUPY THE EXECUTED RUNNER POSITION (post-audit F1): expanded argv
   must be `[execPath, <pinned bin>, …]`, i.e. `$bin:mocha` must be spec argv[0].
   A trailing token is inert script argv — `['node','-e',<forger>,'$bin:mocha',…]`
   runs the forger, and the appended `--require` lands in the script's own
@@ -135,7 +135,7 @@ CLAIM, not the mechanism.
 - **Pinned releases today (TOFU):** `mocha@10.8.2` and
   `mocha@0.0.0-canary-double` (Canary's own offline test double,
   byte-identical to its fixture under `.gitattributes` `text eol=lf`).
-  **ORIGIN IS PART OF THE TRUST DECISION (post-GLM F5):** the double's bytes
+  **ORIGIN IS PART OF THE TRUST DECISION (post-audit F5):** the double's bytes
   are public in-repo and its observation seams are the seams an attacker
   knows best, so `(version, treeSha256)` alone never confers execution
   authority — `findRunnerPin` selects a `canary-double` pin ONLY behind an
@@ -211,7 +211,7 @@ CLAIM, not the mechanism.
   failure or a crash, and colored pass titles cannot *fake* one (the glyph
   skip sees the same stripped view). A presentation property of text can only
   ever **weaken** a verdict, never strengthen it.
-- **One view, every consumer (post-GLM F3):** finding B stripped ANSI at the
+- **One view, every consumer (post-audit F3):** finding B stripped ANSI at the
   executor's matcher entry but the comparator's `parseSummaryCounts` /
   `extractFailingTestNames` — which produce the ROUND FACTS the classifier
   consumes — normalized only line endings. Two representations of one byte
@@ -259,8 +259,8 @@ table runs; then rules 9/10 confinement guard on the post-gate result.
 | 10 | either arm's tree observation not VALID (guard, after table) | INCONCLUSIVE |
 | 11 | failing round under-accounts its identities (partial parse) | INCONCLUSIVE |
 | 12 | repetitions of an arm differ in executed/observed coverage | FLAKY ⟶ gated |
-| 13 | arms' coverage totals differ under a would-be-strong result (suite collapse is never a verdict), **or** a would-be PRE_EXISTING_FAILURE whose candidate fails identities baseline never saw fail (post-GLM F1: a watched pass→fail transition is never swallowed, and disjoint failing sets describe no comparable transition) | INCONCLUSIVE |
-| 14 | **post-GLM:** execution unattested / channel contradicted — strong or execution-claim label without VALID observation on every round (reason embeds "previously rule N LABEL") | INCONCLUSIVE |
+| 13 | arms' coverage totals differ under a would-be-strong result (suite collapse is never a verdict), **or** a would-be PRE_EXISTING_FAILURE whose candidate fails identities baseline never saw fail (post-audit F1: a watched pass→fail transition is never swallowed, and disjoint failing sets describe no comparable transition) | INCONCLUSIVE |
+| 14 | **post-audit:** execution unattested / channel contradicted — strong or execution-claim label without VALID observation on every round (reason embeds "previously rule N LABEL") | INCONCLUSIVE |
 
 Gating direction is **fail-closed only**: the gate can turn a strong label
 weaker (rule 14), never a weak label stronger. Rules 0/1, 6's INCONCLUSIVE
@@ -269,7 +269,7 @@ because it still *claims execution* ("tests ran, with differing results");
 `TRUSTFUL_LABELS` (bundle-retention tier) and `STRONG_EXECUTION_LABELS`
 (execution-claim tier) are two constants, never conflated.
 
-**Channel precedence (post-GLM F4):** once the gate holds — every round
+**Channel precedence (post-audit F4):** once the gate holds — every round
 VALID and channel-agreeing — no text-PATTERN veto derived from untrusted subject output
 can bury the attested evidence: `attestedView` neutralizes the
 `infraSignal` and `crashSignal` clauses of rule 1, so an honest failing
@@ -293,7 +293,7 @@ without detection **by the consumer who re-derives**. `prove`/`check`/`report`
 re-derive each round's summary, counts, identities and observation from the
 artifact bytes — so the bundle cannot misdescribe **what it recorded**.
 
-The recorded bytes' *meaning* is the execution channel's job (§3): post-GLM,
+The recorded bytes' *meaning* is the execution channel's job (§3): post-audit,
 bytes that merely look like test output carry no strength.
 
 None of this is **authenticated provenance**: there is **no signing key, no
@@ -301,7 +301,7 @@ trust root, no attestation authority**. A forger who controls the entire
 filesystem can recompute everything offline (the pre-existing documented
 ceiling); the pin table is TOFU — Canary's own list, not registry-verified.
 The real binding is *live*: the golden proof re-runs the experiment on the
-committed proof host — pinned by BYTES, not claims (post-GLM F2: the
+committed proof host — pinned by BYTES, not claims (post-audit F2: the
 fingerprint includes the SHA-256 of the actual node executable; a committed
 proofHost lacking that digest pin is refused, because four self-reported
 metadata strings are exactly what a trojan runtime can print) — and asserts
@@ -358,7 +358,7 @@ none of which text can reach.
 3. **Total bundle forgery** off-host and **TOCTOU** between hash-check and
    exec: pre-existing documented ceilings; unchanged by this design and not
    improved by it beyond making one specific instantiation (the no-mocha
-   double) impossible. Post-glm F6e pinned the strongest live instance
+   double) impossible. Post-audit F6e pinned the strongest live instance
    (controlled-userconfig tamper in the creation→install gap — the file
    is re-established at every point of use), which **narrows** it: the
    write→spawn→npm-read window remains open, as SECURITY.md Tier A
@@ -414,20 +414,20 @@ recorded as a known gap until then.
 
 | Attack class | Pinned by |
 |---|---|
-| printed `128 passing`, prose `node -e`, printed-failing-summary → previously PASS/CR by text alone | `apps/cli/test/execution-authority.test.ts` (the exact GLM reproducer, verbatim) |
+| printed `128 passing`, prose `node -e`, printed-failing-summary → previously PASS/CR by text alone | `apps/cli/test/execution-authority.test.ts` (the exact audit reproducer, verbatim) |
 | forged streams at validator level: empty / flood-truncated / unparseable / unknown-kind / hello-bye boundary / duplicate frames / `reject` / `adapter-error` / lying `bye` / forged version / pid / observerVersion / duplicate-pass / no-summary / masked exit | `apps/cli/test/attested-channel.test.ts` layer 1 |
 | end-to-end: plain-node stub PASS pretense; unpinned double claiming strength; **forged frames from an unpinned fake** (ABSENT + stray-bytes forensics, zero credit); `--require` in spec argv; mid-run `process.exit` | `apps/cli/test/attested-channel.test.ts` layer 2 |
 | injection-decision matrix (pinned→inject-last; unpinned→ABSENT; hoisted→not injectable; subject `-r`/`--require` forms; non-mocha bins) + tampered-double e2e | `packages/runner/executor/test/executor.test.ts` |
 | case/ANSI symmetry, must-match AND false-positive directions | `packages/runner/executor/test/infra-matching-hardening.test.ts` |
-| ANSI cannot split recognition from counting (false-PASS masked-failure battery, false-infra colored-genuine-run control, CR×ANSI composition) | `packages/core/comparator/test/comparator.test.ts` + `packages/runner/executor/test/infra-matching-hardening.test.ts` (post-GLM F3 describes) |
+| ANSI cannot split recognition from counting (false-PASS masked-failure battery, false-infra colored-genuine-run control, CR×ANSI composition) | `packages/core/comparator/test/comparator.test.ts` + `packages/runner/executor/test/infra-matching-hardening.test.ts` (post-audit F3 describes) |
 | gate total on malformed disk data; rule-14 routing for ALL strong + FLAKY producers (2–8, 12; each un-attested case carries an attested-twin test proving the shape genuinely reaches its producer, so the routing assertion cannot rot into testing a dead path); identity-set refusal | `packages/core/classification/test/classify.test.ts` |
 | schema mirror: own-copy strong-label constant with test-pinned classifier equivalence, rule-13 containment restatement, refusal + honest-shape acceptance (no over-block), deletion matrix | `packages/evidence/schema/test/schema.test.ts` |
 | would-be-PRE_EXISTING containment (swallowed regression, disjoint sets, honest PEF preserved, CR untouched, passing-side substitution boundary codified) | `packages/core/classification/test/classify.test.ts` (round-5 describe) |
 | 5-file tuple binding; reseal-everything-but-observation refused; byte-tamper refusals; argv re-derivation parity | `apps/cli/test/prove.test.ts`, `verify-tree` suite |
-| host-exactness is BYTES: same-machine trojan (identical metadata, foreign executable digest) → INCOMPLETE never PASS; proofHost without exec-digest pin → refused FAIL; sampler digest == sha256(process.execPath) | `apps/cli/test/proof-host.test.ts` (post-GLM F2 describe) |
-| the double's PUBLIC bytes are not an execution authority: pin-table posture matrix (default refuses the double, grant selects it, npm pins selectable in both), untrusted-capture e2e (spec-staged double bytes → every round ABSENT, INCONCLUSIVE rule 14), trusted-control twin (same bytes + grant → VALID + CONFIRMED_REGRESSION) | `packages/support/test/known-runners-manifest.test.ts` + `packages/runner/executor/test/executor.test.ts` + `apps/cli/test/attested-channel.test.ts` (post-GLM F5 describes) |
-| golden never re-anchored: 37 assertions on the committed proof host, `proof.json` byte-identical EXCEPT the authorized post-GLM F2 additive `nodeExecSha256` re-pin (spec + evidence fixtures untouched, by rule) | `fixtures/axios-0.27-to-1.0/specs/` |
-| acceptance cannot ride later scope growth: exact GLM F-3 0→2 repro, +1 requirement, same-count DIFFERENT requirements, new subjective kind, objective-duty growth control, candidate-HEAD move, criterion-content change, promotion live-recheck refuses with base untouched, fresh-accept recovery, mixed-task half-reopen | `tooling/probes/f3-acceptance-growth.mjs` (real CLI + real PTY accepts; PTY harness POSIX-only) + `apps/cli/test/acceptance-scope.test.ts` (portable digest/record/reader shapes) |
+| host-exactness is BYTES: same-machine trojan (identical metadata, foreign executable digest) → INCOMPLETE never PASS; proofHost without exec-digest pin → refused FAIL; sampler digest == sha256(process.execPath) | `apps/cli/test/proof-host.test.ts` (post-audit F2 describe) |
+| the double's PUBLIC bytes are not an execution authority: pin-table posture matrix (default refuses the double, grant selects it, npm pins selectable in both), untrusted-capture e2e (spec-staged double bytes → every round ABSENT, INCONCLUSIVE rule 14), trusted-control twin (same bytes + grant → VALID + CONFIRMED_REGRESSION) | `packages/support/test/known-runners-manifest.test.ts` + `packages/runner/executor/test/executor.test.ts` + `apps/cli/test/attested-channel.test.ts` (post-audit F5 describes) |
+| golden never re-anchored: 37 assertions on the committed proof host, `proof.json` byte-identical EXCEPT the authorized post-audit F2 additive `nodeExecSha256` re-pin (spec + evidence fixtures untouched, by rule) | `fixtures/axios-0.27-to-1.0/specs/` |
+| acceptance cannot ride later scope growth: exact audit F-3 0→2 repro, +1 requirement, same-count DIFFERENT requirements, new subjective kind, objective-duty growth control, candidate-HEAD move, criterion-content change, promotion live-recheck refuses with base untouched, fresh-accept recovery, mixed-task half-reopen | `tooling/probes/f3-acceptance-growth.mjs` (real CLI + real PTY accepts; PTY harness POSIX-only) + `apps/cli/test/acceptance-scope.test.ts` (portable digest/record/reader shapes) |
 | containment spawns are env-sanitized with trusted resolution: caller-PATH `ps` liar never consulted, absolute System32 resolution + bare-name fail-safe, unresolvable sweep tool ⇒ `failed: true` never "no survivors" | `packages/support/test/containment-hygiene.test.ts` (liar-script arms POSIX-only and labelled; resolution/fail-safe arms run on every platform) |
 
 ## 12. Local harness gates — wiring is not enforcement (stop-gate posture)
@@ -462,7 +462,7 @@ config file it cannot block anything. The §2 tier ladder governs what counts as
 verification; the local harness adds nothing to it unless and until an explicit
 trusted command is configured.
 
-## 13. Registered intent is stated, not observed (GLM F-4 — under-declaration)
+## 13. Registered intent is stated, not observed (audit F-4 — under-declaration)
 
 Task registration (`canary task … --kind … --requirement …`) is
 **agent-reported input with the same zero authority as everything else a

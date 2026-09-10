@@ -4,7 +4,7 @@ Status: IMPLEMENTED (v0.1 alpha / proof-of-concept — see the round-1..4 ledger
 under docs/ and the golden fixture under fixtures/). This document is the
 original plan; where it and the shipped code disagree, THE CODE IS THE TRUTH
 and §6 below has been kept current with it.
-Date: 2026-08-30 (plan) · §6 updated 2026-09-01 to match the post-sol decision table
+Date: 2026-08-30 (plan) · §6 updated 2026-09-01 to match the round-4 decision table
 
 ---
 
@@ -157,7 +157,7 @@ self-auditing against its raw logs.
 ## 6. Classification — deterministic decision function
 
 Inputs: per-arm exit codes, normalized logs, infra markers — and, since the
-post-GLM observation hardening, the **execution-observation channel**: a
+post-audit observation hardening, the **execution-observation channel**: a
 per-round record of what a Canary-injected observer WATCHED inside a
 byte-pinned runner (claim contract: docs/EXECUTION-AUTHORITY.md). Printed
 text enters as a CLAIM to be cross-checked, never as proof of execution; exit
@@ -165,7 +165,7 @@ codes are authoritative about process death, not about tests.
 Infra markers are **regex allow-lists on runner facts** (npm/yarn ERESOLVE /
 ENOTFOUND / EAI_AGAIN, `ERR_MODULE_NOT_FOUND`, ava internal crash banner,
 timeout-kill sentinel, empty-output-without-summary) — never LLM judgment;
-case-folded and ANSI-stripped at matcher entry (view-only, post-GLM B).
+case-folded and ANSI-stripped at matcher entry (view-only, post-audit B).
 
 Total rules, evaluated IN THE ORDER SHIPPED (`packages/core/classification`;
 every rule pinned by classify.test.ts). The rule-14 gate is not in the row
@@ -181,14 +181,14 @@ before the 9/10 confinement guard applies:
 | 2 | baseline exit codes disagree | FLAKY | plan |
 | 8 | within an arm, failing rounds' profiles (count + identityCoverage + identities) differ | FLAKY | audit F2 |
 | 11 | a failing round's parsed identities do not fully account for its reported failing count | INCONCLUSIVE | R3-B1 |
-| 12 | an arm's repetitions disagree on executed (passing+failing) or observed (+pending) totals | FLAKY | **post-sol RB-2** |
-| 13 | a STRONG verdict (3/4/5) whose arms' executed or observed totals differ — weaker or missing execution may never produce a stronger verdict — **or** a would-be PRE_EXISTING_FAILURE whose candidate fails ≥1 identity baseline never saw fail (failing-set containment: a watched pass→fail transition is never swallowed; disjoint sets are non-comparable) | INCONCLUSIVE | **post-sol RB-2 / post-GLM F1** |
+| 12 | an arm's repetitions disagree on executed (passing+failing) or observed (+pending) totals | FLAKY | **round-4 RB-2** |
+| 13 | a STRONG verdict (3/4/5) whose arms' executed or observed totals differ — weaker or missing execution may never produce a stronger verdict — **or** a would-be PRE_EXISTING_FAILURE whose candidate fails ≥1 identity baseline never saw fail (failing-set containment: a watched pass→fail transition is never swallowed; disjoint sets are non-comparable) | INCONCLUSIVE | **round-4 RB-2 / post-audit F1** |
 | 3 | baseline all-pass ∧ candidate all-pass (coverage comparable per 13) | PASS | plan |
 | 4 | baseline all-fail ∧ candidate all-fail ∧ candidate failing identities ⊆ baseline's (comparable per 13) | PRE_EXISTING_FAILURE | plan |
 | 5 | baseline all-pass ∧ candidate all-fail, profiles identical (comparable per 13) | **CONFIRMED_REGRESSION** | plan |
 | 6 | baseline fails while candidate does not uniformly fail | INCONCLUSIVE / FLAKY | plan |
 | 7 | baseline clean, candidate mixed | FLAKY | plan |
-| 14 | gate: a strong or execution-claim label (STRONG_EXECUTION_LABELS — incl. every FLAKY producer 2/6/7/8/12) whose rounds lack a VALID observation agreeing with the text on counts, identities and exit semantics; downgrade-only, never upgrades | INCONCLUSIVE | **post-GLM A** |
+| 14 | gate: a strong or execution-claim label (STRONG_EXECUTION_LABELS — incl. every FLAKY producer 2/6/7/8/12) whose rounds lack a VALID observation agreeing with the text on counts, identities and exit semantics; downgrade-only, never upgrades | INCONCLUSIVE | **post-audit A** |
 | 9/10 | post-guard: tree drift outside the dependency subtree / non-VALID tree observation | any strong verdict downgraded to INCONCLUSIVE | audits F9/B6 |
 
 The prototype lesson — "a green result over degenerate evidence is a failure"
@@ -198,7 +198,7 @@ and the validator independently requires ≥ 2 DENSE rounds for trustful
 labels). Candidate reruns preserve per-run evidence; unanimity is computed
 over exit codes; identical suite-qualified failing-test identities across
 reruns are required (rule 8) and persisted in the bundle as first-class data.
-Post-GLM: when the observation gate holds, the identity/coverage math reads
+Post-audit: when the observation gate holds, the identity/coverage math reads
 the ATTESTED counts/identities — the channels are equal by the gate's own
 condition, so the observed record (not the text) is the canonical source for
 the table (rule 13's F1 containment constraint is thereby evaluated on
@@ -240,7 +240,7 @@ not proof.
 
 Interface only in v1: `summarize(bundle, rawLogs) => {summary, likelyAreas[]}`
 with a no-op provider as the only implementation shipped enabled. Any real
-provider (e.g. Qwen) attaches under `evidence.ai` as clearly-labeled,
+provider (e.g. a hosted LLM API) attaches under `evidence.ai` as clearly-labeled,
 non-authoritative fields. Invariant enforced in schema: `classification` is
 not in `ai` namespace; bundle validation fails if an AI-written field
 contradicts the deterministic fields. No prompt can flip §6 rules — the
@@ -325,7 +325,7 @@ Known deliberate limits (v0.1):
   portable assertion still runs (23 of them), and the verdict is INCOMPLETE
   (exit 2) — never a PASS built on skips. The pinned CI windows job executes
   all 37 with zero skips. No `--portable` flag was needed.
-  Post-GLM F2: "matching" is BYTES, not claims — the fingerprint includes
+  Post-audit F2: "matching" is BYTES, not claims — the fingerprint includes
   `nodeExecSha256` (SHA-256 of the running node executable); a tampered
   runtime printing v26.3.0 from other bytes is off-host, and a committed
   proofHost without the digest pin is REFUSED (assertion fails, exit 1).

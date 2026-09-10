@@ -58,7 +58,7 @@ baseline ×2 → swap → candidate ×3) produced:
   ZERO skips on the designated proof host (win32/x64, node v26.3.0, npm
   11.16.0); on other hosts every portable assertion (22) still executes and
   the run reports INCOMPLETE (exit 2) instead of claiming PASS
-- post-sol re-verification (2026-09-01, candidate branch `post-sol-remediation`):
+- round-4 re-verification (2026-09-01, the round-4 candidate branch):
   the same 36/36 proof reproduced on the canonical toolchain (official zip,
   SHA-256 `ec6d0f6b…` verified) with ZERO expectation changes under the new
   RB-1 argv policy (flags now appended as suffix), RB-2 coverage rules (the

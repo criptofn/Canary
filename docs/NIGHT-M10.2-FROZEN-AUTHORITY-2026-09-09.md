@@ -1,8 +1,8 @@
 # NIGHT-M10.2 — FROZEN TASK AUTHORITY (2026-09-09)
 
-Build target: builder clone `/home/jan/qwen-builder-cage/canary`, branch
-`qwen-builder`, built on audited commit `0981edf`. Scope: close the two
-CONFIRMED HIGH F4 bypasses from the independent GLM re-audit of M10.1, with
+Build target: the local builder clone, on its unpushed builder branch, built on audited commit `0981edf`.
+Scope: close the two
+CONFIRMED HIGH F4 bypasses from the independent re-audit of M10.1, with
 truthful claims and an adversarial regression battery. No redesign, no new
 machinery beyond the frozen-authority gate; M7/M8/M9 unchanged.
 

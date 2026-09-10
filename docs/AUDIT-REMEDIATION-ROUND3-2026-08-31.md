@@ -1,4 +1,4 @@
-# Canary v0.1 Audit Remediation — ROUND 3 Ledger — 2026-08-31
+# v0.1 audit remediation — ROUND 3 Ledger — 2026-08-31
 
 Branch: **`reaudit-hardening`** · Continuation base (HEAD at session start):
 **`9f474bc7b415ce14b9162bb352ae127bd7f6dd6a`** (round-2 final, marked READY

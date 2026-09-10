@@ -1,4 +1,4 @@
-# Canary v0.1 Audit Remediation — ROUND 2 Ledger — 2026-08-31
+# v0.1 audit remediation — ROUND 2 Ledger — 2026-08-31
 
 Audited baseline (frozen, untouched): **`f823b98a9a8e6da75384192f65b946af4bc3ee75`**
 Working branch: **`reaudit-hardening`** (created exactly at the audited SHA).

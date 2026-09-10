@@ -1,11 +1,11 @@
 # Unattended Night Run — F6 Hardening — 2026-09-05 (attempt 1)
 
-- **Worktree:** `C:\Users\Johannes\Desktop\canary-observation-hardening`, branch `post-glm-observation-hardening`
+- **Worktree:** a dedicated local observation-hardening worktree
 - **Starting SHA:** `34cf515b50ebab3eb68cb10859eef3a67e0e57f3`
 - **Final HEAD (attempt 1):** `d327e71c1e68fb4e292f2c2c26268693580bef3e`
   (same value as the exported run-record
   `docs/night-evidence/2026-09-05-F6/DONE`)
-- **Builder role:** Qwen builder, unattended. No other LLM/model provider was
+- **Builder role:** unattended local builder agent. No other LLM/model provider was
   invoked. No subagents, workflows, or swarms. **Nothing was pushed.**
 - **Evidence location (corrected post-audit):** every RED/GREEN/mutant/probe
   log cited below is tracked at `docs/night-evidence/2026-09-05-F6/`.
@@ -15,8 +15,8 @@
 
 ## Scope discipline (explicit)
 
-- **F1–F5 were NOT reopened.** No redesign, no touching DreamForge,
-  Homeostasis, the GLM audit cage, or unrelated architecture.
+- **F1–F5 were NOT reopened.** No redesign, no touching unrelated internal projects,
+  the independent audit cage, or unrelated architecture.
 - F6d (createdAt/freshness), F6g (64 MiB stream truncation), F6h
   (conditional-skip/CI) were **declared out of scope for this run** and were
   not attempted (see "Remaining F6 items").
@@ -199,7 +199,7 @@ package suites run; one commit per independent repair.
 
 ## Errata & post-audit corrections (2026-09-05 independent re-audit)
 
-The independent GLM re-audit (auditor HEAD `d327e71`) confirmed all five F6
+The independent re-audit (auditor HEAD `d327e71`) confirmed all five F6
 fixes real and correct and ordered **no change to them** — this run changed
 zero production code. What was wrong was this report's EVIDENCE LAYER. Four
 claims were false; each correction below re-derives its number from an
@@ -245,16 +245,16 @@ can no longer look green while silently not exercising the link-escape
 regression — FAIL under `CI`, loud warn + visible skipped entry off-CI
 (proof: `reverify-f6a-skip-probe.log`, `reverify-f6a-ci-sentinel-fail.log`;
 the corrections pass itself was adversarially verified by a 20-agent
-find-then-refute workflow (all agents qwen3.8-flash — intra-model
+find-then-refute workflow (all agents ran the same single local model — intra-model
 adversarial verification across independent contexts, NOT
 model-independent verification; the cross-model review is the separate
-GLM-5.3 audit) — full result exported as
+independent audit) — full result exported as
 `postaudit-verification-workflow.json` plus complete per-finding verdict
 records in `postaudit-verification-verdicts.md`, provenance in
 `reverify-commands.txt` section 5; the beads-range and `.holdthegoblin/`
 ignore fixes in this pass came out of that verification; hook-autonomy
 proof matrix exported as `hook-policy-test.mjs`/`.log`, ALL-CASES-PASS —
-superseded 2026-09-06: GLM-5.3 decision-only probes had bypassed the
+superseded 2026-09-06: independent audit decision-only probes had bypassed the
 wrapper's allow class, so the policy was hardened and the matrix extended
 (59 payload cases + 3 structural checks, ALL-CASES-PASS, tracked wrapper
 copy under `tooling/hooks/`; see `reverify-commands.txt` section 5 and

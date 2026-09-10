@@ -1,4 +1,4 @@
-# Canary 1.0 authorization contract
+# Canary v1.0.0 authorization contract
 
 Completion authorizes only the exact clean committed candidate against its
 frozen base and applicable sealed authority, for the exact declared task and

@@ -1,10 +1,10 @@
-# Canary v0.1 Audit Remediation — ROUND 4 (POST-SOL) Ledger — 2026-09-01
+# v0.1 audit remediation — ROUND 4 Ledger — 2026-09-01
 
-Branch: **`post-sol-remediation`**, created from and only from the frozen
+Branch: **the round-4 remediation branch**, created from and only from the frozen
 pre-remediation candidate **`a0baa0c8bd1000010602a47ed34bbd27d8961d5f`**
 (branch `reaudit-hardening`, tracked tree clean at session start — verified
-before any change). Scope: the confirmed findings of the final independent
-Sol review of that candidate (RB-1, RB-2, M-1, M-2, F1) plus assessed
+before any change). Scope: the confirmed findings of the final
+independent review of that candidate (RB-1, RB-2, M-1, M-2, F1) plus assessed
 secondaries. This is NOT a new broad audit; every fix is regression-first
 and every red was captured against the frozen behavior before the fix.
 
@@ -15,7 +15,7 @@ Node v26.3.0 zip, SHA-256 `ec6d0f6b…` verified — zero global config touched)
 
 ## Finding table
 
-| ID | Severity | Finding (Sol, independently reproduced) | Root cause | Fix (structural) | Status |
+| ID | Severity | Finding (independently reproduced) | Root cause | Fix (structural) | Status |
 |---|---|---|---|---|---|
 | RB-1 | RELEASE BLOCKER | npm accepts semantically equivalent config forms after Canary's injected flags: `--no-ignore-scripts`, `--userc=…`, `--reg=…`, `--location=global` all survived the textual denylist; "protective package-manager configuration cannot be overridden" was not structurally guaranteed | The policy was a closed allowlist for EXECUTABLES and SUBCOMMANDS but an EXACT-STRING DENYLIST for OPTIONS, and injection was spliced before user tokens — npm's CLI layer (probe-verified on 11.16 AND 11.19) expands unique-prefix abbreviations (`--ig`→`--ignore-scripts`), applies `--no-` negations, and is LAST-WINS, while ignoring case/camel/ambiguous/unknown forms | (a) install-family options moved to a CLOSED EXACT-SPELLING ALLOWLIST (property-tested prefix-disjoint from the protected key universe; value-taking entries forced to `=` form so no token can swallow the following argv slot); (b) Canary's protected flags now APPENDED AS ARGV SUFFIX — last-wins makes the effective protected configuration structurally Canary's; (c) non-install families reject any option resolving (case-fold, one-`no-` strip, prefix-expansion) toward a protected key, plus the per-package family `--@scope:registry`/`//…:auth` everywhere; (d) `--`/short options stay rejected in install family so nothing can follow the suffix | FIXED |
 | RB-2 | RELEASE BLOCKER | Suite collapse produced strong verdicts: 128→1 executed tests → PASS rule 3; unstable repetitions (128,1) → PASS rule 3; 128→1+127 pending → PASS rule 3; 128→1 stable failing → CONFIRMED_REGRESSION rule 5 | The decision table required only ≥1 executed assertion per round (round-3 B2) and reasoned from exit codes + failure profiles, never from COVERAGE TOTALS across arms/repetitions | New invariants computed from the experiment itself (no hard-coded minimum): rule 12 — per-arm repetitions must share executed (passing+failing) and observed (+pending) totals, else FLAKY; rule 13 — PASS/CONFIRMED_REGRESSION/PRE_EXISTING_FAILURE additionally require cross-arm comparability of both totals, else INCONCLUSIVE. validateBundle carries an INDEPENDENT parity mirror (+≥2 trustful rounds, dense indices) so the refusal survives a decision-table change. Legitimate pass→fail transitions at stable totals (Axios 128→125+3) still confirm | FIXED |
@@ -38,11 +38,11 @@ Node v26.3.0 zip, SHA-256 `ec6d0f6b…` verified — zero global config touched)
   new property test generalizes over every prefix/negation/case/`=` spelling
   of every protected key, in both argv positions.
 - RB-2: frozen classifier returned `PASS rule 3 / PASS rule 3 / PASS rule 3 /
-  CONFIRMED_REGRESSION rule 5` for Sol's four cases and `CONFIRMED_REGRESSION
+  CONFIRMED_REGRESSION rule 5` for the review's four cases and `CONFIRMED_REGRESSION
   rule 5` for the Axios shape — all four reproduced against the compiled
   candidate, then fixed; 9 new red tests went green with the rules.
 - M-1: deletions of `commands`/`killedByTimeout`/`startedAt`/`durationMs`
-  from a valid bundle were runtime-accepted pre-fix (Sol); the required-field
+  from a valid bundle were runtime-accepted pre-fix (confirmed by review); the required-field
   matrix test now proves every always-required contract field is enforced at
   runtime, and the committed schema file is deep-compared against the
   generated one.
@@ -96,7 +96,7 @@ Node v26.3.0 zip, SHA-256 `ec6d0f6b…` verified — zero global config touched)
 | CR-only line endings asymmetry | FIXED | CR/CRLF→LF at every fact-matcher/parse entry (artifacts stay byte-exact; prove re-derives through the same functions) |
 | Tree snapshot reads lacked realpath confinement | FIXED | readArtifact mirrors the audit-B3 discipline (basename + realpath containment) |
 | runId primarily bound to workspace basename | **DEFERRED** | a content-derived run identity (e.g. digest over spec+first-round bytes embedded in the directory naming convention) changes the workspace layout, the run-directory convention, verifyRunIdentity, and the proof's provenance records simultaneously — not small, not invariant-clear without that layout decision; today's binding (runId↔directory + convention + tarball-bytes + committed proof pins) fails closed against reseals; documented |
-| Validator accepted 1-round/gapped arms (GLM residual) | FIXED (this round) | ≥2 rounds per arm under trustful labels + dense 1..n indices — both landed as part of RB-2/M-1 |
+| Validator accepted 1-round/gapped arms (audit residual) | FIXED (this round) | ≥2 rounds per arm under trustful labels + dense 1..n indices — both landed as part of RB-2/M-1 |
 
 ## Remaining limitations (deliberate, documented)
 
@@ -120,9 +120,9 @@ Node v26.3.0 zip, SHA-256 `ec6d0f6b…` verified — zero global config touched)
 
 ## Commits on this branch (since a0baa0c8)
 
-1. `fix(post-sol RB-1)` — semantic package-manager policy + CR-ending parity
-2. `fix(post-sol RB-2/M-1/M-2)` — coverage-consistency verdicts, one evidence
+1. RB-1 fix — semantic package-manager policy + CR-ending parity
+2. RB-2/M-1/M-2 fixes — coverage-consistency verdicts, one evidence
    contract, evidence-backed empty nodes
-3. `fix(post-sol F1+secondaries)` — SELF-CONSISTENT report wording, env-safe
+3. F1+secondaries fixes — SELF-CONSISTENT report wording, env-safe
    host sampling
-4. `docs(post-sol)` — this ledger + documentation truth pass
+4. Docs — this ledger + documentation truth pass

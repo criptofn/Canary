@@ -1,6 +1,6 @@
-# Canary v0.1 Audit Remediation — ROUND 5 (POST-GLM SELF-FALSIFICATION) Ledger — 2026-09-02
+# v0.1 audit remediation — ROUND 5 (POST-AUDIT SELF-FALSIFICATION) Ledger — 2026-09-02
 
-Branch: **`post-glm-observation-hardening`** (lineage: frozen base `c1ff4e7`,
+Branch: **an observation-hardening branch** (lineage: frozen base `c1ff4e7`,
 commits 1–4 = RED tests / attested-execution channel / matcher view /
 execution-authority docs, commit 5 = `a87ae7f` pin forensics + review-manifest
 anchor). Scope: the findings of an adversarial self-falsification pass over

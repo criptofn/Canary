@@ -1,4 +1,4 @@
-# Canary 1.0 closure evidence
+# Canary v1.0.0 closure evidence
 
 The final commit containing this report is the release subject. Its exact SHA
 and tree are recorded in the release metadata and delivery message (embedding
@@ -9,16 +9,16 @@ a commit's own SHA in its tracked contents would be self-referential).
 - Required baseline HEAD: `ec73ab7f6060a0fefd53cc2634fccd3aba4bd6af`.
 - Baseline parent: `e28b4f3c80d597880eda2e1898ee398212962e17`.
 - Baseline tree: `0481ddc96ee33f3185502aa1af801bb67914c471`.
-- Starting worktree: `/home/jan/qwen-builder-cage/astra-pre1-closure`,
-  branch `astra-pre1-closure`, clean index and tracked files; exact baseline verified.
+- Starting worktree: `the release-closure builder clone`,
+  clean index and tracked files; exact baseline verified.
 - Final closure parent is exactly the baseline HEAD; one closure commit, no merge.
-- Original `qwen-builder` remains at `1e276af10c58bdb12bad7efdb0d1fc18292de76c`,
+- Original builder clone remains at `1e276af10c58bdb12bad7efdb0d1fc18292de76c`,
   clean and untouched. The frozen audit worktree was never a writable builder.
 - Baseline unit suite: 667 tests, 666 PASS, 0 FAIL, 1 SKIP.
   Baseline acceptance-growth and M10.2 adversarial probes passed.
 - Later human authorization explicitly permitted publishing 1.0 and installing
-  it for Claude Code. GitHub's separate documentation-only main branch is
-  preserved; the closure is published on its own branch and release tag.
+  it for Claude Code. GitHub's former documentation-only `main` branch was later
+  superseded by the closure itself; the closure is published on the default branch under its release tag.
 
 ## Authorization invariant and closed findings
 

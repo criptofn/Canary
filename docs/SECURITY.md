@@ -52,7 +52,7 @@ invisible (the loader does not append them).
 Evidence bundles record the allowlisted variable **names** per spawn, never
 values.
 
-**GLM F-6 — the containment helpers get the same hygiene.** The three OS
+**Audit F-6 — the containment helpers get the same hygiene.** The three OS
 process-management spawns (F5 sweep `ps` fallback, tree-kill `taskkill`,
 Windows `powershell -NoProfile` probe) previously ran with the FULL caller
 environment; they now run under `containmentEnv()` (packages/support) —
@@ -89,12 +89,12 @@ be a lie; here is the real picture.
   matched case-INSENSITIVELY per audit F7, scanned recursively per red-team
   F10) in the pinned source abort the run BEFORE anything external executes.
 - **Package-manager isolation that cannot be dodged — semantically, not
-  textually** (audit F8→B5→B5.1, hardened post-sol RB-1). Canary OWNS the
+  textually** (audit F8→B5→B5.1, hardened round-4 RB-1). Canary OWNS the
   package-manager surface via CLOSED ALLOWLISTS at three levels: executables
   (only `$npm`/`$yarn`/`$tsc`/`$bin:` tokens and literal `node`; raw
   `npm`/`npm-cli.js`/`$bin:npm`, wrappers like `cmd /c npm`, and pnpm/bun/
   corepack frontends are rejected fail-closed), subcommands (closed allowlist;
-  unknown aliases and `exec`/`dlx`/`shell`/`publish` refused), and — post-sol
+  unknown aliases and `exec`/`dlx`/`shell`/`publish` refused), and — round-4
   — OPTIONS: every install-family option token must be an exact spelling from
   a closed allowlist that is property-tested prefix-disjoint from the
   protected config universe (npm applies abbreviations like `--ig`/`--userc`/
@@ -110,7 +110,7 @@ be a lie; here is the real picture.
   key (case-folded, negation-stripped, prefix-expanded) touches a protected
   key is refused.
 - **F6e residual — the controlled-userconfig race is narrowed, not
-  closed** (post-glm F6e; stated plainly per the 2026-09-05 re-audit):
+  closed** (post-audit F6e; stated plainly per the 2026-09-05 re-audit):
   three sites touch `empty.npmrc`, and they are not alike —
   (a) workspace setup CREATES it (`apps/cli/src/pipeline.ts`,
   `runExperimentInner`); that is creation, not a point of use;
@@ -138,14 +138,14 @@ be a lie; here is the real picture.
   *downgrades* the verdict to INCONCLUSIVE (rule 9); a non-VALID tree
   OBSERVATION (empty/partial/missing the studied dependency) downgrades it too
   (rule 10, audit B6) — enforced, not advisory. Zero-execution / no-summary /
-  infra-at-exit-0 rounds can never yield PASS (audit B2). Post-sol RB-2 adds
+  infra-at-exit-0 rounds can never yield PASS (audit B2). Round-4 RB-2 adds
   the COVERAGE-CONSISTENCY pair: repetitions whose executed/observed totals
   differ are FLAKY (rule 12), and PASS/CONFIRMED_REGRESSION/PRE_EXISTING_-
   FAILURE additionally require the arms' totals to match (rule 13) — a suite
   that collapses from 128 to 1 executed test can no longer produce any strong
   verdict, while the legitimate 128→125+3 regression shape still confirms.
   `validateBundle` enforces the same parity independently (rules 12/13 plus
-  ≥2 dense rounds per arm), so a resealed bundle refutes itself. Post-GLM
+  ≥2 dense rounds per arm), so a resealed bundle refutes itself. Post-audit
   adds rule 14, the **execution-authority** gate: every strong or
   execution-claim label (PASS / CONFIRMED_REGRESSION / PRE_EXISTING_FAILURE /
   FLAKY) additionally requires a Canary-observed, pinned-runner execution on
@@ -158,9 +158,9 @@ be a lie; here is the real picture.
   single-field rewrite without full recompute detectable (integrity, NOT
   authenticated provenance — no trust root); `prove`/`check`/`report` re-derive
   each round's summary, counts, failing-test identities AND execution
-  observation FROM the artifact BYTES — including the post-GLM fifth artifact,
+  observation FROM the artifact BYTES — including the post-audit fifth artifact,
   `<arm>-<round>.attest.ndjson`, whose digest binds the lifecycle frames — so
-  the bundle cannot misdescribe **what it recorded**. (Pre-GLM wording claimed
+  the bundle cannot misdescribe **what it recorded**. (Pre-audit wording claimed
   "what actually ran"; the demonstrated finding-A class was precisely a bundle
   that faithfully recorded *fabricated-looking* output. What the bytes mean as
   an execution is now established by the observation channel and rule 14, not
@@ -169,12 +169,12 @@ be a lie; here is the real picture.
   fields refused) is one machine-readable contract:
   `packages/evidence/schema/src/contract.ts` generates
   `schemas/evidence.schema.json` and drives the runtime validator — the two
-  cannot silently diverge (post-sol M-1). `report` stamps
-  **SELF-CONSISTENT / NOT SELF-CONSISTENT** (post-sol F1): exit 0 means the
+  cannot silently diverge (round-4 M-1). `report` stamps
+  **SELF-CONSISTENT / NOT SELF-CONSISTENT** (round-4 F1): exit 0 means the
   evidence agrees with the artifacts on THIS machine; it explicitly does NOT
   mean the committed proof was consulted — only `prove`/`check` assert that,
   and the banner says so. Refused bundles are never rendered as trusted.
-- **Execution-observation channel (post-GLM A).** A strong verdict can only
+- **Execution-observation channel (post-audit A).** A strong verdict can only
   exist for an execution Canary *watched*: a Canary-authored in-process
   observer is injected (via `--require`, appended last into protected argv)
   **only** into a runner whose on-disk tree hash matches a pinned release in
@@ -271,7 +271,7 @@ cannot hold, Canary stops. It does not promise to notice Tier-B/C violations.
 Some obligations are **non-objective** — whether a dialog got warmer, whether
 a dependency swap is acceptable. Canary cannot measure them; only a human
 judgment can close them, via `canary accept <candidate>` in an interactive
-terminal. The governing invariant (GLM F-3):
+terminal. The governing invariant (audit F-3):
 
 > **A HUMAN ACCEPTANCE AUTHORIZES EXACTLY THE SUBJECTIVE / NON-OBJECTIVE DUTIES
 > THAT EXISTED WHEN THAT ACCEPTANCE WAS GIVEN.**
@@ -334,7 +334,7 @@ boundary. Wording rules for this repo's docs/verdicts: never "an agent cannot
 self-accept", never "TTY proves a human", never "human-authenticated
 acceptance".
 
-Batteries: `tooling/probes/f3-acceptance-growth.mjs` (exact GLM F-3 0→2 repro,
+Batteries: `tooling/probes/f3-acceptance-growth.mjs` (exact audit F-3 0→2 repro,
 A1–A10 attacks + mixed-task control through the real CLI, real-PTY acceptances
 — PTY harness is POSIX-only; the digest/record shapes it exercises are covered
 portably below), `apps/cli/test/acceptance-scope.test.ts` (portable:
@@ -389,7 +389,7 @@ F1–F15 recorded in docs/AUDIT-REMEDIATION-2026-08-30.md):
   scanning the spec argv for the package-manager subcommand, so
   `--loglevel install`, `ci`, `add`, and the `$yarn` path cannot silently
   skip them. (Superseded/extended by audit-F8: value-taking-option shift and
-  conflicting flags are now hard rejections — see below; the option denylist itself was superseded by post-sol RB-1's closed allowlist + last-wins suffix.)
+  conflicting flags are now hard rejections — see below; the option denylist itself was superseded by round-4 RB-1's closed allowlist + last-wins suffix.)
 - **RT-F7 — proof honesty.** Proof compares numeric summary counts and
   *extracted failing-test names* (not loose substrings), validates the
   bundle on read, and asserts against the current run's artifact directory
@@ -405,7 +405,7 @@ Full ledger with root causes, execution evidence and per-milestone commits:
 **docs/AUDIT-REMEDIATION-ROUND2-2026-08-31.md** (round 2) and
 **docs/AUDIT-REMEDIATION-ROUND3-2026-08-31.md** (round 3 + internal adversarial
 self-review). Headline outcomes, each covered by the then-current 371-test
-suite (baseline now 438; see the Post-GLM section below):
+suite (baseline now 438; see the Post-audit section below):
 
 - **F1/F2/F13 — classification correctness.** A passing-summary-then-nonzero-
   exit can no longer produce CONFIRMED_REGRESSION (conservative INFRA);
@@ -431,7 +431,7 @@ suite (baseline now 438; see the Post-GLM section below):
   runtime version match, and the per-round argv/envKeys re-derivations — and
   the gate reads the ACTUAL runtime, never the evidence's own metadata; off
   the proof host they report SKIPPED and the verdict downgrades to INCOMPLETE
-  (exit 2), never PASS. Updated again by post-GLM F2: the runtime→proofHost
+  (exit 2), never PASS. Updated again by post-audit F2: the runtime→proofHost
   comparison includes `nodeExecSha256`, the SHA-256 of the actual node
   executable bytes — the four metadata strings are claims a repackaged or
   patched runtime can print, so host-exactness now requires proving WHICH
@@ -462,13 +462,13 @@ adversarial + mutation evidence (ledger: AUDIT-REMEDIATION-ROUND2-2026-08-31.md)
   authenticated provenance) plus per-round re-derivation of summary/counts/
   identities FROM the artifact bytes, plus assertProof pinning identity/schema/
   repo/commit/runtime, plus report verifying-or-labelling the evidence
-  (banner wording since renamed SELF-CONSISTENT by post-sol F1). The
+  (banner wording since renamed SELF-CONSISTENT by round-4 F1). The
   bundle can no longer lie about what its bytes contain.
 - **B5 — package-manager closed allowlist.** Raw `npm`/`npm-cli.js`/`$bin:npm`
   forms and unknown subcommands are rejected; install-family isolation flags
   are in effective position and a user `--` in an install is refused.
   (Option SPELLINGS were still denylisted by exact text at this point — the
-  post-sol RB-1 finding; now closed allowlist + last-wins suffix, above.)
+  round-4 RB-1 finding; now closed allowlist + last-wins suffix, above.)
 - **B6 — tree observation completeness.** EMPTY/partial dependency-tree
   observations no longer "prove" confinement; only a VALID observation (parsed,
   non-empty, contains the studied dependency) supports a trustful label.
@@ -512,16 +512,16 @@ Ledger: **docs/AUDIT-REMEDIATION-ROUND3-2026-08-31.md**. Headline outcomes:
   status at INCOMPLETE; a trustful verdict requires retained snapshots with
   EMPTY anomaly lists; and npm ≥ 11.19's empty-`{}` rendering of
   NOT-installed OPTIONAL deps is recognized as a complete observation —
-  subject to the post-sol M-2 narrowing below.
+  subject to the round-4 M-2 narrowing below.
 - **Secondaries:** post-summary fatal-crash signatures (`crashSignal`) and
   failed containment sweeps (`sweepFailed`) now invalidate a round via rule 1;
   fetch/extraction failures are INFRASTRUCTURE (exit 2), not misuse (exit 3);
   subtree containment uses full-path-segment semantics.
 
-### Post-sol round-4 remediation (RB-1/RB-2/M-1/M-2/F1, 2026-09-01)
+### Round-4 remediation (RB-1/RB-2/M-1/M-2/F1, 2026-09-01)
 
-Ledger: **docs/AUDIT-REMEDIATION-ROUND4-POST-SOL-2026-09-01.md**. The final
-independent Sol review of the frozen candidate `a0baa0c` confirmed five
+Ledger: **docs/AUDIT-REMEDIATION-ROUND4-2026-09-01.md**. The final
+independent review of the frozen candidate `a0baa0c` confirmed five
 items, each fixed structurally here:
 
 - **RB-1 — semantic package-manager policy.** The exact-string denylist could
@@ -530,12 +530,12 @@ items, each fixed structurally here:
   layer is last-wins, and the per-package family (`--@scope:registry`) retargets
   resolution even against a global pin. Replaced by closed exact-spelling allow
   lists + protected-suffix injection + resolution-based key banning (Tier A
-  above); Sol's four demonstrated forms are refused and a property test covers
+  above); the review's four demonstrated forms are refused and a property test covers
   every prefix/negation/case/`=` spelling of every protected key.
 - **RB-2 — suite collapse is not a verdict.** Classifier rules 12/13 and an
   independent validator gate require stable-across-repetitions, comparable-
   across-arms executed/observed totals for any strong verdict (no hard-coded
-  minimum; the Axios regression shape is preserved). Post-GLM F1 extended
+  minimum; the Axios regression shape is preserved). Post-audit F1 extended
   "comparable" from cardinality to failing-set containment: a would-be
   PRE_EXISTING_FAILURE may not fail an identity the baseline never saw fail.
 - **M-1 — one evidence contract.** `contract.ts` now generates the published
@@ -563,7 +563,7 @@ tree budgets, and the string-`problems` producer/verifier differential.
 **Honest integrity limits after rounds 3–4.** `sweepFailed` (and
 `killedByTimeout` beyond its exit-code correlation) are KERNEL observations
 the artifact bytes cannot carry — recorded, consumed by the decision table,
-bound to the manifest, but not independently byte-re-derivable. Post-sol
+bound to the manifest, but not independently byte-re-derivable. Round-4
 M-2 narrows but does not eliminate the CONTENT-forgery surface for tree
 observations: `{}`-as-optional is by construction indistinguishable in npm's
 own output from a required dep silently missing, so retained-bytes
@@ -578,9 +578,9 @@ provenance — restated here rather than hidden. Coverage parity (RB-2) reasons
 from the experiment's own summaries; a suite that shrank BEFORE both arms ran
 carries no cross-arm signal and is anchored only by the committed proof.
 
-### Post-GLM observation hardening (finding A HIGH + B LOW, 2026-09-01/02)
+### Post-audit observation hardening (finding A HIGH + B LOW, 2026-09-01/02)
 
-A GLM-5.3 re-audit of the post-sol candidate `c1ff4e7` demonstrated that
+An independent audit re-audit of the round-4 candidate `c1ff4e7` demonstrated that
 `node -e "console.log('128 passing (1s)')"` — **no runner installed** —
 classified **PASS**: the text channel had been the only execution authority.
 Finding B (LOW) was its mirror image: case-SENSITIVE, ANSI-BLIND infra
@@ -656,13 +656,13 @@ already closed by commit `a87ae7f`, four became fixes:
   emits `hello`+`bye`; the mirror has no frame bytes to bind) — that is the
   §8 total-forgery ceiling, not a finding.
 
-Permanent batteries: `apps/cli/test/execution-authority.test.ts` (exact GLM
+Permanent batteries: `apps/cli/test/execution-authority.test.ts` (exact audit
 reproducer verbatim), `apps/cli/test/attested-channel.test.ts` (validator +
 end-to-end attack matrix), `packages/support/test/
 known-runners-manifest.test.ts` (pins recomputed from committed review
 manifests; canary-double explicitly manifest-free), `packages/runner/
 executor/test/infra-matching-hardening.test.ts`, extended classify/schema/
-prove/verify-tree suites. Post-GLM F5 (canary-double origin gate: the
+prove/verify-tree suites. Post-audit F5 (canary-double origin gate: the
 double's public in-repo bytes earn execution authority only behind an
 in-process test grant the production CLI never passes) is pinned in
 `packages/support/test/known-runners-manifest.test.ts` (F5 posture matrix),

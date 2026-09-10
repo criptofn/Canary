@@ -24,14 +24,14 @@ deterministic classification -> only then may an LLM explain/summarize
 ```
 
 Critical invariant (already implemented, now contractual; amended 2026-09-02
-after the GLM finding-A demonstration, which showed that the exit-code +
+after the audit finding-A demonstration, which showed that the exit-code +
 summary-text + infra-pattern channel — while itself never reachable by an
 LLM — could be satisfied by a *subject* printing text without ever running
 tests; the subject is also a producer that must not certify itself):
 PASS / CONFIRMED_REGRESSION / PRE_EXISTING_FAILURE / FLAKY /
 INFRASTRUCTURE_FAILURE / INCONCLUSIVE come from reproducible evidence and
 pure functions. `@canary-rn/classification` consumes only run facts Canary
-derives itself — exit codes, structural output properties, and (post-GLM) the
+derives itself — exit codes, structural output properties, and (post-audit) the
 execution-observation channel: a Canary-injected, byte-pinned-runner
 lifecycle record that must agree with every text claim before a strong
 verdict exists. It has no dependency on any AI pathway — the LLM cannot reach
@@ -43,12 +43,12 @@ ceilings: docs/EXECUTION-AUTHORITY.md.
 Canary owns the workflow: baseline/candidate execution, comparison,
 reproduction, classification, evidence, final verdict. External tools
 (RepoWise for blast radius, RTK for output reduction, Semgrep/CodeQL for
-security evidence, CodSpeed for performance, Playwright for UI, Qwen for
+security evidence, CodSpeed for performance, Playwright for UI, a hosted LLM for
 explanation) may later feed evidence or improve individual stages **behind
 optional adapter/provider boundaries** — they never own the workflow, and
 Canary must run with zero external integrations.
 
-Adapter evidence invariant (post-GLM, contractual — docs/EXECUTION-AUTHORITY.md
+Adapter evidence invariant (post-audit, contractual — docs/EXECUTION-AUTHORITY.md
 §10): evidence an adapter merely *claims* is a claim; it may carry a strong
 verdict only through a re-derivable Canary-side channel (byte-pinned
 execution observation, bound artifacts, committed proof), never through a

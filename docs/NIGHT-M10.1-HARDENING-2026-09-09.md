@@ -1,11 +1,11 @@
 # M10.1 hardening — F4 closure, host-neutral evidence, claim correction — 2026-09-09
 
-- **Repo/branch:** this clone, `qwen-builder` (builder cage, **no remote, nothing pushed**)
+- **Repo/branch:** this clone, the local builder branch (builder cage, **no remote, nothing pushed**)
 - **Base SHA:** `d6757df4932f652217f8e0a5b7cfa2aacc9b1130` (NOT amended)
 - **Host (this run):** Linux 6.18.33.2-microsoft-standard-WSL2 · node v26.7.0 ·
   npm 11.19.0 · git 2.43.0 — POSIX results below are labeled **POSIX-only
   unless stated**; every Windows-sensitive item names its state.
-- **Trigger:** independent GLM M10 audit `PASS WITH DOCUMENTED RESIDUALS`; the
+- **Trigger:** independent M10 audit `PASS WITH DOCUMENTED RESIDUALS`; the
   repairable findings were F4 (material Northstar bypass), the S11 POSIX
   fixture vacuity, HTG evidence host-dependence, and the unconditional M10
   claim. F1 and F2 were already dispositioned at `d6757df` (see below).
@@ -190,7 +190,7 @@ toolchain recovery and are reported above.
 
 ---
 
-## CORRECTIONS — appended by the M10.2 pass (same date; GLM re-audit of frozen `0981edf`)
+## CORRECTIONS — appended by the M10.2 pass (same date; independent re-audit of frozen `0981edf`)
 
 The re-audit CONFIRMED two HIGH bypasses (F4-GATE-1, F4-GATE-2) that the
 wording above overstated. The original text is kept verbatim as the record of

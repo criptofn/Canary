@@ -1,8 +1,10 @@
-# Canary — an independent verification layer for AI-written code
+# Canary
+
+Canary is an independent verification layer for AI-written code.
 
 > *"Cool diff. Prove that it actually made the project better."*
 
-**Canary 1.0 checks coding-agent work before completion.** Setup connects
+**Canary checks coding-agent work before completion.** Setup connects
 Claude Code to the project's own checks. For isolated changes, the agent
 registers the request, works in a candidate, commits it, and asks Canary to
 verify and promote. Explicitly subjective results need your review of the
@@ -13,7 +15,7 @@ numeric proof bindings, input limits, and the remaining local trust boundaries.
 
 ## 60-second quickstart
 
-1. **Install Canary 1.0** (Node.js 22 or newer):
+1. **Install Canary** (Node.js 22 or newer):
 
    Download `canary-rn-cli-1.0.0.tgz` from the
    [GitHub release](https://github.com/criptofn/Canary/releases/tag/v1.0.0), then:
@@ -122,7 +124,7 @@ npm run prove     # fresh end-to-end run; PASS requires the committed proof host
 npm run report    # no args: renders the latest run's evidence. Exit 0 means SELF-CONSISTENT:
                   # byte + run-identity + tree-snapshot + classification re-derivation checks
                   # passed ON THIS MACHINE — it does NOT mean the committed proof was consulted
-                  # (that is prove/check; post-sol F1). Otherwise NOT SELF-CONSISTENT, exit 3.
+                  # (that is prove/check; round-4 F1). Otherwise NOT SELF-CONSISTENT, exit 3.
 ```
 
 Also demonstrated by this fixture: **Canary does not manufacture
@@ -184,15 +186,15 @@ Every downstream repository is **untrusted**. Enforced by
   OS loader injects are *neutralized* so observed == declared (proven by test)
 - `--ignore-scripts` on every install — semantically un-losable: package
   managers run only through **closed allowlists at three levels** (executable,
-  subcommand, and since post-sol RB-1, exact option spellings — npm's
+  subcommand, and since round-4 RB-1, exact option spellings — npm's
   abbreviations, negations and last-wins ordering make textual denylists
   bypassable, so Canary's isolation flags are appended as the argv *suffix*
   and npm's own last-wins makes them the effective config); raw
   `npm`/`npm-cli.js` forms, wrapper-mediated execution and `--`-bypass shapes
-  are rejected (audits B5/B5.1, post-sol RB-1); disposable workspace under
+  are rejected (audits B5/B5.1, round-4 RB-1); disposable workspace under
   `.canary-runs/`; caches and HOME redirected inside
 - **evidence is bound to reality, not just self-consistent** (audit B1–B4,
-  post-sol RB-2/M-1, post-GLM A+B): failing-test identities are suite-qualified
+  round-4 RB-2/M-1, independent-audit A+B): failing-test identities are suite-qualified
   (no leaf-title collapse); a zero-test / no-summary / infra-at-exit-0 run can
   never become PASS; **suite collapse is never a verdict** — strong verdicts
   require stable-across-repetitions and comparable-across-arms test-execution
