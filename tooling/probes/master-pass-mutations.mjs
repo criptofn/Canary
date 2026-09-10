@@ -16,6 +16,20 @@
  *   M5 status drift-blind  (S1)  — readOnlyProblems skips the sealed-authority check
  *   M6 tracked-config trust (S2) — configTracked memo poisoned to false: a git-
  *                                 committed (clonable) config reads as owned
+ *   M7 env-merge escape    (B1)  — hardenedEnv merges the CALLER environment
+ *                                 under the sanitized one: NODE_OPTIONS/npm_config_*
+ *                                 poison reaches proof-authoritative children
+ *   M8 pm trusts PATH      (B1)  — plan steps skip resolvePm; bare pm name is
+ *                                 found on the caller's PATH → liar shim decides
+ *   M9 git trusts PATH     (B1)  — gitExe fixed literal → bare 'git' on caller PATH
+ *   M10 TTY gate removable (B3)  — accept no longer requires a terminal: a pipe
+ *                                 that supplies the name self-accepts
+ *   M11 stale binding gone (B3)  — freshness ignores candidateHead: acceptance
+ *                                 rides onto unreviewed bytes
+ *   M12 accept mints auth  (B3)  — cmdAccept's no-frozen-authority refusal gone:
+ *                                 accept blesses a candidate nothing registered
+ *   M13 authority duty cut (B3)  — the task-authority unshift disappears: a
+ *                                 never-registered candidate PASSes (F4's root)
  *
  * NOT built as a mutation, by argument instead: the gitWithinRoot gate memo.
  * The memo caches only the toplevel-containment PRE-FILTER; every actual probe
@@ -39,6 +53,8 @@ const OWNERS = {
   onboarding: ['--test', 'apps/cli/dist/test/onboarding.test.js'],
   subjectivity: ['tooling/probes/master-pass-subjectivity.mjs'],
   status: ['tooling/probes/lazy-connect-status.mjs'],
+  env: ['tooling/probes/pre10-env-authority.mjs'],
+  acceptance: ['tooling/probes/pre10-acceptance.mjs'],
 };
 const MUTATIONS = [
   // Single-digest tautologies were tried first and SURVIVED: the reuse guard is
@@ -51,6 +67,17 @@ const MUTATIONS = [
   { id: 'M4', file: 'candidate', from: 'for (const x of unproven)', to: 'for (const x of [])', owner: 'subjectivity', what: 'S3 compact stdout drops the UNPROVEN duty list entirely (PART III failure UX gutted)' },
   { id: 'M5', file: 'onboarding', from: 'const drift = planAuthorityDrift(root, cfg, pkg);', to: 'const drift = null;', owner: 'status', what: 'S1 status becomes drift-blind (sealed authority changes go unreported)' },
   { id: 'M6', file: 'onboarding', from: 'const seen = configTrackedMemo.get(root);', to: 'const seen = false;', owner: 'status', what: 'S2 memo poisons config ownership: a git-committed config reads as this machine\'s own' },
+  // Pre-1.0 blocker closure: each mutant re-opens exactly one door the GLM audit
+  // found. pre10-env-authority owns the execution-authority trio,
+  // pre10-acceptance the human-acceptance quartet, M13's root duty belongs to the
+  // subjectivity battery (its G case is the no-authority law).
+  { id: 'M7', file: 'onboarding', from: 'const hardenedEnv = (fixture) => sanitizedEnv({ ws: { root: os.tmpdir(), fixture }, nodeDir: NODE_DIR });', to: 'const hardenedEnv = (fixture) => ({ ...process.env, ...sanitizedEnv({ ws: { root: os.tmpdir(), fixture }, nodeDir: NODE_DIR }) });', owner: 'env', what: 'B1 merge escape: caller NODE_OPTIONS/npm_config_* poison reaches proof-authoritative children (deny-by-omission becomes allow-by-inheritance)' },
+  { id: 'M8', file: 'onboarding', from: 'const resolved = resolvePm(argv[0]);', to: "const resolved = { spawnArgv: argv, file: argv[0], via: 'trusted-path' };", owner: 'env', what: 'B1 pm door: bare pm name resolves on the caller PATH — the liar shim decides PASS and promotion' },
+  { id: 'M9', file: 'onboarding', from: 'gitExeCache = cands.find((c) => fs.existsSync(c)) ?? null;', to: "gitExeCache = 'git';", owner: 'env', what: 'B1 git door: bare git resolves on the caller PATH — attacker git forges base/evidence at promotion' },
+  { id: 'M10', file: 'candidate', from: 'if (!process.stdin.isTTY || !process.stdout.isTTY) {', to: 'if (false) {', owner: 'acceptance', what: 'B3 terminal gate gone: an agent pipe that merely supplies the name self-accepts its own work' },
+  { id: 'M11', file: 'candidate', from: 'acc.candidateHead === cid.head', to: 'acc.candidateHead === acc.candidateHead', owner: 'acceptance', what: 'B3 freshness gutted: acceptance rides onto commits made AFTER the human signed' },
+  { id: 'M12', file: 'candidate', from: 'if (!frozenKinds.length) {\n        o.say(`REFUSED', to: 'if (false) {\n        o.say(`REFUSED', owner: 'acceptance', what: 'B3 accept mints authority: a candidate nothing was ever registered for can be accepted into completion' },
+  { id: 'M13', file: 'candidate', from: 'if (!frozenKinds.length) {\n        obligations.unshift', to: 'if (false) {\n        obligations.unshift', owner: 'subjectivity', what: 'B3/F4 root: task-authority duty dropped — a never-registered candidate reaches PASS and promotion' },
 ];
 
 function runOwner(owner) {

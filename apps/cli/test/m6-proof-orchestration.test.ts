@@ -186,8 +186,14 @@ describe('obligationsFor — the one-way obligation engine', () => {
     assert.equal(d.status, 'unproven');
     assert.equal(d.mode, 'non-objective');
     assert.match(d.note, /trusted baseline\/candidate comparison/);
-    const unresolved = obligationsFor(kinds(['dependency']), sig({ resolved: false }), new Set(['tests']), 0);
-    assert.match(ob(unresolved, 'dependency-change')!.note, /unresolvable baseline/);
+    const unresolved = obligationsFor(kinds(['dependency']), sig({ depTouched: true, resolved: false }), new Set(['tests']), 0);
+    assert.match(ob(unresolved, 'dependency-change')!.note, /dependency change observed .*unresolvable baseline/);
+    // blocker 2: a DECLARED dependency task whose diff shows no dependency
+    // file must not claim a change it cannot see — and must name its real
+    // completion path (a HUMAN accept), never a dead end.
+    const declared = obligationsFor(kinds(['dependency']), sig(), new Set(['tests']), 0);
+    assert.match(ob(declared, 'dependency-change')!.note, /touches no dependency file/);
+    assert.match(ob(declared, 'dependency-change')!.note, /canary accept <candidate>/);
   });
   it('performance/UI: met ONLY through a human-sealed bench/e2e step; else UNPROVEN with the honest exit', () => {
     const met = obligationsFor(kinds(['performance', 'ui']), sig(), new Set(['tests', 'bench', 'e2e']), 0);
@@ -233,13 +239,18 @@ describe('canary task — an AGENT_REPORTED hint with zero authority', () => {
     assert.equal(JSON.stringify(rec).includes('lodash'), false);
     assert.equal(rec.taskDigest, sha256('upgrade the lodash dependency to v5'));
   });
-  it('--kind overrides inference; --requirement forces multi; hostile input is usage, not a crash', () => {
+  it('--kind ADDS to inference and never removes it; --requirement forces multi; hostile input is usage, not a crash', () => {
     const root = makeProject('task-flags');
     assert.equal(canary(['setup', '--yes', root]).status, 0);
     assert.equal(canary(['task', 'touch the parser', '--kind', 'bugfix', '--requirement', 'a', '--requirement', 'b'], root).status, 0);
     let rec = taskRecord(root);
     assert.deepEqual(rec.kinds, ['bugfix', 'multi']);
     assert.equal(rec.requirementCount, 2);
+    // blocker 3 laundering gate: an agent-picked --kind must not drop an
+    // inferred material kind — "fix the crash AND make it pretty" with
+    // --kind bugfix still carries the ui duty.
+    assert.equal(canary(['task', 'fix the crash and make the dialog prettier', '--kind', 'bugfix'], root).status, 0);
+    assert.deepEqual(taskRecord(root).kinds, ['bugfix', 'ui']);
     assert.equal(canary(['task', 'x', '--kind=bogus'], root).status, 3);
     assert.equal(canary(['task'], root).status, 3); // bare usage
     assert.match(canary(['task'], root).stdout, /usage: canary task/);

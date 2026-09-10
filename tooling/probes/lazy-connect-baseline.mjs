@@ -5,9 +5,14 @@
  *
  * Measures, per CLI phase, on a fresh real-git fixture: wall clock, stdout+err
  * bytes (the bytes an agent must read back — our token-cost proxy; the product
- * owns zero model calls, verified separately), and subprocess counts via PATH
- * shims around git/npm/node that log every invocation then exec the real
- * binary. Also: setup idempotence (manifest of .canary/.git/hooks/.claude
+ * owns zero model calls, verified separately), and subprocess counts via an
+ * in-process preload counter (NODE_OPTIONS --require) wrapping
+ * child_process.spawnSync/spawn inside the CLI, logging every spawn. The old
+ * PATH-shim method is structurally unreachable from the product after the
+ * Blocker-1 hardened execution environment — itself proof of the fix — so the
+ * pre-hardening 221->125 git/process-spawn comparison stands on the old
+ * method, and this harness measures the current design honestly.
+ * Also: setup idempotence (manifest of .canary/.git/hooks/.claude
  * byte-compared across setup #1 / #2 / #3, canary-hook marker counts) and
  * re-entry sanity (verify after promotion).
  *
@@ -30,34 +35,47 @@ const CLI = arg('--cli') ?? path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.
 if (!fs.existsSync(CLI)) { console.error(`FAIL cli-missing ${CLI} (build first)`); process.exit(2); }
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-baseline-'));
-const SHIM = path.join(TMP, 'shimbin'); fs.mkdirSync(SHIM);
 const LOG = path.join(TMP, 'calls.log');
 
-function which(name) {
-  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
-    if (!dir || dir === SHIM) continue;
-    const c = path.join(dir, name);
-    try { fs.accessSync(c, fs.constants.X_OK); return c; } catch { /* keep walking */ }
-  }
-  return null;
-}
-const REAL = {}; let shimmed = 0;
-for (const name of ['git', 'npm', 'node']) {
-  const real = which(name);
-  if (!real) { console.log(`NOTE shim-skipped ${name} not on PATH`); continue; }
-  REAL[name] = real;
-  fs.writeFileSync(path.join(SHIM, name),
-    '#!/bin/sh\n' + `printf '%s\\n' "${name} $*" >> "${LOG}"\n` + `exec "${real}" "$@"\n`, { mode: 0o755 });
-  shimmed++;
-}
-if (!shimmed) { console.error('FAIL no-shims — cannot measure'); process.exit(2); }
-const ENV = { ...process.env, PATH: `${SHIM}${path.delimiter}${process.env.PATH ?? ''}`, CANARY_BASELINE_LOG: LOG };
+// In-process spawn counter: a Node preload that wraps child_process
+// spawnSync/spawn inside the CLI process and logs "<basename> <args...>" per
+// spawn. The product's hardenedEnv drops NODE_OPTIONS for its children (that
+// is the Blocker-1 fix), so the CLI's OWN spawn calls are counted — once per
+// child, no double-counting from grandchildren — and no PATH trust is needed.
+// Bundled npm runs as `node <npm-cli.js>` (node-entry resolution), so it
+// lands in the node bucket; npm/pnpm/yarn/corepack/bun binaries land in npm.
+const COUNTER = path.join(TMP, 'counter.cjs');
+fs.writeFileSync(COUNTER, [
+  "const fs = require('node:fs');",
+  "const path = require('node:path');",
+  'function line(f, a) {',
+  '  try {',
+  "    const b = path.basename(String(f)).replace(/\\.exe$/, '');",
+  "    fs.appendFileSync(process.env.CANARY_BASELINE_LOG, b + ' ' + (a || []).join(' ') + '\\n');",
+  '  } catch { /* measurement must never break the product */ }',
+  '}',
+  "const cp = require('node:child_process');",
+  "for (const k of ['spawnSync', 'spawn']) {",
+  '  const orig = cp[k];',
+  '  cp[k] = function (file, ...rest) {',
+  '    line(file, Array.isArray(rest[0]) ? rest[0] : []);',
+  '    return orig.call(this, file, ...rest);',
+  '  };',
+  '}',
+].join('\n'));
+const ENV = { ...process.env, CANARY_BASELINE_LOG: LOG, NODE_OPTIONS: `--require=${COUNTER}` };
 
 function countCalls() {
-  const out = { git: 0, npm: 0, node: 0, total: 0 };
+  const out = { git: 0, npm: 0, node: 0, other: 0, total: 0 };
   if (fs.existsSync(LOG)) {
     for (const line of fs.readFileSync(LOG, 'utf8').split('\n')) {
-      for (const k of ['git', 'npm', 'node']) if (line.startsWith(k + ' ')) { out[k]++; out.total++; break; }
+      const name = line.split(' ')[0];
+      const k = !name ? null
+        : name === 'git' ? 'git'
+        : ['npm', 'pnpm', 'yarn', 'corepack', 'bun'].includes(name) ? 'npm'
+        : name === 'node' ? 'node'
+        : 'other';
+      if (k) { out[k]++; out.total++; }
     }
   }
   return out;
@@ -72,14 +90,16 @@ function measure(label, args, cwd) {
   const c = countCalls();
   const m = { label, ms: Math.round(ms), bytes: Buffer.byteLength(out), exit: r.status, ...c };
   metrics.push(m);
-  console.log(`METRIC phase=${label} ms=${m.ms} bytes=${m.bytes} exit=${m.exit} git=${m.git} npm=${m.npm} node=${m.node} spawns=${m.total}`);
+  console.log(`METRIC phase=${label} ms=${m.ms} bytes=${m.bytes} exit=${m.exit} git=${m.git} npm=${m.npm} node=${m.node} other=${m.other} spawns=${m.total}`);
   if (r.error) console.log(`FAIL phase ${label} crashed: ${r.error.message}`);
   return { r, out };
 }
 
 // fixture identical in shape to the M10.2 repro (marker repo, node-only test)
+// The probe's own process is NOT preloaded, so fixture setup never enters a
+// measured window (LOG is also cleared before each phase).
 function git(dir, ...a) {
-  const r = spawnSync(REAL.git, ['-C', dir, ...a], { encoding: 'utf8', timeout: 60_000 });
+  const r = spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8', timeout: 60_000 });
   if (r.status !== 0) throw new Error(`git ${a.join(' ')}: ${r.stderr?.trim()}`);
   return r.stdout.trim();
 }
@@ -144,7 +164,7 @@ function diffManifest(a, b, tag) {
   return dup;
 }
 
-console.log(`=== lazy-connect-baseline cli=${CLI} tmp=${TMP} shims=${shimmed} ===`);
+console.log(`=== lazy-connect-baseline cli=${CLI} tmp=${TMP} method=in-process-preload-counter ===`);
 const s1 = measure('setup#1-fresh', ['setup', '--yes', root], root);
 fs.writeFileSync(path.join(TMP, 'setup1.out'), s1.out);
 const snapA = manifest(); const markA = canaryHookMarkers();

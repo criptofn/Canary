@@ -52,6 +52,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { resolveNpmCli, sanitizedEnv } from '@canary-rn/support';
 
 // M9 §9.5 — the quarantine marker filename. authority.ts imports only node
 // builtins, so this direction adds no cycle (candidate.ts already imports it).
@@ -166,8 +167,10 @@ export function detectHarnesses(root: string): { found: HarnessInfo[]; integrabl
 }
 
 function hasExe(name: string): boolean {
-  const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', [name], { encoding: 'utf8', timeout: 5000 });
-  return probe.status === 0;
+  // Trusted-dir scan, zero spawn (blocker 1): a which/where probe under the
+  // caller's PATH would let a shim decide which harnesses Canary reports.
+  const names = process.platform === 'win32' ? [`${name}.exe`, `${name}.cmd`] : [name];
+  return trustedDirs().some((d) => names.some((n) => fs.existsSync(path.join(d, n))));
 }
 
 /** Build the hook command; null when the CLI path cannot be safely quoted. */
@@ -216,8 +219,8 @@ export function configTracked(root: string): boolean | null {
   // remembered answer can only ever refuse as much as a re-ask would.
   const seen = configTrackedMemo.get(root);
   if (seen !== undefined) return seen;
-  const r = spawnSync('git', ['-C', root, 'ls-files', '--', `${CONFIG_DIR}/${CONFIG_FILE}`], { encoding: 'utf8', timeout: 15_000 });
-  const out = r.status !== 0 ? null : r.stdout.trim().length > 0;
+  const gr = gitCommand(root, ['ls-files', '--', `${CONFIG_DIR}/${CONFIG_FILE}`]);
+  const out = !gr || gr.status !== 0 ? null : gr.stdout.trim().length > 0;
   configTrackedMemo.set(root, out);
   return out;
 }
@@ -453,25 +456,155 @@ export function uninstallHooks(root: string, cfg: CanaryConfig): { removed: numb
   return { removed, problems };
 }
 
-// ---------- execution ----------
+// ---------- execution (PRE-1.0 blocker 1: hardened) ----------
+// RULE: an untrusted CALLER ENVIRONMENT must never control proof-authoritative
+// execution. EVERY subprocess whose result can move READY / PASS / FAIL /
+// BLOCKED / NOT PROVEN / PROMOTABLE / ACCEPTED goes through this section:
+//   - fully REPLACED deny-by-omission environment (sanitizedEnv — the caller's
+//     PATH, NODE_OPTIONS, NODE_PATH, npm_config_*, GIT_* simply do not exist
+//     for the child; there is deliberately no merge option, support F9);
+//   - executable resolved WITHOUT any caller-controlled path: the running
+//     Node's own install dir (where corepack/npm-bundled tools live) plus
+//     fixed OS-managed (root/admin-owned) directories. git gets the same
+//     treatment from literal candidates, never %SystemRoot%- or PATH-derived;
+//   - shell:false everywhere — the win32 .cmd shim problem is solved by
+//     running the CLI ENTRY SCRIPTS under node, not by handing cmd.exe a PATH.
+// Each bundle step records WHAT RAN (resolved file + digest + policy), so
+// evidence names the actual bytes instead of an argv that could describe a
+// different binary. Same-UID total forgery (swapping the node binary itself,
+// pre-planting files in these directories) remains the documented ceiling (M2).
+
+const NODE_DIR = path.dirname(process.execPath);
+export const ENV_POLICY = 'canary-sanitized/1';
+
+const trustedDirs = (): string[] => process.platform === 'win32'
+  ? [NODE_DIR, 'C:\\Windows\\System32', 'C:\\Windows']
+  : [NODE_DIR, '/usr/local/bin', '/usr/bin', '/bin'];
+
+// ws.root doubles as the child's isolated HOME/TMP base. It is os.tmpdir(),
+// which the caller can steer — but every dir a steered TEMP points at is
+// already fully attacker-writable at this UID, so pre-planting there grants
+// nothing the same-UID ceiling does not already cover. What matters (and what
+// this closes) is that env-var INJECTION can no longer steer resolution.
+const hardenedEnv = (fixture: string): NodeJS.ProcessEnv =>
+  sanitizedEnv({ ws: { root: os.tmpdir(), fixture }, nodeDir: NODE_DIR });
+
+/** Compact executable identity for evidence: sha256 where cheap, size where not. */
+export function execDigest(p: string): string | null {
+  try {
+    const st = fs.statSync(p);
+    if (!st.isFile()) return null;
+    if (st.size > 8 * 1024 * 1024) return `size:${st.size}`;
+    return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+  } catch { return null; }
+}
+
+let gitExeCache: string | null | undefined;
+/** Fixed literal candidates — a PATH or %SystemRoot% shim cannot become git. */
+export function gitExe(): string | null {
+  if (gitExeCache !== undefined) return gitExeCache;
+  const cands = process.platform === 'win32'
+    ? ['C:\\Program Files\\Git\\cmd\\git.exe', 'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
+      'C:\\Windows\\System32\\git.exe', path.join(NODE_DIR, 'git.exe')]
+    : ['/usr/bin/git', '/usr/local/bin/git', '/bin/git'];
+  gitExeCache = cands.find((c) => fs.existsSync(c)) ?? null;
+  return gitExeCache;
+}
+
+/** One hardened raw git call — the ONLY way product code spawns git.
+ *  null = git is not resolvable in the trusted environment: fail closed. */
+export interface GitResult { status: number | null; stdout: string; stderr: string; error?: Error | undefined }
+export function gitCommand(root: string, args: string[], timeoutMs = 15_000): GitResult | null {
+  const exe = gitExe();
+  if (exe === null) return null;
+  const r = spawnSync(exe, ['-C', root, ...args], {
+    // 32MB maxBuffer: the 1MB default would turn a large repo's `ls-tree -r`
+    // (M7's submodule probe) into a spurious null.
+    cwd: root, encoding: 'utf8', timeout: timeoutMs,
+    env: hardenedEnv(root), shell: false, windowsHide: true,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
+}
+
+/** Resolve the package manager to TRUSTED bytes — PATH is never consulted.
+ *  Order: (1) the CLI entry script bundled inside the running Node's install
+ *  (npm/pnpm/yarn run under node itself — no .cmd shim, no lookup; npm uses
+ *  the single canonical resolveNpmCli from @canary-rn/support for probe
+ *  parity); (2) an absolute executable found in a trusted directory, win32
+ *  .cmd/.bat only through the literal-system cmd.exe. null = unresolvable. */
+export interface ResolvedPm { spawnArgv: [string, ...string[]]; file: string; via: string }
+const PM_ENTRIES: Record<string, string> = { npm: 'npm/bin/npm-cli.js', pnpm: 'pnpm/bin/pnpm.cjs', yarn: 'yarn/bin/yarn.js' };
+export function resolvePm(pm: string): ResolvedPm | null {
+  const entry = Object.hasOwn(PM_ENTRIES, pm) ? PM_ENTRIES[pm] : undefined;
+  if (entry !== undefined) {
+    const hit = pm === 'npm' ? resolveNpmCli()
+      : [path.join(NODE_DIR, 'node_modules'), path.join(NODE_DIR, '..', 'lib', 'node_modules')]
+        .map((d) => path.join(d, entry)).find((c) => fs.existsSync(c));
+    if (hit) return { spawnArgv: [process.execPath, hit], file: hit, via: 'node-entry' };
+  }
+  const names = process.platform === 'win32' ? [`${pm}.exe`, `${pm}.cmd`, `${pm}.bat`] : [pm];
+  for (const dir of trustedDirs()) {
+    for (const n of names) {
+      const abs = path.join(dir, n);
+      if (!fs.existsSync(abs)) continue;
+      if (/\.(cmd|bat)$/i.test(abs)) {
+        // literal, never %ComSpec%: the caller owns that env var
+        const cmdExe = 'C:\\Windows\\System32\\cmd.exe';
+        if (!fs.existsSync(cmdExe)) continue;
+        return { spawnArgv: [cmdExe, '/d', '/s', '/c', abs], file: abs, via: 'trusted-cmd' };
+      }
+      return { spawnArgv: [abs], file: abs, via: 'trusted-path' };
+    }
+  }
+  return null;
+}
+
+/** Shared spawn for a resolved pm: the plan runner and doctor's liveness
+ *  probe must consult the SAME bytes, so they share this one door. */
+function spawnHardened(resolved: ResolvedPm, args: string[], cwd: string, timeoutMs: number) {
+  return spawnSync(resolved.spawnArgv[0], [...resolved.spawnArgv.slice(1), ...args], {
+    cwd, encoding: 'utf8', timeout: timeoutMs,
+    env: hardenedEnv(cwd), shell: false, windowsHide: true,
+    maxBuffer: 32 * 1024 * 1024,
+  });
+}
 
 export interface StepResult {
   kind: string; display: string; ok: boolean; exitCode: number | null; secs: number; tail: string;
   /** M2 evidence fields — recorded, never consulted for a verdict */
   argv: string[]; cwd: string; stdout: string; stderr: string;
+  /** blocker 1: what actually EXECUTED (argv[0] above is the whitelisted
+   *  display form; execArgv/exec are the trusted-resolution record) */
+  execArgv: string[];
+  exec: { file: string; digest: string | null; via: string; policy: string };
   /** M4 provenance: wall-clock stamps around the spawn, recorded, never judged */
   startedAt: string; endedAt: string;
+}
+
+/** Synthetic non-ran step for resolution failures at the one call site
+ *  (setup smoke) that must report honestly instead of crashing. exitCode
+ *  null = "could not run at all", the same infra truth a spawn error gives. */
+function unresolvedStep(root: string, pm: string, step: PlanStep, err: unknown): StepResult {
+  const at = new Date().toISOString();
+  const msg = String(err);
+  return {
+    kind: step.kind, display: `${pm} run ${step.script}`, ok: false, exitCode: null, secs: 0,
+    tail: msg, argv: [pm, 'run', step.script], cwd: root, stdout: '', stderr: msg,
+    execArgv: [], exec: { file: '', digest: null, via: 'unresolved', policy: ENV_POLICY },
+    startedAt: at, endedAt: at,
+  };
 }
 
 export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs = 600_000): StepResult {
   const argv = stepArgv(pm, step.script); // throws unless [pm, 'run', script] is fully whitelisted
   const display = argv.join(' ');
+  const resolved = resolvePm(argv[0] as string);
+  if (resolved === null) {
+    throw new Error(`package manager "${pm}" is not resolvable in Canary's trusted execution environment (the running Node's install dir and OS-managed dirs only — the calling PATH is deliberately ignored). Install it with corepack or into the same Node prefix, then re-run.`);
+  }
   const startedAt = new Date().toISOString();
-  const r = spawnSync(argv[0] as string, argv.slice(1), {
-    cwd: root, encoding: 'utf8', timeout: timeoutMs,
-    shell: process.platform === 'win32', // npm et al. are .cmd shims on Windows; argv is whitelisted fragments only
-    maxBuffer: 32 * 1024 * 1024,
-  });
+  const r = spawnHardened(resolved, ['run', step.script], root, timeoutMs);
   const stdout = r.stdout ?? '';
   const stderr = r.stderr ?? '';
   const out = `${stdout}${stderr}`;
@@ -481,6 +614,8 @@ export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs 
     exitCode: infra ? null : r.status, secs: 0,
     tail: out.split(/\r?\n/).filter(Boolean).slice(-12).join('\n'),
     argv, cwd: root, stdout, stderr,
+    execArgv: [...resolved.spawnArgv, 'run', step.script],
+    exec: { file: resolved.file, digest: execDigest(resolved.file), via: resolved.via, policy: ENV_POLICY },
     startedAt, endedAt: new Date().toISOString(),
   };
 }
@@ -516,10 +651,10 @@ export interface BaselineStamp extends Identity { at: string }
 const withinRootGate = new Map<string, boolean>();
 export function gitWithinRoot(root: string, args: string[]): string | null {
   const run = (a: string[]): string | null => {
-    // 32MB like every other spawn here: the 1MB default would turn a large
-    // repo's `ls-tree -r` (M7's submodule probe) into a spurious null.
-    const r = spawnSync('git', ['-C', root, ...a], { encoding: 'utf8', timeout: 15_000, maxBuffer: 32 * 1024 * 1024 });
-    return r.status === 0 ? r.stdout : null;
+    // hardened env + trusted git binary (blocker 1): GIT_*/NODE_OPTIONS/PATH
+    // shims can no longer forge the identity or diffs that feed verdicts.
+    const r = gitCommand(root, a);
+    return r !== null && r.status === 0 ? r.stdout : null;
   };
   // The gate is a fact about this process's filesystem ("is root its own git
   // toplevel"), so it is computed ONCE per real path — one verify ran ~17
@@ -769,6 +904,15 @@ const KIND_PATTERNS: Array<[RegExp, TaskKind]> = [
   [/\b(refactor\w*|restructure|extract (a |the )?(method|function|class)|clean[- ]up)\b/i, 'refactor'],
   [/\b(dependenc\w+|lockfile|upgrade .{0,20}package|bump .{0,20}version|npm (install|update|add))\b/i, 'dependency'],
   [/\b(performance|benchmark|faster|slower|latency|throughput|speed up|slow\w* down|memory usage|optimi[sz]\w+)\b/i, 'performance'],
+  // blocker 3: SUBJECTIVE aesthetic language is a ui duty — "make it
+  // prettier" must infer, never fall through to taskless. Deterministic
+  // markers only: this is a floor, not a language-understanding subsystem.
+  [/\b(prett\w*|prettif\w+|beautif\w+|polish\w*|styli[sz]\w*|stylish|visual\w*|aesthetic\w*|ux|look and feel|make it pop)\b/i, 'ui'],
+  // blocker 3: a MEASURABLE target is a performance duty even when the word
+  // "performance" is absent — "< 2 seconds", "under 500ms", "at least 60fps".
+  [/<\s*\d+(\.\d+)?\s*(ms|msecs?|secs?|seconds?|minutes?|mb|gb|kb|fps|%)/i, 'performance'],
+  [/\bunder \d+(\.\d+)?\s*(ms|secs?|seconds?|minutes?|mb|gb|fps|%)\b/i, 'performance'],
+  [/\bat least \d+(\.\d+)?\s*(fps|mb|gb|%)\b/i, 'performance'],
   [/\b(ui|interface|screen|render|component|css|button|dialog|page|browser|e2e|accessibility)\b/i, 'ui'],
   [/\b(multi[- ]?part|several requirements|requirements? (below|listed|following)|each (of the )?(parts|requirements|items))\b/i, 'multi'],
 ];
@@ -1017,24 +1161,32 @@ export function obligationsFor(
       : { id: 'coverage-loss', mode: 'objective', status: 'unproven', note: 'candidate-vs-baseline diff unresolvable — lost verification coverage cannot be ruled out (UNPROVEN)' });
   }
   if (kinds.includes('dependency') || sig.depTouched) {
-    add({ id: 'dependency-change', mode: 'non-objective', status: 'unproven', note: sig.resolved
-      ? 'dependency change observed: the sealed plan re-ran against the new graph, but downstream behavior needs a trusted baseline/candidate comparison (or an acceptance criterion) — UNPROVEN'
-      : 'dependency change observed against an unresolvable baseline — comparison UNPROVEN' });
+    // blocker 2: a duty must name its REAL completion path. Observed dep
+    // evidence is listed (meaningful evidence, not mere declaration); a
+    // declared-but-unobserved dependency task says so honestly instead of
+    // claiming a change it cannot see. Both close via a HUMAN acceptance —
+    // never auto-met, never a dead end.
+    const depFiles = sig.touched.filter(isDepPath);
+    add(!sig.depTouched
+      ? { id: 'dependency-change', mode: 'non-objective', status: 'unproven', note: 'the task declares dependency work but the candidate diff touches no dependency file — nothing observed to compare, nothing observed to accept; UNPROVEN. Land the change, or a HUMAN accepts the candidate as-is: canary accept <candidate>' }
+      : { id: 'dependency-change', mode: 'non-objective', status: 'unproven', note: sig.resolved
+        ? `dependency change observed (${formatPaths(depFiles)}): the sealed plan re-ran against the new graph, but downstream behavior needs a trusted baseline/candidate comparison — UNPROVEN. A HUMAN closes it after review: canary accept <candidate>`
+        : 'dependency change observed against an unresolvable baseline — comparison UNPROVEN. A HUMAN can still close it after review: canary accept <candidate>' });
   }
   if (kinds.includes('performance')) {
     add(has('bench')
       ? { id: 'performance-proof', mode: 'objective', status: 'met', note: 'the sealed benchmark ran and passed (its exit code is the threshold a human approved)' }
-      : { id: 'performance-proof', mode: 'non-objective', status: 'unproven', note: 'a performance obligation needs a repeatable benchmark with a defined threshold; the sealed plan has none — UNPROVEN. A human can add a bench script and re-run: canary setup (seals + smokes it)' });
+      : { id: 'performance-proof', mode: 'non-objective', status: 'unproven', note: 'a performance obligation needs a repeatable benchmark with a defined threshold; the sealed plan has none — UNPROVEN. Paths to close it: a human adds a bench script and re-runs canary setup (seals + smokes it), or a HUMAN accepts the measured judgment: canary accept <candidate>' });
   }
   if (kinds.includes('ui')) {
     add(has('e2e')
       ? { id: 'ui-proof', mode: 'objective', status: 'met', note: 'the sealed e2e/browser proof ran and passed' }
-      : { id: 'ui-proof', mode: 'non-objective', status: 'unproven', note: 'no browser/e2e/accessibility proof is available in the sealed plan — UI behavior UNPROVEN (visual truth is not pretend-deterministic)' });
+      : { id: 'ui-proof', mode: 'non-objective', status: 'unproven', note: 'no browser/e2e/accessibility proof is available in the sealed plan — UI behavior UNPROVEN (visual truth is not pretend-deterministic). A HUMAN closes it by judgment: canary accept <candidate>' });
   }
   if (kinds.includes('multi') || requirementCount > 0) {
     add({ id: 'per-requirement', mode: 'non-objective', status: 'unproven', note: requirementCount > 0
-      ? `multi-part task: ${requirementCount} registered requirement(s) — a green plan proves the plan, NOT each part; requirements without their own check remain UNPROVEN`
-      : 'multi-part task detected but requirements were never enumerated — ask the human ONCE which parts must be proven separately, or register them: canary task "..." --requirement "..." per part' });
+      ? `multi-part task: ${requirementCount} registered requirement(s) — a green plan proves the plan, NOT each part; requirements without their own check end OBJECTIVELY PROVEN or SUBJECTIVELY ACCEPTED by the HUMAN (canary accept <candidate>) — until then UNPROVEN, never permanently dead`
+      : 'multi-part task detected but requirements were never enumerated — ask the human ONCE which parts must be proven separately, or register them: canary task "..." --requirement "..." per part (BEFORE isolation), or a HUMAN accepts the candidate as-is: canary accept <candidate>' });
   }
   return out;
 }
@@ -1056,6 +1208,53 @@ export function readTaskRecord(root: string): { kinds: TaskKind[]; requirementCo
       ? v.requirementCount : 0;
     return { kinds: [...new Set(kinds)], requirementCount: rc };
   } catch { return null; }
+}
+
+// ---------- blocker 3: HUMAN ACCEPTANCE (the subjective completion path) ----------
+/** Acceptance is a HUMAN act at the human-authority boundary, never a
+ *  promotion shortcut: it can close ONLY non-objective duties, never an
+ *  objective proof. The record binds to the exact candidate, the exact base
+ *  HEAD it was verified against, the exact committed bytes reviewed, and the
+ *  frozen task state — any of those moving makes it STALE (the duty reopens).
+ *  It lives OUTSIDE .canary/evidence by design: the evidence tree is inside
+ *  M9's fingerprint window, and an acceptance written between windows must
+ *  not look like authority-drift. A forged acceptance file is the same-UID
+ *  total-forgery ceiling (M2) — the TTY gate is what takes the USUAL agent
+ *  path away from it. */
+export const ACCEPTANCE_SUBDIR = 'acceptance';
+export interface AcceptanceRecord {
+  schema: 'canary-acceptance/1'; at: string; candidate: string;
+  baseHead: string; candidateHead: string; intentDigest: string;
+  acceptedBy: 'tty-human';
+}
+/** The frozen task state, digested — what an acceptance binds to. */
+export const intentDigestOf = (task: { kinds: TaskKind[]; requirementCount: number } | null): string =>
+  sha256(JSON.stringify(task ?? null));
+export function readAcceptance(root: string, name: string): AcceptanceRecord | null {
+  try {
+    const p = path.join(root, CONFIG_DIR, ACCEPTANCE_SUBDIR, `${name}.json`);
+    if (containedRealPath(root, p) === null) return null; // linked dirs: never read through
+    if (!fs.existsSync(p)) return null;
+    const v = JSON.parse(fs.readFileSync(p, 'utf8')) as Partial<AcceptanceRecord> | null;
+    if (typeof v !== 'object' || v === null) return null;
+    if (v.schema !== 'canary-acceptance/1' || typeof v.at !== 'string' || v.candidate !== name) return null;
+    if (typeof v.baseHead !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.baseHead)) return null;
+    if (typeof v.candidateHead !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.candidateHead)) return null;
+    if (typeof v.intentDigest !== 'string' || !/^[0-9a-f]{64}$/.test(v.intentDigest)) return null;
+    if (v.acceptedBy !== 'tty-human') return null; // agent-authored shape: unreadable
+    return v as AcceptanceRecord;
+  } catch { return null; }
+}
+export function writeAcceptance(root: string, rec: AcceptanceRecord): boolean {
+  try {
+    const dir = path.join(root, CONFIG_DIR, ACCEPTANCE_SUBDIR);
+    if (containedRealPath(root, dir) === null) return false;
+    const p = path.join(dir, `${rec.candidate}.json`);
+    if (containedRealPath(root, p) === null) return false;
+    fs.mkdirSync(dir, { recursive: true });
+    writeFileAtomic(p, JSON.stringify(rec, null, 2) + '\n');
+    return true;
+  } catch { return false; }
 }
 
 /**
@@ -1087,11 +1286,16 @@ export function cmdTask(rawArgs: string[]): number {
   }
   const text = prose.join(' ').trim();
   if (!text && kindFlag === null && requirementCount === 0) { o.say('usage: canary task "<intent>" [--kind bugfix|refactor|dependency|performance|ui|multi] [--requirement "<part>"]…'); return 3; }
+  const inferred = inferTaskKinds(text);
   let kinds: TaskKind[];
   if (kindFlag !== null) {
     if (!(TASK_KINDS as readonly string[]).includes(kindFlag)) { o.verdict('NEEDS ATTENTION', `unknown task kind "${kindFlag.slice(0, 40)}" — one of: ${TASK_KINDS.join(', ')}.`, 're-run with --kind <one of those>, or omit --kind and let Canary infer'); return 3; }
-    kinds = [kindFlag as TaskKind];
-  } else kinds = inferTaskKinds(text);
+    // blocker 3 LAW: an agent-selected --kind may ADD useful classification;
+    // it may NEVER REMOVE trusted/inferred material intent. The recorded
+    // kinds are the UNION — "--kind bugfix" on "fix the crash and make the
+    // dialog prettier" keeps the ui duty. --kind is not an authority override.
+    kinds = [...new Set([kindFlag as TaskKind, ...inferred])];
+  } else kinds = inferred;
   if (requirementCount > 0 && !kinds.includes('multi')) kinds.push('multi');
   try {
     if (containedRealPath(root, path.join(root, CONFIG_DIR)) === null) {
@@ -1115,6 +1319,13 @@ export function cmdTask(rawArgs: string[]): number {
   }
   o.say(`task registered: ${kinds.length ? kinds.join(' + ') : 'no kind inferred'}${requirementCount ? ` (${requirementCount} requirement(s))` : ''}.`);
   o.say('this is an AGENT_REPORTED hint with zero authority — the next checkpoint proves the sealed plan PLUS this task\'s obligations; nothing here weakens either.');
+  if (text !== '' && inferred.length === 0) {
+    // blocker 3: the intent was understood by NO pattern. The honest move is
+    // to surface the ambiguity ONCE at registration — a --kind flag chosen by
+    // the agent must not silently resolve it. Requirements are the human's
+    // vocabulary: each becomes a duty, closable by proof or acceptance.
+    o.say('NOTICE: no obligation could be derived from this intent. Ask the HUMAN what must be proven and re-register with one --requirement "<part>" per part — do NOT let --kind alone paper over the ambiguity. A candidate for this task freezes these kinds as its authority; un-derived intent stays visible here.');
+  }
   return 0;
 }
 
@@ -1129,7 +1340,7 @@ export function cmdTask(rawArgs: string[]): number {
  */
 /** Keys the bundle writer itself owns — `extra` may add, never overwrite. */
 const BUNDLE_RESERVED = new Set(['schema', 'at', 'source', 'status', 'trustClass', 'note',
-  'canaryEntry', 'runtime', 'cwd', 'candidate', 'envOverrides', 'steps', 'provenance']);
+  'canaryEntry', 'runtime', 'cwd', 'candidate', 'envOverrides', 'execPolicy', 'steps', 'provenance']);
 
 export function writeVerificationBundle(root: string, source: string, results: StepResult[], status: string, prov?: BundleProvenance, o?: {
   /** where evidence DIRS live (M7: a candidate's bundles land under the BASE's
@@ -1165,6 +1376,9 @@ export function writeVerificationBundle(root: string, source: string, results: S
       });
       return {
         kind: r.kind, argv: r.argv, cwd: r.cwd, ok: r.ok, exitCode: r.exitCode,
+        // blocker 1: argv above is the whitelisted DISPLAY form; execArgv+exec
+        // bind what actually ran — resolved path, compact digest, env policy.
+        execArgv: r.execArgv, exec: r.exec,
         startedAt: r.startedAt, endedAt: r.endedAt,
         stdout: { sha256: sha256(r.stdout), bytes: Buffer.byteLength(r.stdout, 'utf8'), file: files.out || null },
         stderr: { sha256: sha256(r.stderr), bytes: Buffer.byteLength(r.stderr, 'utf8'), file: files.err || null },
@@ -1179,7 +1393,8 @@ export function writeVerificationBundle(root: string, source: string, results: S
       note: 'Written from Canary\'s OWN execution. Agent reports and printed summaries are claims, not evidence; this bundle is never read back to produce a verdict.',
       canaryEntry: CLI_ENTRY,
       runtime: { node: process.version, execPath: process.execPath, platform: process.platform, arch: process.arch },
-      cwd: subjectRoot, candidate: candidateIdentity(subjectRoot), envOverrides: relevantEnvNames(), steps,
+      cwd: subjectRoot, candidate: candidateIdentity(subjectRoot), envOverrides: relevantEnvNames(),
+      execPolicy: ENV_POLICY, steps,
       // M4 provenance: WHICH plan/code/task this evidence belongs to, stamped
       // from trusted in-memory state at write time — never re-derived from
       // bytes read back off the evidence dir. null only if a caller has no
@@ -1410,7 +1625,11 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const failed: StepResult[] = [];
   const ran: StepResult[] = [];
   for (const s of plan) {
-    const r = runPlanStep(root, pm, s);
+    // A pm that cannot be resolved in the TRUSTED environment is an
+    // environment truth, not a project failure — report it as a step that
+    // could not run (exitCode null) instead of crashing the whole setup.
+    let r: StepResult;
+    try { r = runPlanStep(root, pm, s); } catch (e) { r = unresolvedStep(root, pm, s, e); }
     ran.push(r);
     o.step(r);
     if (!r.ok) { allOk = false; failed.push(r); }
@@ -1439,12 +1658,25 @@ function writeCheckpoint(root: string, status: string, failed: string[], source:
 
 // The config-trust checks doctor performs BEFORE it spends anything on a plan
 // run. Extracted verbatim (single owner) so `canary status` can answer "is
-// this repo's wiring sound?" with zero commands executed and zero writes.
-function readOnlyProblems(root: string, cfg: CanaryConfig): string[] {
+// this repo's wiring sound?" with zero PROJECT commands executed and zero
+// writes (a couple of read-only git metadata probes are still made — that is
+// the honest measured shape; see the usage text).
+// livePmProbe=false (status) SKIPS the pm liveness check entirely: it is a
+// statement about state, and liveness is only worth a spawn to whoever is
+// about to EXECUTE (doctor). The probe that doctor does make is the SAME
+// hardened resolution+environment the plan itself will run under — never a
+// PATH lookup the old inherited-env `--version` allowed to be a liar shim.
+function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean): string[] {
   const problems: string[] = [];
   if (!Array.isArray(cfg.plan) || cfg.plan.length === 0) problems.push('the verification plan is empty — Canary would have nothing to check (a pass here would be fake)');
-  if (!/^(npm|pnpm|yarn|bun)$/.test(cfg.pm) || spawnSync(cfg.pm, ['--version'], { encoding: 'utf8', timeout: 30_000, shell: process.platform === 'win32' }).status !== 0) {
-    problems.push(`package manager "${cfg.pm}" is not runnable on this machine`);
+  if (!/^(npm|pnpm|yarn|bun)$/.test(cfg.pm)) {
+    problems.push(`package manager "${cfg.pm}" is not one Canary can run (npm, pnpm, yarn or bun)`);
+  } else if (livePmProbe) {
+    const resolved = resolvePm(cfg.pm);
+    const probe = resolved ? spawnHardened(resolved, ['--version'], root, 30_000) : null;
+    if (probe === null || probe.status !== 0) {
+      problems.push(`package manager "${cfg.pm}" is not runnable in Canary's trusted environment (running Node's install dir, corepack, or OS-managed dirs only — the calling PATH is deliberately ignored)`);
+    }
   }
   let pkg: Record<string, unknown> | null = {};
   try { pkg = parseJsonOrNull(path.join(root, 'package.json')); } catch { pkg = null; }
@@ -1471,8 +1703,9 @@ function readOnlyProblems(root: string, cfg: CanaryConfig): string[] {
 /**
  * canary status — the Lazy-Connect read surface: "Canary already recognizes
  * this environment; what is its state?" Answers from config and wiring bytes
- * on disk only — ZERO project commands executed, ZERO writes (one pm
- * --version probe, same as doctor's pre-flight), so a full status run leaves
+ * on disk only — ZERO project commands executed, ZERO writes: the only
+ * subprocesses are a few read-only git metadata probes (tracked-file and
+ * toplevel checks under Canary's hardened git), so a full status run leaves
  * the repo byte-identical. Every line is a fact about state, never a claim
  * that the project passes; the checkpoint is reported as history, not health.
  */
@@ -1486,7 +1719,7 @@ export function cmdStatus(rawArgs: string[]): number {
   if (!cfg) { o.verdict('NOT CONNECTED', `${root} is a git repository but Canary was never set up here — no config, no hooks, no proof.`, 'when you want protection here: canary setup --yes'); return 2; }
   const distrust = untrustedConfigReason(root, cfg);
   if (distrust) { o.verdict('NOT CONNECTED', `Canary found a local config it does not trust (${distrust}) — it will not run plans from it.`, "run: canary setup --yes (rewrites it as this machine's own)"); return 2; }
-  const problems = readOnlyProblems(root, cfg);
+  const problems = readOnlyProblems(root, cfg, false); // state only — no liveness spawn
   if (problems.length) {
     o.verdict('NEEDS ATTENTION', `Canary is set up in ${root}, but its wiring is not sound:`, '');
     for (const p of problems) console.log(`  - ${p}`);
@@ -1502,7 +1735,7 @@ export function cmdStatus(rawArgs: string[]): number {
   o.say(`candidates: ${candidates.length ? candidates.join(', ') : 'none'}`);
   const cp = parseJsonOrNull(path.join(root, CONFIG_DIR, CHECKPOINT_FILE));
   o.say(`last checkpoint: ${cp ? `${cp.status} (${cp.source}) at ${cp.at} — a past run, NOT a claim about now` : 'none'}`);
-  o.verdict('CONNECTED', 'Canary recognizes this repo: trusted config, wiring intact, sealed authority un-drifted. Nothing was executed to answer this — this is a statement about state, not about your code passing.', 'to run the checks: canary doctor');
+  o.verdict('CONNECTED', 'Canary recognizes this repo: trusted config, wiring intact, sealed authority un-drifted. No project command was executed to answer this — only a few read-only git metadata reads — this is a statement about state, not about your code passing.', 'to run the checks: canary doctor');
   return 0;
 }
 
@@ -1518,7 +1751,7 @@ export function cmdDoctor(rawArgs: string[]): number {
   const distrust = untrustedConfigReason(root, cfg);
   if (distrust) { o.verdict('NEEDS ATTENTION', `Canary found a local config it does not trust (${distrust}) — it will not run plans from it.`, 'run: canary setup --yes (rewrites it as this machine\'s own)'); return 2; }
 
-  const problems = readOnlyProblems(root, cfg);
+  const problems = readOnlyProblems(root, cfg, true); // doctor is about to execute — liveness is its question
   if (problems.length) {
     o.verdict('NEEDS ATTENTION', 'Canary is NOT fully active here:', '');
     for (const p of problems) console.log(`  - ${p}`);

@@ -52,7 +52,7 @@ import {
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
 import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, findRepoRoot, readConfig } from './onboarding.js';
-import { cmdIsolate } from './candidate.js';
+import { cmdIsolate, cmdAccept } from './candidate.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -70,7 +70,8 @@ usage:
                                           self-consistency, else NOT SELF-CONSISTENT, exit 3)
   canary setup [--yes]      one-command onboarding for a Node project (AI-harness auto-wiring)
   canary status             lazy reconnect: does Canary already know this repo, and is its
-                            wiring sound? READ-ONLY — zero commands executed, zero writes;
+                            wiring sound? READ-ONLY — no project commands executed, zero
+                            writes (a few read-only git metadata reads);
                             CONNECTED / NEEDS ATTENTION / NOT CONNECTED. A statement about
                             STATE, never a claim that anything passes
   canary doctor             is Canary actually protecting this repo? Runs the checks now;
@@ -101,6 +102,15 @@ usage:
   canary isolate --list     live status of registered candidates (+ unregistered worktrees, reported never touched)
   canary isolate --remove <name> [--discard]
                             clean up a candidate; refuses a dirty one without --discard
+  canary accept <name>      the HUMAN closes SUBJECTIVE duties (ui/performance/
+                            dependency/requirements without their own check) by
+                            typing the candidate's name in an interactive
+                            terminal — an agent CANNOT self-accept: no TTY, no
+                            flag, no env escape. Binds to the exact candidate
+                            commit, base, and frozen task; any of them moving
+                            makes it STALE and the duty reopens. Objective
+                            proofs are never acceptance-material; mixed tasks
+                            need BOTH
   canary version`);
   // Lazy-Connect: a bare `canary` inside a repo is a question, not only a
   // mistake — answer the state part read-only so the next step is obvious.
@@ -346,6 +356,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'claim') return cmdClaim(rest);
   if (cmd === 'task') return cmdTask(rest);
   if (cmd === 'isolate') return cmdIsolate(rest);
+  if (cmd === 'accept') return cmdAccept(rest);
   return usage();
 }
 

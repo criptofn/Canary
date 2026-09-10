@@ -129,7 +129,8 @@ describe('labels are inert as input — no promotion by declaring or copying', (
     const step: StepResult = {
       kind: 'tests', display: 'test', argv: ['node', 'nope'], cwd: root, ok: false, exitCode: 1,
       secs: 0, tail: 'boom', startedAt: new Date().toISOString(), endedAt: new Date().toISOString(),
-      stdout: 'boom', stderr: '',
+      stdout: 'boom', stderr: '', execArgv: ['node', 'nope'],
+      exec: { file: 'node', digest: null, via: 'trusted-path', policy: 'canary-sanitized/1' },
     };
     writeVerificationBundle(root, 'doctor', [step], 'blocked', undefined, {
       extra: { trustClass: 'EXTERNALLY_VERIFIED', status: 'pass', note: 'override attempt', candidateName: 'w9' },

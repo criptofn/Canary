@@ -222,6 +222,8 @@ const STEPS = [
   ['probe: M10 lying-index letters (git premise)', process.execPath, ['tooling/probes/m10-lsfiles-letters.mjs'], {}],
   ['probe: Lazy-Connect status contract (real git)', process.execPath, ['tooling/probes/lazy-connect-status.mjs'], {}],
   ['probe: master-pass split-verdict subjectivity battery (real git)', process.execPath, ['tooling/probes/master-pass-subjectivity.mjs'], {}],
+  ['probe: pre-1.0 execution-environment authority battery (real git, poisoned env)', process.execPath, ['tooling/probes/pre10-env-authority.mjs'], {}],
+  ['probe: pre-1.0 human-acceptance battery (real git + pty)', process.execPath, ['tooling/probes/pre10-acceptance.mjs'], {}],
   ['probe: master-pass mutation battery (built dist)', process.execPath, ['tooling/probes/master-pass-mutations.mjs'], {}],
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],

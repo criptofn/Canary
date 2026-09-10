@@ -123,13 +123,12 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 
 import {
-  CLI_ENTRY, CONFIG_DIR, EVIDENCE_DIR, Out, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
-  findRepoRoot, gitWithinRoot, hasCanaryEntry, obligationsFor, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readConfig,
-  readTaskRecord, runPlanStep, settingsPath, TASK_FILE, untrustedConfigReason, writeFileAtomic, writeVerificationBundle,
-  type CanaryConfig, type PlanStep, type StepResult, type TaskKind,
+  ACCEPTANCE_SUBDIR, CLI_ENTRY, CONFIG_DIR, ENV_POLICY, EVIDENCE_DIR, Out, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
+  execDigest, findRepoRoot, gitCommand, gitExe, gitWithinRoot, hasCanaryEntry, intentDigestOf, obligationsFor, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readAcceptance, readConfig,
+  readTaskRecord, runPlanStep, settingsPath, TASK_FILE, untrustedConfigReason, writeAcceptance, writeFileAtomic, writeVerificationBundle,
+  type AcceptanceRecord, type CanaryConfig, type GitResult, type PlanStep, type StepResult, type TaskKind,
 } from './onboarding.js';
 import { authorityDrift, quarantineInfo, QUARANTINE_FILE, shortState, snapshotAuthority, snapshotTree, stampQuarantine, treeDrift, type AuthorityChange } from './authority.js';
 
@@ -272,9 +271,11 @@ function isolateCreate(root: string, cfg: CanaryConfig, o: Out, name: string, ba
   const treeOut = gitWithinRoot(root, ['rev-parse', '--verify', '--end-of-options', `${sha}^{tree}`]);
   const baseTree = treeOut !== null && HEX_RE.test(treeOut.trim()) ? treeOut.trim() : null;
   if (id.dirty) o.say('note: the base tree is dirty — the candidate checks out the COMMITTED base; uncommitted work is not in it');
-  // worktree add via argv (no shell): spaces and Unicode paths are plain data.
-  const add = spawnSync('git', ['-C', root, 'worktree', 'add', '--detach', target, sha],
-    { encoding: 'utf8', timeout: 120_000, maxBuffer: 32 * 1024 * 1024 });
+  // worktree add via argv (no shell, hardened env + trusted git binary —
+  // blocker 1): spaces and Unicode paths are plain data; the caller's
+  // PATH/GIT_* environment can neither pick the git nor forge its view.
+  const add: GitResult = gitCommand(root, ['worktree', 'add', '--detach', target, sha], 120_000)
+    ?? { status: null, stdout: '', stderr: "git is not resolvable in Canary's trusted environment" };
   if (add.status !== 0) {
     o.say(`isolate: git worktree add failed — nothing was registered:`);
     for (const l of (add.stderr || add.stdout || String(add.error?.message ?? '')).trim().split(/\r?\n/).slice(-4)) o.say(`  ${l}`);
@@ -288,9 +289,9 @@ function isolateCreate(root: string, cfg: CanaryConfig, o: Out, name: string, ba
   // core.fileMode, or a lying index would poison that premise at birth.
   const cid = candidateIdentity(target);
   if (!cid.resolved || cid.head !== sha || cid.dirty) {
-    const rb = spawnSync('git', ['-C', root, 'worktree', 'remove', '--force', target], { encoding: 'utf8', timeout: 120_000 });
-    spawnSync('git', ['-C', root, 'worktree', 'prune'], { encoding: 'utf8', timeout: 60_000 });
-    o.say(rb.status === 0
+    const rb = gitCommand(root, ['worktree', 'remove', '--force', target], 120_000);
+    gitCommand(root, ['worktree', 'prune'], 60_000);
+    o.say(rb !== null && rb.status === 0
       ? 'isolate: the worktree does not match the resolved commit or is not provably clean — attempt rolled back'
       : `isolate: the worktree does not match the resolved commit AND could not be auto-removed — nothing was registered; remove it manually: git -C "${root}" worktree remove --force "${target}"`);
     return 2;
@@ -586,6 +587,29 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
         ? 'NO task-obligation authority FROZEN at isolation: no task was registered when this candidate was opened. Registering afterwards is growth — it adds duties, it cannot mint this authority retroactively. Register the work (canary task "..." --kind ...) and RE-ISOLATE, then verify the new candidate; omitting registration is not a way through §10, it is exactly what makes §10 unprovable.'
         : 'NO task-obligation authority: this record carries no intent snapshot — it either predates task authority or the snapshot was removed, and the record is agent-writable bytes between windows, so absence proves nothing and fails safe. Register the work (canary task "..." --kind ...) and RE-ISOLATE so a fresh snapshot freezes the authority; there is no pre-M10 PASS path.' });
   }
+  // blocker 3 — HUMAN ACCEPTANCE is consumed HERE and nowhere else. It can
+  // close ONLY non-objective duties standing UNPROVEN (an objective proof is
+  // never acceptance-material), and only while its binding is FRESH: the exact
+  // base HEAD, the exact candidate commit the human typed over, the exact
+  // frozen task state. Any of those moved ⇒ the record is STALE and the duty
+  // reopens (with named advice) — a given-once acceptance can never outlive
+  // what it was given for. No acceptance ⇒ nothing changes; NO PROOF, NO DONE
+  // is the same law it always was, now with an honest completion path.
+  let acceptanceStale = false;
+  const acc = readAcceptance(root, name);
+  if (acc !== null) {
+    const openSubjective = obligations.filter((x) => x.mode === 'non-objective' && x.status === 'unproven');
+    if (openSubjective.length) {
+      const fresh = cid.head !== null && acc.baseHead === rec.baseHead
+        && acc.candidateHead === cid.head && acc.intentDigest === intentDigestOf(frozenTask);
+      if (fresh) {
+        for (const x of openSubjective) {
+          x.status = 'met';
+          x.note = `accepted by the HUMAN on ${acc.at} — record ${CONFIG_DIR}/${ACCEPTANCE_SUBDIR}/${name}.json, binding base ${short(rec.baseHead)} + candidate ${short(acc.candidateHead)} + the frozen task state. Subjective judgment closed this duty; it is NOT a technical proof.`;
+        }
+      } else acceptanceStale = true;
+    }
+  }
   const obList = obligations.map((x) => ({ id: x.id, mode: x.mode, status: x.status, note: x.note }));
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
@@ -603,7 +627,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
     o.say('CANDIDATE BLOCKED — the sealed plan passed, but a required proof obligation is objectively violated:');
     for (const x of unmet) o.say(`  obligation [${x.id}] UNMET (${x.mode}): ${x.note}`);
-    o.say(`next: restore the deleted verification files (git -C "${rec.root}" restore --source=${rec.baseHead} --staged --worktree <path>) or have a HUMAN review the deletion — an agent claim cannot authorize coverage loss.`);
+    o.say(`next: restore the deleted verification files (git -C "${rec.root}" restore --source=${rec.baseHead} --staged --worktree <path>), or — if removing them IS the human's intent — let the HUMAN commit that removal on the base and RE-ISOLATE against it. An agent claim cannot authorize coverage loss, and acceptance never closes this duty (it is objective).`);
     return { code: 2, startHead: null, rec }; // no identity to promote onto
   }
   const unproven = obligations.filter((x) => x.status === 'unproven');
@@ -620,10 +644,10 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     // technical evidence is genuinely complete — saying so is honesty, not a
     // softer verdict. Objective duties still unmet stay the plain mixed message.
     if (unproven.every((x) => x.mode === 'non-objective')) {
-      o.say('CANDIDATE NOT PROVEN — the sealed plan is green and every technical duty is met; what remains is only acceptable by a HUMAN (NO PROOF, NO DONE still binds):');
+      o.say(`CANDIDATE NOT PROVEN — the sealed plan is green and every technical duty is met; what remains is only acceptable by a HUMAN at this machine's keyboard (NO PROOF, NO DONE still binds):`);
       o.say('  TECHNICAL EVIDENCE: PROVEN (sealed plan green; objective duties met)');
       o.say('  SUBJECTIVE ACCEPTANCE: USER JUDGMENT REQUIRED');
-      o.say('  OVERALL COMPLETION: NOT PROVEN — promotion stays locked until a human accepts.');
+      o.say(`  OVERALL COMPLETION: NOT PROVEN — promotion stays locked until a HUMAN accepts: canary accept ${echoable(name)}`);
     } else {
       o.say('CANDIDATE NOT PROVEN — the sealed plan is green, but proof obligations for this task are UNPROVEN (NO PROOF, NO DONE):');
     }
@@ -631,8 +655,9 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     // evidence bundle (obligations: obList below) — printing met duties here
     // was pure token tax on the agent that must read this.
     for (const x of unproven) o.say(`  obligation [${x.id}] UNPROVEN (${x.mode}): ${x.note}`);
+    if (acceptanceStale) o.say(`  note: an acceptance for "${name}" EXISTS but is STALE — the candidate commit, its base, or the frozen task moved since the human signed it, so the duties reopened. A HUMAN must re-run: canary accept ${echoable(name)}`);
     if (met.length) o.say(`  obligations: ${met.length}/${obligations.length} MET — full list in the evidence bundle.`);
-    o.say('next: close each UNPROVEN obligation with its actual proof (subjective ones need a HUMAN acceptance — a clarified criterion is frozen with: canary task --requirement BEFORE isolation), then re-verify. The trusted base was not touched; promotion stays locked — no PASS was earned.');
+    o.say(`next: close each UNPROVEN obligation with its actual proof (objective ones), or let a HUMAN accept the subjective ones from a terminal: canary accept ${echoable(name)} — mixed tasks need BOTH proof AND acceptance. A clarified criterion can also be frozen with: canary task --requirement "<part>" per part, BEFORE isolation. Then re-verify. The trusted base was not touched; promotion stays locked — no PASS was earned.`);
     return { code: 2, startHead: null, rec };
   }
   writeVerificationBundle(root, 'candidate', results, 'pass', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
@@ -646,6 +671,68 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
 
 function isolateVerify(root: string, cfg: CanaryConfig, o: Out, name: string): number {
   return verifyCandidate(root, cfg, o, name).code;
+}
+
+/**
+ * blocker 3 — `canary accept <candidate>`: the HUMAN completion path for
+ * SUBJECTIVE duties. Authority boundary, stated exactly: an INTERACTIVE
+ * TERMINAL on BOTH stdin and stdout. A coding agent's streams are pipes — it
+ * cannot reach this gate without leaving its own machinery, and there is
+ * deliberately NO --yes, NO env escape, NO config toggle: skipping the TTY
+ * check would be the laundering vector this command exists to close. (A
+ * same-UID attacker with a pty or a hand-written acceptance file is the
+ * documented total-forgery ceiling of M2 — the gate takes the USUAL agent
+ * path away, which is the threat model.) The record binds candidate name,
+ * base HEAD, the candidate commit HEADED at acceptance, and the FROZEN task
+ * state — verifyCandidate re-checks the triple and lets it close only
+ * non-objective duties. Refused on purpose: candidates without frozen
+ * authority (acceptance must never become the dead-end recommendation that
+ * `--requirement` was) and any objective shortfall, which acceptance can
+ * never paper over.
+ */
+export function cmdAccept(rawArgs: string[]): number {
+  const { opts, rest } = parseGlobals(rawArgs);
+  const o = new Out(opts.verbose);
+  const name = rest[0] ?? '';
+  if (rest.length !== 1 || !name) { o.say('usage: canary accept <candidate> — typed by a HUMAN in a terminal; no flags escape the terminal check'); return 3; }
+  if (!NAME_RE.test(name)) { o.say(`candidate name must match ${NAME_RE}`); return 3; }
+  const root = findRepoRoot(process.cwd());
+  if (!root) { o.say('not inside a git repository — there is no candidate registry here to accept from'); return 2; }
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    o.say('REFUSED — acceptance is a HUMAN act at a keyboard. This session has no interactive terminal on both streams, so it cannot carry one. A coding agent cannot self-accept its own work; run canary accept <candidate> yourself, from a real terminal.');
+    return 2;
+  }
+  const rec = loadRecord(root, name);
+  if (rec === 'missing') { o.say(`no candidate "${name}" registered here — see: canary isolate --list`); return 2; }
+  if (rec === 'invalid') { o.say(`candidate record "${name}" is unreadable — refusing to accept against bytes I cannot read`); return 2; }
+  if (!samePath(rec.baseRoot, root)) { o.say(`accept: record "${name}" claims a different base — refusing (impersonation guard)`); return 2; }
+  const frozenTask = rec.intent?.task ?? null;
+  const frozenKinds = frozenTask && Array.isArray(frozenTask.kinds) ? frozenTask.kinds : [];
+  if (!frozenKinds.length) {
+    o.say(`REFUSED — "${name}" has NO frozen task authority (nothing was registered when it was isolated). Acceptance cannot mint authority that was never frozen: register the work (canary task "..." [--requirement ...]), RE-ISOLATE, then accept the new candidate.`);
+    return 2;
+  }
+  const cid = candidateIdentity(rec.root);
+  if (!cid.resolved || cid.head === null) { o.say(`accept: candidate "${name}" has no resolvable commit — there are no reviewed bytes to bind an acceptance to`); return 2; }
+  const rc = frozenTask?.requirementCount ?? 0;
+  o.say(`ACCEPTING the SUBJECTIVE duties of candidate "${name}" — task [${frozenKinds.join(', ')}]${rc ? ` + ${rc} requirement(s)` : ''}`);
+  o.say(`  base ${short(rec.baseHead)} → candidate ${short(cid.head)}  (${rec.root})`);
+  o.say('  Objective proofs are NEVER closed by this: a green plan and every objective duty must already hold (verify first: canary isolate --verify <name>).');
+  o.say('  Read the evidence before signing: .canary/evidence/*-candidate/verification.json');
+  fs.writeSync(1, `You are the human of record. Type the candidate name exactly ("${name}") to accept, or anything else to refuse: `);
+  const buf = Buffer.alloc(160);
+  let n = 0;
+  try { n = fs.readSync(0, buf, 0, buf.length, null); } catch { n = 0; }
+  const answer = buf.subarray(0, n).toString('utf8').trimEnd();
+  if (answer !== name) { o.say('NOT ACCEPTED — the typed name did not match exactly. Nothing was written; the base is untouched.'); return 2; }
+  const acc: AcceptanceRecord = {
+    schema: 'canary-acceptance/1', at: new Date().toISOString(), candidate: name,
+    baseHead: rec.baseHead, candidateHead: cid.head, intentDigest: intentDigestOf(frozenTask), acceptedBy: 'tty-human',
+  };
+  if (!writeAcceptance(root, acc)) { o.say('acceptance could not be written (.canary containment refused it) — nothing accepted'); return 2; }
+  o.say(`ACCEPTED by the human at this terminal: ${path.join(CONFIG_DIR, ACCEPTANCE_SUBDIR, `${name}.json`)}`);
+  o.say(`next: canary isolate --verify ${name} — subjective duties read MET (accepted, and bound to these exact bytes); objective proof still has to hold on its own.`);
+  return 0;
 }
 
 /**
@@ -731,13 +818,17 @@ function isolatePromote(root: string, cfg: CanaryConfig, o: Out, name: string): 
   // parse as a flag; --end-of-options is deliberately NOT used (undocumented
   // for `merge` — relying on lenient parsing would be luck, not plumbing).
   const t0 = new Date().toISOString();
-  const m = spawnSync('git', ['-C', root, 'merge', '--ff-only', H], { encoding: 'utf8', timeout: 120_000, maxBuffer: 32 * 1024 * 1024 });
+  const gExe = gitExe();
+  const m: GitResult = gitCommand(root, ['merge', '--ff-only', H], 120_000)
+    ?? { status: null, stdout: '', stderr: "git is not resolvable in Canary's trusted environment — the fast-forward was NOT attempted" };
   const t1 = new Date().toISOString();
   const mergeStep: StepResult = {
     kind: 'promotion', display: `git -C ${root} merge --ff-only ${H}`, ok: m.status === 0, exitCode: m.status,
     secs: Math.max(0, Math.round((Date.parse(t1) - Date.parse(t0)) / 100) / 10),
     tail: `${m.stdout ?? ''}${m.stderr ?? ''}`.trim().split(/\r?\n/).filter((l) => l.trim() !== '').slice(-6).join('\n'),
     argv: ['git', '-C', root, 'merge', '--ff-only', H], cwd: root,
+    execArgv: [gExe ?? '', '-C', root, 'merge', '--ff-only', H],
+    exec: { file: gExe ?? '', digest: gExe === null ? null : execDigest(gExe), via: 'trusted-git', policy: ENV_POLICY },
     stdout: m.stdout ?? '', stderr: m.stderr ?? '', startedAt: t0, endedAt: t1,
   };
   if (m.status !== 0) {
@@ -806,7 +897,8 @@ function isolateRemove(root: string, o: Out, name: string, discard: boolean): nu
     o.say(`isolate: candidate "${name}" has uncommitted work — nothing removed. Commit it inside the candidate, or pass --discard to throw it away`);
     return 2;
   }
-  const git = (args: string[]) => spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 120_000 });
+  const git = (args: string[]): GitResult => gitCommand(root, args, 120_000)
+    ?? { status: null, stdout: '', stderr: "git is not resolvable in Canary's trusted environment" };
   let pruned: boolean | null = null;
   if (id.resolved) {
     // rec.root is shape-validated absolute (loadRecord), so it can never
