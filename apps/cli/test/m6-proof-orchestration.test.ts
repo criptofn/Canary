@@ -231,7 +231,7 @@ describe('canary task — an AGENT_REPORTED hint with zero authority', () => {
     assert.match(r.stdout, /task registered: dependency/);
     assert.match(r.stdout, /zero authority/);
     const rec = taskRecord(root);
-    assert.equal(rec.schema, 'canary-task/1');
+    assert.equal(rec.schema, 'canary-task/2');
     assert.deepEqual(rec.kinds, ['dependency']);
     assert.equal(rec.trustClass, 'AGENT_REPORTED');
     assert.match(rec.authority, /only ADD proof obligations/);
@@ -298,8 +298,7 @@ describe('checkpoint/doctor integration — the sealed plan passes, obligations 
     assert.equal(checkpoint(root), null, 'unreadable record is no record');
     fs.writeFileSync(p, JSON.stringify({ kinds: ['bugfix'], requirementCount: 99999 }));
     const out = checkpoint(root);
-    assert.match(out.systemMessage, /regression evidence UNPROVEN/); // rc clamped away; bugfix note only
-    assert.ok(!out.systemMessage.includes('multi-part'), 'out-of-range requirementCount collapses to 0');
+    assert.equal(out, null, 'oversized identity is rejected entirely, never clamped into authority');
   });
   it('fake git makes diff signals unresolvable: a registered refactor is UNPROVEN, never a silent met', () => {
     const root = makeProject('ck-refactor');

@@ -46,12 +46,13 @@ import { spawnSync } from 'node:child_process';
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CAND = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'candidate.js');
 const ONB = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'onboarding.js');
+const AUTH = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'authorization.js');
 const PROBE = path.join(REPO, 'tooling', 'probes', 'm10-obligations.mjs');
 
 let failures = 0;
 function report(verdict, msg) { console.log(`${verdict} ${msg}`); if (verdict === 'FAIL') failures++; }
 
-const original = new Map([[CAND, fs.readFileSync(CAND)], [ONB, fs.readFileSync(ONB)]]);
+const original = new Map([[CAND, fs.readFileSync(CAND)], [ONB, fs.readFileSync(ONB)], [AUTH, fs.readFileSync(AUTH)]]);
 if (!fs.existsSync(PROBE)) { console.log(`FAIL precheck — missing ${PROBE}`); process.exit(1); }
 
 const MUTS = [
@@ -67,10 +68,10 @@ const MUTS = [
     search: 'if (!curScripts.has(s.script))', replace: 'if (false)', count: 1, own: 'S4a plan step' },
   { id: 'the digest comparison is the right direction (inverted = guard shouts at matched seals, breaks S1)', file: CAND,
     search: 'if (cfg.planAuthority.scriptDigests[script] !== digest)', replace: 'if (cfg.planAuthority.scriptDigests[script] === digest)', count: 1, own: 'S1 positive' },
-  { id: 'a vanished task kind is detected', file: CAND,
-    search: 'if (!k1.has(k))', replace: 'if (false)', count: 1, own: 'S4b task kinds' },
-  { id: 'requirement detection shrinks-only (inverted = growth blocked, S4b-grow leg breaks)', file: CAND,
-    search: 'if ((t1?.requirementCount ?? 0) < t0.requirementCount)', replace: 'if ((t1?.requirementCount ?? 0) > t0.requirementCount)', count: 1, own: 'S4b task kinds' },
+  { id: 'a vanished task kind is detected (canonical owner)', file: AUTH,
+    search: 'if (!live.kinds.includes(kind))', replace: 'if (false)', count: 1, own: 'S4b task kinds' },
+  { id: 'requirement identity comparison is correct (inverted = honest scope blocked)', file: AUTH,
+    search: 'if (i < 0)', replace: 'if (i >= 0)', count: 1, own: 'S4b task kinds' },
   { id: 'the blocked bundle carries the intentEvent (the WHY must be in bytes, not prose only)', file: CAND,
     search: '{ intentEvent: { snapshotAt: rec.intent.at, events } }', replace: '{ intentEventDropped: { snapshotAt: rec.intent.at, events } }', count: 1, own: 'S4a plan step' },
   // --- the ladder (order: fail > unmet > unproven > pass) ---
@@ -100,11 +101,11 @@ const MUTS = [
     search: 'if (!cid.resolved || cid.head !== sha || cid.dirty) {', replace: 'if (!cid.resolved || cid.head !== sha) {', count: 1, own: 'S11' },
   // --- M10.2 (GLM re-audit F4-GATE-1/2): the FROZEN task-authority gate ---
   { id: 'the authority gate exists at all — remove it and the taskless bypass re-opens (S12 taskless goes PASS)', file: CAND,
-    search: 'if (!frozenKinds.length) {', replace: 'if (false) {', count: 2, own: 'S12' },
+    search: 'if (!frozenKinds.length || !canonicalTask(frozenTask)) {', replace: 'if (false) {', count: 1, own: 'S12' },
   { id: 'authority reads ONLY the frozen snapshot — read the live task instead and post-isolation registration mints it again (F4-GATE-1 re-opens)', file: CAND,
-    search: 'const frozenTask = rec.intent?.task ?? null;', replace: 'const frozenTask = task ?? null;', count: 2, own: 'S12' },
+    search: 'const frozenTask = rec.intent?.task ?? null;', replace: 'const frozenTask = task ?? null;', count: 1, own: 'S12' },
   { id: 'a missing snapshot fails SAFE — condition the gate on rec.intent again and the legacy-PASS strip bypass (F4-GATE-2) re-opens', file: CAND,
-    search: 'if (!frozenKinds.length) {', replace: 'if (rec.intent && !frozenKinds.length) {', count: 2, own: 'S5' },
+    search: 'if (!frozenKinds.length || !canonicalTask(frozenTask)) {', replace: 'if (rec.intent && (!frozenKinds.length || !canonicalTask(frozenTask))) {', count: 1, own: 'S5' },
 ];
 
 function runProbe(m) {

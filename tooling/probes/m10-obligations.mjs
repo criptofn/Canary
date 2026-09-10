@@ -301,7 +301,7 @@ check('S4b task kinds+requirements shrink after isolation → intent block; grow
   assertEq(r.status, 2, 'S4b-shrink: exit code');
   assertMatch(r.stdout, weakenedRe, 'S4b-shrink: the §11 block');
   assertMatch(r.stdout, /task kind "bugfix" registered at isolation is gone/, 'S4b-shrink: names the vanished kind');
-  assertMatch(r.stdout, /requirements shrank 2 → 0/, 'S4b-shrink: names the requirement delta');
+  assertMatch(r.stdout, /frozen requirement removed or replaced/, 'S4b-shrink: names the requirement delta');
   const evs = JSON.stringify(latest(root).intentEvent);
   assertMatch(evs, /bugfix/, 'S4b-shrink: both events in the bundle');
   // grow back to exactly the frozen shape: allowed
@@ -398,8 +398,8 @@ check('S8 lying index (--assume-unchanged) is seen as dirty: verify reports it, 
   // A refusal writes its own -promotion bundle (refusal-as-evidence), so the
   // invariant is zero ACCEPTED applies, not zero files:
   const pr = bundles(root, '-promotion');
-  assertEq(pr.length, 1, 'S8: the refusal stamped its evidence bundle');
-  assertEq(pr[0].status, 'blocked', 'S8: the promotion bundle says blocked');
+  assertEq(pr.length, 0, 'S8: live verification rejects before promotion starts');
+  assertEq(bundles(root, '-candidate').at(-1).status, 'blocked', 'S8: candidate evidence records the refusal');
   git(c, 'update-index', '--no-assume-unchanged', 'tests/baseline.test.js');
   const p2 = canary(['isolate', '--promote', 'c', root], root);
   assertEq(p2.status, 2, 'S8: clearing the flag EXPOSES the real edit — still dirty, still refused');
@@ -462,6 +462,7 @@ check('S10 a plan step writing a test mid-window cannot mint its own regression 
   assertEq(p.status, 2, 'S10: promote locked');
   fs.rmSync(path.join(candPath(root, 'c'), 'tests', 'ghost.test.js')); // drop the untracked mint
   candCommit(root, 'c', { 'tests/timer.test.js': '// an honest committed regression test\n' });
+  candCommit(root, 'c', { 'tests/ghost.test.js': '// ghost — written by the plan step itself\n' }); // every file the step writes now already belongs to the reviewed commit
   const r2 = canary(['isolate', '--verify', 'c', root], root);
   assertEq(r2.status, 0, `S10: a test committed BEFORE the window is real work: ${r2.stdout}`);
   assertMatch(r2.stdout, /CANDIDATE PASS/, 'S10: PASS on genuine evidence');

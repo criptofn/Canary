@@ -51,7 +51,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
-import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, findRepoRoot, readConfig } from './onboarding.js';
+import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask } from './onboarding.js';
 import { cmdIsolate, cmdAccept } from './candidate.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
@@ -118,12 +118,7 @@ usage:
   // Lazy-Connect: a bare `canary` inside a repo is a question, not only a
   // mistake — answer the state part read-only so the next step is obvious.
   // (exit stays 3: no command was given; the note is a courtesy, not a verdict.)
-  try {
-    const here = findRepoRoot(process.cwd());
-    const local = here ? readConfig(here) : null;
-    if (here && local && local !== 'corrupt') console.log(`\nnote: ${here} is a CONNECTED Canary repo — read-only state: canary status`);
-    else if (here) console.log(`\nnote: git repo ${here} has no trusted Canary setup — when you want protection: canary setup --yes`);
-  } catch { /* the footer is a convenience; usage always prints */ }
+  cmdStatus([]); // same read-only recognition as the explicit status command
   process.exit(3);
 }
 

@@ -49,6 +49,13 @@ async function observedEnv(ws: WorkspaceLayout) {
 }
 
 describe('audit F6 — child env observation: declared == observed', () => {
+  it('metadata-only environment construction creates no directories and keeps the same policy', () => {
+    const ws = workspace();
+    const before = fs.readdirSync(ws.root);
+    const readOnly = sanitizedEnv({ ws, nodeDir: NODE_DIR, materialize: false });
+    assert.deepEqual(fs.readdirSync(ws.root), before);
+    assert.deepEqual(readOnly, sanitizedEnv({ ws, nodeDir: NODE_DIR }));
+  });
   it('the child sees EXACTLY the declared allowlist keys (nothing undeclared)', async () => {
     const ws = workspace();
     const declared = sanitizedEnvKeys(sanitizedEnv({ ws, nodeDir: NODE_DIR }));

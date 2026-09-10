@@ -52,10 +52,10 @@ const MUTS = [
     search: 'if (v.code !== 0)', replace: 'if (v.code < 0)', count: 1, // a FAIL (code 2) would fall through toward the merge
     probe: true, own: 'candidate changed after a PASS' },
   { id: 'sandwich — candidate HEAD moved during verification', file: CAND,
-    search: 'if (id.head !== H)', replace: 'if (id.head !== H && false)', count: 1,
+    search: 'postIdentity.head !== cid.head || postIdentity.tree !== cid.tree', replace: 'false', count: 1,
     probe: true, own: 'mid-plan commit attack' },
   { id: 'sandwich — dirty candidate cannot promote', file: CAND,
-    search: 'if (id.dirty)\n        return refuse(', replace: 'if (id.dirty && false)\n        return refuse(', count: 1,
+    search: 'cid.dirty !== false || !postIdentity.resolved || postIdentity.dirty !== false', replace: '!postIdentity.resolved', count: 1,
     probe: true, own: 'dirty candidate after a PASS' },
   { id: 'gate 4 — TRACKED-dirty base cannot be promoted into', file: CAND,
     search: "if (baseTrackedDirty.trim() !== '')", replace: "if (baseTrackedDirty.trim() === '__never__')", count: 1,

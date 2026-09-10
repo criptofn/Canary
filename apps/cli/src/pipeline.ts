@@ -31,7 +31,7 @@ const NODE_DIR = path.dirname(NODE);
 // never silently masquerades as a measurement.
 const NPM_CLI = resolveNpmCli() ?? path.join(NODE_DIR, 'node_modules', 'npm', 'bin', 'npm-cli.js');
 const SYSTEMROOT = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
-export const CANARY_VERSION = '0.1.0';
+export const CANARY_VERSION = '1.0.0';
 
 export interface PipelineResult {
   bundle: EvidenceBundle;

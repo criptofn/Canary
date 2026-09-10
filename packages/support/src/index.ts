@@ -29,14 +29,18 @@ export interface EnvOptions {
   ws: WorkspaceLayout;
   /** Node + system binaries only. */
   nodeDir: string;
+  /** Metadata-only callers need an isolated environment without creating dirs. */
+  materialize?: boolean;
 }
 
-export function sanitizedEnv({ ws, nodeDir }: EnvOptions): NodeJS.ProcessEnv {
+export function sanitizedEnv({ ws, nodeDir, materialize = true }: EnvOptions): NodeJS.ProcessEnv {
   const systemRoot = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
   const home = path.join(ws.root, 'isolated-home');
   const tmp = path.join(ws.root, 'tmp');
-  fs.mkdirSync(home, { recursive: true });
-  fs.mkdirSync(tmp, { recursive: true });
+  if (materialize) {
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(tmp, { recursive: true });
+  }
 
   if (process.platform === 'win32') {
     // Audit F6 (executed probe, 2026-08-30): the Windows process loader

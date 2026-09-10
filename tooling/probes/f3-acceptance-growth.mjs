@@ -3,16 +3,15 @@
  * f3-acceptance-growth — GLM finding F-3, closed and attacked.
  * The invariant: a terminal acceptance authorizes EXACTLY the subjective
  * (non-objective) duties that existed WHEN IT WAS SIGNED. The binding is
- * `acceptanceScopeDigest` — the sorted non-objective duty ids + the task's
- * requirement count + per-requirement content digests (identity, not prose).
+ * canonical subjectDigest — exact committed bytes, authority, full frozen/live
+ * task identities, requirement multisets and non-objective duty identities.
  * Proven here through the real CLI (accepts run under a pty via `script`):
  *   A1 no change              → acceptance stays FRESH, verify PASSes;
  *   A2 +1 requirement         → STALE → NOT PROVEN;
  *   A3 exact GLM repro 0→2    → USER JUDGMENT REQUIRED, duties reopen;
  *   A4 same-count replacement → STALE (count was never identity);
  *   A5 +1 subjective kind     → STALE;
- *   A6 +objective duty        → acceptance NOT stale, objective still UNPROVEN
- *                              (it never was acceptance-material);
+ *   A6 +objective task kind   → full task identity STALE, objective UNPROVEN;
  *   A7 candidate commit moves → STALE;
  *   A8 same-count prose change→ STALE (semantic criterion identity);
  *   A9 PASS → grow → promote  → PROMOTION REFUSED, base HEAD unmoved, no
@@ -174,8 +173,8 @@ check('A4 accept [A,B] → replace with [C,D] (same count) → STALE: requiremen
   register(root, 'two-part polish', ['ui'], ['change soundtrack', 'make combat prettier']);
   const v = canary(['isolate', '--verify', 'c', root], root);
   assertEq(v.status, 2, `A4: an equal COUNT with different content must NOT share the acceptance:\n${v.stdout}`);
-  assert(/STALE/.test(v.stdout), 'A4: staleness named');
-  assertEq(ob(latestBundle(root, 'candidate'), 'per-requirement').status, 'unproven', 'A4: requirement duty reopened');
+  assert(/re-isolate/i.test(v.stdout), 'A4: frozen replacement requires re-isolation');
+  assert(latestBundle(root, 'candidate').intentEvent, 'A4: frozen requirement replacement is recorded');
 });
 
 // ------------------------------------------------------ A5 new subjective duty --
@@ -194,7 +193,7 @@ check('A5 accept → grow a NEW subjective kind into scope → STALE', () => {
 });
 
 // ------------------------------------------------ A6 objective duty control --
-check('A6 accept → grow an OBJECTIVE duty → acceptance does NOT close it, and stays fresh for exactly what it signed', () => {
+check('A6 accept → grow an OBJECTIVE task kind → exact task identity stales; acceptance never closes the objective gap', () => {
   const root = makeRepo('a6');
   register(root, 'make the landing page prettier', ['ui']);
   const c = isolate(root, 'c');
@@ -205,9 +204,9 @@ check('A6 accept → grow an OBJECTIVE duty → acceptance does NOT close it, an
   const v = canary(['isolate', '--verify', 'c', root], root);
   assertEq(v.status, 2, `A6: the objective half must block despite a fresh acceptance:\n${v.stdout}`);
   assert(/\[regression-evidence\] UNPROVEN \(objective\)/.test(v.stdout), `A6: objective duty named UNPROVEN:\n${v.stdout}`);
-  assert(!/STALE/.test(v.stdout), 'A6: objective growth is NOT acceptance-scope — the signature still covers [ui-proof] exactly');
+  assert(/STALE/.test(v.stdout), 'A6: adding a declared kind changes the canonical task subject');
   const b = latestBundle(root, 'candidate');
-  assertEq(ob(b, 'ui-proof').status, 'met', 'A6: the signed subjective duty stays closed');
+  assertEq(ob(b, 'ui-proof').status, 'unproven', 'A6: the revised task requires a fresh exact-scope acceptance');
   assertEq(ob(b, 'regression-evidence').status, 'unproven', 'A6: acceptance never launders an objective duty');
   // real proof lands — and completing the objective half legitimately moves
   // the bytes, so re-acceptance is the honest next step (no dead end).
@@ -242,9 +241,9 @@ check('A8 accept → change a requirement WITHOUT changing the count → STALE (
   register(root, 'one-part polish', ['ui'], ['make the dialog COOLER']);
   const v = canary(['isolate', '--verify', 'c', root], root);
   assertEq(v.status, 2, `A8: the reviewed criterion changed — same count must not save the old acceptance:\n${v.stdout}`);
-  assert(/STALE/.test(v.stdout), 'A8: staleness named');
+  assert(/re-isolate/i.test(v.stdout), 'A8: frozen replacement requires re-isolation');
   const rec = accOf(root, 'c');
-  assert(/^[0-9a-f]{64}$/.test(rec.acceptanceScopeDigest), 'A8: the record binds a scope digest (identity, not prose)');
+  assert(/^[0-9a-f]{64}$/.test(rec.subjectDigest), 'A8: the record binds the canonical subject digest');
 });
 
 // -------------------------------------------------- A9 promotion re-check --

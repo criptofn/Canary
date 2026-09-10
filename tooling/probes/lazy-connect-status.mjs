@@ -181,18 +181,18 @@ check('bare `canary` in a connected repo: usage + CONNECTED footer hint, exit st
   const root = makeRepo('bare');
   const r = canary([], root);
   assertEq(r.status, 3, 'bare usage keeps exit 3');
-  assert(/CONNECTED Canary repo/.test(r.stdout) && /canary status/.test(r.stdout), 'footer points at the read-only state command:\n' + r.stdout);
+  assert(/^CONNECTED —/m.test(r.stdout) && /canary status/.test(r.stdout), 'footer points at the read-only state command:\n' + r.stdout);
   const bare = makeRepo('bare-unconnected', { setup: false });
   const r2 = canary([], bare);
   assertEq(r2.status, 3, 'exit 3');
-  assert(/no trusted Canary setup/.test(r2.stdout), 'unconnected git repo footer');
+  assert(/NOT CONNECTED/.test(r2.stdout), 'unconnected git repo footer');
   const nb = path.join(TMP, 'bare-nonrepo'); fs.mkdirSync(nb, { recursive: true });
   const r3 = canary([], nb);
   assertEq(r3.status, 3, 'exit 3 outside git');
   // Some machines keep TEMP inside an ancestor git repo (e.g. a dotfile-homed
   // Windows profile) — then the honest footer names the UNTRUSTED repo, which
   // is correct behavior. What must never happen: claiming CONNECTED here.
-  assert(!/CONNECTED Canary repo/.test(r3.stdout), 'never claims CONNECTED outside a connected repo:\n' + r3.stdout);
+  assert(!/^CONNECTED —/m.test(r3.stdout), 'never claims CONNECTED outside a connected repo:\n' + r3.stdout);
 });
 
 check('unattended setup without --yes (no TTY): smoke test RUNS — READY is earned, failures still never pass', () => {

@@ -279,26 +279,36 @@ terminal. The governing invariant (GLM F-3):
 **Enforced in code** (verify and promotion's live re-verification both check
 it — promotion's first gate IS the verify, so neither can be replayed past):
 
-- The acceptance is a `canary-acceptance/2` record binding candidate identity,
-  base HEAD, candidate HEAD, the frozen task's intent digest, and an
-  `acceptanceScopeDigest`: the canonical semantic identity of the
-  acceptance-eligible duty set *as computed live at signing time* — duty ids,
-  requirement count, and per-requirement content digests (sha256 of the
-  criterion; prose never stored), ordering canonicalized; timestamps, note
-  wording, terminal text and evidence paths excluded; objective duties never
-  in scope. Requirement IDENTITY is bound, not a count — two requirements are
-  never interchangeable with two other requirements.
-- If registration grows after signing (requirement added, criterion's content
-  changed, new subjective duty kind registered, candidate HEAD moved, intent
-  changed), the record reads **STALE**: verify reports
-  `SUBJECTIVE ACCEPTANCE: USER JUDGMENT REQUIRED` /
-  `OVERALL COMPLETION: NOT PROVEN`, promotion refuses (its live verify gate),
-  and the duties reopen until a FRESH acceptance of the new scope. Shrinking
-  back to exactly the signed set re-matches it — a stale detection is a scope
-  comparison, not a grudge. No dead ends: the recovery is always one
-  `canary accept` of the current scope.
-- Objective duties (sealed test runs, regression evidence, sealed-bench
-  performance proof, sealed-e2e ui proof) can NEVER be closed by acceptance.
+- `canary-acceptance/3` stores one canonical subject: candidate name,
+  commit and Git tree, frozen base commit/tree, sealed authority identity,
+  canonical frozen and live task identities, and subjective duty IDs. The
+  subject is reconstructed before the prompt, after confirmation, and during
+  live verification. Unresolved identity, index flags, staged changes, or
+  working-tree dirt refuse acceptance. Verification cannot issue promotable
+  PASS for dirty or changing candidate bytes.
+- `canary-task/2` binds the complete whitespace-normalized request and each
+  requirement by SHA-256. Requirements are a sorted multiset: order is inert,
+  duplicates count. Registration refuses over 64 before writing anything;
+  full text participates without prefix truncation. Legacy/incomplete task
+  identity requires registration and re-isolation; legacy acceptance needs a
+  fresh review after restoring valid authority.
+- Changed committed bytes, material task identity, requirements, applicable
+  sealed authority or subjective duties stale consent. Frozen requirements
+  must remain represented; removal or replacement (including same-count
+  substitution), or material replacement of the frozen request, requires
+  re-isolation. Additions are allowed and require fresh acceptance when
+  subjective scope changes. Restoring the exact signed subject cleanly may
+  restore freshness: this is content equality, not historical revocation.
+- Generic e2e success cannot erase explicit aesthetic judgment. Generic bench
+  success cannot prove a newly declared numerical threshold. Numeric targets
+  require an explicit digest-to-script binding sealed by setup; the named
+  script must assert that target. This is inspectable human-approved proof
+  authority, not semantic analysis of test content. Missing binding remains
+  objective UNPROVEN. Acceptance cannot close objective gaps or failures.
+
+See [AUTHORIZATION-1.0.md](AUTHORIZATION-1.0.md) for examples and the exact
+binding format.
+
 - Non-interactive acceptance is refused outright (exit 2, no file written):
   piped stdin fails the both-streams `isTTY` gate; there is no `--yes`;
   `CANARY_ACCEPT` / `CANARY_ACCEPTED_BY` environment values are not consulted
@@ -315,7 +325,7 @@ accept c1"` fed the candidate name satisfies `isTTY` (the f3 battery's own
 positive-path acceptances use exactly this real-PTY mechanism), and
 `.canary/acceptance/c1.json` is a plain file every same-UID process can write
 directly. Canary does NOT attempt cryptographic local-human identity — that
-requires an external root of trust which v0.1 does not claim (Tier C, and
+requires an external root of trust which 1.0 does not claim (Tier C, and
 docs/EXECUTION-AUTHORITY.md §8). What the gate honestly buys: acceptance is
 removed from every ordinary agent posture (piped tool calls, CI, scripted
 `--yes`), and a same-UID forger must go through the *byte* ceiling openly
@@ -705,3 +715,17 @@ of the permanent test contract.
   and the `/proc` sweep path. These did NOT run on Windows and are not
   claimed there; the portable acceptance-scope unit battery above is what
   covers the same bindings on Windows.
+
+## Live verdicts and persistence in 1.0
+
+The authoritative candidate verdict is a live observation. Evidence bundles
+are best-effort observability, not a durability precondition. Storage failure
+does not invent a durable artifact: candidate PASS reports unavailability;
+promotion reports unavailable evidence if its write fails. Promotion always
+re-verifies live and never consumes a stored PASS. Automatic checkpoints may
+remain silent on a passing observation even if persistence fails.
+
+`canary status` and bare `canary` share read-only recognition checks. CONNECTED
+describes configuration and wiring, never current code health. Historical
+checkpoints are labeled historical. Candidate verification does not provide
+the dependency isolation/repetition guarantees of the stronger `prove` pipeline.

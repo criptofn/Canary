@@ -64,7 +64,7 @@
  * genuinely missing tree must not be reported as an impostor. An unsafe plan
  * script name throws before any spawn; verify catches it and blocks with a
  * bundle (ERROR exit 3 would never fake a PASS, but it wrote no evidence).
- * Each verify writes >=1 bundle, blocked attempts included; the global
+ * Each verify attempts a best-effort bundle, blocked attempts included; the global
  * EVIDENCE_KEEP cap is unchanged from pre-M7; bundles are never read back.
  *
  * M10 — proof obligations and trusted intent at the candidate boundary
@@ -123,10 +123,11 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { digest, canonicalTask, taskWeakening, subjectDigest, type TaskIdentity, type AuthorizationSubject } from './authorization.js';
 
 import {
-  ACCEPTANCE_SUBDIR, CLI_ENTRY, CONFIG_DIR, ENV_POLICY, EVIDENCE_DIR, Out, acceptanceScopeDigestOf, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
-  execDigest, findRepoRoot, gitCommand, gitExe, gitWithinRoot, hasCanaryEntry, intentDigestOf, obligationsFor, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readAcceptance, readConfig,
+  ACCEPTANCE_SUBDIR, CLI_ENTRY, CONFIG_DIR, ENV_POLICY, EVIDENCE_DIR, Out, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
+  execDigest, findRepoRoot, gitCommand, gitExe, gitWithinRoot, hasCanaryEntry, obligationsFor, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readAcceptance, readConfig,
   readTaskRecord, runPlanStep, settingsPath, TASK_FILE, untrustedConfigReason, writeAcceptance, writeFileAtomic, writeVerificationBundle,
   type AcceptanceRecord, type CanaryConfig, type GitResult, type PlanStep, type StepResult, type TaskKind,
 } from './onboarding.js';
@@ -158,7 +159,8 @@ interface CandidateIntent {
   plan: PlanStep[];
   /** planAuthority.scriptDigests at isolation, or null (pre-M5 config) */
   seal: Record<string, string> | null;
-  task: { kinds: TaskKind[]; requirementCount: number; requirementDigests?: string[] } | null;
+  task: TaskIdentity | null;
+  proofBindings?: Record<string, string>;
 }
 
 interface CandidateRecord {
@@ -307,6 +309,7 @@ function isolateCreate(root: string, cfg: CanaryConfig, o: Out, name: string, ba
       plan: cfg.plan.map((s) => ({ kind: s.kind, script: s.script })),
       seal: cfg.planAuthority ? { ...cfg.planAuthority.scriptDigests } : null,
       task: readTaskRecord(root),
+      proofBindings: { ...cfg.planAuthority?.proofBindings },
     },
   };
   try {
@@ -423,12 +426,11 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
         if (cfg.planAuthority.scriptDigests[script] !== digest) events.push(`the sealed text of "${script}" changed since isolation (re-sealed to different commands)`);
       }
     }
-    const t0 = rec.intent.task;
-    if (t0) {
-      const t1 = readTaskRecord(root);
-      const k1 = new Set(t1?.kinds ?? []);
-      for (const k of t0.kinds) if (!k1.has(k)) events.push(`task kind "${k}" registered at isolation is gone from the task record`);
-      if ((t1?.requirementCount ?? 0) < t0.requirementCount) events.push(`registered requirements shrank ${t0.requirementCount} → ${t1?.requirementCount ?? 0}`);
+    const t0 = canonicalTask(rec.intent.task);
+    if (t0) events.push(...taskWeakening(t0, readTaskRecord(root)));
+    else if (rec.intent.task?.kinds.length) events.push('frozen task identity is incomplete or malformed — re-register and re-isolate');
+    for (const [d, script] of Object.entries(rec.intent.proofBindings ?? {})) {
+      if (cfg.planAuthority?.proofBindings?.[d] !== script) events.push('frozen proof binding changed — re-isolate');
     }
     if (events.length) return blocked(
       'the verification intent was weakened after isolation — the candidate was opened against a stronger authority than the one now on disk: ' + events.join('; '),
@@ -552,7 +554,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   // AUTHORITY to judge at all derives only from the FROZEN snapshot (below).
   const task = readTaskRecord(root);
   const obligations = obligationsFor(task?.kinds ?? [], sig,
-    new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'isolation');
+    new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'isolation', task, cfg);
   // M10.2 (GLM re-audit of M10.1, F4-GATE-1/2) — the task-obligation
   // AUTHORITY is FROZEN AT ISOLATION and only the frozen snapshot can
   // discharge it. obligationsFor derives proof duties from LIVE registered
@@ -581,7 +583,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   //    'unproven' and can never outrank an objective violation or a FAIL.
   const frozenTask = rec.intent?.task ?? null;
   const frozenKinds = frozenTask && Array.isArray(frozenTask.kinds) ? frozenTask.kinds : [];
-  if (!frozenKinds.length) {
+  if (!frozenKinds.length || !canonicalTask(frozenTask)) {
     obligations.unshift({ id: 'task-authority', mode: 'objective', status: 'unproven',
       note: rec.intent
         ? 'NO task-obligation authority FROZEN at isolation: no task was registered when this candidate was opened. Registering afterwards is growth — it adds duties, it cannot mint this authority retroactively. Register the work (canary task "..." --kind ...) and RE-ISOLATE, then verify the new candidate; omitting registration is not a way through §10, it is exactly what makes §10 unprovable.'
@@ -606,13 +608,12 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   if (acc !== null) {
     const openSubjective = obligations.filter((x) => x.mode === 'non-objective' && x.status === 'unproven');
     if (openSubjective.length) {
-      const fresh = cid.head !== null && acc.baseHead === rec.baseHead
-        && acc.candidateHead === cid.head && acc.intentDigest === intentDigestOf(frozenTask)
-        && acc.acceptanceScopeDigest === acceptanceScopeDigestOf(task, obligations);
+      const context = authorizationContext(root, name);
+      const fresh = typeof context !== 'string' && acc.subjectDigest === subjectDigest(context.subject);
       if (fresh) {
         for (const x of openSubjective) {
           x.status = 'met';
-          x.note = `accepted from an interactive terminal on ${acc.at} — record ${CONFIG_DIR}/${ACCEPTANCE_SUBDIR}/${name}.json, binding base ${short(rec.baseHead)} + candidate ${short(acc.candidateHead)} + the frozen task state + the acceptance-eligible duty set at signing. Subjective judgment closed this duty; it is NOT a technical proof.`;
+          x.note = `accepted from an interactive terminal on ${acc.at} — exact clean commit/tree, frozen authority, material task, requirements and subjective duties. This is judgment, not technical proof.`;
         }
       } else acceptanceStale = true;
     }
@@ -668,7 +669,10 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     o.say(`next: close each UNPROVEN obligation with its actual proof (objective ones), or accept the subjective ones from an interactive terminal: canary accept ${echoable(name)} — mixed tasks need BOTH proof AND acceptance. A clarified criterion can also be frozen with: canary task --requirement "<part>" per part, BEFORE isolation. Then re-verify. The trusted base was not touched; promotion stays locked — no PASS was earned.`);
     return { code: 2, startHead: null, rec };
   }
-  writeVerificationBundle(root, 'candidate', results, 'pass', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
+  const postIdentity = candidateIdentity(rec.root);
+  if (cid.dirty !== false || !postIdentity.resolved || postIdentity.dirty !== false || postIdentity.head !== cid.head || postIdentity.tree !== cid.tree) return blocked('candidate is dirty / UNCOMMITTED or changed during verification — no promotable PASS for an unstable subject', 'commit the intended state and re-verify');
+  const evidence = writeVerificationBundle(root, 'candidate', results, 'pass', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
+  if (!evidence) o.say('Evidence storage unavailable — this verdict comes from live checks; no durable bundle is guaranteed.');
   if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
   if (obligations.length) o.detail(`obligations: ${obligations.length}/${obligations.length} MET — the sealed plan plus this task's proof obligations are all satisfied (directive §10).`);
   const cnt = gitWithinRoot(rec.root, ['rev-list', '--count', '--end-of-options', `${rec.baseHead}..HEAD`]);
@@ -679,6 +683,49 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
 
 function isolateVerify(root: string, cfg: CanaryConfig, o: Out, name: string): number {
   return verifyCandidate(root, cfg, o, name).code;
+}
+
+/** ONE derivation of the reviewed subject. Every read is live; presentation and
+ * timestamps are excluded. Exact restoration may become fresh again. */
+function authorizationContext(root: string, name: string): {
+  rec: CandidateRecord; subject: AuthorizationSubject; task: TaskIdentity;
+  obligations: ReturnType<typeof obligationsFor>;
+} | string {
+  const cfg = readConfig(root);
+  if (!cfg || cfg === 'corrupt' || untrustedConfigReason(root, cfg)) return 'untrusted or unreadable base configuration; run canary setup';
+  if (quarantineInfo(path.join(root, CONFIG_DIR, QUARANTINE_FILE))) return 'base authority is quarantined; restore it and run setup';
+  const rec = loadRecord(root, name);
+  if (rec === 'missing' || rec === 'invalid' || !samePath(rec.baseRoot, root)) return 'candidate record missing, malformed or bound to a different base';
+  const frozen = canonicalTask(rec.intent?.task);
+  const task = readTaskRecord(root);
+  if (!frozen || !frozen.kinds.length) return 'NO frozen task authority; register the work and RE-ISOLATE';
+  if (!task) return 'material task identity missing or malformed; register and RE-ISOLATE';
+  const weakening = taskWeakening(frozen, task);
+  if (weakening.length) return weakening.join('; ');
+  const cd = commonDir(root);
+  if (!cd || commonDir(rec.root) !== cd) return 'candidate no longer belongs to the expected Git store';
+  // Recheck toplevel explicitly: git discovery must not fall back to a parent.
+  const top = gitCommand(rec.root, ['rev-parse', '--show-toplevel']);
+  if (!top || top.status !== 0 || !samePath(fs.realpathSync(top.stdout.trim()), fs.realpathSync(rec.root))) return 'candidate repository identity changed';
+  const cid = candidateIdentity(rec.root);
+  if (!cid.resolved || !cid.head || !cid.tree || cid.dirty !== false) return 'candidate is not a clean committed state; commit the exact state you want reviewed, then run canary accept again';
+  const baseTree = gitWithinRoot(root, ['rev-parse', '--verify', `${rec.baseHead}^{tree}`])?.trim();
+  if (!baseTree || baseTree !== rec.baseTree) return 'frozen base tree cannot be verified';
+  if (!cfg.planAuthority || planAuthorityDrift(rec.root, cfg)) return 'sealed authority missing or drifted; restore it before acceptance';
+  for (const step of rec.intent!.plan) if (!cfg.plan.some(s => s.kind === step.kind && s.script === step.script)) return 'frozen plan weakened; re-isolate';
+  for (const [k,v] of Object.entries(rec.intent!.seal ?? {})) if (cfg.planAuthority.scriptDigests[k] !== v) return 'frozen script authority changed; re-isolate';
+  for (const [k,v] of Object.entries(rec.intent!.proofBindings ?? {})) if (cfg.planAuthority.proofBindings?.[k] !== v) return 'frozen proof binding changed; re-isolate';
+  const obligations = obligationsFor(task.kinds, candidateDiffSignals(rec.root, rec.baseHead), new Set(cfg.plan.map(s => s.kind)), task.requirementCount, 'isolation', task, cfg);
+  const pairs = (v: Record<string, unknown>) => Object.entries(v).sort(([a],[b]) => a.localeCompare(b));
+  const authority = { store: cd, pm: cfg.pm, plan: [...cfg.plan].sort((a,b) => a.script.localeCompare(b.script)),
+    scripts: pairs(cfg.planAuthority.scriptDigests), proofs: pairs(cfg.planAuthority.proofBindings ?? {}),
+    frozenPlan: [...rec.intent!.plan].sort((a,b) => a.script.localeCompare(b.script)), frozenSeal: pairs(rec.intent!.seal ?? {}) };
+  const subject: AuthorizationSubject = {
+    candidate: name, candidateCommit: cid.head, candidateTree: cid.tree,
+    baseHead: rec.baseHead, baseTree, baseAuthorityIdentity: digest(JSON.stringify(authority)),
+    frozenTask: frozen, liveTask: task, subjectiveDuties: obligations.filter(o => o.mode === 'non-objective').map(o => o.id).sort(),
+  };
+  return { rec, subject, task, obligations };
 }
 
 /**
@@ -693,16 +740,12 @@ function isolateVerify(root: string, cfg: CanaryConfig, o: Out, name: string): n
  * derivable from local state) remains inside Canary's documented local
  * forgery ceiling (M2). This is a policy/friction boundary on the USUAL agent
  * path, not an OS security boundary — SECURITY.md carries the full model.
- * The record binds candidate name, base HEAD, the candidate commit HEADED at
- * acceptance, the FROZEN task state, and — GLM F-3 — the
- * acceptanceScopeDigest: the canonical identity of the acceptance-eligible
- * duty set exactly as it stood at signing. verifyCandidate re-checks all of
- * it (and promotion re-runs that verification live), so a duty set that grew
- * after the judgment is covered by NOTHING; it reads STALE and reopens. Only
- * non-objective duties can ever close this way. Refused on purpose:
- * candidates without frozen authority (acceptance must never become the
- * dead-end recommendation that `--requirement` was) and any objective
- * shortfall, which acceptance can never paper over.
+ * One canonical AuthorizationSubject binds the clean committed candidate,
+ * frozen base and sealed authority, full frozen/live declarations, and the
+ * subjective duty set. authorizationContext reconstructs it before and after
+ * confirmation and when verification consumes acceptance. Changed scope or
+ * bytes reopen consent; replacing frozen declarations requires re-isolation.
+ * Objective shortfalls remain independent of the acceptance record.
  */
 export function cmdAccept(rawArgs: string[]): number {
   const { opts, rest } = parseGlobals(rawArgs);
@@ -716,37 +759,14 @@ export function cmdAccept(rawArgs: string[]): number {
     o.say('REFUSED — the supported acceptance flow requires an interactive terminal on both streams; this session has none, so the non-interactive path is refused. (No flag or env var escapes this. A terminal is friction, not cryptographic human identity — see SECURITY.md.) To accept, run canary accept <candidate> yourself from a real terminal.');
     return 2;
   }
-  const rec = loadRecord(root, name);
-  if (rec === 'missing') { o.say(`no candidate "${name}" registered here — see: canary isolate --list`); return 2; }
-  if (rec === 'invalid') { o.say(`candidate record "${name}" is unreadable — refusing to accept against bytes I cannot read`); return 2; }
-  if (!samePath(rec.baseRoot, root)) { o.say(`accept: record "${name}" claims a different base — refusing (impersonation guard)`); return 2; }
-  const frozenTask = rec.intent?.task ?? null;
-  const frozenKinds = frozenTask && Array.isArray(frozenTask.kinds) ? frozenTask.kinds : [];
-  if (!frozenKinds.length) {
-    o.say(`REFUSED — "${name}" has NO frozen task authority (nothing was registered when it was isolated). Acceptance cannot mint authority that was never frozen: register the work (canary task "..." [--requirement ...]), RE-ISOLATE, then accept the new candidate.`);
-    return 2;
-  }
-  const cid = candidateIdentity(rec.root);
-  if (!cid.resolved || cid.head === null) { o.say(`accept: candidate "${name}" has no resolvable commit — there are no reviewed bytes to bind an acceptance to`); return 2; }
-  // GLM F-3 — the judgment signs WHAT is acceptance-eligible right now. The
-  // duty set is recomputed here with the same live derivation verifyCandidate
-  // uses (live task, candidate diff, sealed plan kinds); its canonical digest
-  // rides the record, so any later material change to that set — or to the
-  // identity of a registered requirement — makes this signature STALE instead
-  // of letting the old acceptance ride growth it never saw. No readable
-  // sealed plan ⇒ no computable scope ⇒ nothing to sign.
-  const cfg = readConfig(root);
-  if (cfg === 'corrupt' || !cfg) { o.say('REFUSED — the sealed plan here is unreadable, so the acceptance-eligible duty set cannot be computed; run canary setup, then verify, then accept'); return 2; }
-  const distrust = untrustedConfigReason(root, cfg);
-  if (distrust) { o.say(`REFUSED — this config is not trusted (${distrust}), so no acceptance scope can be computed against it; run canary setup --yes first`); return 2; }
-  const task = readTaskRecord(root);
-  const obligations = obligationsFor(task?.kinds ?? [], candidateDiffSignals(rec.root, rec.baseHead),
-    new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'isolation');
-  const scopeDigest = acceptanceScopeDigestOf(task, obligations);
-  const subjective = obligations.filter((x) => x.mode === 'non-objective').map((x) => x.id).sort();
-  const rc = task?.requirementCount ?? 0;
+  const before = authorizationContext(root, name);
+  if (typeof before === 'string') { o.say(`REFUSED — ${before}`); return 2; }
+  const { rec, subject, task } = before;
+  const subjective = subject.subjectiveDuties;
+  const rc = task.requirementCount;
+  const baseToken = headToken(root);
   o.say(`ACCEPTING the SUBJECTIVE duties of candidate "${name}" — live registration [${(task?.kinds ?? []).join(', ') || 'no kinds'}]${rc ? ` + ${rc} requirement(s)` : ''}`);
-  o.say(`  base ${short(rec.baseHead)} → candidate ${short(cid.head)}  (${rec.root})`);
+  o.say(`  base ${short(rec.baseHead)} → candidate ${short(subject.candidateCommit)}  (tree ${short(subject.candidateTree)})`);
   o.say(`  duties this signature covers: ${subjective.length ? subjective.join(', ') : 'none currently open (any duty that later joins this set will NOT be covered — the record goes STALE)'}`);
   o.say('  A terminal acceptance authorizes EXACTLY the duties above as registered now — never duties that appear after it.');
   o.say('  Objective proofs are NEVER closed by this: a green plan and every objective duty must already hold (verify first: canary isolate --verify <name>).');
@@ -757,10 +777,14 @@ export function cmdAccept(rawArgs: string[]): number {
   try { n = fs.readSync(0, buf, 0, buf.length, null); } catch { n = 0; }
   const answer = buf.subarray(0, n).toString('utf8').trimEnd();
   if (answer !== name) { o.say('NOT ACCEPTED — the typed name did not match exactly. Nothing was written; the base is untouched.'); return 2; }
+  const after = authorizationContext(root, name);
+  if (typeof after === 'string' || headToken(root) !== baseToken || subjectDigest(after.subject) !== subjectDigest(subject)) {
+    o.say('REFUSED — review identity changed during confirmation (STALE / RACED). Nothing accepted; review the committed state again.');
+    return 2;
+  }
   const acc: AcceptanceRecord = {
-    schema: 'canary-acceptance/2', at: new Date().toISOString(), candidate: name,
-    baseHead: rec.baseHead, candidateHead: cid.head, intentDigest: intentDigestOf(frozenTask),
-    acceptanceScopeDigest: scopeDigest, acceptedBy: 'tty-human',
+    schema: 'canary-acceptance/3', at: new Date().toISOString(), candidate: name,
+    subject, subjectDigest: subjectDigest(subject), acceptedBy: 'tty-human',
   };
   if (!writeAcceptance(root, acc)) { o.say('acceptance could not be written (.canary containment refused it) — nothing accepted'); return 2; }
   o.say(`ACCEPTED from this interactive terminal: ${path.join(CONFIG_DIR, ACCEPTANCE_SUBDIR, `${name}.json`)}`);
@@ -796,7 +820,7 @@ function isolatePromote(root: string, cfg: CanaryConfig, o: Out, name: string): 
       evidenceRoot: root, subjectRoot: rec.root,
       extra: { candidateName: rec.name, promotion },
     });
-    return dir ?? path.join(root, CONFIG_DIR, 'evidence');
+    return dir ?? 'unavailable (storage failed; live verdict only)';
   };
   const refuse = (rec: CandidateRecord | null, why: string, next?: string, promotion?: Record<string, unknown>): number => {
     // NO PASS, NO APPLY: every refusal is evidence AND leaves the base intact.
@@ -821,7 +845,7 @@ function isolatePromote(root: string, cfg: CanaryConfig, o: Out, name: string): 
   const id = candidateIdentity(rec.root);
   if (!id.resolved) return refuse(rec, 'the candidate became unresolvable during this act — the verified bytes cannot be confirmed', 'canary isolate --list to see what happened');
   if (id.head !== H) return refuse(rec, `the candidate HEAD moved during verification (${short(H)} → ${short(id.head)}) — the bytes that passed are not what I would apply`, 'run --promote again (it re-verifies from scratch)', { from: H, to: id.head });
-  if (id.dirty) return refuse(rec, 'the candidate has UNCOMMITTED changes — promotion applies COMMITTED, verified bytes; commit inside the candidate first', `git -C "${rec.root}" add -A && git -C "${rec.root}" commit -m "..."`, { from: H, to: H });
+  if (id.dirty !== false) return refuse(rec, 'the candidate has UNCOMMITTED or unresolvable changes — promotion requires clean COMMITTED bytes', 'commit inside the candidate first', { from: H, to: H });
   // Gate 3 — pin the verified commit's tree, content-addressed (H is HEX).
   const treeOut = gitWithinRoot(rec.root, ['rev-parse', '--verify', '--end-of-options', `${H}^{tree}`]);
   const treeT = treeOut !== null && HEX_RE.test(treeOut.trim()) ? treeOut.trim() : null;

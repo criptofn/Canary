@@ -39,7 +39,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { candidateDiffSignals, obligationsFor } from '../src/onboarding.js';
+import { candidateDiffSignals, obligationsFor, declaredTask, type TaskKind } from '../src/onboarding.js';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..', '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
@@ -64,7 +64,7 @@ const recPath = (root: string, name: string) => path.join(root, '.canary', 'cand
 const taskPath = (root: string) => path.join(root, '.canary', 'task', 'current.json');
 const writeTask = (root: string, kinds: string[], requirementCount: number) => {
   fs.mkdirSync(path.dirname(taskPath(root)), { recursive: true });
-  fs.writeFileSync(taskPath(root), JSON.stringify({ kinds, requirementCount }));
+  fs.writeFileSync(taskPath(root), JSON.stringify({ schema: 'canary-task/2', ...declaredTask('', kinds as TaskKind[], Array.from({length: requirementCount}, (_,i) => `r${i}`)) }));
 };
 const QUARANTINE = path.join('.canary', 'authority-quarantine.json');
 
@@ -178,7 +178,7 @@ try {
   test('task kind registered at isolation gone now → intent block', () => {
     const root = setUpProject('kinds');
     const intent = matchedIntent(root);
-    intent.task = { kinds: ['bugfix', 'refactor'], requirementCount: 0 };
+    intent.task = declaredTask('', ['bugfix', 'refactor'], []);
     registerWithIntent(root, intent);
     writeTask(root, ['refactor'], 0); // bugfix silently dropped from the task record
     expectIntentBlock(root, /task kind "bugfix" registered at isolation is gone from the task record/);
@@ -187,10 +187,10 @@ try {
   test('registered requirements shrink → intent block', () => {
     const root = setUpProject('reqs');
     const intent = matchedIntent(root);
-    intent.task = { kinds: [], requirementCount: 3 };
+    intent.task = declaredTask('', [], ['r0','r1','r2']);
     registerWithIntent(root, intent);
     writeTask(root, [], 1); // two requirements quietly deleted
-    expectIntentBlock(root, /registered requirements shrank 3 → 1/);
+    expectIntentBlock(root, /frozen requirement removed or replaced/);
   });
 
   test('INCREASES are allowed: richer plan + richer task sail past the guard', () => {

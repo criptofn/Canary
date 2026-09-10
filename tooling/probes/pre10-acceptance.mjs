@@ -211,7 +211,7 @@ check('D stale acceptance: new candidate commit reopens the duty, advice says re
 
 // E — forged shapes: agent-authored records carry zero weight; the old v1
 // schema fails CLOSED (the binding moved, so a pre-scope record is no record).
-check('E forged acceptance file: agent shape + legacy schema are refused; only the exact v2 record binds', () => {
+check('E forged acceptance file: agent shape + legacy schemas are refused; only the current complete subject binds', () => {
   const root = makeRepo('e-forge');
   register(root, 'polish the menu', ['ui']);
   const c = isolate(root, 'c');
@@ -241,6 +241,15 @@ check('F no frozen authority: accept refuses and recommends register+re-isolate 
   assertEq(a.status, 2, 'F: refuse with code');
   assert(/RE-ISOLATE/.test(a.stdout), `F: the printed recovery must be the real one:\n${a.stdout}`);
   assert(!fs.existsSync(accPath(root, 'c')), 'F: nothing written');
+  register(root, 'refactor', ['refactor']);
+  const live = JSON.parse(fs.readFileSync(path.join(root, '.canary/task/current.json'), 'utf8'));
+  const rp = path.join(root, '.canary/candidates/c.json');
+  const record = JSON.parse(fs.readFileSync(rp, 'utf8'));
+  record.intent.task = { ...live, kinds: [] };
+  fs.writeFileSync(rp, JSON.stringify(record));
+  const empty = acceptPty(root, ['accept', 'c'], 'c\n');
+  assertEq(empty.status, 2, 'F: shape-valid empty frozen kind set cannot mint authority');
+  assert(!fs.existsSync(accPath(root, 'c')), 'F: empty frozen kinds write nothing');
 });
 
 // G — dependency duties: declared-but-not-observed is honest, acceptance closes observed.

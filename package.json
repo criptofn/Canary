@@ -1,6 +1,6 @@
 {
   "name": "canary-reliability-network",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Canary: deterministic dependency-regression detection with reproducible evidence bundles.",
   "license": "Apache-2.0",

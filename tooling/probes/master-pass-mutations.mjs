@@ -75,9 +75,9 @@ const MUTATIONS = [
   { id: 'M8', file: 'onboarding', from: 'const resolved = resolvePm(argv[0]);', to: "const resolved = { spawnArgv: argv, file: argv[0], via: 'trusted-path' };", owner: 'env', what: 'B1 pm door: bare pm name resolves on the caller PATH — the liar shim decides PASS and promotion' },
   { id: 'M9', file: 'onboarding', from: 'gitExeCache = cands.find((c) => fs.existsSync(c)) ?? null;', to: "gitExeCache = 'git';", owner: 'env', what: 'B1 git door: bare git resolves on the caller PATH — attacker git forges base/evidence at promotion' },
   { id: 'M10', file: 'candidate', from: 'if (!process.stdin.isTTY || !process.stdout.isTTY) {', to: 'if (false) {', owner: 'acceptance', what: 'B3 terminal gate gone: an agent pipe that merely supplies the name self-accepts its own work' },
-  { id: 'M11', file: 'candidate', from: 'acc.candidateHead === cid.head', to: 'acc.candidateHead === acc.candidateHead', owner: 'acceptance', what: 'B3 freshness gutted: acceptance rides onto commits made AFTER the human signed' },
-  { id: 'M12', file: 'candidate', from: 'if (!frozenKinds.length) {\n        o.say(`REFUSED', to: 'if (false) {\n        o.say(`REFUSED', owner: 'acceptance', what: 'B3 accept mints authority: a candidate nothing was ever registered for can be accepted into completion' },
-  { id: 'M13', file: 'candidate', from: 'if (!frozenKinds.length) {\n        obligations.unshift', to: 'if (false) {\n        obligations.unshift', owner: 'subjectivity', what: 'B3/F4 root: task-authority duty dropped — a never-registered candidate reaches PASS and promotion' },
+  { id: 'M11', file: 'candidate', from: "typeof context !== 'string' && acc.subjectDigest === subjectDigest(context.subject)", to: 'true', owner: 'acceptance', what: 'B3 freshness gutted: acceptance rides onto commits made AFTER the human signed' },
+  { id: 'M12', file: 'candidate', from: 'if (!frozen || !frozen.kinds.length)', to: 'if (!frozen)', owner: 'acceptance', what: 'B3 accept mints authority: an empty frozen kind set can be accepted' },
+  { id: 'M13', file: 'candidate', from: 'if (!frozenKinds.length || !canonicalTask(frozenTask))', to: 'if (false)', owner: 'subjectivity', what: 'B3/F4 root: task-authority duty dropped — a never-registered candidate reaches PASS and promotion' },
 ];
 
 function runOwner(owner) {

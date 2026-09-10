@@ -2,7 +2,8 @@ name: canary-ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, astra-pre1-closure]
+    tags: ['v*']
   pull_request:
   schedule:
     - cron: '17 6 * * 1'   # weekly: the golden proof must keep holding
@@ -10,7 +11,10 @@ on:
 jobs:
   core:
     name: build + unit/integration tests (offline)
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,6 +23,12 @@ jobs:
       - run: npm ci --no-audit --no-fund   # audit S3: reproducible, lockfile-exact install
       - run: npm run build
       - run: node --test "packages/**/dist/test/*.test.js" "apps/**/dist/test/*.test.js"
+      - run: node tooling/probes/architecture-closure.mjs
+      - run: node tooling/probes/architecture-metrics.mjs
+      - run: node tooling/probes/cleanroom-packed-artifact.mjs
+      - run: node tooling/probes/packed-architecture.mjs
+      - if: runner.os == 'Linux'
+        run: node tooling/probes/architecture-closure-mutations.mjs
 
   golden-proof:
     name: golden regression proof (axios 0.27.2 -> 1.0.0) — DESIGNATED PROOF HOST

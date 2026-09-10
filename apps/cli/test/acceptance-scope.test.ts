@@ -1,18 +1,5 @@
-/**
- * GLM F-3 unit battery — the acceptance-SCOPE binding, portable (no PTY, no
- * /proc assumptions; runs identically on Windows and POSIX):
- *   - acceptanceScopeDigestOf: canonical semantic identity of what a terminal
- *     acceptance authorizes (non-objective duty ids + requirement count +
- *     per-requirement digests). Order canonicalized; presentation noise
- *     (notes, statuses, timestamps, paths) excluded; objective duties never
- *     in scope; equal counts with different content MUST differ.
- *   - the task record's requirementDigests: identity stored, prose never;
- *     legacy shapes collapse to the old count-only posture, junk is filtered.
- *   - readAcceptance: v2 schema fail-closed — a record predating the scope
- *     binding is NOT a record; the recovery is one fresh terminal acceptance.
- * End-to-end behavior through the real CLI is attacked separately by
- * tooling/probes/f3-acceptance-growth.mjs (A1-A10 + mixed control).
- */
+/** Portable canonical authorization identity and strict record readers.
+ * End-to-end attacks: architecture-closure.mjs and f3-acceptance-growth.mjs. */
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -22,9 +9,10 @@ import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
 
 import {
-  acceptanceScopeDigestOf, readTaskRecord, readAcceptance, writeAcceptance,
+  readTaskRecord, readAcceptance, writeAcceptance,
   obligationsFor, CONFIG_DIR, TASK_FILE, ACCEPTANCE_SUBDIR,
   type AcceptanceRecord, type Obligation,
+  declaredTask, subjectDigest,
 } from '../src/onboarding.js';
 
 const sha256 = (s: string): string => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
@@ -44,9 +32,13 @@ function makeProject(name: string): string {
 const duty = (id: string, mode: Obligation['mode'] = 'non-objective', status: Obligation['status'] = 'unproven', note = 'n'): Obligation =>
   ({ id, mode, status, note });
 const scope = (task: { requirementCount: number; requirementDigests: string[] } | null, obligations: Obligation[]): string =>
-  acceptanceScopeDigestOf(task, obligations);
+  subjectDigest({ candidate: 'c', candidateCommit: 'a'.repeat(40), candidateTree: 'b'.repeat(40),
+    baseHead: 'c'.repeat(40), baseTree: 'd'.repeat(40), baseAuthorityIdentity: 'e'.repeat(64),
+    frozenTask: declaredTask('ui', ['ui'], []),
+    liveTask: { ...declaredTask('ui', ['ui'], []), ...(task ?? {}) },
+    subjectiveDuties: obligations.filter(o => o.mode === 'non-objective').map(o => o.id) });
 
-describe('acceptanceScopeDigestOf — canonical scope identity', () => {
+describe('subjectDigest — canonical authorization identity', () => {
   it('changes when a duty is ADDED to the acceptance-eligible set (A2/A3/A5 shape)', () => {
     const one = scope({ requirementCount: 0, requirementDigests: [] }, [duty('ui-proof')]);
     const two = scope({ requirementCount: 0, requirementDigests: [] }, [duty('ui-proof'), duty('per-requirement')]);
@@ -136,23 +128,21 @@ describe('task record — requirementDigests identity, prose never stored', () =
     const rec = readTaskRecord(root);
     assert.ok(rec);
     assert.equal(rec.requirementCount, 2);
-    assert.deepEqual(rec.requirementDigests, [sha256('make dialog warmer'), sha256('improve icon spacing')]);
+    assert.deepEqual(rec.requirementDigests, [sha256('make dialog warmer'), sha256('improve icon spacing')].sort());
     const raw = fs.readFileSync(path.join(root, CONFIG_DIR, TASK_FILE), 'utf8');
     assert.ok(!raw.includes('improve icon spacing'), 'requirement prose must NOT be persisted — digests only');
   });
 
-  it('legacy records (no requirementDigests) collapse to count-only binding, not a failure', () => {
+  it('legacy records fail closed to missing authority', () => {
     const root = makeProject('legacy');
     fs.mkdirSync(path.join(root, CONFIG_DIR, 'task'), { recursive: true });
     fs.writeFileSync(path.join(root, CONFIG_DIR, TASK_FILE),
       JSON.stringify({ schema: 'canary-task/1', kinds: ['ui'], requirementCount: 2 }));
     const rec = readTaskRecord(root);
-    assert.ok(rec);
-    assert.equal(rec.requirementCount, 2);
-    assert.deepEqual(rec.requirementDigests, [], 'absence is the old posture — readable, weaker, never a crash');
+    assert.equal(rec, null, 'legacy identity cannot authorize current completion');
   });
 
-  it('junk digest entries are filtered; the list is capped at 64', () => {
+  it('junk or oversized digest lists fail closed', () => {
     const root = makeProject('junk');
     fs.mkdirSync(path.join(root, CONFIG_DIR, 'task'), { recursive: true });
     const many = Array.from({ length: 70 }, (_, i) => sha256(`r${i}`));
@@ -160,9 +150,7 @@ describe('task record — requirementDigests identity, prose never stored', () =
       JSON.stringify({ schema: 'canary-task/1', kinds: ['ui'], requirementCount: 3,
         requirementDigests: [...many, 'zz', 'Z'.repeat(64).toLowerCase().replace(/0/g, '0'), 42, 'deadbeef'] }));
     const rec = readTaskRecord(root);
-    assert.ok(rec);
-    assert.equal(rec.requirementDigests.length, 64, 'slice(0,64) cap');
-    assert.ok(rec.requirementDigests.every((d) => /^[0-9a-f]{64}$/.test(d)), 'only 64-hex survives');
+    assert.equal(rec, null, 'malformed or oversized identity is refused, never filtered into authority');
   });
 
   it('shared derivation: obligationsFor output and the scope digest agree on acceptance-eligible ids (multi task)', () => {
@@ -178,12 +166,12 @@ describe('task record — requirementDigests identity, prose never stored', () =
 });
 
 describe('readAcceptance — v2 fail-closed shapes', () => {
-  const valid = (name: string): AcceptanceRecord => ({
-    schema: 'canary-acceptance/2', at: new Date().toISOString(), candidate: name,
-    baseHead: 'a'.repeat(40), candidateHead: 'b'.repeat(40),
-    intentDigest: sha256('intent'), acceptanceScopeDigest: sha256('scope'),
-    acceptedBy: 'tty-human',
-  });
+  const valid = (name: string): AcceptanceRecord => {
+    const subject = { candidate: name, candidateCommit: 'b'.repeat(40), candidateTree: 'c'.repeat(40),
+      baseHead: 'a'.repeat(40), baseTree: 'd'.repeat(40), baseAuthorityIdentity: sha256('authority'),
+      frozenTask: declaredTask('ui', ['ui'], []), liveTask: declaredTask('ui', ['ui'], []), subjectiveDuties: ['ui-proof'] };
+    return { schema: 'canary-acceptance/3', at: new Date().toISOString(), candidate: name, subject, subjectDigest: subjectDigest(subject), acceptedBy: 'tty-human' };
+  };
   const put = (root: string, rec: unknown): void => {
     const dir = path.join(root, CONFIG_DIR, ACCEPTANCE_SUBDIR);
     fs.mkdirSync(dir, { recursive: true });
@@ -195,7 +183,7 @@ describe('readAcceptance — v2 fail-closed shapes', () => {
     assert.ok(writeAcceptance(root, valid('c')));
     const rec = readAcceptance(root, 'c');
     assert.ok(rec);
-    assert.equal(rec.acceptanceScopeDigest, sha256('scope'));
+    assert.equal(rec.subjectDigest, subjectDigest(rec.subject));
   });
 
   it('a v1 record (no scope binding) fails CLOSED — it cannot authorize anything', () => {
@@ -207,9 +195,9 @@ describe('readAcceptance — v2 fail-closed shapes', () => {
 
   it('v2 shape with missing/garbage acceptanceScopeDigest is unreadable', () => {
     const root = makeProject('acc-noscope');
-    put(root, { ...valid('c'), acceptanceScopeDigest: undefined });
+    put(root, { ...valid('c'), subjectDigest: undefined });
     assert.equal(readAcceptance(root, 'c'), null);
-    put(root, { ...valid('c'), acceptanceScopeDigest: 'not-hex' });
+    put(root, { ...valid('c'), subjectDigest: 'not-hex' });
     assert.equal(readAcceptance(root, 'c'), null);
   });
 

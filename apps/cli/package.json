@@ -1,11 +1,13 @@
 {
   "name": "@canary-rn/cli",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "canary — independent verification layer CLI: run / prove / report.",
+  "description": "canary \u2014 independent verification layer CLI: run / prove / report.",
   "type": "module",
   "main": "./dist/src/main.js",
-  "bin": { "canary": "./dist/src/main.js" },
+  "bin": {
+    "canary": "./dist/src/main.js"
+  },
   "dependencies": {
     "@canary-rn/support": "*",
     "@canary-rn/planner": "*",

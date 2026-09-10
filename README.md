@@ -2,19 +2,25 @@
 
 > *"Cool diff. Prove that it actually made the project better."*
 
-**The AI builds. Canary checks. You do almost nothing.** Once Canary is set up
-in your project, every time your AI coding agent says "done", Canary runs your
-project's own checks and steps in only when something needs attention. You
-never edit config, never learn a schema, never run a Canary command per task.
+**Canary 1.0 checks coding-agent work before completion.** Setup connects
+Claude Code to the project's own checks. For isolated changes, the agent
+registers the request, works in a candidate, commits it, and asks Canary to
+verify and promote. Explicitly subjective results need your review of the
+exact clean committed candidate. Acceptance never replaces objective proof.
+
+See [the 1.0 authorization contract](docs/AUTHORIZATION-1.0.md) for task identity,
+numeric proof bindings, input limits, and the remaining local trust boundaries.
 
 ## 60-second quickstart
 
-1. **Install Canary once** (until the npm package is published, from a checkout):
+1. **Install Canary 1.0** (Node.js 22 or newer):
+
+   Download `canary-rn-cli-1.0.0.tgz` from the
+   [GitHub release](https://github.com/criptofn/Canary/releases/tag/v1.0.0), then:
 
    ```bash
-   git clone <this repo> && cd canary-reliability-network
-   npm install && npm run build
-   cd apps/cli && npm link        # gives you the `canary` command
+   npm install -g ./canary-rn-cli-1.0.0.tgz
+   canary --version
    ```
 
 2. **In your project** (a Node.js repo with `package.json`):
@@ -39,7 +45,8 @@ never edit config, never learn a schema, never run a Canary command per task.
 - *automatic* — the agent finishes → Canary runs your checks → all pass:
   total silence (you are not interrupted); a check fails: the agent is
   blocked once and sent back to repair it, and if it still fails, you are
-  told in plain words. No per-task `canary` command, ever.
+  told in plain words. The automatic hook checks the configured plan; task-aware candidate
+  completion also requires registration and isolation.
 - *self-healing* — re-run `canary setup` any time; it repairs its own wiring,
   never duplicates a hook, never destroys your edits.
 - *reversible* — `canary uninstall` removes exactly Canary's own changes
@@ -81,7 +88,7 @@ test frameworks are the evidence engines (RepoWise, Semgrep, CodSpeed,
 Playwright, … may later feed evidence behind optional adapters — the core
 runs with zero integrations).
 
-## The golden proof (v0.1 scope, working today)
+## The dependency proof pipeline
 
 A controlled, historical verification domain: the dependency update
 **axios 0.27.2 → 1.0.0**, judged by a *real* downstream project's *real*
@@ -209,7 +216,7 @@ Every downstream repository is **untrusted**. Enforced by
 - if a *Tier-A (code-enforced)* bound can't hold: `INFRASTRUCTURE_FAILURE`,
   before executing
 
-**What v0.1 does NOT claim** (read the tiered section): there is no filesystem
+**What 1.0 does NOT claim** (read the tiered section): there is no filesystem
 jail and no network egress allowlist — a fixture's own test code runs with the
 operator's OS permissions. The evidence manifest is tamper-*evidence* /
 cross-field integrity, **not authenticated provenance** (no signing key /

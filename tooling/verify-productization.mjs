@@ -197,6 +197,7 @@ const CANARY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SH = process.platform === 'win32';
 const STEPS = [
   ['build (tsc -b)', 'npm', ['run', 'build'], {}],
+  ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
   ['M3 trust-classes contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m3-trust-classes.test.js'], {}],
@@ -225,9 +226,14 @@ const STEPS = [
   ['probe: pre-1.0 execution-environment authority battery (real git, poisoned env)', process.execPath, ['tooling/probes/pre10-env-authority.mjs'], {}],
   ['probe: pre-1.0 human-acceptance battery (real git + pty)', process.execPath, ['tooling/probes/pre10-acceptance.mjs'], {}],
   ['probe: master-pass mutation battery (built dist)', process.execPath, ['tooling/probes/master-pass-mutations.mjs'], {}],
+  ['probe: acceptance growth (real git + pty)', process.execPath, ['tooling/probes/f3-acceptance-growth.mjs'], {}],
+  ['probe: architecture closure matrix', process.execPath, ['tooling/probes/architecture-closure.mjs'], {}],
+  ['probe: architecture closure mutations (scratch builds)', process.execPath, ['tooling/probes/architecture-closure-mutations.mjs'], {}],
+  ['probe: architecture metrics and zero-write status', process.execPath, ['tooling/probes/architecture-metrics.mjs'], {}],
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
   ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],
+  ['probe: packed architecture matrix', process.execPath, ['tooling/probes/packed-architecture.mjs'], {}],
 ];
 
 // R4 honest evidence: three per-step states, never collapsed. A probe may

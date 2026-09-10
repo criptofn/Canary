@@ -273,12 +273,10 @@ try {
     const fp = fingerprint(mp);
     const r1 = canary(['isolate', '--promote', 's1', mp], mp);
     assertEq(r1.status, 2, `mid-plan moved head must refuse:\n${r1.stdout}`);
-    assertMatch(r1.stdout, /CANDIDATE PASS/, 'the live plan did go green');
-    assertMatch(r1.stdout, /HEAD moved during verification/, 'the sandwich caught the mid-plan commit');
+    assert(!/CANDIDATE PASS/.test(r1.stdout), 'an unstable subject never gets a candidate PASS');
+    assertMatch(r1.stdout, /changed during verification/, 'the sandwich caught the mid-plan commit');
     assertFpSame(fingerprint(mp), fp, 'sandwich refusal touched the base');
-    const b1 = latestPromotion(mp);
-    assertEq(b1.status, 'blocked', 'sandwich refusal evidenced');
-    assertMatch(b1.promotion.refusal, /moved during verification/, 'bundle records why');
+    assertEq(promotionCount(mp), 0, 'candidate refusal precedes promotion; candidate bundle records the block');
     // honest recovery: the NEW head is stable and green; a re-run promotes it
     const H2 = git(c, 'rev-parse', 'HEAD');
     const r2 = canary(['isolate', '--promote', 's1', mp], mp);
@@ -310,11 +308,11 @@ try {
     const fp = fingerprint(dc);
     const r = canary(['isolate', '--promote', 'x1', dc], dc);
     assertEq(r.status, 2, `dirty candidate must refuse:\n${r.stdout}`);
-    assertMatch(r.stdout, /CANDIDATE PASS/, 'the live plan passed on the committed bytes');
-    assertMatch(r.stdout, /UNCOMMITTED changes/, 'the sandwich names the uncommitted work');
+    assert(!/CANDIDATE PASS/.test(r.stdout), 'dirty bytes must not earn candidate PASS');
+    assertMatch(r.stdout, /UNCOMMITTED/, 'the sandwich names the uncommitted work');
     assertFpSame(fingerprint(dc), fp, 'dirty-candidate refusal moved the base');
     assertEq(git(dc, 'rev-parse', 'HEAD') !== C, true, 'nothing was applied');
-    assertEq(latestPromotion(dc).status, 'blocked', 'refusal evidenced');
+    assertEq(promotionCount(dc), 0, 'dirty subject blocked before promotion');
   });
 
   check('stale evidence replay: forged PASS candidate bundle cannot carry a broken tree; live bytes rule', () => {

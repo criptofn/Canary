@@ -57,6 +57,9 @@ import { resolveNpmCli, sanitizedEnv } from '@canary-rn/support';
 // M9 §9.5 — the quarantine marker filename. authority.ts imports only node
 // builtins, so this direction adds no cycle (candidate.ts already imports it).
 import { QUARANTINE_FILE } from './authority.js';
+import { canonicalTask, declaredTask, taskWeakening, TASK_KINDS, MAX_REQUIREMENTS, type TaskKind, type TaskIdentity, type AuthorizationSubject, subjectDigest } from './authorization.js';
+export { canonicalTask, declaredTask, taskWeakening, TASK_KINDS, MAX_REQUIREMENTS, subjectDigest };
+export type { TaskKind, TaskIdentity, AuthorizationSubject };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The absolute path of the built CLI entry — what harness hooks invoke. */
@@ -521,7 +524,7 @@ export function gitCommand(root: string, args: string[], timeoutMs = 15_000): Gi
     // 32MB maxBuffer: the 1MB default would turn a large repo's `ls-tree -r`
     // (M7's submodule probe) into a spurious null.
     cwd: root, encoding: 'utf8', timeout: timeoutMs,
-    env: hardenedEnv(root), shell: false, windowsHide: true,
+    env: sanitizedEnv({ ws: { root: os.tmpdir(), fixture: root }, nodeDir: NODE_DIR, materialize: false }), shell: false, windowsHide: true,
     maxBuffer: 32 * 1024 * 1024,
   });
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
@@ -694,7 +697,7 @@ export function candidateIdentity(root: string): Identity {
     resolved: true,
     head: head.trim(),
     tree: tree?.trim() ?? null,
-    dirty: status === null ? null : status.trim().length > 0 || sneaky,
+    dirty: status === null || flags === null ? null : status.trim().length > 0 || sneaky,
   };
 }
 
@@ -820,19 +823,26 @@ export interface PlanAuthority {
   planDigest: string;
   /** sha256 of the exact package.json script text, keyed by script name */
   scriptDigests: Record<string, string>;
+  /** Explicit task/requirement digest -> plan script, sealed by setup. */
+  proofBindings?: Record<string, string>;
 }
 
 /** Capture the authority this setup run seals: the plan plus the verbatim
  *  text of every script it references. detectPlan guarantees plan scripts
  *  exist as non-empty strings in pkgScripts; anything else is left unsealed
  *  and the drift check fails closed on it. */
-export function sealPlanAuthority(plan: PlanStep[], pkgScripts: Record<string, unknown>): PlanAuthority {
+export function sealPlanAuthority(plan: PlanStep[], pkgScripts: Record<string, unknown>, bindings?: unknown): PlanAuthority {
   const scriptDigests: Record<string, string> = {};
   for (const s of plan) {
     const t = pkgScripts[s.script];
     if (typeof t === 'string') scriptDigests[s.script] = sha256(t);
   }
-  return { at: new Date().toISOString(), planDigest: planDigest(plan), scriptDigests };
+  if (bindings !== undefined && (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)
+    || !Object.entries(bindings).every(([d,s]) => /^[0-9a-f]{64}$/.test(d) && typeof s === 'string' && plan.some(p => p.script === s)))) {
+    throw new Error('package.json canary.proofs must map full task/requirement digests to recognized plan scripts');
+  }
+  return { at: new Date().toISOString(), planDigest: planDigest(plan), scriptDigests,
+    proofBindings: Object.fromEntries(Object.entries((bindings ?? {}) as Record<string,string>).sort(([a],[b]) => a.localeCompare(b))) };
 }
 
 /** How the current repo state deviates from the sealed verification authority
@@ -848,6 +858,8 @@ export function planAuthorityDrift(root: string, cfg: CanaryConfig, pkg?: Record
     return 'the sealed verification authority in .canary/canary.local.json is malformed (hand-edited?)';
   }
   const drift: string[] = [];
+  if (seal.proofBindings !== undefined && (!seal.proofBindings || typeof seal.proofBindings !== 'object' || Array.isArray(seal.proofBindings)
+    || !Object.entries(seal.proofBindings).every(([d,s]) => /^[0-9a-f]{64}$/.test(d) && typeof s === 'string' && cfg.plan.some(p => p.script === s)))) return 'malformed sealed proof bindings';
   if (planDigest(cfg.plan) !== seal.planDigest) drift.push('the plan no longer matches the sealed plan');
   // pkg may be the caller's already-read copy (candidate.ts's seal check reads
   // the same file one line later for the lifecycle-hook scan); absent = read.
@@ -897,8 +909,6 @@ export function planAuthorityDrift(root: string, cfg: CanaryConfig, pkg?: Record
  * cannot have its pre-existing state blamed on the agent (M4). Unattributable
  * signals inform notes, never verdicts.
  */
-export const TASK_KINDS = ['bugfix', 'refactor', 'dependency', 'performance', 'ui', 'multi'] as const;
-export type TaskKind = (typeof TASK_KINDS)[number];
 
 const KIND_PATTERNS: Array<[RegExp, TaskKind]> = [
   [/\b(bug|fix|broken|crash|regress\w*|defect)\b/i, 'bugfix'],
@@ -1126,6 +1136,8 @@ export interface Obligation { id: string; mode: 'objective' | 'non-objective'; s
 export function obligationsFor(
   kinds: TaskKind[], sig: DiffSignals, planKinds: Set<string>, requirementCount: number,
   baseline: 'setup' | 'isolation' = 'setup',
+  task?: TaskIdentity | null,
+  authority?: { plan: PlanStep[]; planAuthority?: PlanAuthority },
 ): Obligation[] {
   const out: Obligation[] = [];
   const add = (o: Obligation) => { if (!out.some((x) => x.id === o.id)) out.push(o); };
@@ -1175,17 +1187,31 @@ export function obligationsFor(
         ? `dependency change observed (${formatPaths(depFiles)}): the sealed plan re-ran against the new graph, but downstream behavior needs a trusted baseline/candidate comparison — UNPROVEN. Closes after review from an interactive terminal: canary accept <candidate>`
         : 'dependency change observed against an unresolvable baseline — comparison UNPROVEN. It can still be closed after review from an interactive terminal: canary accept <candidate>' });
   }
-  if (kinds.includes('performance')) {
-    add(has('bench')
+  const numericPerformance = task?.objectiveTargets.some(t => t.kind === 'bench') ?? false;
+  const numericUi = task?.objectiveTargets.some(t => t.kind === 'e2e') ?? false;
+  if (kinds.includes('performance') && !numericPerformance) {
+    add(has('bench') && !task?.subjectivePerformance
       ? { id: 'performance-proof', mode: 'objective', status: 'met', note: 'the sealed benchmark ran and passed (its exit code is the threshold sealed at setup)' }
-      : { id: 'performance-proof', mode: 'non-objective', status: 'unproven', note: 'a performance obligation needs a repeatable benchmark with a defined threshold; the sealed plan has none — UNPROVEN. Paths to close it: add a bench script and re-run canary setup (seals + smokes it), or accept the measured judgment from an interactive terminal: canary accept <candidate>' });
+      : { id: 'performance-proof', mode: 'non-objective', status: 'unproven', note: task?.subjectivePerformance
+        ? 'subjective performance feel requires human judgment even when a benchmark passes — UNPROVEN. Review the exact committed candidate and accept from an interactive terminal: canary accept <candidate>'
+        : 'a performance obligation needs a repeatable benchmark with a defined threshold; the sealed plan has none — UNPROVEN. Paths to close it: add a bench script and re-run canary setup (seals + smokes it), or accept the measured judgment from an interactive terminal: canary accept <candidate>' });
   }
-  if (kinds.includes('ui')) {
+  if (kinds.includes('ui') && !numericUi && !numericPerformance) {
     add(has('e2e')
       ? { id: 'ui-proof', mode: 'objective', status: 'met', note: 'the sealed e2e/browser proof ran and passed' }
       : { id: 'ui-proof', mode: 'non-objective', status: 'unproven', note: 'no browser/e2e/accessibility proof is available in the sealed plan — UI behavior UNPROVEN (visual truth is not pretend-deterministic). Closes only by judgment from an interactive terminal: canary accept <candidate>' });
   }
-  if (kinds.includes('multi') || requirementCount > 0) {
+  if (task?.subjectiveVisual) add({ id: 'subjective-visual-acceptance', mode: 'non-objective', status: 'unproven',
+    note: 'aesthetic satisfaction requires judgment from an interactive terminal; a generic e2e check cannot establish it' });
+  for (const target of task?.objectiveTargets ?? []) {
+    const script = authority?.planAuthority?.proofBindings?.[target.digest];
+    const bound = script !== undefined && authority!.plan.some(s => s.script === script && s.kind === target.kind);
+    add({ id: `target-${target.kind}-${target.digest}`, mode: 'objective', status: bound ? 'met' : 'unproven',
+      note: bound ? `sealed ${script} checks target ${target.digest}; its successful exit is required independently`
+        : `objective target ${target.digest} has no sealed ${target.kind} proof binding. Bind this digest to the matching script in package.json canary.proofs and run setup; acceptance cannot replace measurement.` });
+  }
+  if ((kinds.includes('multi') || requirementCount > 0) && (!task || requirementCount === 0
+    || task.requirementDigests.some(d => !task.objectiveTargets.some(t => t.digest === d)))) {
     add({ id: 'per-requirement', mode: 'non-objective', status: 'unproven', note: requirementCount > 0
       ? `multi-part task: ${requirementCount} registered requirement(s) — a green plan proves the plan, NOT each part; requirements without their own check end OBJECTIVELY PROVEN or SUBJECTIVELY ACCEPTED from an interactive terminal (canary accept <candidate>) — until then UNPROVEN, never permanently dead`
       : 'multi-part task detected but requirements were never enumerated — ask the human ONCE which parts must be proven separately, or register them: canary task "..." --requirement "..." per part (BEFORE isolation), or accept the candidate as-is from an interactive terminal: canary accept <candidate>' });
@@ -1193,30 +1219,15 @@ export function obligationsFor(
   return out;
 }
 
-/** Read the agent's registered task hint (AGENT_REPORTED — same zero-authority
- *  posture as claims). Anything malformed collapses to no-kind/no-count, which
- *  is exactly the pre-M6 posture: diff-implied obligations still apply.
- *  Exported for M10: the candidate intent snapshot freezes this record at
- *  isolation, and the shrink guard compares live-vs-frozen (candidate.ts). */
-export function readTaskRecord(root: string): { kinds: TaskKind[]; requirementCount: number; requirementDigests: string[] } | null {
+/** Strict canonical declaration reader. Incomplete/legacy records return null;
+ * candidate completion then has no usable task authority and fails closed.
+ * Isolation freezes this exact representation for the shared monotonic guard. */
+export function readTaskRecord(root: string): TaskIdentity | null {
   try {
     const p = path.join(root, CONFIG_DIR, TASK_FILE);
     if (containedRealPath(root, p) === null) return null;
-    if (!fs.existsSync(p)) return null;
     const v = JSON.parse(fs.readFileSync(p, 'utf8')) as Record<string, unknown>;
-    if (typeof v !== 'object' || v === null) return null;
-    const kinds = Array.isArray(v.kinds) ? v.kinds.filter((k): k is TaskKind => (TASK_KINDS as readonly string[]).includes(String(k))) : [];
-    const rc = typeof v.requirementCount === 'number' && Number.isInteger(v.requirementCount) && v.requirementCount >= 0 && v.requirementCount <= 64
-      ? v.requirementCount : 0;
-    // GLM F-3 — per-requirement IDENTITY (digests, never prose; M3/M4 doctrine
-    // holds): an acceptance given over ["A","B"] must not fit ["C","D"] just
-    // because both records count 2. Records predating the field yield [] and
-    // bind by count alone — exactly the old posture, and re-registering the
-    // task with the current CLI replaces it with real identity.
-    const rd = Array.isArray(v.requirementDigests)
-      ? v.requirementDigests.filter((d): d is string => typeof d === 'string' && /^[0-9a-f]{64}$/.test(d)).slice(0, 64)
-      : [];
-    return { kinds: [...new Set(kinds)], requirementCount: rc, requirementDigests: rd };
+    return v?.schema === 'canary-task/2' ? canonicalTask(v) : null;
   } catch { return null; }
 }
 
@@ -1239,36 +1250,10 @@ export function readTaskRecord(root: string): { kinds: TaskKind[]; requirementCo
  *  not look like authority-drift. */
 export const ACCEPTANCE_SUBDIR = 'acceptance';
 export interface AcceptanceRecord {
-  /** /2 = +acceptanceScopeDigest binding (GLM F-3). /1 records — made by an
-   *  older CLI that could not see duty-set growth — are rejected as unreadable
-   *  shapes: fail CLOSED to UNPROVEN, never honored. Recovery is one fresh
-   *  terminal acceptance; no dead end. */
-  schema: 'canary-acceptance/2'; at: string; candidate: string;
-  baseHead: string; candidateHead: string; intentDigest: string;
-  acceptanceScopeDigest: string;
+  schema: 'canary-acceptance/3'; at: string; candidate: string;
+  subject: AuthorizationSubject;
+  subjectDigest: string;
   acceptedBy: 'tty-human';
-}
-/** The frozen task state, digested — one of the bindings an acceptance carries. */
-export const intentDigestOf = (task: { kinds: TaskKind[]; requirementCount: number } | null): string =>
-  sha256(JSON.stringify(task ?? null));
-/** GLM F-3 — the canonical identity of WHAT a terminal acceptance authorizes:
- *  exactly the acceptance-eligible (non-objective) duties that exist NOW, plus
- *  the registered requirement identity (count + per-requirement digests).
- *  Semantic inputs only — duty ids, requirement digests — never timestamps,
- *  notes, evidence paths, or wording: ordering is canonicalized by sorting,
- *  and the same obligationsFor derivation verify uses is the single source.
- *  Material change to that set (add/remove/replace a duty, change a
- *  requirement, a new subjective kind, a criterion swap) changes this digest,
- *  so the old acceptance goes STALE instead of riding the growth. */
-export function acceptanceScopeDigestOf(
-  task: { requirementCount: number; requirementDigests: string[] } | null,
-  obligations: Obligation[],
-): string {
-  return sha256(JSON.stringify({
-    duties: obligations.filter((x) => x.mode === 'non-objective').map((x) => x.id).sort(),
-    requirementCount: task?.requirementCount ?? 0,
-    requirementDigests: [...(task?.requirementDigests ?? [])].sort(),
-  }));
 }
 export function readAcceptance(root: string, name: string): AcceptanceRecord | null {
   try {
@@ -1277,12 +1262,13 @@ export function readAcceptance(root: string, name: string): AcceptanceRecord | n
     if (!fs.existsSync(p)) return null;
     const v = JSON.parse(fs.readFileSync(p, 'utf8')) as Partial<AcceptanceRecord> | null;
     if (typeof v !== 'object' || v === null) return null;
-    if (v.schema !== 'canary-acceptance/2' || typeof v.at !== 'string' || v.candidate !== name) return null;
-    if (typeof v.baseHead !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.baseHead)) return null;
-    if (typeof v.candidateHead !== 'string' || !/^[0-9a-f]{40,64}$/.test(v.candidateHead)) return null;
-    if (typeof v.intentDigest !== 'string' || !/^[0-9a-f]{64}$/.test(v.intentDigest)) return null;
-    if (typeof v.acceptanceScopeDigest !== 'string' || !/^[0-9a-f]{64}$/.test(v.acceptanceScopeDigest)) return null;
-    if (v.acceptedBy !== 'tty-human') return null; // agent-authored shape: unreadable
+    if (v.schema !== 'canary-acceptance/3' || typeof v.at !== 'string' || v.candidate !== name || v.acceptedBy !== 'tty-human') return null;
+    const sub = v.subject;
+    if (!sub || sub.candidate !== name || !canonicalTask(sub.frozenTask) || !canonicalTask(sub.liveTask)
+      || ![sub.candidateCommit, sub.candidateTree, sub.baseHead, sub.baseTree].every(x => typeof x === 'string' && /^[0-9a-f]{40,64}$/.test(x))
+      || typeof sub.baseAuthorityIdentity !== 'string' || !/^[0-9a-f]{64}$/.test(sub.baseAuthorityIdentity)
+      || !Array.isArray(sub.subjectiveDuties) || !sub.subjectiveDuties.every(x => typeof x === 'string')
+      || typeof v.subjectDigest !== 'string' || v.subjectDigest !== subjectDigest(sub)) return null;
     return v as AcceptanceRecord;
   } catch { return null; }
 }
@@ -1331,7 +1317,7 @@ export function cmdTask(rawArgs: string[]): number {
   const requirementCount = requirements.length;
   const text = prose.join(' ').trim();
   if (!text && kindFlag === null && requirementCount === 0) { o.say('usage: canary task "<intent>" [--kind bugfix|refactor|dependency|performance|ui|multi] [--requirement "<part>"]…'); return 3; }
-  const inferred = inferTaskKinds(text);
+  const inferred = inferTaskKinds([text, ...requirements].join(' '));
   let kinds: TaskKind[];
   if (kindFlag !== null) {
     if (!(TASK_KINDS as readonly string[]).includes(kindFlag)) { o.verdict('NEEDS ATTENTION', `unknown task kind "${kindFlag.slice(0, 40)}" — one of: ${TASK_KINDS.join(', ')}.`, 're-run with --kind <one of those>, or omit --kind and let Canary infer'); return 3; }
@@ -1342,6 +1328,10 @@ export function cmdTask(rawArgs: string[]): number {
     kinds = [...new Set([kindFlag as TaskKind, ...inferred])];
   } else kinds = inferred;
   if (requirementCount > 0 && !kinds.includes('multi')) kinds.push('multi');
+  let task: TaskIdentity;
+  try { task = declaredTask(text, kinds, requirements); }
+  catch (e) { o.say(`REFUSED — ${(e as Error).message}`); return 2; }
+
   try {
     if (containedRealPath(root, path.join(root, CONFIG_DIR)) === null) {
       o.verdict('NEEDS ATTENTION', '.canary resolves outside the repository (a link?) — Canary will not write through it.', 'replace it with a real folder, then re-run'); return 2;
@@ -1352,14 +1342,7 @@ export function cmdTask(rawArgs: string[]): number {
     }
     fs.mkdirSync(path.dirname(taskPath), { recursive: true });
     writeFileAtomic(taskPath, JSON.stringify({
-      schema: 'canary-task/1', at: new Date().toISOString(),
-      // M3/M4 doctrine: prose is digested, never stored — the record cannot become a smuggling channel for agent text
-      taskDigest: text ? sha256(text.slice(0, 4000)) : null,
-      kinds, requirementCount,
-      // GLM F-3: one digest per listed requirement — identity without prose
-      // (M3/M4 doctrine unchanged). An acceptance binds to THESE, so replacing
-      // same-count requirements invalidates it.
-      requirementDigests: requirements.slice(0, 64).map((r) => sha256(r.slice(0, 4000))),
+      schema: 'canary-task/2', at: new Date().toISOString(), ...task,
       trustClass: 'AGENT_REPORTED',
       authority: 'ZERO — registering a task can only ADD proof obligations; the sealed plan is the floor no declaration lifts',
     }, null, 2) + '\n');
@@ -1367,6 +1350,7 @@ export function cmdTask(rawArgs: string[]): number {
     o.verdict('NEEDS ATTENTION', `could not record the task (${String(e).slice(0, 140)}).`, 'fix the file/permission, then re-run'); return 2;
   }
   o.say(`task registered: ${kinds.length ? kinds.join(' + ') : 'no kind inferred'}${requirementCount ? ` (${requirementCount} requirement(s))` : ''}.`);
+  for (const target of task.objectiveTargets) o.say(`objective ${target.kind} target: ${target.digest} — matching proof must be sealed via package.json canary.proofs`);
   o.say('this is an AGENT_REPORTED hint with zero authority — the next checkpoint proves the sealed plan PLUS this task\'s obligations; nothing here weakens either.');
   if (text !== '' && inferred.length === 0) {
     // blocker 3: the intent was understood by NO pattern. The honest move is
@@ -1563,6 +1547,10 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
 
   const { pm, note } = detectPm(root);
   const plan = detectPlan((pkg.scripts ?? {}) as Record<string, unknown>);
+  let seal: PlanAuthority;
+  try { seal = sealPlanAuthority(plan, (pkg.scripts ?? {}) as Record<string, unknown>, (pkg.canary as { proofs?: unknown } | undefined)?.proofs); }
+  catch (e) { o.say(`REFUSED — ${(e as Error).message}`); return 2; }
+
   o.say(`repo: ${root}`);
   o.say(`package manager: ${pm} (${note})`);
   if (!plan.length) {
@@ -1606,7 +1594,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const baselineStatus = gitWithinRoot(root, ['status', '--porcelain', '--', '.', `:(exclude)${ownSettings}`]);
   // M5: whatever plan and script texts are on disk RIGHT NOW are what the
   // setup run is now sealing — they become the sealed authority.
-  const seal = sealPlanAuthority(plan, (pkg.scripts ?? {}) as Record<string, unknown>);
+
   // A re-setup under byte-identical authority keeps the ORIGINAL stamps:
   // installedAt and planAuthority.at record WHEN THESE BYTES WERE LAST
   // GENUINELY RE-SEALED by a setup run,
@@ -1621,6 +1609,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const reuse = prevCfg && prevAuth && prevCfg.pm === pm
     && prevAuth.planDigest === seal.planDigest
     && JSON.stringify(prevAuth.scriptDigests) === JSON.stringify(seal.scriptDigests)
+    && JSON.stringify(prevAuth.proofBindings ?? {}) === JSON.stringify(seal.proofBindings ?? {})
     && prevCfg.baseline?.head === baselineId.head ? prevCfg : null;
   const cfg: CanaryConfig = {
     version: 'product-0.1', installedAt: reuse?.installedAt ?? new Date().toISOString(), pm, plan,
@@ -1840,7 +1829,7 @@ export function cmdDoctor(rawArgs: string[]): number {
   // here, so only the registered task hint participates; unattributable states
   // say UNPROVEN rather than pretending to a verdict).
   const task = readTaskRecord(root);
-  const obligations = obligationsFor(task?.kinds ?? [], collectDiffSignals(root, cfg), new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0);
+  const obligations = obligationsFor(task?.kinds ?? [], collectDiffSignals(root, cfg), new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'setup', task, cfg);
   const unmet = obligations.filter((x) => x.status === 'unmet');
   const unproven = obligations.filter((x) => x.status === 'unproven');
   if (unmet.length > 0) {
@@ -1983,7 +1972,7 @@ export async function cmdCheckpoint(): Promise<number> {
     const kinds = task && task.kinds.length > 0
       ? task.kinds
       : (typeof input.task === 'string' && input.task.trim() ? inferTaskKinds(input.task.trim().slice(0, 4000)) : []);
-    const obligations = obligationsFor(kinds, collectDiffSignals(root, cfg), new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0);
+    const obligations = obligationsFor(kinds, collectDiffSignals(root, cfg), new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'setup', task, cfg);
     const unmet = obligations.filter((x) => x.status === 'unmet');
     const unproven = obligations.filter((x) => x.status === 'unproven');
     if (unmet.length > 0) {
