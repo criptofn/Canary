@@ -220,6 +220,7 @@ const STEPS = [
   ['1.1 P0 trust-store wiring tests', process.execPath, ['--test', 'apps/cli/dist/test/trust-wiring.test.js'], {}],
   ['1.1 §12-17 ecosystems + polyglot composition (in project-adapter tests)', process.execPath, ['--test', 'apps/cli/dist/test/project-adapter.test.js'], {}],
   ['1.1 §21 machine-readable protocol tests', process.execPath, ['--test', 'apps/cli/dist/test/protocol.test.js'], {}],
+  ['1.1 §18-21 agent capability + advisory integration tests', process.execPath, ['--test', 'apps/cli/dist/test/agents.test.js'], {}],
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: M2 claims-not-evidence (real git)', process.execPath, ['tooling/probes/m2-claims-not-evidence.mjs'], {}],
   ['probe: M3 trust-classes (real git)', process.execPath, ['tooling/probes/m3-trust-classes.mjs'], {}],

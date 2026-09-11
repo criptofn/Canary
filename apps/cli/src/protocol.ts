@@ -44,6 +44,19 @@ export interface ProtocolAgent {
   hooked: boolean;
 }
 
+/** One agent integration, with its honest capability. `gating: false` is not a
+ *  failure — it is the difference between "blocked until fixed" and "told, but
+ *  free to ignore", and a caller must be able to tell them apart. */
+export interface ProtocolIntegration {
+  id: string;
+  label: string;
+  gating: boolean;
+  detected: boolean;
+  /** For advisory integrations: is the AGENTS.md block currently installed? */
+  advisoryInstalled?: boolean;
+  summary: string;
+}
+
 export interface ProtocolEnvelope {
   schema: string;
   command: string;
@@ -54,6 +67,7 @@ export interface ProtocolEnvelope {
   checks?: ProtocolCheck[];
   security?: ProtocolSecurity;
   agent?: ProtocolAgent;
+  integrations?: ProtocolIntegration[];
   problems?: string[];
   /** The one thing to do next, when there is one. */
   next?: string;

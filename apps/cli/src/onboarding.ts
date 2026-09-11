@@ -64,7 +64,8 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // names it used to own so every existing importer (candidate.ts, the contract
 // tests) compiles and behaves unchanged while the seam gains a second owner.
 import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, sealPlanAuthority, sha256, stepArgv } from './project.js';
-import { emitEnvelope, PROTOCOL_RESULT, PROTOCOL_STATUS, type ProtocolEnvelope } from './protocol.js';
+import { emitEnvelope, PROTOCOL_RESULT, PROTOCOL_STATUS, type ProtocolEnvelope, type ProtocolIntegration } from './protocol.js';
+import { AGENT_INTEGRATIONS, hasAdvisory, installAdvisory, removeAdvisory } from './agents.js';
 import type { PlanAuthority, PlanStep } from './project.js';
 // 1.1 P0 — the sealed authority store outside the repo. In this slice the
 // store is SEALED at setup and REPORTED at status/doctor; no v1.0 verdict
@@ -2304,5 +2305,71 @@ export function cmdResult(rawArgs: string[]): number {
     cp ? `last recorded completion: ${cp.status} (${cp.source}) at ${cp.at} — a past run, not a claim about now`
       : 'no completion has been checked here yet — the wiring is sound, but nothing has been proven',
     'to check the code now: canary doctor');
+  return 0;
+}
+
+/**
+ * 1.1 §18–21 — `canary agents`: which agents work here, what each can ACTUALLY
+ * do, and install/uninstall of the ADVISORY integration where no hook can gate.
+ *
+ * This command exists because "we support your agent" is the kind of sentence
+ * that hides a lie. Every integration is listed with its real capability: GATED
+ * means a completion can be blocked; ADVISORY means the agent is told and may
+ * ignore it. Nothing here pretends to gate, and nothing is installed unless the
+ * user asks for it by name.
+ */
+export function cmdAgents(rawArgs: string[]): number {
+  const { opts, rest } = parseGlobals(rawArgs);
+  const o = new Out(opts.verbose, opts.json);
+  o.context({ command: 'agents' });
+  const pos = rest.filter((a) => !a.startsWith('--'));
+  const mode = pos[0] === 'install' || pos[0] === 'uninstall' ? pos[0] : null;
+  const id = mode ? pos[1] : undefined;
+  const dirToken = mode ? pos[2] : pos[0];
+  const root = findRepoRoot(dirToken ?? process.cwd());
+  if (!root) { o.verdict('NOT CONNECTED', 'not inside a git repository — there is no project to integrate an agent with.', 'cd into your project, then: canary setup --yes'); return 2; }
+  o.context({ root });
+
+  const found = new Set(detectHarnesses(root).found.map((h) => h.name));
+  const advisory = hasAdvisory(root);
+  const integrations: ProtocolIntegration[] = AGENT_INTEGRATIONS.map((a) => ({
+    id: a.id,
+    label: a.label,
+    gating: a.gating,
+    detected: a.id === 'generic' ? true : found.has(a.id),
+    ...(a.gating ? {} : { advisoryInstalled: advisory }),
+    summary: a.summary,
+  }));
+  o.context({ integrations, agent: agentCapability(root) });
+
+  if (mode !== null) {
+    const advisoryIds = AGENT_INTEGRATIONS.filter((a) => !a.gating).map((a) => a.id).join(', ');
+    if (id === undefined) { o.verdict('NEEDS ATTENTION', `agents ${mode} needs an integration id.`, `advisory integrations: ${advisoryIds} (example: canary agents ${mode} codex)`); return 2; }
+    const integration = AGENT_INTEGRATIONS.find((a) => a.id === id);
+    if (!integration) { o.verdict('NEEDS ATTENTION', `"${id}" is not an agent integration Canary knows.`, `known: ${AGENT_INTEGRATIONS.map((a) => a.id).join(', ')}`); return 2; }
+    if (integration.gating) { o.verdict('NEEDS ATTENTION', `${integration.label} is a GATING integration — it is installed by setup, not by an advisory command, so its hook keeps one owner.`, 'run: canary setup --yes'); return 2; }
+    const res = mode === 'install' ? installAdvisory(root) : removeAdvisory(root);
+    if (!res.ok) { o.verdict('NEEDS ATTENTION', res.problem, 'fix that file, then re-run'); return 2; }
+    o.verdict('CONNECTED',
+      res.changed
+        ? `advisory integration ${mode === 'install' ? 'installed' : 'removed'} in ${rel(root, res.file)} — it tells the agent to consult Canary before claiming completion, and it is ADVISORY: it cannot block anything.`
+        : `nothing changed — the advisory block was already ${mode === 'install' ? 'present' : 'absent'} in ${rel(root, res.file)}.`,
+      mode === 'install' ? 'to confirm the checks run: canary doctor' : 'to reinstall: canary agents install codex');
+    return 0;
+  }
+
+  o.say(`repo: ${root}`);
+  o.say('agent integrations (GATED = can block a completion; ADVISORY = the agent is told and may ignore it):');
+  for (const i of integrations) {
+    const extra = i.gating ? '' : ` [AGENTS.md block ${advisory ? 'installed' : 'not installed'}]`;
+    o.say(`  ${i.gating ? 'GATED   ' : 'ADVISORY'} ${i.label} — ${i.detected ? 'detected' : 'not detected'}${extra}`);
+    o.detail(i.summary);
+  }
+  const gated = integrations.filter((i) => i.gating && i.detected);
+  if (gated.length === 0) {
+    o.verdict('NEEDS ATTENTION', 'no agent here can be GATED today — a completion can be checked, but nothing can block it.', 'any agent can use the protocol directly: canary result --json');
+    return 2;
+  }
+  o.verdict('CONNECTED', `${gated.map((i) => i.label).join(', ')} can gate completions here.`, 'to confirm end to end: canary doctor');
   return 0;
 }

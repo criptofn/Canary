@@ -51,7 +51,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
-import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, cmdResult } from './onboarding.js';
+import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, cmdResult, cmdAgents } from './onboarding.js';
 import { cmdIsolate, cmdAccept } from './candidate.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
@@ -79,6 +79,11 @@ usage:
                             MEASURED custody level, harness capability, last checkpoint)
                             and no log dump — full evidence stays in the files the envelope
                             names. Never runs the plan, so it is free to call
+  canary agents             which agents work in this repo and at what capability:
+                            GATED (a completion can be blocked) vs ADVISORY (the agent
+                            is told and may ignore it). "canary agents install codex"
+                            adds a marked, removable AGENTS.md instruction block; no
+                            command ever pretends a hook exists where none does
   canary doctor             is Canary actually protecting this repo? Runs the checks now;
                             READY / NEEDS ATTENTION / UNSUPPORTED (--run accepted, always on)
   canary uninstall          remove Canary's own changes, keep everything else
@@ -354,6 +359,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'setup') return cmdSetup(rest);
   if (cmd === 'status') return cmdStatus(rest);
   if (cmd === 'result') return cmdResult(rest); // 1.1 §21: the machine-readable state answer for agents
+  if (cmd === 'agents') return cmdAgents(rest); // 1.1 §18-21: which agents work here, and at what capability
   if (cmd === 'doctor') return cmdDoctor(rest);
   if (cmd === 'uninstall') return cmdUninstall(rest);
   if (cmd === 'checkpoint') return cmdCheckpoint();
