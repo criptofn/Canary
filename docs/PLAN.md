@@ -1,9 +1,13 @@
 # Canary Migration Plan — from Golden-Snapshot Prototype to Dependency Regression Detection
 
-Status: IMPLEMENTED (v0.1 alpha / proof-of-concept — see the round-1..4 ledgers
-under docs/ and the golden fixture under fixtures/). This document is the
-original plan; where it and the shipped code disagree, THE CODE IS THE TRUTH
-and §6 below has been kept current with it.
+Status: HISTORICAL — the original migration plan, kept because §6 is the decision
+table the classifier implements. Its "v0.1 alpha" framing is out of date: 1.0.0
+shipped 2026-09-10 (`docs/RELEASE-1.0-REVIEW.md`) and a v1.1 implementation
+candidate exists on the development branch (`CHANGELOG.md`). Read
+[`COMPATIBILITY.md`](COMPATIBILITY.md) for what is supported now and
+[`CAPABILITY-LEVELS.md`](CAPABILITY-LEVELS.md) for what Canary can honestly
+protect. Where this document and the code disagree, THE CODE IS THE TRUTH, and §6
+below is kept current with it.
 Date: 2026-08-30 (plan) · §6 updated 2026-09-01 to match the round-4 decision table
 
 ---
