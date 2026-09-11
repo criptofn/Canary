@@ -209,6 +209,7 @@ const STEPS = [
   ['M9 authority contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m9-authority.test.js'], {}],
   ['M10 obligations contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m10-obligations.test.js'], {}],
   ['1.1 §1 project-adapter contract tests', process.execPath, ['--test', 'apps/cli/dist/test/project-adapter.test.js'], {}],
+  ['1.1 P0 trust-store sealing contract tests', process.execPath, ['--test', 'apps/cli/dist/test/trust-store.test.js'], {}],
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: M2 claims-not-evidence (real git)', process.execPath, ['tooling/probes/m2-claims-not-evidence.mjs'], {}],
   ['probe: M3 trust-classes (real git)', process.execPath, ['tooling/probes/m3-trust-classes.mjs'], {}],
