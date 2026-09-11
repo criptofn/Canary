@@ -158,11 +158,12 @@ feature('Rust: cargo-compatible path', () => {
 feature('Go: go-compatible path', () => {
   const v = toolchainWithLocal('go');
   if (v === null) return skip('no Go toolchain (system or workspace-local) — run: node tooling/toolchains.mjs go');
-  return skip(`toolchain present (${v}) and channel facts measured, but a Go STEP cannot run yet: under the sanitized `
-    + 'env Go aborts with "build cache is required, but could not be located: GOCACHE is not defined and %LocalAppData% '
-    + 'is not defined" (HOME/USERPROFILE are redirected, so Go cannot derive a cache). The fix is for the Go adapter to '
-    + 'declare a workspace-scoped GOCACHE/GOPATH through the same narrow injection the observer env uses — recorded, '
-    + 'not silently skipped');
+  // A REAL Go project through the product: setup seals an absolute `go` path,
+  // doctor executes `go test ./...` and `go vet ./...` under the sanitized env.
+  const out = runProbe('tooling/probes/go-project-e2e.mjs', 'go-project-e2e', { status: 0, match: /go project e2e: ALL PASS/ });
+  assertMatch(out, /READY/, 'doctor must reach READY on a green Go project');
+  assertMatch(out, /deliberate failure|failing Go test/, 'and a failing Go test must turn the verdict');
+  return { note: `${v}; setup + doctor executed the sealed Go plan under the sanitized env, and a deliberately broken test correctly failed the run` };
 });
 
 feature('Polyglot at the root: Node + a DECLARED Python scope', () => {

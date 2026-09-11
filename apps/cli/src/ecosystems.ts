@@ -56,6 +56,17 @@ interface Ecosystem {
   /** Programs the checks need; setup pins these to absolute paths. */
   programs: readonly string[];
   discover(root: string): { checks: EcoCheck[]; note: string; reason: string; confidence: 'high' | 'medium' | 'low' } | null;
+  /**
+   * Environment this ecosystem's programs need under Canary's SANITIZED env, or
+   * undefined when they need none (see `ProjectAdapter.toolchainEnv`).
+   *
+   * Measured, not speculative: under the sanitized env Go aborts with
+   * `build cache is required, but could not be located: GOCACHE is not defined
+   * and %LocalAppData% is not defined`, and declaring a workspace-scoped
+   * GOCACHE/GOPATH was VERIFIED to make `go test` and `go test -json` run inside
+   * a Canary step (tooling/probes/runner-channels-rust-go.mjs).
+   */
+  toolchainEnv?(ctx: { dir: string; workspace: string }): Record<string, string>;
 }
 
 /** Comment and prose lines removed. A tool named in a sentence is not a
@@ -180,6 +191,16 @@ const goEcosystem: Ecosystem = {
   manifests: ['go.mod', 'go.work'],
   dependencyPaths: ['go.mod', 'go.sum', 'go.work', 'go.work.sum'],
   programs: ['go'],
+  // The one ecosystem whose toolchain cannot run under Canary's sanitized env
+  // without a declaration: Go derives its build cache from HOME/%LocalAppData%,
+  // and both are redirected. Workspace-scoped, so `sanitizedEnv` accepts it and a
+  // project cannot steer it.
+  toolchainEnv: ({ workspace }) => ({
+    GOCACHE: path.join(workspace, 'canary-toolchain', 'go-build'),
+    GOPATH: path.join(workspace, 'canary-toolchain', 'go-path'),
+    // Never let a step silently download a different toolchain mid-verification.
+    GOTOOLCHAIN: 'local',
+  }),
   discover(root) {
     if (!has(root, 'go.mod', 'go.work')) return null;
     const checks: EcoCheck[] = [
@@ -224,6 +245,9 @@ export function commandAdapter(eco: Ecosystem): ProjectAdapter {
   const discoverStep = (root: string): EcoCheck[] => eco.discover(root)?.checks ?? [];
   return {
     id: eco.id,
+    // Passed through so the executor can put the toolchain's own needs into the
+    // child environment; absent for ecosystems that need none.
+    ...(eco.toolchainEnv !== undefined ? { toolchainEnv: eco.toolchainEnv } : {}),
     detect(root): ProjectDetection {
       const found = eco.discover(root);
       if (found === null) return { detected: false, confidence: 'high', reason: `no ${eco.manifests.join(' / ')}` };

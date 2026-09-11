@@ -47,6 +47,24 @@ export interface EnvOptions {
    * need nothing here.
    */
   observer?: ObserverInjection | undefined;
+  /**
+   * TOOLCHAIN environment declared by a PROJECT ADAPTER (v1.1, Phase 2 follow-up).
+   *
+   * WHY THIS EXISTS, with the measurement that forced it: under this sanitized
+   * environment Go aborts with `build cache is required, but could not be
+   * located: GOCACHE is not defined and %LocalAppData% is not defined`, because
+   * HOME/USERPROFILE are redirected and Go derives its cache from them. Verified
+   * fix (tooling/probes/runner-channels-rust-go.mjs): declaring a
+   * workspace-scoped GOCACHE/GOPATH makes `go test` — and `go test -json` — run
+   * inside a Canary step.
+   *
+   * Containment is the same as the observer door and for the same reason (audit
+   * F9 / master-pass M7 must stay dead): the KEYS come from a fixed allowlist and
+   * every PATH-shaped value must resolve inside Canary's own workspace, so an
+   * adapter — which is product code, never project input — still cannot point a
+   * toolchain at a subject-chosen directory.
+   */
+  toolchain?: ToolchainInjection | undefined;
 }
 
 export interface ObserverInjection {
@@ -58,7 +76,18 @@ export interface ObserverInjection {
   nonce: string;
 }
 
-export function sanitizedEnv({ ws, nodeDir, materialize = true, observer }: EnvOptions): NodeJS.ProcessEnv {
+/** Variables an adapter may declare, and nothing else. */
+export const TOOLCHAIN_ENV_KEYS: ReadonlySet<string> = new Set([
+  'GOCACHE', 'GOPATH', 'GOTOOLCHAIN', 'GOFLAGS', 'GOROOT',
+  'CARGO_HOME', 'RUSTUP_HOME', 'RUSTUP_TOOLCHAIN', 'CARGO_TERM_COLOR',
+]);
+
+export interface ToolchainInjection {
+  /** Allowlisted keys, values computed by Canary-side adapter code. */
+  env: Record<string, string>;
+}
+
+export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolchain }: EnvOptions): NodeJS.ProcessEnv {
   const systemRoot = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
   const home = path.join(ws.root, 'isolated-home');
   const tmp = path.join(ws.root, 'tmp');
@@ -84,6 +113,25 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true, observer }: EnvO
       observed.PYTHONPATH = dirReal;
       observed.PYTHONNOUSERSITE = '1'; // keep a host user-site-packages tree out of the observation
       observed.CANARY_OBSERVER_NONCE = observer.nonce;
+    }
+  }
+  // Adapter-declared toolchain variables, under the same containment rule.
+  if (toolchain !== undefined) {
+    const wsReal = (() => { try { return fs.realpathSync(ws.root); } catch { return path.resolve(ws.root); } })();
+    for (const [key, value] of Object.entries(toolchain.env)) {
+      if (!TOOLCHAIN_ENV_KEYS.has(key)) {
+        throw new Error(`adapter declared toolchain variable "${key}", which is not in Canary's toolchain allowlist`);
+      }
+      // Any value that LOOKS like a path must live inside Canary's workspace; a
+      // plain token (GOTOOLCHAIN=local, GOFLAGS=-mod=mod) is taken as declared.
+      if (path.isAbsolute(value)) {
+        const resolved = (() => { try { return fs.realpathSync(value); } catch { return path.resolve(value); } })();
+        const rel = path.relative(wsReal, resolved);
+        if (rel !== '' && (rel.startsWith('..') || path.isAbsolute(rel))) {
+          throw new Error(`adapter declared ${key}=${value}, which is outside Canary's workspace (${wsReal})`);
+        }
+      }
+      observed[key] = value;
     }
   }
 
@@ -248,6 +296,8 @@ export interface RunOptions {
    * inside Canary's workspace root — see `ObserverInjection`.
    */
   observer?: ObserverInjection;
+  /** Adapter-declared toolchain variables (see EnvOptions.toolchain). */
+  toolchain?: ToolchainInjection;
 }
 
 export interface RunOutcome {

@@ -379,6 +379,24 @@ export interface ProjectAdapter {
    *  list) or the step refuses with a message naming the problem. Empty is a
    *  complete answer: it means "the baseline dirs are enough". */
   readonly trustedProgramDirs: readonly string[];
+  /**
+   * Environment THIS ecosystem's toolchain needs in order to run at all under
+   * Canary's sanitized environment, or undefined when it needs none.
+   *
+   * WHY IT IS THE ADAPTER'S JOB: a step child gets `sanitizedEnv` — PATH limited
+   * to the Node install dir plus the OS dirs, HOME/USERPROFILE redirected into the
+   * workspace. Measured consequence (tooling/probes/runner-channels-rust-go.mjs):
+   * Go aborts with `build cache is required, but could not be located: GOCACHE is
+   * not defined and %LocalAppData% is not defined`, because it derives its cache
+   * from HOME. The fix that was VERIFIED before this existed: declare a
+   * workspace-scoped GOCACHE/GOPATH.
+   *
+   * `workspace` is Canary's own scratch root; every path-shaped value must resolve
+   * inside it (enforced in `sanitizedEnv`), so an adapter cannot point a toolchain
+   * at a subject-chosen directory. Declared by reviewed product code only: a
+   * PROJECT cannot contribute anything here.
+   */
+  toolchainEnv?(ctx: { dir: string; workspace: string }): Record<string, string>;
 }
 
 export const nodeAdapter: ProjectAdapter = {

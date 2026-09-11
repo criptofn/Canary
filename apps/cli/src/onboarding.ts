@@ -524,6 +524,20 @@ export function trustedDirs(): string[] {
 const hardenedEnv = (fixture: string): NodeJS.ProcessEnv =>
   sanitizedEnv({ ws: { root: os.tmpdir(), fixture }, nodeDir: NODE_DIR });
 
+/**
+ * The SAME environment door, plus the toolchain variables the step's own
+ * ecosystem declared (`ProjectAdapter.toolchainEnv`).
+ *
+ * A second function rather than a wider signature on purpose: the two lines above
+ * are the anchor the master-pass M7 mutation pins ("merge the CALLER environment
+ * under the sanitized one" must stay dead), and widening that expression would
+ * have moved the anchor for no gain. This door adds only what an adapter
+ * declared, and `sanitizedEnv` still enforces the key allowlist and workspace
+ * containment on every value.
+ */
+const hardenedEnvWithToolchain = (fixture: string, toolchain: Record<string, string>): NodeJS.ProcessEnv =>
+  sanitizedEnv({ ws: { root: os.tmpdir(), fixture }, nodeDir: NODE_DIR, toolchain: { env: toolchain } });
+
 /** Compact executable identity for evidence: sha256 where cheap, size where not. */
 export function execDigest(p: string): string | null {
   try {
@@ -701,10 +715,11 @@ export function pinPlanPrograms(plan: PlanStep[]): { plan: PlanStep[]; problems:
 
 /** Shared spawn for a resolved pm: the plan runner and doctor's liveness
  *  probe must consult the SAME bytes, so they share this one door. */
-function spawnHardened(resolved: ResolvedPm, args: string[], cwd: string, timeoutMs: number) {
+function spawnHardened(resolved: ResolvedPm, args: string[], cwd: string, timeoutMs: number, toolchain?: Record<string, string>) {
   return spawnSync(resolved.spawnArgv[0], [...resolved.spawnArgv.slice(1), ...args], {
     cwd, encoding: 'utf8', timeout: timeoutMs,
-    env: hardenedEnv(cwd), shell: false, windowsHide: true,
+    env: toolchain !== undefined && Object.keys(toolchain).length > 0 ? hardenedEnvWithToolchain(cwd, toolchain) : hardenedEnv(cwd),
+    shell: false, windowsHide: true,
     maxBuffer: 32 * 1024 * 1024,
   });
 }
@@ -756,8 +771,17 @@ export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs 
   // `ENOENT ... package.json`, which the smoke caught. `scopeDir` is the same
   // function the plan problems and the sealing use, so there is one answer.
   const cwd = scopeDir(root, step);
+  // The step's OWN ecosystem declares what its toolchain needs under the
+  // sanitized env (e.g. Go's workspace-scoped GOCACHE/GOPATH). A legacy step has
+  // no adapter and therefore no declaration — and needs none.
+  const toolchain = (() => {
+    try {
+      const adapter = adapterForStep({}, step);
+      return adapter.toolchainEnv?.({ dir: cwd, workspace: os.tmpdir() });
+    } catch { return undefined; }
+  })();
   const startedAt = new Date().toISOString();
-  const r = spawnHardened(resolved, argv.slice(1), cwd, timeoutMs);
+  const r = spawnHardened(resolved, argv.slice(1), cwd, timeoutMs, toolchain);
   const stdout = r.stdout ?? '';
   const stderr = r.stderr ?? '';
   const out = `${stdout}${stderr}`;

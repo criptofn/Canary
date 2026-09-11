@@ -282,6 +282,30 @@ console.log(`\nRESULT: go usable in a sanitized env: ${goSanitizedOk}; `
   + `cargo direct: ${cargoDirect === null ? 'not present' : String(cargoDirect.status === 0)}`);
 console.log('This is what decides whether a Go/Rust step can run INSIDE Canary, as opposed to');
 console.log('on a developer shell: a toolchain that needs the caller\'s HOME is not runnable by a step.');
+
+// ═════ the PROPOSED fixes, measured BEFORE any product code is written ═════
+// A finding is only useful if its fix is known to work, so these runs test the
+// exact declarations the adapters would make: a workspace-scoped cache for Go.
+console.log('\n=== proposed adapter declaration, tested ===');
+const wsCache = path.join(TMP, 'toolchain-state');
+fs.mkdirSync(wsCache, { recursive: true });
+const goCacheEnv = sanitized({ GOCACHE: path.join(wsCache, 'go-build'), GOPATH: path.join(wsCache, 'go-path'), GOTOOLCHAIN: 'local' });
+const goFixed = run(GO, ['test', './...'], { cwd: mod, env: goCacheEnv });
+console.log(`-- go test with a workspace-scoped GOCACHE/GOPATH (exit ${goFixed.status}) --`);
+console.log(((goFixed.stdout ?? '') + (goFixed.stderr ?? '')).trim().split('\n').slice(0, 3).join('\n'));
+const goJsonFixed = goFixed.status === 0 ? run(GO, ['test', '-json', './...'], { cwd: mod, env: goCacheEnv }) : null;
+const fixedEvents = (goJsonFixed?.stdout ?? '').split('\n').filter((l) => l.trim().startsWith('{'))
+  .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+  .filter((e) => e !== null && e.Action === 'pass' && typeof e.Test === 'string');
+console.log(`-- go test -json with the declared cache (exit ${goJsonFixed?.status ?? 'not run'}) -- per-test pass events: ${fixedEvents.length}`);
+
+check('MEASURED: a workspace-scoped GOCACHE/GOPATH makes Go runnable inside a Canary step', () => {
+  assert(goFixed.status === 0, 'the proposed Go declaration does not make go runnable under the sanitized env — the adapter fix would not work');
+  assert(goJsonFixed !== null && goJsonFixed.status === 0, 'the fixed env must also work with -json');
+  assert(fixedEvents.length === 2, `expected 2 per-test pass events with the fixed env, got ${fixedEvents.length}`);
+});
+
+console.log(`\n=== rust/go channel measurements: ${failures === 0 ? (rustSkipped === 0 ? 'ALL FACTS ESTABLISHED' : `facts established with ${rustSkipped} honest SKIP`) : `${failures} FAIL`} ===`);
 console.log(`later validation command for a Rust host WITH a usable linker (MSVC Build Tools, or the GNU toolchain):`);
 console.log(`  node tooling/toolchains.mjs rust && node tooling/probes/runner-channels-rust-go.mjs`);
 console.log(`  (it measures whether stable libtest exposes a per-test event stream and whether`);

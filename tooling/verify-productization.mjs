@@ -242,6 +242,10 @@ const STEPS = [
   ['1.1 §21 machine-readable protocol tests', process.execPath, ['--test', 'apps/cli/dist/test/protocol.test.js'], {}],
   ['1.1 §18-21 agent capability + advisory integration tests', process.execPath, ['--test', 'apps/cli/dist/test/agents.test.js'], {}],
   ['1.1 §14 real-Python end-to-end (no package.json)', process.execPath, ['--test', 'apps/cli/dist/test/python-e2e.test.js'], {}],
+  // A REAL Go project verified end to end (setup -> doctor), which proves the Go
+  // adapter's toolchain declaration works through the PRODUCT rather than in a
+  // hand-run shell. SKIPs (exit 3) where no Go toolchain exists.
+  ['probe: real Go project end-to-end (setup -> doctor)', process.execPath, ['tooling/probes/go-project-e2e.mjs'], {}],
   ['1.1 §35 metrics record (off by default, never changes a verdict)', process.execPath, ['--test', 'apps/cli/dist/test/metrics.test.js'], {}],
   ['1.1 §22 workflow (work -> finish) tests', process.execPath, ['--test', 'apps/cli/dist/test/orchestrate.test.js'], {}],
   ['1.1 §23 fast-path decision tests (fail-closed rules)', process.execPath, ['--test', 'apps/cli/dist/test/fastpath.test.js'], {}],
