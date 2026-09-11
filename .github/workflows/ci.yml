@@ -8,18 +8,35 @@ on:
   schedule:
     - cron: '17 6 * * 1'   # weekly: the golden proof must keep holding
 
+# Superseded pull-request runs are wasted work; main/tag runs are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 jobs:
   core:
     name: build + unit/integration tests (offline)
     strategy:
+      # Both OS legs must report. With the default (fail-fast: true) an Ubuntu
+      # failure CANCELS the Windows leg, so a Windows-only break was invisible
+      # in exactly the runs where it mattered.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Actions are pinned by commit SHA (supply chain). Dependabot
+      # (.github/dependabot.yml) is what keeps these pins current — do not
+      # hand-edit a SHA to a tag.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+          cache: npm
       - run: npm ci --no-audit --no-fund   # audit S3: reproducible, lockfile-exact install
       - run: npm run build
       - run: node --test "packages/**/dist/test/*.test.js" "apps/**/dist/test/*.test.js"
@@ -32,10 +49,16 @@ jobs:
 
   golden-proof:
     name: golden regression proof (axios 0.27.2 -> 1.0.0) — DESIGNATED PROOF HOST
-    needs: core
+    # Deliberately INDEPENDENT of `core`. This job is the committed proof host and
+    # the flagship evidence claim; while it was gated behind the matrix it
+    # returned `skipped` on every run whose Ubuntu leg failed — i.e. the proof
+    # went unexecuted while the workflow still reported a verdict. A proof that
+    # can be silently skipped is not a proof. It now runs on every push, every
+    # tag and every weekly schedule, and reports its own verdict.
     runs-on: windows-latest   # fixture proven on Windows; ubuntu parity TBD
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Round-3 B3: this job IS the committed proof host (win32/x64/
       # node 26.3.0/npm 11.16.0 + the nodeExecSha256 exec-bytes pin, independent-audit
       # F2, per the proof file's proofHost block — setup-node installs the
@@ -46,7 +69,7 @@ jobs:
       # (exit 2) and fail the job. If the pins move, the proof file's
       # proofHost/environment blocks must be re-cut on a machine that
       # genuinely runs the new versions.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 26.3.0
       - run: npm install -g npm@11.16.0   # exact npm pin: the proof host identity includes npm
@@ -66,7 +89,7 @@ jobs:
         shell: bash
       - name: upload evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: evidence-bundle
           path: .canary-runs/**/artifacts/

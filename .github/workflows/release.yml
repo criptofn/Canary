@@ -1,0 +1,118 @@
+name: canary-release
+
+# Tag-driven release. Today the shipped tarball is built by hand from a local
+# checkout (`npm run build` + `node tooling/pack.mjs`) and uploaded manually,
+# which is how the published asset drifted one commit behind main. This workflow
+# makes the artifact reproducible from the tag alone, publishes it with a
+# verifiable build provenance attestation, and (when an npm token is configured)
+# publishes the same bytes to the registry.
+#
+# Division of labour: VERIFICATION is canary-ci's job, and canary-ci already runs
+# on tag pushes. This workflow does not re-run the unit suite, so a tag cut from
+# an unverified tree can still be packaged — that residual is stated rather than
+# hidden. In practice: confirm canary-ci is green for the tagged commit first.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build, hash and attest, but do not create/update the GitHub release or publish'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write       # create/update the release and upload assets
+  id-token: write       # OIDC: build-provenance attestation + npm provenance
+  attestations: write
+
+jobs:
+  release:
+    name: pack, attest, release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0   # needed for the ancestry check below
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Tag, root manifest and CLI manifest must agree
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          ROOT="$(node -p "require('./package.json').version")"
+          CLI="$(node -p "require('./apps/cli/package.json').version")"
+          echo "tag=$TAG root=$ROOT cli=$CLI"
+          if [ "$TAG" != "$CLI" ]; then
+            echo "FAIL: tag $GITHUB_REF_NAME does not match apps/cli/package.json version $CLI"
+            echo "The packed tarball takes its version from the CLI manifest (tooling/pack.mjs)."
+            exit 1
+          fi
+          if [ "$ROOT" != "$CLI" ]; then
+            echo "FAIL: root package.json ($ROOT) and apps/cli/package.json ($CLI) disagree."
+            echo "Source libraries are internal and versioned separately; the shipped CLI and the"
+            echo "root manifest are the public identity and must not drift."
+            exit 1
+          fi
+
+      - name: Tagged commit must be on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          echo "OK: $GITHUB_SHA is an ancestor of main"
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
+      - name: Pack the distributable bundle
+        run: node tooling/pack.mjs
+
+      - name: Checksum the artifact
+        run: |
+          set -euo pipefail
+          cd pack
+          ls -l
+          sha256sum ./*.tgz > "$(basename "$(ls ./*.tgz)").sha256"
+          cat ./*.sha256
+
+      # Provenance for the exact bytes being published, verifiable with
+      #   gh attestation verify <tgz> --repo criptofn/Canary
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: pack/*.tgz
+
+      - name: Publish the GitHub release
+        if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ASSETS=(pack/*.tgz pack/*.tgz.sha256)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME exists — updating assets"
+            gh release upload "$GITHUB_REF_NAME" "${ASSETS[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${ASSETS[@]}" \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+
+      # Registry publishing is optional and fails closed on its own precondition:
+      # it needs a repository secret NPM_TOKEN whose account owns the npm scope
+      # used by tooling/pack.mjs (@canary-rn). If that scope does not exist on
+      # npm, publishing fails with an authorization error — pick the final
+      # package name there and in tooling/pack.mjs before enabling this.
+      # --provenance is what binds the published bytes to this workflow run.
+      - name: Publish to npm (only when NPM_TOKEN is configured)
+        if: ${{ github.event_name == 'push' && secrets.NPM_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./pack/*.tgz --provenance --access public

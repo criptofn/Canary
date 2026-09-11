@@ -1,0 +1,75 @@
+name: Bug report
+description: Something Canary did that it should not have done — or failed to do.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Canary is an evidence-first project, so the report format is the same as
+        the product's: **the command you ran, and its full output.** A description
+        of what "should" happen is useful; a reproduced command is what makes it
+        actionable.
+
+        Do not report security issues here — see SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Canary version and how it was installed
+      description: Output of `canary version`. If installed from a tarball, say which release asset.
+      placeholder: "canary 1.0.0 — npm install -g ./canary-rn-cli-1.0.0.tgz"
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: OS and runtime
+      description: The exact runtime matters — host-exact proof assertions are bound to bytes.
+      placeholder: "Windows 11 x64, node v26.7.0, npm 11.19.0"
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: The exact command(s)
+      description: Copy them verbatim, including flags.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Full output
+      description: Paste it as-is. For `prove`/`check`, include the whole assertion table. Do not summarise the counts — paste the summary block.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and which document says so
+      description: If a contract in docs/ contradicts the observed behaviour, link the line. That turns a bug report into a spec bug.
+    validations:
+      required: true
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Which promise does this break?
+      options:
+        - "Tier A — enforced in code (docs/SECURITY.md)"
+        - "Tier B — structural convention (docs/SECURITY.md)"
+        - "The everyday tier (canary setup / doctor / checkpoint)"
+        - "The attested pipeline (canary run / prove / check / report)"
+        - "The candidate workflow (canary isolate / accept)"
+        - "Not sure"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I pasted the actual command output, not a retyped summary.
+          required: true
+        - label: I read docs/TEST-COUNTING.md and did not treat a skip as a pass.
+          required: true

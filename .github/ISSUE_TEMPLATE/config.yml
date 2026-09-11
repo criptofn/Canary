@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/criptofn/Canary/security/advisories/new
+    about: Report privately. Read the ceiling section of docs/SECURITY.md first — documented local limits are not vulnerabilities.
+  - name: "Start here: what Canary does and does not claim"
+    url: https://github.com/criptofn/Canary/blob/main/docs/EXECUTION-AUTHORITY.md
+    about: The claim contract, trust ladder, and stated ceilings. Most "this seems weak" reports are answered here.
+  - name: Reading the counts
+    url: https://github.com/criptofn/Canary/blob/main/docs/TEST-COUNTING.md
+    about: How test numbers are derived, and why a skip is never a pass.

@@ -1,0 +1,59 @@
+name: Feature or integration request
+description: Propose a new capability, harness, ecosystem, or evidence adapter.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Canary's core runs with **zero** integrations, and adapters live behind
+        optional provider boundaries. A good proposal says what evidence the
+        feature produces, and how a reader could re-derive it — not only what it
+        would be nice to see.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of change is this?
+      options:
+        - "Agent harness support (Codex, Cursor, Gemini CLI, Aider, …)"
+        - "Project/ecosystem support (non-Node, monorepo, …)"
+        - "Runner observation adapter (jest, vitest, pytest, go test, …)"
+        - "Evidence or report consumer (SARIF, JUnit, signing, dashboards)"
+        - "Experiment kind (a shape other than a dependency version swap)"
+        - "CLI/UX (flags, machine-readable output, docs)"
+        - "Other"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem, in terms of a workflow
+      description: Who hits this, and what do they do today instead?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: What evidence would this produce, and how is it re-derivable?
+      description: |
+        State the claim precisely. Which of Canary's existing labels could this
+        route to (PASS / CONFIRMED_REGRESSION / PRE_EXISTING_FAILURE / FLAKY /
+        INFRASTRUCTURE_FAILURE / INCONCLUSIVE), and would it ever reach a *strong*
+        label? Remember rule 14 — a strong label needs a VALID execution
+        observation on every round.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including "make it a convention instead of code" and "state it as a ceiling instead of building it".
+  - type: checkboxes
+    id: doctrine
+    attributes:
+      label: Doctrine check
+      options:
+        - label: This does not weaken a gate or make a strong label reachable without a validation path.
+          required: true
+        - label: If this changes what Canary *claims*, I am prepared to update the docs/ contract in the same PR.
+          required: true

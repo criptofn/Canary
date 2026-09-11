@@ -1,0 +1,24 @@
+# Canary — editor conventions.
+# Byte-level conventions that matter to Canary are pinned in .gitattributes
+# (LF for hash-pinned fixtures). This file is about editor behaviour only.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{ts,mts,cts,js,mjs,cjs,json,jsonc,yml,yaml,md}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+# Two trailing spaces are a hard line break in Markdown; the contract docs use
+# them deliberately. Do not strip them.
+trim_trailing_whitespace = false
+
+[*.{ps1,psm1}]
+indent_style = space
+indent_size = 4
+end_of_line = crlf

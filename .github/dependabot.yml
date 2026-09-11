@@ -1,0 +1,45 @@
+# Dependabot configuration.
+#
+# Two ecosystems matter here:
+#   - npm: the workspace devDependencies (typescript, esbuild, @types/node). The
+#     CLI itself ships as a zero-dependency esbuild bundle, so a dependency bump
+#     cannot reach a user without a release — but the build toolchain still
+#     needs to stay current.
+#   - github-actions: workflow actions. This project pins actions by commit SHA
+#     for supply-chain reasons; Dependabot is what keeps those pins moving
+#     without hand-editing SHAs.
+#
+# Protocol pins live in packages/support/src/knownRunners.ts and are NOT managed
+# by Dependabot on purpose: adding a runner version requires a reviewed
+# per-file manifest under packages/support/test/fixtures/runner-manifests/,
+# and known-runners-manifest.test.ts fails offline if table and reviewed bytes
+# diverge. A bot must never be able to move that pin.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      dev-toolchain:
+        patterns:
+          - "typescript"
+          - "esbuild"
+          - "@types/node"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns:
+          - "*"

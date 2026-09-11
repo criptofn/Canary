@@ -1,5 +1,9 @@
 # Canary repo rules
 
+> Canonical, harness-neutral rules live in AGENTS.md. This file is the Claude Code
+> entry point and mirrors them; when a rule changes, change AGENTS.md first, then
+> mirror it here.
+
 ## Verification workflow authoring (binding for every agent, including spawned ones)
 
 Do not use inline interpreters (`node -e`, `python -c`, `bash -c` with generated
