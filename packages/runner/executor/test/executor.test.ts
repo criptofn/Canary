@@ -718,12 +718,21 @@ describe('round-3 B5 — wrapper-mediated / frontend package-manager execution i
     const { rec, cleanup } = freshRecorder();
     try {
       for (const cmd of [
-        ['python', '-m', 'http.server'], ['ruby', 'setup.rb'],
+        ['ruby', 'setup.rb'],
         ['make', 'install'], ['/opt/evil/tool'],
         ['git', 'clone', 'https://evil/repo'],
       ]) {
         assert.equal(reasonOf(rec, cmd), 'spec-executable-not-allowlisted', `must fail closed: ${cmd.join(' ')}`);
       }
+      // `python` IS enumerated (v1.1 Phase 2), so it must NOT be refused — but a
+      // python that is not running a test module is not a runner either: it
+      // expands with NO injection, which is the honest middle state (the round is
+      // ABSENT, so strong labels stay unreachable).
+      assert.equal(reasonOf(rec, ['python', '-m', 'http.server']), null,
+        'an allowlisted interpreter is not refused for running a non-test module');
+      const plain = rec.expandArgvWithPlan(['python', '-m', 'http.server'], subs, () => 'unused');
+      assert.equal(plain.plan.injected, false);
+      assert.equal(plain.plan.runner, undefined, 'a non-test python invocation is not a recognized runner');
     } finally { cleanup(); }
   });
 
@@ -852,8 +861,14 @@ describe('round-3 secondary — crash & sweep signals reach the classification',
   });
 
   it('assertSupportedSpecExecutable: the allowlist is small and explicit', () => {
-    assert.deepEqual([...SPEC_LITERAL_EXECUTABLES].sort(), ['node', 'node.exe']);
+    // v1.1 Phase 2 added the Python interpreters, and ONLY those: a Python runner
+    // can be observed at all only if the interpreter may be the executed program,
+    // and it is rewritten to an absolute path at expansion. Every other literal
+    // executable stays refused.
+    assert.deepEqual([...SPEC_LITERAL_EXECUTABLES].sort(),
+      ['node', 'node.exe', 'python', 'python.exe', 'python3', 'python3.exe']);
     assert.doesNotThrow(() => assertSupportedSpecExecutable(['node', 'x.js']));
+    assert.doesNotThrow(() => assertSupportedSpecExecutable(['python', '-m', 'unittest']));
     assert.doesNotThrow(() => assertSupportedSpecExecutable(['$npm', 'install']), 'token forms bypass the literal check');
     assert.throws(() => assertSupportedSpecExecutable(['cmd', '/c', 'npm', 'i']), /wrapper|interpreter/i);
   });

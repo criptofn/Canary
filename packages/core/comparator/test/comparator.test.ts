@@ -5,10 +5,15 @@ import {
   diffTrees,
   escapePkgKey,
   extractFailingTestNames,
+  extractFailingTestNamesFor,
+  extractNodeTestFailingNames,
+  hasRunnerSummaryFor,
   inDependencySubtree,
   classifyTreeObservation,
   dependencyInTree,
+  parseNodeTestCounts,
   parseSummaryCounts,
+  parseSummaryCountsFor,
   streamsStable,
 } from '../src/index.js';
 
@@ -370,5 +375,87 @@ describe('post-GLM F3 — ANSI-colored output parses identically to plain output
     const cr = COLORED.replace(/\n/g, '\r');
     assert.deepEqual(parseSummaryCounts(cr), parseSummaryCounts(COLORED));
     assert.deepEqual([...extractFailingTestNames(cr)].sort(), [...extractFailingTestNames(COLORED)].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v1.1 Phase 2 — the node:test TAP channel. Every string below is either a real
+// `node --test` summary or a real subject forgery, MEASURED (see
+// tooling/probes/node-test-reporter-events.mjs): the TAP reporter escapes a
+// subject's printed line as `# \# pass 9`, which contains the substring
+// `# pass 9` — so an unanchored regex WOULD be fooled and anchoring is the
+// defence, not a style choice.
+// ---------------------------------------------------------------------------
+describe('node:test TAP summary parsing', () => {
+  const tapOnly = ['TAP version 13', 'not ok 1 - a tap failure', ''].join('\n');
+  const REAL = [
+    'TAP version 13',
+    '# Subtest: adds',
+    'ok 1 - adds',
+    '  ---',
+    "  duration_ms: 0.5",
+    '  ...',
+    '1..3',
+    '# tests 7',
+    '# suites 0',
+    '# pass 3',
+    '# fail 2',
+    '# cancelled 0',
+    '# skipped 1',
+    '# todo 1',
+    '# duration_ms 69.13',
+    '',
+  ].join('\n');
+
+  it('reads the runner summary and maps skipped+todo onto pending', () => {
+    assert.deepEqual(parseNodeTestCounts(REAL), { passing: 3, failing: 2, pending: 2 });
+    assert.equal(hasRunnerSummaryFor('node-test', REAL), true);
+    assert.deepEqual(parseSummaryCountsFor('node-test', REAL), { passing: 3, failing: 2, pending: 2 });
+  });
+
+  it('is anchored, so a subject printed `# pass 9` cannot mint a count', () => {
+    const forged = `TAP version 13\n# \\# tests 9\n# \\# pass 9\n# ok 1 - forged\n1..1\n# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# todo 0\n`;
+    assert.deepEqual(parseNodeTestCounts(forged), { passing: 1, failing: 0, pending: 0 },
+      'the ESCAPED forgery must not be read as the runner summary');
+    // The contrast that makes the rule legible: unanchored would have been fooled.
+    assert.equal(/# pass (\d+)/.exec(forged)?.[1], '9');
+  });
+
+  it('refuses text that cannot describe a run (arithmetic must close)', () => {
+    assert.equal(parseNodeTestCounts('# tests 7\n# pass 3\n# fail 2\n# skipped 0\n# todo 0\n'), undefined,
+      'pass+fail+pending != tests is not a summary');
+    assert.equal(parseNodeTestCounts('# pass 3\n# fail 0\n'), undefined, 'no total, no summary');
+    // A cancelled run has no counter in the frame vocabulary, so it is refused
+    // rather than guessed at — agreement with it could not be checked.
+    assert.equal(parseNodeTestCounts('# tests 2\n# pass 1\n# fail 0\n# cancelled 1\n'), undefined);
+    assert.equal(hasRunnerSummaryFor('node-test', 'not tap at all'), false);
+  });
+
+  it('takes the LAST summary block (a per-file block may precede the aggregate)', () => {
+    const two = `# tests 2\n# pass 2\n# fail 0\n# skipped 0\n# todo 0\n${REAL}`;
+    assert.deepEqual(parseNodeTestCounts(two), { passing: 3, failing: 2, pending: 2 });
+  });
+
+  it('names failing tests from TAP at any nesting depth, and ignores escaped prose', () => {
+    const tap = [
+      'TAP version 13',
+      '# \\# not ok 1 - forged failure',
+      '    not ok 1 - nested bad',
+      'not ok 3 - sad parent',
+      'ok 4 - skipped # SKIP why not',
+      'not ok 4 - beta two',
+      '',
+    ].join('\n');
+    assert.deepEqual(extractNodeTestFailingNames(tap), ['nested bad', 'sad parent', 'beta two']);
+    assert.deepEqual(extractFailingTestNamesFor('node-test', tap), ['nested bad', 'sad parent', 'beta two']);
+  });
+
+  it('the dispatchers do not cross channels: mocha prose is not a node:test summary', () => {
+    assert.deepEqual(parseSummaryCountsFor('node-test', '128 passing (1s)'), {});
+    assert.deepEqual(parseSummaryCountsFor(undefined, REAL), { passing: undefined, failing: undefined, pending: undefined },
+      'a TAP summary is not mocha text either');
+    assert.deepEqual(extractNodeTestFailingNames('  1) suite\n     a title\n'), [], 'mocha grammar is not TAP');
+    assert.deepEqual(extractFailingTestNamesFor(undefined, tapOnly).length, 0,
+      'and the default dispatcher does not read TAP as mocha');
   });
 });

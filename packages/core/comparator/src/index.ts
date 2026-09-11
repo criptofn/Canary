@@ -284,6 +284,74 @@ export function parseUnittestCounts(log: string): SummaryCounts | undefined {
   return { passing, failing, pending };
 }
 
+// ─────────────────── node:test TAP summary (v1.1 Phase 2) ───────────────────
+/**
+ * `node --test` prints a TAP summary block at the END of stdout:
+ *
+ *   # tests 7
+ *   # suites 0
+ *   # pass 3
+ *   # fail 2
+ *   # cancelled 0
+ *   # skipped 1
+ *   # todo 1
+ *
+ * THREE measured properties make this parseable without trusting the subject:
+ *
+ *  1. The lines are ANCHORED (`^# pass N$`) and the LAST occurrence wins. The TAP
+ *     reporter escapes a subject's own printed output: a test that runs
+ *     `console.log('# pass 9')` appears on stdout as `# \# pass 9` (MEASURED, see
+ *     `tooling/probes/node-test-reporter-events.mjs`), which does not match an
+ *     anchored pattern. An unanchored `/ # pass (\d+)/` WOULD match it — the
+ *     substring is there — which is why anchoring is load-bearing and not style.
+ *  2. `# skipped` and `# todo` are SEPARATE counters and neither is inside
+ *     `# pass` (measured: 1 skipped + 1 todo alongside `# pass 3` of 7 tests).
+ *     Both are `pending` here, because that is what the frames carry.
+ *  3. The arithmetic must close: pass + fail + skipped + todo == tests. Text that
+ *     cannot describe a run is not accepted as a summary, and a `# cancelled N`
+ *     run is refused rather than guessed at — no counter exists for it in the
+ *     frame vocabulary, so agreement with it could not be checked.
+ */
+export function parseNodeTestCounts(log: string): SummaryCounts | undefined {
+  const norm = runnerView(log);
+  const last = (key: string): number | undefined => {
+    const re = new RegExp(`^# ${key} (\\d+)\\s*$`, 'gm');
+    let m: RegExpExecArray | null = null;
+    let value: number | undefined;
+    while ((m = re.exec(norm)) !== null) value = Number(m[1]);
+    return value;
+  };
+  const total = last('tests');
+  const passing = last('pass');
+  const failing = last('fail');
+  if (total === undefined || passing === undefined || failing === undefined) return undefined;
+  const pending = (last('skipped') ?? 0) + (last('todo') ?? 0);
+  const cancelled = last('cancelled') ?? 0;
+  if (cancelled !== 0) return undefined; // no frame counter exists: unverifiable
+  if (passing + failing + pending !== total) return undefined; // text that cannot describe a run
+  return { passing, failing, pending };
+}
+
+/**
+ * The failing-test identities a node:test TAP stream names.
+ *
+ * TAP marks a failure `not ok N - <name>` at any nesting depth, so the pattern is
+ * indentation-tolerant; the escaped subject line `# not ok 1 - forged` (a test
+ * printing TAP) can never match because of its `# ` prefix. MEASURED on a run
+ * where a test printed exactly that.
+ */
+export function extractNodeTestFailingNames(log: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /^\s*not ok \d+ - (.+?)\s*$/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(runnerView(log))) !== null) {
+    const t = m[1]!.trim();
+    if (t !== '' && !seen.has(t)) { seen.add(t); out.push(t); }
+  }
+  return out;
+}
+
 /**
  * The text-summary parser for a named observation channel. ONE dispatcher, so
  * the executor and `prove` cannot disagree about which text meant what: an
@@ -292,11 +360,24 @@ export function parseUnittestCounts(log: string): SummaryCounts | undefined {
  */
 export function parseSummaryCountsFor(runner: string | undefined, log: string): SummaryCounts {
   if (runner === 'python-unittest') return parseUnittestCounts(log) ?? {};
+  if (runner === 'node-test') return parseNodeTestCounts(log) ?? {};
   return parseSummaryCounts(log);
 }
 
 /** Whether `log` contains the summary a named channel expects. */
 export function hasRunnerSummaryFor(runner: string | undefined, log: string): boolean {
   if (runner === 'python-unittest') return parseUnittestCounts(log) !== undefined;
+  if (runner === 'node-test') return parseNodeTestCounts(log) !== undefined;
   return parseSummaryCounts(log).passing !== undefined || parseSummaryCounts(log).failing !== undefined;
+}
+
+/**
+ * The failing-test identities for a named observation channel. Same one-
+ * dispatcher rule as the counts: the agreement check compares the frames against
+ * the names read from THIS channel's own text format, so a node:test round is
+ * never compared against mocha's `N) title` grammar.
+ */
+export function extractFailingTestNamesFor(runner: string | undefined, log: string): string[] {
+  if (runner === 'node-test') return extractNodeTestFailingNames(log);
+  return extractFailingTestNames(log);
 }

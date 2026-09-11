@@ -18,7 +18,7 @@ import {
   type ExecResult, type ExpansionPlan,
 } from '@canary-rn/executor';
 import { buildPipeline, machineRules, DEFAULT_RULE_NAMES } from '@canary-rn/normalizers';
-import { diffTrees, escapePkgKey, extractFailingTestNames, parseSummaryCounts, classifyTreeObservation, dependencyInTree, type DepTree, type TreeStatus } from '@canary-rn/comparator';
+import { diffTrees, escapePkgKey, extractFailingTestNamesFor, parseSummaryCountsFor, classifyTreeObservation, dependencyInTree, type DepTree, type TreeStatus } from '@canary-rn/comparator';
 import { classify, applyConfinementGuard, type RoundFact } from '@canary-rn/classification';
 import { EVIDENCE_SCHEMA_VERSION, validateBundle, integrityFor, type EvidenceBundle, type RoundEvidence, type TreeSnapshotRef } from '@canary-rn/evidence-schema';
 import { sha256hex } from '@canary-rn/hashing';
@@ -38,7 +38,7 @@ export interface PipelineResult {
   workspace: string;
   artifactsDir: string;
   failingTestNames: string[];
-  summaryCounts: ReturnType<typeof parseSummaryCounts>;
+  summaryCounts: ReturnType<typeof parseSummaryCountsFor>;
   bundleIssues: string[];
 }
 
@@ -367,8 +367,12 @@ async function runExperimentInner(
   fs.writeFileSync(path.join(repoRoot, '.canary-runs', `latest-${spec.id}.json`),
     JSON.stringify({ evidence: path.join(ART, 'evidence.json'), workspace: WS }, null, 2));
 
-  const failingTestNames = extractFailingTestNames(firstCand?.combined ?? '');
-  const summaryCounts = parseSummaryCounts(firstCand?.combined ?? '');
+  // Runner-aware, like the round that produced these bytes: the plan for the first
+  // candidate round says which channel was attempted, so a node:test project's
+  // summary is read with the TAP grammar instead of mocha's.
+  const firstRunner = firstCand?.fact.executionObservation?.runner;
+  const failingTestNames = extractFailingTestNamesFor(firstRunner, firstCand?.combined ?? '');
+  const summaryCounts = parseSummaryCountsFor(firstRunner, firstCand?.combined ?? '');
   log(`\nEXPERIMENT ${spec.id}: ${cls.classification} (rule ${cls.rule}) — ${cls.reason}`);
   return { bundle, workspace: WS, artifactsDir: ART, failingTestNames, summaryCounts, bundleIssues };
 }

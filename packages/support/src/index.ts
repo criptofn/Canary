@@ -68,8 +68,13 @@ export interface EnvOptions {
 }
 
 export interface ObserverInjection {
-  /** `python` = PYTHONPATH=<dir> + a nonce + no user site-packages. */
-  kind: 'python';
+  /**
+   * `python` = PYTHONPATH=<dir> + a nonce + no user site-packages.
+   * `node`   = the per-round nonce only: Node's own `--test-reporter` mechanism
+   *            loads Canary's bytes from an argv specifier, so the environment's
+   *            single job is to bind the frames to THIS spawn.
+   */
+  kind: 'python' | 'node';
   /** Directory holding Canary's observer bytes. Must resolve inside ws.root. */
   dir: string;
   /** Per-round binding token the observer echoes in its `hello` frame. */
@@ -112,8 +117,11 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolch
     if (observer.kind === 'python') {
       observed.PYTHONPATH = dirReal;
       observed.PYTHONNOUSERSITE = '1'; // keep a host user-site-packages tree out of the observation
-      observed.CANARY_OBSERVER_NONCE = observer.nonce;
     }
+    // The nonce is the binding for EVERY channel: it is what binds a frame to
+    // THIS spawn (see the python observer's note on why pid equality alone is not
+    // sufficient on Windows, and why the node reporter needs it too).
+    observed.CANARY_OBSERVER_NONCE = observer.nonce;
   }
   // Adapter-declared toolchain variables, under the same containment rule.
   if (toolchain !== undefined) {

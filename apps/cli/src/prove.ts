@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { diffTrees, extractFailingTestNames, hasRunnerSummaryFor, parseSummaryCounts, parseSummaryCountsFor } from '@canary-rn/comparator';
+import { diffTrees, extractFailingTestNamesFor, hasRunnerSummaryFor, parseSummaryCountsFor } from '@canary-rn/comparator';
 import { observerNonce } from '@canary-rn/executor';
 import {
   hasRunnerSummary, isInfraOutput, hasCrashSignature, Recorder,
@@ -67,6 +67,19 @@ export interface ProofExpectation {
   tarballSha256?: string | undefined;
   dependency?: { package: string; baseline: string; candidate: string };
   downstream?: { repo: string; commit: string };
+  /**
+   * The observation channel the SUMMARY EXPECTATIONS below are written in
+   * (v1.1 Phase 2). Absent ⇒ mocha, which is what every existing proof means, so
+   * nothing already committed changes meaning.
+   *
+   * WHY THIS MUST BE A COMMITTED FIELD and not read from the evidence: the counts
+   * in `expected.*.summary` are a human expectation, and comparing them requires
+   * agreeing on the text grammar they were read from. Taking that grammar from the
+   * (resealable) bundle would let a bundle choose which parser judges it. Here the
+   * PROOF declares the channel, the check uses it, and a bundle that says otherwise
+   * cannot change the comparison.
+   */
+  runner?: string | undefined;
   /** Optional runtime pin (audit B4): platform/arch are asserted on every
    *  host; nodeVersion/npmVersion only on the proof host. */
   environment?: {
@@ -319,9 +332,11 @@ export function assertProof(
   eq('baseline arm internally deterministic', new Set(base.map((x) => x.normalizedStdoutSha256)).size, 1);
   eq('candidate arm internally deterministic', new Set(cand.map((x) => x.normalizedStdoutSha256)).size, 1);
 
-  // F7: numeric summary expectations, not substring vibes.
-  eq('candidate summary counts', parseSummaryCounts(logs.candidateStdout), e.candidate.summary);
-  eq('baseline summary counts', parseSummaryCounts(logs.baselineStdout), e.baseline.summary);
+  // F7: numeric summary expectations, not substring vibes. The channel the
+  // expectations are written in comes from the COMMITTED proof (absent ⇒ mocha),
+  // never from the bundle being judged.
+  eq('candidate summary counts', parseSummaryCountsFor(proof.runner, logs.candidateStdout), e.candidate.summary);
+  eq('baseline summary counts', parseSummaryCountsFor(proof.runner, logs.baselineStdout), e.baseline.summary);
 
   // Audit B4: pin the RUNTIME METADATA so rewriting environment.{platform,
   // arch} (portable) can't slip through; node/npm exactness is host-gated
@@ -343,7 +358,7 @@ export function assertProof(
   // extra one) while every pinned name was still present. No extra failure
   // identities, no missing ones; extraction (not raw substrings, mocha prints
   // test titles on passing lines too) is the source for the actual set.
-  const failing = [...new Set(extractFailingTestNames(logs.candidateStdout))].sort();
+  const failing = [...new Set(extractFailingTestNamesFor(proof.runner, logs.candidateStdout))].sort();
   eq('failing test identities (exact set from candidate bytes)', failing, [...new Set(e.failingTestNames)].sort());
   return checks;
 }
@@ -533,11 +548,19 @@ export function verifyArtifactSemantics(
       continue;
     }
     const combined = so + se;
-    const counts = parseSummaryCounts(combined);
-    const summary = hasRunnerSummary(combined);
+    // The runner decides the TEXT GRAMMAR, and the record says which channel this
+    // round was observed through. Capture and this re-derivation therefore resolve
+    // runner→parser through the same dispatchers (one mapping, not two), and a
+    // resealed runner id cannot buy a weaker re-derivation: a mismatched parser
+    // reads no counts, and "recorded 5, bytes report nothing" is an issue, while
+    // the runner itself is re-derived from the fixture by the argv/observation
+    // replay. Consistency is the point — an issue here is fail-closed.
+    const runner = r.executionObservation?.runner;
+    const counts = parseSummaryCountsFor(runner, combined);
+    const summary = hasRunnerSummaryFor(runner, combined);
     const infra = isInfraOutput(combined);
     const crashed = hasCrashSignature(combined);
-    const names = extractFailingTestNames(combined).sort();
+    const names = extractFailingTestNamesFor(runner, combined).sort();
     if (r.hasRunnerSummary !== summary) {
       issues.push(`${at}: hasRunnerSummary=${String(r.hasRunnerSummary)} but the artifact bytes ${summary ? 'DO' : 'DO NOT'} match a runner summary`);
     }
@@ -700,19 +723,22 @@ export function verifyClassificationDerivation(
       continue;
     }
     const combined = so + se;
-    const counts = parseSummaryCounts(combined);
     const rep = replays.get(label);
     if (rep) issues.push(...rep.issues);
+    // Runner-aware like capture: the recorded runner selects the text grammar, and
+    // the observation replay above has already re-derived that id from the fixture.
+    const runner = (rep?.replay?.runner ?? r.executionObservation?.runner);
+    const counts = parseSummaryCountsFor(runner, combined);
     facts.push({
       arm: r.arm,
       round: r.round,
       exitCode: r.exitCode,
-      hasRunnerSummary: hasRunnerSummary(combined),
+      hasRunnerSummary: hasRunnerSummaryFor(runner, combined),
       infraSignal: isInfraOutput(combined),
       reportedPassing: counts.passing,
       reportedFailing: counts.failing,
       reportedPending: counts.pending,
-      failingTestNames: extractFailingTestNames(combined).sort(),
+      failingTestNames: extractFailingTestNamesFor(runner, combined).sort(),
       executionObservation: rep?.replay ?? (r.executionObservation as ExecutionObservation | undefined),
       // crashSignal is byte-observable → re-derived here, not trusted from the
       // record, so a resealed false cannot launder a crashed round into trust.
@@ -1030,7 +1056,7 @@ function replayObservations(
       observedRunnerTreeSha256: plan.observedRunnerTreeSha256,
       textCounts: { passing: counts.passing, failing: counts.failing, pending: counts.pending },
       hasSummary: hasRunnerSummaryFor(plan.runner, combined),
-      textFailingNames: extractFailingTestNames(combined),
+      textFailingNames: extractFailingTestNamesFor(plan.runner, combined),
     });
     out.push({ label, replay, issues: [] });
   }

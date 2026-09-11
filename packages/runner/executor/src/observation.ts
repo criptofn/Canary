@@ -224,6 +224,16 @@ export function validateObservation(v: ValidateInput): ExecutionObservation {
   let passing = 0; let failing = 0; let pending = 0;
   const failIds: string[] = [];
   const seenPass = new Set<string>();
+  // The duplicate-pass key. `id` alone is the test's NAME, which two distinct
+  // tests in one file may legitimately share (mocha's channel emits full nested
+  // titles; node:test's reporter receives leaf names, measured). A channel that
+  // can name a test more precisely adds `tid`/`file`, and keying on them keeps
+  // the anti-replay rule exact: a REPLAYED pass carries the same tid and file and
+  // is still refused, while two genuinely different tests are not conflated into
+  // a false `duplicate-pass`. Mocha frames carry neither field, so its key is
+  // byte-for-byte what it always was.
+  const passKey = (f: Record<string, unknown>): string =>
+    String(f.id ?? '') + '\0' + String(f.file ?? '') + '\0' + String(f.tid ?? '');
   for (let i = 1; i < frames.length - 1; i++) {
     const f = frames[i]!;
     const kind = f.k as string;
@@ -232,7 +242,7 @@ export function validateObservation(v: ValidateInput): ExecutionObservation {
       if (id === '') return bad('event-missing-identity');
     }
     if (kind === 'pass') {
-      const key = id + '\0' + String(f.file ?? '');
+      const key = passKey(f);
       if (seenPass.has(key)) return bad('duplicate-pass');
       seenPass.add(key);
       passing += 1;
@@ -242,7 +252,7 @@ export function validateObservation(v: ValidateInput): ExecutionObservation {
     } else if (kind === 'pending') {
       pending += 1;
     } else if (kind === 'retry') {
-      seenPass.delete(id + '\0' + String(f.file ?? ''));
+      seenPass.delete(passKey(f));
     }
   }
   const bc = (bye.counts ?? {}) as Record<string, unknown>;

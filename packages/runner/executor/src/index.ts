@@ -20,7 +20,11 @@ import {
 import { normalize, type Normalizer } from '@canary-rn/normalizers';
 import { sha256hex } from '@canary-rn/hashing';
 import { ensurePythonObserver, observerNonce } from './observers/python-observer.js';
-import { extractFailingTestNames, hasRunnerSummaryFor, parseSummaryCounts, parseSummaryCountsFor, runnerView } from '@canary-rn/comparator';
+import {
+  NODE_TEST_RUNNER_ID, ensureNodeTestObserver, isCanaryOwnRuntime, nodeRunnerIdentity,
+  nodeTestReporterUrl,
+} from './observers/node-test-reporter.js';
+import { extractFailingTestNamesFor, hasRunnerSummaryFor, parseSummaryCounts, parseSummaryCountsFor, runnerView } from '@canary-rn/comparator';
 import type { AbsentKind, ExecutionObservation, RoundFact } from '@canary-rn/classification';
 import { validateObservation } from './observation.js';
 import {
@@ -29,6 +33,11 @@ import {
 
 export { validateObservation, OBSERVER_VERSION, type ValidateInput } from './observation.js';
 export { ensurePythonObserver, pythonObserverDir, observerNonce, PYTHON_OBSERVER_BASENAME, PYTHON_RUNNER_ID } from './observers/python-observer.js';
+export {
+  NODE_TEST_REPORTER_BASENAME, NODE_TEST_REPORTER_SOURCE, NODE_TEST_RUNNER_ID,
+  NODE_TEST_OBSERVER_DIRNAME, ensureNodeTestObserver, nodeTestReporterPath,
+  nodeTestReporterUrl, nodeRunnerIdentity, isCanaryOwnRuntime,
+} from './observers/node-test-reporter.js';
 export {
   OBSERVER_PRELOAD_BASENAME, OBSERVER_PRELOAD_SOURCE, OBSERVER_MOCHA_ANCHOR_REL,
   observerPreloadPath, ensureObserverPreload,
@@ -737,6 +746,46 @@ export function detectPythonRunner(argv: readonly string[]): { runner: string; p
   return null;
 }
 
+/** Program basenames that name the Node runtime. */
+const NODE_PROGRAMS = new Set(['node', 'node.exe']);
+
+/**
+ * Recognize a `node --test` invocation in an EXPANDED argv (v1.1 Phase 2).
+ *
+ * Same narrowness as the Python detector: the node runtime must be the EXECUTED
+ * program (argv[0]) and `--test` must be a real flag token, so a script that
+ * merely mentions `--test` in an argument is not a runner.
+ */
+export function detectNodeTestRunner(argv: readonly string[]): { runner: string; node: string } | null {
+  const head = argv[0];
+  if (head === undefined) return null;
+  const base = basenameLower(head);
+  if (!NODE_PROGRAMS.has(base)) return null;
+  for (let i = 1; i < argv.length; i++) {
+    if (argv[i] === '--test' || argv[i] === '--test-only') return { runner: NODE_TEST_RUNNER_ID, node: head };
+  }
+  return null;
+}
+
+/**
+ * Tokens that would open the reporter set beyond Canary's own reporter.
+ *
+ * The mocha channel refuses a subject's `--require` for exactly this reason
+ * (`subject-require-refused`): the set of modules/reporters a runner loads at
+ * startup MUST stay closed to Canary's injection, or "Canary injected exactly one
+ * observer" is false. Node pairs `--test-reporter` with
+ * `--test-reporter-destination` POSITIONALLY, so a subject-supplied pair could
+ * shift the pairing under Canary's pair and send the ordinary TAP summary
+ * somewhere Canary is not reading — the agreement channel would then be missing
+ * (a fail-closed INVALID, not a false pass) or, worse, silently replaced by a file
+ * the subject owns. Refused, never parsed.
+ */
+export function isNodeReporterToken(tok: string): boolean {
+  // Covers `--test-reporter`, `--test-reporter=<x>`, `--test-reporter-destination`
+  // and `--test-reporter-destination=<x>`: the whole option family, closed.
+  return tok.startsWith('--test-reporter');
+}
+
 /**
  * mocha's --require in the forms that ACTUALLY load a module (panel I):
  * the exact flag, every unambiguous abbreviation (yargs resolves --req..
@@ -948,30 +997,84 @@ export class Recorder {
     // grant ⇒ no injection ⇒ ABSENT, so a subject shipping its own interpreter
     // can never earn a strong label.
     if (mochaBin === undefined) {
-      const detected = detectPythonRunner(out);
-      if (detected !== null) {
-        // Resolve the interpreter to an ABSOLUTE path and rewrite argv, so the
-        // sanitized spawn (PATH = the Node dir + OS dirs) can execute it at all,
-        // and so both the identity digest and the sealed argv name real bytes.
-        const resolved = path.isAbsolute(detected.python) ? detected.python : resolveOnTrustedPath(detected.python);
-        if (resolved === null) {
+      // ── The Node runtime's OWN runner (v1.1 Phase 2) ────────────────────
+      // `node --test` needs no grant, and that is a TRUST argument rather than a
+      // convenience: the runner is the very binary Canary is executing on. The
+      // sanitized PATH resolves `node` to `dirname(process.execPath)`, and this
+      // branch additionally REFUSES any program whose realpath is not that file,
+      // so "the observed runner" and "the verifying runtime" are the same bytes
+      // by construction. A spec pointing at a foreign Node earns ABSENT.
+      const nodeDetected = detectNodeTestRunner(out);
+      if (nodeDetected !== null) {
+        // A subject-supplied reporter pair could shift Node's positional
+        // reporter→destination pairing out from under Canary's own pair; refused
+        // exactly like a subject `--require` in a mocha command.
+        const claim = out.find((t) => isNodeReporterToken(t));
+        if (claim !== undefined) {
+          throw new CanaryError(
+            `node --test spec argv carries a test-reporter option ('${claim}'): Node pairs reporters with destinations positionally, so a subject-supplied pair could displace the TAP summary Canary checks the frames against — refusing the round fail-closed`,
+            'subject-reporter-refused',
+          );
+        }
+        const resolvedNode = path.isAbsolute(nodeDetected.node)
+          ? nodeDetected.node
+          : resolveOnTrustedPath(nodeDetected.node);
+        if (resolvedNode === null || !isCanaryOwnRuntime(resolvedNode)) {
           plan.absentKind = 'runner-identity-unpinned';
         } else {
-          out[0] = resolved;
-          const identity = pythonRunnerIdentity(resolved);
-          if (identity !== null) plan.observedRunnerIdentitySha256 = identity.identitySha256;
-          const granted = d.runnerIdentities?.[detected.runner];
-          if (identity !== null && granted !== undefined
-            && granted.version === identity.version
-            && granted.identitySha256 === identity.identitySha256) {
-            // The channel is loaded through PYTHONPATH, which the round sets.
-            plan.injected = true;
-            plan.absentKind = null;
-            plan.runner = detected.runner;
-            plan.expectedRunnerVersion = identity.version;
-            plan.expectedRunnerIdentitySha256 = identity.identitySha256;
-          } else {
+          out[0] = resolvedNode;
+          const identity = nodeRunnerIdentity(resolvedNode);
+          plan.injected = true;
+          plan.absentKind = null;
+          plan.runner = NODE_TEST_RUNNER_ID;
+          plan.expectedRunnerVersion = identity.version;
+          plan.expectedRunnerIdentitySha256 = identity.identitySha256;
+          plan.observedRunnerIdentitySha256 = identity.identitySha256;
+          // The TAP reporter is pinned explicitly rather than left to Node's
+          // default (spec on a TTY, tap otherwise): the agreement channel must be
+          // the same text on every host, and Canary's own reporter is added as a
+          // SECOND one so stdout stays output Canary did not produce. The
+          // specifier is a file URL — measured: a bare Windows path dies with
+          // ERR_UNSUPPORTED_ESM_URL_SCHEME.
+          //
+          // POSITION IS LOAD-BEARING, and measured: Node stops treating tokens as
+          // its own options at the first POSITIONAL argument, so appending these
+          // after the spec's test path (`node --test test/ --test-reporter=…`)
+          // silently loads no reporter at all — the round then fails closed as
+          // `empty-stream` rather than observing anything. Inserting directly
+          // after the runtime puts every one of Canary's options in the option
+          // region, ahead of any path the spec supplies.
+          out.splice(1, 0,
+            '--test-reporter=tap', '--test-reporter-destination=stdout',
+            `--test-reporter=${nodeTestReporterUrl(d.ws.root)}`, '--test-reporter-destination=stderr',
+          );
+        }
+      } else {
+        const detected = detectPythonRunner(out);
+        if (detected !== null) {
+          // Resolve the interpreter to an ABSOLUTE path and rewrite argv, so the
+          // sanitized spawn (PATH = the Node dir + OS dirs) can execute it at all,
+          // and so both the identity digest and the sealed argv name real bytes.
+          const resolved = path.isAbsolute(detected.python) ? detected.python : resolveOnTrustedPath(detected.python);
+          if (resolved === null) {
             plan.absentKind = 'runner-identity-unpinned';
+          } else {
+            out[0] = resolved;
+            const identity = pythonRunnerIdentity(resolved);
+            if (identity !== null) plan.observedRunnerIdentitySha256 = identity.identitySha256;
+            const granted = d.runnerIdentities?.[detected.runner];
+            if (identity !== null && granted !== undefined
+              && granted.version === identity.version
+              && granted.identitySha256 === identity.identitySha256) {
+              // The channel is loaded through PYTHONPATH, which the round sets.
+              plan.injected = true;
+              plan.absentKind = null;
+              plan.runner = detected.runner;
+              plan.expectedRunnerVersion = identity.version;
+              plan.expectedRunnerIdentitySha256 = identity.identitySha256;
+            } else {
+              plan.absentKind = 'runner-identity-unpinned';
+            }
           }
         }
       }
@@ -1041,8 +1144,14 @@ export class Recorder {
     // the mocha preload.
     const observer: ObserverInjection | undefined = (() => {
       if (plan?.injected !== true || plan.runner === undefined) return undefined;
-      const dir = ensurePythonObserver(this.deps.ws.root);
-      return { kind: 'python', dir, nonce: observerNonce(plan.runner, this.deps.ws.fixture, arm, index) };
+      const nonce = observerNonce(plan.runner, this.deps.ws.fixture, arm, index);
+      // Each channel loads its bytes its own way — Python through PYTHONPATH, the
+      // Node runtime's runner through an argv reporter specifier — but both are
+      // materialised HERE, write-then-byte-verify, immediately before the spawn.
+      if (plan.runner === NODE_TEST_RUNNER_ID) {
+        return { kind: 'node', dir: ensureNodeTestObserver(this.deps.ws.root), nonce };
+      }
+      return { kind: 'python', dir: ensurePythonObserver(this.deps.ws.root), nonce };
     })();
     const res = await this.step(`${arm}-${index}`, argv, timeoutSecs, true, observer);
     // Text facts come from the SAME channel-aware parsers the validator uses, so
@@ -1050,7 +1159,7 @@ export class Recorder {
     const counts = parseSummaryCountsFor(plan?.runner, res.combined);
     const crashed = hasCrashSignature(res.combined);
     const sweepFailed = res.run.sweepFailed === true;
-    const textFailingNames = extractFailingTestNames(res.combined).sort();
+    const textFailingNames = extractFailingTestNamesFor(plan?.runner, res.combined).sort();
     const framesRaw = res.run.observation ?? '';
     fs.writeFileSync(path.join(this.deps.artifactsDir, `${res.label}.attest.ndjson`), framesRaw);
     const executionObservation: ExecutionObservation = validateObservation({
