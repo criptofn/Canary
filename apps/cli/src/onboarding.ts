@@ -60,6 +60,13 @@ import { QUARANTINE_FILE } from './authority.js';
 import { canonicalTask, declaredTask, taskWeakening, TASK_KINDS, MAX_REQUIREMENTS, type TaskKind, type TaskIdentity, type AuthorizationSubject, subjectDigest } from './authorization.js';
 export { canonicalTask, declaredTask, taskWeakening, TASK_KINDS, MAX_REQUIREMENTS, subjectDigest };
 export type { TaskKind, TaskIdentity, AuthorizationSubject };
+// 1.1 §1 — the project model lives in project.js. onboarding re-exports the
+// names it used to own so every existing importer (candidate.ts, the contract
+// tests) compiles and behaves unchanged while the seam gains a second owner.
+import { ADAPTERS, adapterFor, LOCKFILES, nodeAdapter, parseJsonOrNull, planDigest, sha256, stepArgv } from './project.js';
+import type { PlanAuthority, PlanStep } from './project.js';
+export { detectPm, detectPlan, isSafeScriptName, sealPlanAuthority, planAuthorityDrift, stepArgv, planDigest, parseJsonOrNull } from './project.js';
+export type { PlanKind, PlanStep, PlanAuthority } from './project.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The absolute path of the built CLI entry — what harness hooks invoke. */
@@ -77,27 +84,6 @@ export const TASK_FILE = path.join('task', 'current.json');
 /** bundles kept before the oldest are pruned — evidence must not grow unbounded */
 const EVIDENCE_KEEP = 10;
 const RAW_CAP = 256 * 1024;
-const LOCKFILES: Array<[string, string]> = [
-  ['package-lock.json', 'npm'],
-  ['pnpm-lock.yaml', 'pnpm'],
-  ['yarn.lock', 'yarn'],
-  ['bun.lockb', 'bun'],
-];
-/** Script names we accept into a plan; also blocks any shell-shaped name. */
-export const isSafeScriptName = (s: string): boolean => /^[A-Za-z0-9_:.-]{1,64}$/.test(s);
-/** Conventional script name -> plan kind. Exact names only; conservative.
- *  M6 (spec M5) adds bench/e2e: a performance or UI task is only PROVEN if a
- *  human actually put a benchmark/e2e script in the sealed plan — detection of
- *  those names is what gives the obligation its chance to reach `met`. */
-const PLAN_KINDS = ['typecheck', 'tests', 'build', 'bench', 'e2e'] as const;
-export type PlanKind = (typeof PLAN_KINDS)[number];
-const SCRIPT_KINDS: Array<[string, PlanKind]> = [
-  ['typecheck', 'typecheck'], ['type-check', 'typecheck'], ['test', 'tests'], ['build', 'build'],
-  ['bench', 'bench'], ['benchmark', 'bench'], ['e2e', 'e2e'], ['test:e2e', 'e2e'],
-];
-const PLAN_ORDER: Record<PlanKind, number> = { typecheck: 0, tests: 1, build: 2, bench: 3, e2e: 4 };
-
-export interface PlanStep { kind: PlanKind; script: string }
 export interface TouchedFile { path: string; created: boolean }
 export interface CanaryConfig {
   version: string; installedAt: string; pm: string; plan: PlanStep[];
@@ -113,6 +99,10 @@ export interface CanaryConfig {
    *  human set up. Verified before every execution; drift blocks. Optional:
    *  configs written before M5 have no seal and verify exactly as before. */
   planAuthority?: PlanAuthority;
+  /** 1.1 §1: which project adapter owns this repo. Absent = 'node' — every
+   *  config written before 1.1 describes a Node project, and setup keeps that
+   *  byte shape until detection can legitimately name another ecosystem. */
+  project?: string;
 }
 
 // ---------- detection (pure, testable) ----------
@@ -125,31 +115,6 @@ export function findRepoRoot(startDir: string): string | null {
     if (parent === dir) return null;
     dir = parent;
   }
-}
-
-export function detectPm(root: string): { pm: string; note: string } {
-  for (const [file, pm] of LOCKFILES) {
-    if (fs.existsSync(path.join(root, file))) return { pm, note: `${file} found` };
-  }
-  return { pm: 'npm', note: 'no lockfile found — defaulted to npm' };
-}
-
-export function detectPlan(pkgScripts: Record<string, unknown>): PlanStep[] {
-  const steps: PlanStep[] = [];
-  for (const [name, kind] of SCRIPT_KINDS) {
-    if (typeof pkgScripts[name] === 'string' && isSafeScriptName(name) && pkgScripts[name].trim()) {
-      if (!steps.some((s) => s.kind === kind)) steps.push({ kind, script: name });
-    }
-  }
-  return steps.sort((a, b) => PLAN_ORDER[a.kind] - PLAN_ORDER[b.kind]);
-}
-
-/** Reconstruct argv for one step. Only validated fragments ever reach here. */
-export function stepArgv(pm: string, script: string): string[] {
-  if (!/^(npm|pnpm|yarn|bun)$/.test(pm) || !isSafeScriptName(script)) {
-    throw new Error(`refused unsafe plan step ${JSON.stringify({ pm, script })}`);
-  }
-  return [pm, 'run', script];
 }
 
 export interface HarnessInfo { name: string; label: string; supported: boolean; action: string }
@@ -195,7 +160,11 @@ function validConfigShape(v: unknown): v is CanaryConfig {
   return isStr(c.version) && isStr(c.installedAt) && isStr(c.pm) && isStr(c.cliPath) && isStr(c.hookCommand)
     && Array.isArray(c.plan) && c.plan.every((s) => s && typeof s === 'object' && isStr((s as PlanStep).kind) && isStr((s as PlanStep).script))
     && Array.isArray(c.hookCommands) && c.hookCommands.every(isStr)
-    && Array.isArray(c.touched) && c.touched.every((t) => t && typeof t === 'object' && isStr((t as TouchedFile).path) && typeof (t as TouchedFile).created === 'boolean');
+    && Array.isArray(c.touched) && c.touched.every((t) => t && typeof t === 'object' && isStr((t as TouchedFile).path) && typeof (t as TouchedFile).created === 'boolean')
+    // 1.1 §1: a config may only name a REGISTERED adapter — an unknown id is
+    // 'corrupt' (the documented self-heal path fires), never a silent fallback
+    // that would run the Node pipeline against a foreign project.
+    && (c.project === undefined || (typeof c.project === 'string' && Object.hasOwn(ADAPTERS, c.project)));
 }
 export function readConfig(root: string): CanaryConfig | null | 'corrupt' {
   const p = configPath(root);
@@ -333,14 +302,6 @@ function assertPlainTarget(p: string): void {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return; // absent = safe to create
     throw e;
   }
-}
-
-/** null = parse failure (caller must refuse, never overwrite). */
-export function parseJsonOrNull(file: string): Record<string, unknown> | null {
-  try {
-    const v = JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
-    return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null;
-  } catch { return null; }
 }
 
 /** Collect Canary-owned Stop entries (exact command match) and remove them. */
@@ -736,8 +697,6 @@ function relevantEnvNames(): string[] {
     .sort();
 }
 
-const sha256 = (s: string): string => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
-
 // ---------- M3 evidence trust classes ----------
 /**
  * Every evidence item belongs to exactly ONE class, stamped by the code that
@@ -776,12 +735,6 @@ export type TrustClass = 'CANARY_OBSERVED' | 'EXTERNALLY_VERIFIED' | 'AGENT_REPO
  * signing key; the bundle hash is tamper-EVIDENCE against corruption and
  * accidental edit, nothing more.
  */
-/** sha256 over the canonical plan ([{kind,script}] in order). The per-step
- *  executed argv is recorded separately; this binds WHICH plan was in force. */
-export function planDigest(plan: PlanStep[]): string {
-  return sha256(JSON.stringify(plan.map((s) => ({ kind: s.kind, script: s.script }))));
-}
-
 /** Bundle provenance, computed by the CALLER from trusted state (config) or
  *  observation — never from file content read back off the evidence dir. */
 export interface BundleProvenance {
@@ -789,95 +742,6 @@ export interface BundleProvenance {
   baseline: BaselineStamp | null;
   /** digest of the optional task string a hook sent; raw prose is never stored */
   taskDigest?: string;
-}
-
-// ---------- M5 trusted verification plan ----------
-/**
- * The worker must not redefine success after implementing its solution. The
- * plan and the script TEXTS sealed at setup are TRUSTED authority — whoever or
- * whatever ran setup (including --yes, no review) is what the seal attests;
- * the candidate controls only the implementation. This seal catches the
- * subtle attack the exit-code oracle cannot: `"test": "vitest"` swapped for
- * `"test": "echo all good"` still exits 0 — a "pass" of a hollowed-out check
- * certifies nothing. So the seal is verified BEFORE anything executes, and a
- * drifted command is never run as proof at all.
- *
- * Detected here (mid-task drift against the setup-time seal): plan edits
- * (cfg.plan — the test/build/typecheck script choice, kind relabels
- * included) and package-script TEXT edits. NOT claimed: any seal over the
- * tool config files a sealed command reads (vitest.config.ts, tsconfig …) —
- * editing those is the same attack class arriving through an UNSEALED door,
- * and working-tree visibility is the detection path M7 builds on; overclaim
- * it not. Containment of an agent that re-runs setup itself is likewise not
- * claimed — re-sealing is a visible act that re-smokes the new command — and
- * honest containment of candidate edits to Canary's own protected files
- * (.canary state, hooks) is M7's protected-surface work. Per-test-name
- * inventory drift (427→426) is out of scope too: M4's observedCounts record
- * the raw material; no seal over test names exists yet. A config with no
- * seal (pre-M5) verifies exactly as before — additive, and `canary setup`
- * is what creates the authority.
- */
-export interface PlanAuthority {
-  /** when this seal was captured (the last genuine setup run) */
-  at: string;
-  planDigest: string;
-  /** sha256 of the exact package.json script text, keyed by script name */
-  scriptDigests: Record<string, string>;
-  /** Explicit task/requirement digest -> plan script, sealed by setup. */
-  proofBindings?: Record<string, string>;
-}
-
-/** Capture the authority this setup run seals: the plan plus the verbatim
- *  text of every script it references. detectPlan guarantees plan scripts
- *  exist as non-empty strings in pkgScripts; anything else is left unsealed
- *  and the drift check fails closed on it. */
-export function sealPlanAuthority(plan: PlanStep[], pkgScripts: Record<string, unknown>, bindings?: unknown): PlanAuthority {
-  const scriptDigests: Record<string, string> = {};
-  for (const s of plan) {
-    const t = pkgScripts[s.script];
-    if (typeof t === 'string') scriptDigests[s.script] = sha256(t);
-  }
-  if (bindings !== undefined && (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)
-    || !Object.entries(bindings).every(([d,s]) => /^[0-9a-f]{64}$/.test(d) && typeof s === 'string' && plan.some(p => p.script === s)))) {
-    throw new Error('package.json canary.proofs must map full task/requirement digests to recognized plan scripts');
-  }
-  return { at: new Date().toISOString(), planDigest: planDigest(plan), scriptDigests,
-    proofBindings: Object.fromEntries(Object.entries((bindings ?? {}) as Record<string,string>).sort(([a],[b]) => a.localeCompare(b))) };
-}
-
-/** How the current repo state deviates from the sealed verification authority
- *  — a human-readable sentence (script names sanitized; no candidate-controlled
- *  prose can ride the message), or null when there is no drift (or no seal). */
-export function planAuthorityDrift(root: string, cfg: CanaryConfig, pkg?: Record<string, unknown> | null): string | null {
-  const seal = cfg.planAuthority;
-  if (seal === undefined) return null; // pre-M5 config: nothing sealed, nothing to drift from
-  if (typeof seal !== 'object' || seal === null
-    || typeof seal.at !== 'string' || !/^[0-9a-f]{64}$/.test(String(seal.planDigest))
-    || typeof seal.scriptDigests !== 'object' || seal.scriptDigests === null || Array.isArray(seal.scriptDigests)
-    || !Object.values(seal.scriptDigests).every((d) => typeof d === 'string' && /^[0-9a-f]{64}$/.test(d))) {
-    return 'the sealed verification authority in .canary/canary.local.json is malformed (hand-edited?)';
-  }
-  const drift: string[] = [];
-  if (seal.proofBindings !== undefined && (!seal.proofBindings || typeof seal.proofBindings !== 'object' || Array.isArray(seal.proofBindings)
-    || !Object.entries(seal.proofBindings).every(([d,s]) => /^[0-9a-f]{64}$/.test(d) && typeof s === 'string' && cfg.plan.some(p => p.script === s)))) return 'malformed sealed proof bindings';
-  if (planDigest(cfg.plan) !== seal.planDigest) drift.push('the plan no longer matches the sealed plan');
-  // pkg may be the caller's already-read copy (candidate.ts's seal check reads
-  // the same file one line later for the lifecycle-hook scan); absent = read.
-  const pkgBytes = pkg === undefined ? parseJsonOrNull(path.join(root, 'package.json')) : pkg;
-  const scripts = pkgBytes ? (pkgBytes.scripts ?? {}) as Record<string, unknown> : null;
-  if (scripts === null && cfg.plan.length > 0) drift.push('package.json cannot be read to compare the sealed scripts');
-  for (const s of cfg.plan) {
-    const name = isSafeScriptName(s.script) ? s.script : '<odd plan entry>'; // never echo raw config text
-    if (!Object.hasOwn(seal.scriptDigests, s.script)) {
-      drift.push(`script "${name}" is in the plan but was never sealed`);
-      continue;
-    }
-    if (scripts === null) continue; // unreadable pkg already reported
-    const cur = scripts[s.script];
-    if (typeof cur !== 'string') drift.push(`script "${name}" no longer exists in package.json`);
-    else if (sha256(cur) !== seal.scriptDigests[s.script]) drift.push(`script "${name}" changed since setup sealed it`);
-  }
-  return drift.length ? drift.join('; ') : null;
 }
 
 // ---------- M6 (spec M5): orchestrate the right proof for the task ----------
@@ -1545,10 +1409,17 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     } catch { /* absent: fine */ }
   }
 
-  const { pm, note } = detectPm(root);
-  const plan = detectPlan((pkg.scripts ?? {}) as Record<string, unknown>);
+  // 1.1 §1 — discovery and sealing run through the project adapter (Node is
+  // the only one registered yet; detection joins this same seam when more
+  // ecosystems exist, so no second plan path is ever forked). `pkg` above is
+  // the read that earned the UNSUPPORTED/JSON gates; the adapter's own read
+  // is what gets sealed — "whatever is on disk when sealing" (unchanged M5
+  // semantics, now adapter-supplied).
+  const adapter = nodeAdapter;
+  const disc = adapter.discoverChecks(root);
+  const { pm, note, plan } = disc;
   let seal: PlanAuthority;
-  try { seal = sealPlanAuthority(plan, (pkg.scripts ?? {}) as Record<string, unknown>, (pkg.canary as { proofs?: unknown } | undefined)?.proofs); }
+  try { seal = adapter.seal(plan, disc.source, (disc.source.canary as { proofs?: unknown } | undefined)?.proofs); }
   catch (e) { o.say(`REFUSED — ${(e as Error).message}`); return 2; }
 
   o.say(`repo: ${root}`);
@@ -1707,9 +1578,11 @@ function writeCheckpoint(root: string, status: string, failed: string[], source:
 // PATH lookup the old inherited-env `--version` allowed to be a liar shim.
 function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean): string[] {
   const problems: string[] = [];
+  const adapter = adapterFor(cfg);
   if (!Array.isArray(cfg.plan) || cfg.plan.length === 0) problems.push('the verification plan is empty — Canary would have nothing to check (a pass here would be fake)');
-  if (!/^(npm|pnpm|yarn|bun)$/.test(cfg.pm)) {
-    problems.push(`package manager "${cfg.pm}" is not one Canary can run (npm, pnpm, yarn or bun)`);
+  const envProblem = adapter.validateEnvironment(cfg.pm);
+  if (envProblem) {
+    problems.push(envProblem);
   } else if (livePmProbe) {
     const resolved = resolvePm(cfg.pm);
     const probe = resolved ? spawnHardened(resolved, ['--version'], root, 30_000) : null;
@@ -1717,15 +1590,13 @@ function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean)
       problems.push(`package manager "${cfg.pm}" is not runnable in Canary's trusted environment (running Node's install dir, corepack, or OS-managed dirs only — the calling PATH is deliberately ignored)`);
     }
   }
-  let pkg: Record<string, unknown> | null = {};
-  try { pkg = parseJsonOrNull(path.join(root, 'package.json')); } catch { pkg = null; }
-  const scripts = (pkg?.scripts ?? {}) as Record<string, unknown>;
-  for (const s of cfg.plan) {
-    if (!scripts[s.script]) problems.push(`plan references script "${s.script}" which no longer exists in package.json`);
-  }
+  // 1.1 §1 — the plan-existence and authority-drift questions are adapter
+  // questions now (same strings, live-disk reads; a swapped package.json
+  // between the two reads can only ever ADD problems, never certify).
+  problems.push(...adapter.planProblems(root, cfg.plan));
   // M5: a sealed authority that drifted is a problem REGARDLESS of whether the
   // current commands pass — doctor must not certify READY on proof it never sealed.
-  const drift = planAuthorityDrift(root, cfg, pkg);
+  const drift = adapter.drift(root, cfg);
   if (drift) problems.push(`verification authority changed since setup — ${drift}; restore the sealed checks, or re-run setup to re-seal deliberately`);
   if (!fs.existsSync(cfg.cliPath)) problems.push('the Canary command files moved or were removed — reinstall, then re-run setup');
   for (const t of cfg.touched) {
@@ -1929,7 +1800,7 @@ export async function cmdCheckpoint(): Promise<number> {
   // edited command must never be certified as proof, not even by failing on
   // it. Verdict authority stays Canary's own execution; this gate only
   // decides WHICH commands may run as proof at all.
-  const drift = planAuthorityDrift(root, cfg);
+  const drift = adapterFor(cfg).drift(root, cfg);
   if (drift) {
     writeCheckpoint(root, 'fail', ['authority'], 'checkpoint'); // state, not a bundle: nothing was executed
     if (input.stop_hook_active === true) {
