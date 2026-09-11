@@ -22,6 +22,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createTerminal } from '../test-support/terminal.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
@@ -46,11 +47,17 @@ function canary(args, cwd, env) {
   return spawnSync(process.execPath, [CLI, ...args], { cwd, encoding: 'utf8', timeout: 120_000, env: env ?? process.env });
 }
 /** A REAL terminal for the human act — util-linux script gives the child a
- *  pty on stdin+stdout, exactly what a coding agent's pipe streams are not. */
-function acceptPty(cwd, args, input) {
-  const cmd = `${process.execPath} ${CLI} ${args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(' ')}`;
-  return spawnSync('script', ['-qec', cmd, '/dev/null'], { cwd, encoding: 'utf8', timeout: 120_000, input });
+ *  pty on stdin+stdout, exactly what a coding agent's pipe streams are not.
+ *  On a host with no drivable pty the shared provider falls back to the repo's
+ *  in-process terminal driver and the probe reports an explicit host-bound SKIP
+ *  (exit 3) naming exactly what could not be proven — it never claims a pass. */
+const TERMINAL = createTerminal({ repo: REPO, cli: CLI });
+let hostSkips = 0;
+if (!TERMINAL.provenRealPty) {
+  hostSkips++;
+  console.log(`SKIP  acceptance-terminal-provider  ${TERMINAL.skipReason}`);
 }
+const acceptPty = (cwd, args, input) => TERMINAL.run(cwd, args, input);
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-accept-'));
 function makeRepo(name) {
   const root = path.join(TMP, name);
@@ -302,5 +309,16 @@ check('H requirement task: per-requirement duty closes via acceptance, never a d
   assertEq(p.status, 0, `H: promotes honestly:\n${p.stdout}`);
 });
 
-console.log(`\n=== pre10-acceptance: ${failures === 0 ? 'ALL PASS' : failures + ' FAIL'} ===`);
-process.exit(failures === 0 ? 0 : 1);
+if (failures > 0) {
+  console.log(`\n=== pre10-acceptance: ${failures} FAIL ===`);
+  process.exit(1);
+}
+if (hostSkips > 0) {
+  // Never a pass: the product assertions above all executed, but the pty
+  // allocation this probe exists to exercise could not be proven here.
+  console.log(`\n=== pre10-acceptance: every check EXECUTED and passed, with ${hostSkips} explicit host-bound SKIP(s) ===`);
+  console.log(`PROBE-PASS-WITH-SKIP — ${hostSkips} explicit host-bound SKIP(s) above; NOT full acceptance on this host`);
+  process.exit(3);
+}
+console.log('\n=== pre10-acceptance: ALL PASS ===');
+process.exit(0);

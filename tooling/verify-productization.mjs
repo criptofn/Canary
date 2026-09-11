@@ -274,7 +274,17 @@ const STEPS = [
 // Exit code contract: 0 = zero failures (all PASS, or PASS + listed
 // host-bound SKIPs — the headline distinguishes); 1 = any FAIL or a step
 // aborted mid-chain so later steps judged stale bytes.
-const SKIP_AWARE = new Set(['probe: HTG inline-interpreter corpus', 'probe: documented examples (Node + Python, real CLI)']);
+const SKIP_AWARE = new Set([
+  'probe: HTG inline-interpreter corpus',
+  'probe: documented examples (Node + Python, real CLI)',
+  // The two acceptance batteries need a REAL pty. Where the host has no
+  // drivable pty (measured: win32 here — see tooling/probes/tty-capability.mjs)
+  // they drive the same product gate through the repo's in-process terminal
+  // driver, run EVERY product assertion, print an explicit SKIP naming what the
+  // platform could not prove, and exit 3. SKIP is never counted as PASS.
+  'probe: pre-1.0 human-acceptance battery (real git + pty)',
+  'probe: acceptance growth (real git + pty)',
+]);
 const results = []; // [label, 'PASS'|'SKIP'|'FAIL', note]
 for (const [label, cmd, args] of STEPS) {
   console.log(`\n=== ${label} ===`);
@@ -288,8 +298,10 @@ for (const [label, cmd, args] of STEPS) {
   const verdict = r.status === 0 ? 'PASS' : (SKIP_AWARE.has(label) && r.status === 3 ? 'SKIP' : 'FAIL');
   // M10.2 Fix 6: a SKIP that EXECUTED checks is a different fact from one that
   // ran zero because the environment is absent — the note must distinguish
-  // them. Neither kind is ever counted as a PASS.
-  const ran = SKIP_AWARE.has(label) ? out.split(/\r?\n/).filter((l) => /^(?:PASS|FAIL)  L/.test(l)).length : 0;
+  // them. Neither kind is ever counted as a PASS. The count is any `PASS <case>`
+  // / `FAIL <case>` line, so it also measures the acceptance batteries, whose
+  // cases are not prefixed `L` like the HTG corpus layers.
+  const ran = SKIP_AWARE.has(label) ? out.split(/\r?\n/).filter((l) => /^(?:PASS|FAIL)\s+\S/.test(l)).length : 0;
   const skipNote = `host-bound: ${ran} check(s) EXECUTED, ${skipLines.length} explicit SKIP(s) — SKIP never counts as PASS` +
     (ran === 0 ? '; nothing here was accepted by execution' : '');
   results.push([label, verdict, verdict === 'SKIP' ? skipNote : (verdict === 'FAIL' ? `(exit ${r.status}${r.error ? `: ${r.error.message}` : ''})` : '')]);
