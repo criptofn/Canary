@@ -237,7 +237,51 @@ check('MEASURED: go test -exec honors a Canary-owned shim (Canary can own the te
 });
 
 const SKIPS = [];
-console.log(`\n=== rust/go channel measurements: ${failures === 0 ? (rustSkipped === 0 ? 'ALL FACTS ESTABLISHED' : `facts established, with ${rustSkipped} honest SKIP`) : `${failures} FAIL`} ===`);
+// ═══════════ can Canary's SANITIZED environment run these toolchains? ═══════════
+// A toolchain that only works with the caller's environment is useless to Canary:
+// verification children get `sanitizedEnv` — PATH = the Node install dir plus the
+// OS dirs, HOME/USERPROFILE redirected to an isolated workspace dir, and nothing
+// else. This is the decisive fact for whether a Rust or Go step can run at all,
+// and it is the same class of question that made bare `git` fail inside a sealed
+// step earlier in this project. Measured, not assumed.
+console.log('\n=== under a sanitized environment (what a Canary step actually gets) ===');
+const isolatedHome = path.join(TMP, 'isolated-home');
+fs.mkdirSync(isolatedHome, { recursive: true });
+const sanitized = (extra = {}) => ({
+  PATH: `${path.dirname(process.execPath)};${path.join(process.env.SystemRoot ?? 'C:\\WINDOWS', 'System32')};${process.env.SystemRoot ?? 'C:\\WINDOWS'}`,
+  PATHEXT: '.EXE;.CMD',
+  SystemRoot: process.env.SystemRoot ?? 'C:\\WINDOWS',
+  ComSpec: path.join(process.env.SystemRoot ?? 'C:\\WINDOWS', 'System32', 'cmd.exe'),
+  TEMP: path.join(TMP, 'tmp'), TMP: path.join(TMP, 'tmp'),
+  HOME: isolatedHome, USERPROFILE: isolatedHome,
+  ...extra,
+});
+fs.mkdirSync(path.join(TMP, 'tmp'), { recursive: true });
+
+const goSanitized = run(GO, ['test', './...'], { cwd: mod, env: sanitized() });
+const goSanitizedOk = goSanitized.status === 0;
+console.log(`-- go test under sanitized env (exit ${goSanitized.status}) --`);
+console.log(((goSanitized.stdout ?? '') + (goSanitized.stderr ?? '')).trim().split('\n').slice(0, 4).join('\n'));
+
+// Rust: try the RUSTUP PROXY first (what a normal install seals), then the real
+// toolchain binary (which finds its own rustc and needs no RUSTUP_HOME).
+const cargoProxy = run(CARGO, ['test', '--quiet'], { cwd: crate, env: sanitized() });
+const realCargo = path.join(RUSTUP_HOME, 'toolchains', 'stable-x86_64-pc-windows-gnu', 'bin', 'cargo.exe');
+const cargoDirect = fs.existsSync(realCargo)
+  ? run(realCargo, ['test', '--quiet'], { cwd: crate, env: sanitized() })
+  : null;
+console.log(`-- cargo (rustup proxy) under sanitized env (exit ${cargoProxy.status}) --`);
+console.log(((cargoProxy.stdout ?? '') + (cargoProxy.stderr ?? '')).trim().split('\n').slice(0, 3).join('\n'));
+if (cargoDirect !== null) {
+  console.log(`-- real toolchain cargo under sanitized env (exit ${cargoDirect.status}) --`);
+  console.log(((cargoDirect.stdout ?? '') + (cargoDirect.stderr ?? '')).trim().split('\n').slice(0, 3).join('\n'));
+}
+
+console.log(`\nRESULT: go usable in a sanitized env: ${goSanitizedOk}; `
+  + `cargo via rustup proxy: ${cargoProxy.status === 0}; `
+  + `cargo direct: ${cargoDirect === null ? 'not present' : String(cargoDirect.status === 0)}`);
+console.log('This is what decides whether a Go/Rust step can run INSIDE Canary, as opposed to');
+console.log('on a developer shell: a toolchain that needs the caller\'s HOME is not runnable by a step.');
 console.log(`later validation command for a Rust host WITH a usable linker (MSVC Build Tools, or the GNU toolchain):`);
 console.log(`  node tooling/toolchains.mjs rust && node tooling/probes/runner-channels-rust-go.mjs`);
 console.log(`  (it measures whether stable libtest exposes a per-test event stream and whether`);

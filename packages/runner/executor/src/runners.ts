@@ -218,7 +218,9 @@ export const RUNNER_ADAPTERS: readonly RunnerAdapter[] = [
       + '(a `[[test]] harness = false` target whose main is Canary\'s), which turns per-test outcomes into '
       + 'Canary-emitted events. A nightly-only format is not a supportable pin',
     measuredOn: 'cargo 1.98.1 (GNU target), win32-x64: cargo test ran; --format json refused by the compiler; '
-      + 'CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER honored',
+      + 'CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER honored. ALSO MEASURED: under Canary\'s own sanitized '
+      + 'environment the rustup PROXY cargo cannot choose a toolchain (RUSTUP_HOME/HOME are redirected), while the '
+      + 'real toolchain binary runs fine — so a Rust STEP needs the adapter to resolve the toolchain binary, not the PATH proxy',
   },
   {
     id: 'go-test',
@@ -245,7 +247,10 @@ export const RUNNER_ADAPTERS: readonly RunnerAdapter[] = [
     requiredToUnblock: STRONG_REQUIREMENTS + '; the shim must frame the per-binary observation itself '
       + '(identity + count + exit bound to the pid Canary spawned) rather than trusting the tool\'s relay',
     measuredOn: 'go1.27.1 win32-x64: go test ran; -json produced named per-test pass/skip events; '
-      + '-exec shim was invoked with the test binary',
+      + '-exec shim was invoked with the test binary. ALSO MEASURED: under Canary\'s own sanitized environment Go '
+      + 'aborts with "build cache is required, but could not be located: GOCACHE is not defined and %LocalAppData% '
+      + 'is not defined" (HOME/USERPROFILE are redirected) — so a Go STEP needs the adapter to declare a '
+      + 'workspace-scoped GOCACHE/GOPATH',
   },
 ];
 

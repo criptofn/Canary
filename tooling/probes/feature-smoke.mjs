@@ -82,8 +82,28 @@ function feature(name, fn) {
   }
 }
 function toolchain(cmd) {
-  const r = spawnSync(cmd, ['--version'], { encoding: 'utf8', timeout: 20_000 });
+  // `go version` vs `cargo --version`: Go's version command takes no dashes, and
+  // asking it for `--version` errors — which silently read as "no toolchain".
+  const argv = cmd === 'go' ? ['version'] : ['--version'];
+  const r = spawnSync(cmd, argv, { encoding: 'utf8', timeout: 20_000 });
   return r.status === 0 ? (r.stdout ?? '').trim().split('\n')[0] : null;
+}
+/** A toolchain counts as available if it is on PATH OR provisioned workspace-locally
+ *  (`node tooling/toolchains.mjs all`), because the latter is how this repository
+ *  makes Rust and Go validatable without administrator rights. */
+function toolchainWithLocal(which) {
+  const onPath = toolchain(which);
+  if (onPath !== null) return onPath;
+  const tc = path.join(REPO, '_toolchains');
+  const bin = which === 'go'
+    ? path.join(tc, 'go', 'bin', process.platform === 'win32' ? 'go.exe' : 'go')
+    : path.join(tc, 'rust', 'cargo', 'bin', process.platform === 'win32' ? 'cargo.exe' : 'cargo');
+  if (!fs.existsSync(bin)) return null;
+  const env = which === 'rust'
+    ? { ...process.env, CARGO_HOME: path.join(tc, 'rust', 'cargo'), RUSTUP_HOME: path.join(tc, 'rust', 'rustup'), RUSTUP_TOOLCHAIN: 'stable' }
+    : process.env;
+  const r = spawnSync(bin, which === 'go' ? ['version'] : ['--version'], { encoding: 'utf8', timeout: 120_000, env });
+  return r.status === 0 ? `${(r.stdout ?? '').trim().split('\n')[0]} (workspace-local)` : null;
 }
 
 // ────────────────────────────── ecosystems ──────────────────────────────
@@ -122,17 +142,27 @@ feature('Python: a real project with NO package.json anywhere', () => {
 });
 
 feature('Rust: cargo-compatible path', () => {
-  const v = toolchain('cargo');
-  return v === null
-    ? skip('no cargo/rustc on this host — the Rust path was NOT executed, so it is not claimed')
-    : { note: v };
+  const v = toolchainWithLocal('rust');
+  if (v === null) return skip('no Rust toolchain (system or workspace-local) — run: node tooling/toolchains.mjs rust');
+  // The channel facts are established by the runner-channels probe below. What
+  // this row reports is the PROJECT-verification path, and it is honest about the
+  // measured blocker rather than saying "no toolchain" (which would now be false):
+  // a Canary step gets `sanitizedEnv`, and under it the rustup PROXY cannot find
+  // its toolchain (no RUSTUP_HOME/HOME), while the REAL toolchain binary works.
+  return skip(`toolchain present (${v}) and channel facts measured, but a Rust STEP cannot run yet: a Canary step `
+    + 'gets the sanitized env, where the rustup proxy cargo fails ("could not choose a version of cargo") because '
+    + 'RUSTUP_HOME/HOME are redirected; the real toolchain cargo works (measured: 2 passed). The fix is for the Rust '
+    + 'adapter to resolve the toolchain binary rather than the PATH proxy — recorded, not silently skipped');
 });
 
 feature('Go: go-compatible path', () => {
-  const v = toolchain('go');
-  return v === null
-    ? skip('no Go toolchain on this host — the Go path was NOT executed, so it is not claimed')
-    : { note: v };
+  const v = toolchainWithLocal('go');
+  if (v === null) return skip('no Go toolchain (system or workspace-local) — run: node tooling/toolchains.mjs go');
+  return skip(`toolchain present (${v}) and channel facts measured, but a Go STEP cannot run yet: under the sanitized `
+    + 'env Go aborts with "build cache is required, but could not be located: GOCACHE is not defined and %LocalAppData% '
+    + 'is not defined" (HOME/USERPROFILE are redirected, so Go cannot derive a cache). The fix is for the Go adapter to '
+    + 'declare a workspace-scoped GOCACHE/GOPATH through the same narrow injection the observer env uses — recorded, '
+    + 'not silently skipped');
 });
 
 feature('Polyglot at the root: Node + a DECLARED Python scope', () => {
@@ -316,6 +346,72 @@ feature('HARDENED provider: proven where the host can prove it, SKIPPED where it
   const out = runProbe('tooling/probes/provider-boundary.mjs', 'provider-boundary', { status: 0, match: /HONEST POSTURE HOLDS/ });
   assertMatch(out, /UNAVAILABLE/, 'the six boundary controls must be reported unavailable with reasons');
   return skip('this host has no second OS identity: not elevated, no provider store, no CanaryBroker service. The tripwire PROVED HARDENED is unreachable and named the exact privileged commands; the boundary itself is NOT claimed here');
+});
+
+feature('Python execution observation: a real unittest run is WATCHED, and text cannot forge it', () => {
+  const py = toolchain('python');
+  if (py === null) return skip('no python on PATH — the Python observation channel cannot be executed here');
+  const out = runProbe('tooling/probes/runner-observation-python.mjs', 'python-observation', { status: 0, match: /python observation: ALL PASS/ });
+  return {
+    note: 'sitecustomize injected on PYTHONPATH; hello/pass/pending/bye observed; printed-summary forgery yields ZERO passes; '
+      + 'a fabricated addSuccess is rejected',
+  };
+});
+
+feature('Rust and Go channels: MEASURED with workspace-local toolchains, not assumed', () => {
+  // These toolchains are provisioned user-locally by tooling/toolchains.mjs, so
+  // "no toolchain" is no longer an acceptable reason to leave these unmeasured.
+  const hasGo = toolchain('go') !== null || fs.existsSync(path.join(REPO, '_toolchains', 'go', 'bin', 'go.exe'));
+  const hasRust = fs.existsSync(path.join(REPO, '_toolchains', 'rust', 'cargo', 'bin', 'cargo.exe'));
+  if (!hasGo && !hasRust) return skip('no workspace-local toolchains — run: node tooling/toolchains.mjs all');
+  const r = spawnSync(process.execPath, [path.join(REPO, 'tooling', 'probes', 'runner-channels-rust-go.mjs')],
+    { cwd: REPO, encoding: 'utf8', timeout: 1_800_000, maxBuffer: 32 * 1024 * 1024 });
+  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  // Exit 3 = the Rust facts could not be measured (no usable linker). That is an
+  // honest host SKIP, never a failure, and never a pass.
+  assert(r.status === 0 || r.status === 3, `channel measurement exited ${r.status}:\n${out.split('\n').slice(-12).join('\n')}`);
+  assertMatch(out, /MEASURED/, 'the probe must report measured facts');
+  if (r.status === 3) return skip('Go facts measured; Rust could not be measured on this host (no usable linker) — see the probe output');
+  return { note: 'Go: -json per-test events + -exec shim honored. Rust: stable libtest has NO event stream (compiler refusal), runner shim honored' };
+});
+
+feature('Protected-provider capability reporting: HARDENED is measured, never declared', () => {
+  const cli = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
+  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-smoke-provider-'));
+  const env = { ...process.env, CANARY_TRUST_STORE: store };
+  try {
+    const status = spawnSync(process.execPath, [cli, 'provider', 'status', '--json'], { encoding: 'utf8', timeout: 120_000, env });
+    const line = (status.stdout ?? '').split(/\r?\n/).find((l) => l.trim().startsWith('{'));
+    const envelope = line ? JSON.parse(line) : null;
+    assert(envelope !== null, `no envelope: ${status.stdout}${status.stderr}`);
+    assert(envelope.schema === 'canary-provider-status/1', `wrong schema: ${envelope.schema}`);
+    assert(envelope.status === 'NOT CONNECTED', `a provider without a boundary must not read READY: ${envelope.status}`);
+    assert(envelope.exitCode === 2, `exitCode must be 2, got ${envelope.exitCode}`);
+    assert(Array.isArray(envelope.problems) && envelope.problems.length === 6,
+      `all six controls must be reported missing, got ${JSON.stringify(envelope.problems)}`);
+
+    // The PROVIDER must not be installed as a side effect of asking about it.
+    if (process.platform === 'win32') {
+      const q = spawnSync('sc.exe', ['query', 'CanaryBroker'], { encoding: 'utf8', timeout: 30_000, windowsHide: true });
+      assert(q.status !== 0, 'a CanaryBroker service exists — asking about the provider must not install it');
+    }
+    const call = spawnSync(process.execPath, [cli, 'provider', 'call', 'broker.hello'], { encoding: 'utf8', timeout: 60_000, env });
+    assert(call.status !== 0, 'a worker call with no broker running must be refused, not silently done locally');
+    return { note: 'NOT CONNECTED, 6 controls missing, no service installed as a side effect, worker call refused' };
+  } finally {
+    fs.rmSync(store, { recursive: true, force: true });
+  }
+});
+
+feature('Provider activation state: the privileged step is prepared and NOT taken', () => {
+  const cli = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
+  const plan = spawnSync(process.execPath, [cli, 'provider', 'install-plan'], { encoding: 'utf8', timeout: 120_000 });
+  const out = `${plan.stdout ?? ''}${plan.stderr ?? ''}`;
+  assert(plan.status === 0, `install-plan failed: ${out.slice(-400)}`);
+  assertMatch(out, /OWNER AUTHORIZATION REQUIRED/, 'the plan must name what it waits for');
+  for (const needle of ['net user', 'sc.exe create', 'icacls']) assert(out.includes(needle), `the plan must name ${needle}`);
+  assertMatch(out, /Nothing in this command executed any of the above/, 'it must state that nothing ran');
+  return { note: 'exact privileged commands + rollback + post-state + verification command printed; executed: none' };
 });
 
 // ────────────────────────────── verdict ──────────────────────────────
