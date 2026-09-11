@@ -23,6 +23,46 @@ export function requireAuthorizationLevel(level: unknown): void {
   if (level !== 'LOCAL') throw new Error('HARDENED unavailable: no installed protected broker/supervisor/promoter; ADVISORY cannot authorize');
 }
 
+/**
+ * The MEASURED capability report (v1.1 Phase 3).
+ *
+ * This is the only place a `HARDENED` level can be produced, and it produces it
+ * from a provider measurement — never from configuration, a claim, or the mere
+ * existence of an interface. `HARDENED` requires EVERY boundary control to be
+ * observed as available; one missing control means the level stays where the
+ * local store puts it.
+ *
+ * The input is STRUCTURAL on purpose: this module is one of the five the P0
+ * mutation probe copies into a scratch tree, so it must not import the provider
+ * module (which lives outside that set). A caller passes the measurement it
+ * already holds.
+ */
+export function measuredCapabilities(m: {
+  storeExists: boolean;
+  controls: Record<BoundaryControl, { available: boolean }>;
+}): CapabilityReport {
+  const unavailable = (Object.entries(m.controls) as Array<[BoundaryControl, { available: boolean }]>)
+    .filter(([, c]) => !c.available)
+    .map(([name]) => name);
+  return {
+    level: unavailable.length === 0 ? 'HARDENED' : (m.storeExists ? 'LOCAL' : 'ADVISORY'),
+    unavailable,
+  };
+}
+
+/**
+ * Authorize an operation at a required level, given a MEASURED report.
+ *
+ * Without a measurement the rule is unchanged: only LOCAL authorizes, and any
+ * request for HARDENED is refused — a level nobody measured cannot authorize
+ * anything. `HARDENED` passes only when the measurement itself says the boundary
+ * exists, so a caller cannot upgrade by assertion.
+ */
+export function requireMeasuredLevel(level: unknown, measured: CapabilityReport | undefined): void {
+  if (measured?.level === 'HARDENED' && level === 'HARDENED') return;
+  if (level !== 'LOCAL') throw new Error('HARDENED unavailable: the measured boundary does not establish it; only a proven provider authorizes HARDENED');
+}
+
 export interface NetworkAuthority { mode: 'deny' | 'allowlist'; origins: string[] }
 /** Approval covers exact HTTPS origins. The provider must ALSO prevent DNS
  * rebinding, redirects, raw-IP/proxy/IPv6/UDP bypass and internal destinations.

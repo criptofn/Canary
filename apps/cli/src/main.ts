@@ -56,6 +56,7 @@ import { cmdIsolate, cmdAccept } from './candidate.js';
 import { appendMetric, metricFor, metricsTarget, streamSnapshot } from './metrics.js';
 import { cmdWork, cmdFinish } from './orchestrate.js';
 import { cmdMcp } from './mcp.js'; // 1.1 §D: MCP transport — no authority of its own
+import { cmdProvider } from './provider/commands.js'; // 1.1 §E: provider lifecycle
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -383,6 +384,10 @@ async function main(argv: string[]): Promise<number> {
   // this same CLI and relays its verdict, so the machine channel gains no second
   // authority model. `accept` is deliberately not exposed (human terminal act).
   if (cmd === 'mcp') return cmdMcp(rest);
+  // 1.1 §E — the provider lifecycle. `install-plan` PRINTS the privileged steps;
+  // nothing in this command elevates, and HARDENED stays unreachable until the
+  // measured boundary proves every control.
+  if (cmd === 'provider') return cmdProvider(rest);
   return usage();
 }
 

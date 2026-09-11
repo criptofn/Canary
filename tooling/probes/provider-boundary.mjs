@@ -141,6 +141,60 @@ check('every control is unavailable and every reason is substantive', () => {
   }
 });
 
+// ─────────────────── 3b. the REAL provider surface (v1.1 Phase 3) ───────────────────
+console.log('\n=== canary provider status (the measured boundary) ===');
+{
+  const cli = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
+  if (!fs.existsSync(cli)) { failures++; console.log(`FAIL missing built CLI: ${cli}`); }
+  else {
+    const store = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-provider-probe-'));
+    const env = { ...process.env, CANARY_TRUST_STORE: store };
+    const status = spawnSync(process.execPath, [cli, 'provider', 'status', '--json'], { encoding: 'utf8', timeout: 120_000, env, windowsHide: true });
+    const line = (status.stdout ?? '').split(/\r?\n/).find((l) => l.trim().startsWith('{'));
+    let env0 = null;
+    try { env0 = line ? JSON.parse(line) : null; } catch { env0 = null; }
+    console.log(`provider status -> exit ${status.status}, envelope ${env0 === null ? 'MISSING' : 'present'}`);
+    check('the provider reports NOT CONNECTED with every control missing, and never READY', () => {
+      assert(env0 !== null, `no JSON envelope on stdout:\n${status.stdout}${status.stderr}`);
+      assert(env0.schema === 'canary-provider-status/1', `wrong schema: ${env0.schema}`);
+      assert(env0.status === 'NOT CONNECTED', `an uninstalled provider must not read READY: ${env0.status}`);
+      assert(env0.exitCode === 2, `exitCode must be 2 without a boundary, got ${env0.exitCode}`);
+      assert(Array.isArray(env0.problems) && env0.problems.length === CONTROLS.length,
+        `expected ${CONTROLS.length} unavailable controls, got ${JSON.stringify(env0.problems)}`);
+    });
+
+    const plan = spawnSync(process.execPath, [cli, 'provider', 'install-plan'], { encoding: 'utf8', timeout: 120_000, env, windowsHide: true });
+    const planOut = `${plan.stdout ?? ''}${plan.stderr ?? ''}`;
+    console.log(`provider install-plan -> exit ${plan.status}`);
+    check('install-plan PRINTS the privileged steps and executes nothing', () => {
+      assert(plan.status === 0, `install-plan failed: ${planOut.slice(-400)}`);
+      assert(/OWNER AUTHORIZATION REQUIRED/.test(planOut), 'the plan must say what it is waiting for');
+      for (const needle of ['net user', 'sc.exe create', 'icacls']) {
+        assert(planOut.includes(needle), `the plan must name the real command (${needle})`);
+      }
+      assert(/rollback/i.test(planOut), 'a plan without a rollback is not a plan');
+      assert(/Nothing in this command executed any of the above/.test(planOut), 'it must state that nothing ran');
+    });
+
+    // The provider must not have installed itself as a side effect.
+    if (process.platform === 'win32') {
+      const q = spawnSync('sc.exe', ['query', 'CanaryBroker'], { encoding: 'utf8', timeout: 30_000, windowsHide: true });
+      check('no CanaryBroker service was installed as a side effect', () => {
+        assert(q.status !== 0, 'a service exists after running only the planning commands — that would be an unrequested privileged change');
+      });
+    }
+
+    // The worker-side client must refuse to talk to a broker that is not there,
+    // rather than silently doing the work locally.
+    const call = spawnSync(process.execPath, [cli, 'provider', 'call', 'broker.hello'], { encoding: 'utf8', timeout: 60_000, env, windowsHide: true });
+    check('with no broker running, a worker call is refused (never silently local)', () => {
+      assert(call.status !== 0, `the call must fail when no provider is served: ${call.stdout}${call.stderr}`);
+      assert(/refused/i.test(`${call.stdout}${call.stderr}`), 'the refusal must say so');
+    });
+    fs.rmSync(store, { recursive: true, force: true });
+  }
+}
+
 // ─────────────────── 3. the exact authorization ask ───────────────────
 console.log('\n=== the exact privileged step (NOT executed here) ===');
 console.log('Elevation is required, and it is a human decision. On Windows x64:');

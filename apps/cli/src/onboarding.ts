@@ -76,6 +76,12 @@ import type { PlanAuthority, PlanStep } from './project.js';
 // store is SEALED at setup and REPORTED at status/doctor; no v1.0 verdict
 // reads it (yet), so a legacy project without records loses nothing.
 import { openSealed, probeTrustLevel, probeTrustLevelReadOnly, sealRecord, storeFromEnv, projectIdForRoot } from './trust-store.js';
+// v1.1 Phase 3: the measured HARDENED boundary. Imported HERE (not into
+// trust-store/platform-boundary, which the P0 mutation probe copies into a
+// scratch tree and which must therefore stay free of new imports).
+import { providerConfigured } from './provider/boundary.js';
+import { providerStatus } from './provider/service.js';
+import { measuredCapabilities } from './platform-boundary.js';
 import { canonicalJson } from '@canary-rn/hashing';
 import { CANARY_VERSION } from './pipeline.js';
 export { detectPm, detectPlan, isSafeScriptName, sealPlanAuthority, planAuthorityDrift, stepArgv, planDigest, parseJsonOrNull } from './project.js';
@@ -1922,7 +1928,21 @@ export function securityCapability(): { level: 'HARDENED' | 'LOCAL' | 'ADVISORY'
     // READ-ONLY: this feeds `status`, `result` and `agents`, all of which promise
     // to write nothing. The write-measuring probe belongs to setup/doctor, where
     // writing is already part of the job.
-    return probeTrustLevelReadOnly(storeFromEnv());
+    const store = storeFromEnv();
+    // v1.1 Phase 3: when a provider is CONFIGURED, the level is the MEASURED one
+    // — HARDENED becomes reachable exactly when every boundary control is
+    // observed, and never because a provider is merely present. With no provider
+    // installed this branch is skipped entirely, so the ordinary answer stays
+    // byte-identical and costs no extra process spawns.
+    if (providerConfigured(store)) {
+      const status = providerStatus(store);
+      const measured = measuredCapabilities(status.boundary);
+      if (measured.level === 'HARDENED') {
+        return { level: 'HARDENED', reasons: [`a provider is installed and every boundary control is measured available on ${status.boundary.platform}`] };
+      }
+      return { level: measured.level, reasons: status.unavailable };
+    }
+    return probeTrustLevelReadOnly(store);
   } catch (e) {
     return { level: 'UNSUPPORTED', reasons: [`the trust store could not be examined: ${String((e as Error).message ?? e)}`] };
   }

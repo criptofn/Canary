@@ -1,0 +1,113 @@
+/**
+ * `canary provider` — the explicit provider lifecycle (v1.1 Phase 3).
+ *
+ *   canary provider status          measure the boundary; say whether HARDENED is real
+ *   canary provider install-plan    the EXACT privileged commands, and the rollback
+ *   canary provider uninstall-plan   what removal does, and what it must never delete
+ *   canary provider serve           run the broker service (what the OS starts)
+ *   canary provider call            worker-side request, for scripts and tests
+ *
+ * The verbs are split so that the privileged step is never a side effect of a
+ * routine command: nothing here elevates, and `install-plan` prints rather than
+ * executes. Routine Canary use after activation needs no elevation, because the
+ * service holds the privileged identity.
+ */
+import { measuredCapabilities } from '../platform-boundary.js';
+import { storeFromEnv } from '../trust-store.js';
+import { emitEnvelope } from '../protocol.js';
+import {
+  PROVIDER_PIPE_NAME, PROVIDER_SERVICE_NAME, callProvider, providerInstallPlan,
+  providerServe, providerStatus, providerUninstallPlan,
+} from './service.js';
+import type { WorkerOperation } from './ipc.js';
+
+function hasFlag(args: readonly string[], f: string): boolean { return args.includes(f); }
+
+export async function cmdProvider(rawArgs: string[]): Promise<number> {
+  const json = hasFlag(rawArgs, '--json');
+  const rest = rawArgs.filter((a) => !a.startsWith('--'));
+  const [sub = 'status'] = rest;
+  const out = (s: string): void => { if (json) console.error(s); else console.log(s); };
+
+  switch (sub) {
+    case 'status': {
+      const status = providerStatus();
+      const measured = measuredCapabilities(status.boundary);
+      if (json) {
+        emitEnvelope({
+          schema: 'canary-provider-status/1',
+          command: 'provider status',
+          // The status word is the MEASURED level, so the human and machine
+          // answers cannot diverge, and HARDENED can only appear when it is real.
+          status: measured.level === 'HARDENED' ? 'READY' : 'NOT CONNECTED',
+          exitCode: measured.level === 'HARDENED' ? 0 : 2,
+          problems: status.unavailable,
+          next: measured.level === 'HARDENED'
+            ? 'the boundary is established; canary provider serve is what the OS starts'
+            : 'run: canary provider install-plan (privileged steps, owner authorization required)',
+        });
+      }
+      console.log(`provider: ${PROVIDER_SERVICE_NAME}  pipe: ${status.pipe}`);
+      console.log(`platform: ${status.boundary.platform}  user: ${status.boundary.currentUser ?? 'unknown'}  elevated: ${status.boundary.elevated}`);
+      console.log(`store:    ${status.boundary.storeDir} (${status.boundary.storeExists ? 'present' : 'absent'})`);
+      console.log(`service:  installed=${status.boundary.brokerServiceInstalled} running=${status.boundary.brokerServiceRunning} account=${status.boundary.brokerServiceAccount ?? 'n/a'}`);
+      console.log(`worker:   ${status.boundary.workerUser ?? 'not enrolled'}  canWriteStore=${String(status.boundary.workerCanWriteStore)}`);
+      console.log('boundary controls:');
+      for (const [name, c] of Object.entries(status.boundary.controls)) {
+        console.log(`  ${c.available ? 'AVAILABLE  ' : 'UNAVAILABLE'} ${name}${c.available ? '' : ` — ${c.why}`}`);
+      }
+      console.log(`\n${measured.level === 'HARDENED'
+        ? 'HARDENED — every boundary control is measured available on this host.'
+        : `${measured.level} — HARDENED is NOT available: ${status.unavailable.length} control(s) missing.`}`);
+      if (measured.level !== 'HARDENED') {
+        console.log('next: canary provider install-plan   (prints the exact privileged steps; nothing is executed)');
+      }
+      return measured.level === 'HARDENED' ? 0 : 2;
+    }
+    case 'install-plan': {
+      const plan = providerInstallPlan();
+      if (json) { console.log(JSON.stringify(plan, null, 2)); return 0; }
+      console.log(`OWNER AUTHORIZATION REQUIRED — WINDOWS HARDENED ACTIVATION`);
+      console.log(`platform: ${plan.platform}\n`);
+      console.log('1. exactly what the privileged commands will change:');
+      for (const s of plan.steps) console.log(`   - ${s.id}: ${s.why}`);
+      console.log('\n2. exact commands (run as Administrator; <STRONG-PASSWORD> is yours to choose):');
+      for (const s of plan.steps) console.log(`   ${s.needsElevation ? '[elevated] ' : ''}${s.argv.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`);
+      console.log('\n3. rollback / uninstall commands:');
+      for (const r of plan.rollback) console.log(`   ${r.argv.join(' ')}`);
+      console.log('\n4. expected post-install state:');
+      for (const p of plan.postState) console.log(`   - ${p}`);
+      console.log('\n5. verification command that must run afterwards:');
+      for (const v of plan.verify) console.log(`   ${v}`);
+      console.log('\nNothing in this command executed any of the above.');
+      return 0;
+    }
+    case 'uninstall-plan': {
+      const plan = providerUninstallPlan();
+      if (json) { console.log(JSON.stringify(plan, null, 2)); return 0; }
+      console.log('uninstall removes the service and the identities:');
+      for (const step of plan.steps) console.log(`   ${step.join(' ')}`);
+      console.log(`\n${plan.keepsProtectedAuthority}`);
+      return 0;
+    }
+    case 'serve': {
+      return await providerServe(storeFromEnv());
+    }
+    case 'call': {
+      const op = rest[1] as WorkerOperation | undefined;
+      if (op === undefined) { console.error('usage: canary provider call <operation> [--json]'); return 3; }
+      try {
+        const result = await callProvider({ op });
+        console.log(json ? JSON.stringify(result) : `ok: ${JSON.stringify(result)}`);
+        return 0;
+      } catch (e) {
+        console.error(`provider refused: ${String((e as Error).message)}`);
+        return 2;
+      }
+    }
+    default:
+      console.log('usage: canary provider <status|install-plan|uninstall-plan|serve|call>');
+      out(`unknown provider subcommand: ${sub}`);
+      return 3;
+  }
+}
