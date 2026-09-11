@@ -22,6 +22,7 @@ import { diffTrees, escapePkgKey, extractFailingTestNamesFor, parseSummaryCounts
 import { classify, applyConfinementGuard, type RoundFact } from '@canary-rn/classification';
 import { EVIDENCE_SCHEMA_VERSION, validateBundle, integrityFor, type EvidenceBundle, type RoundEvidence, type TreeSnapshotRef } from '@canary-rn/evidence-schema';
 import { sha256hex } from '@canary-rn/hashing';
+import { runnerIdentitiesFromSealedPlan } from './runner-authority.js';
 
 const NODE = process.execPath;
 const NODE_DIR = path.dirname(NODE);
@@ -41,6 +42,13 @@ export interface PipelineResult {
   summaryCounts: ReturnType<typeof parseSummaryCountsFor>;
   bundleIssues: string[];
 }
+
+/**
+ * THE PRODUCTION AUTHORITY SOURCE for a non-package runner's identity lives in
+ * `runner-authority.ts` (it needs `onboarding.ts`, which imports this module).
+ * Re-exported here so the spec path's authority has one discoverable address.
+ */
+export { runnerIdentitiesFromSealedPlan } from './runner-authority.js';
 
 export interface PipelineDeps {
   /**
@@ -136,10 +144,16 @@ async function runExperimentInner(
     host: '',
     workspaceRoot: WS,
   }));
+  // The runner-identity authority for the spec path: the operator's own SEALED
+  // SETUP PLAN (see runner-authority.ts). `deps.runnerIdentities` stays the
+  // in-process TEST seam and takes precedence, so a test can grant an identity no
+  // config on this machine would.
+  const sealedGrants = runnerIdentitiesFromSealedPlan(repoRoot);
+  const runnerIdentities = { ...sealedGrants, ...(deps.runnerIdentities ?? {}) };
   const rec = new Recorder({
     ws, nodeDir: NODE_DIR, npmCli: NPM_CLI, artifactsDir: ART, pipeline,
     allowCanaryDoubleOrigin: deps.allowCanaryDoubleOrigin === true,
-    ...(deps.runnerIdentities !== undefined ? { runnerIdentities: deps.runnerIdentities } : {}),
+    ...(Object.keys(runnerIdentities).length > 0 ? { runnerIdentities } : {}),
   });
   const subs = { dep: spec.dependency.package, baseline: spec.dependency.baseline, candidate: spec.dependency.candidate };
   const execArgv = (cmd: readonly string[]): string[] => rec.expandArgv(cmd, subs, resolveBin);

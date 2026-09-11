@@ -21,6 +21,9 @@ import { normalize, type Normalizer } from '@canary-rn/normalizers';
 import { sha256hex } from '@canary-rn/hashing';
 import { ensurePythonObserver, observerNonce } from './observers/python-observer.js';
 import {
+  PYTEST_RUNNER_ID, ensurePytestObserver, isPytestObserverSuppressionToken, pytestRunnerIdentity,
+} from './observers/pytest-observer.js';
+import {
   NODE_TEST_RUNNER_ID, ensureNodeTestObserver, isCanaryOwnRuntime, nodeRunnerIdentity,
   nodeTestReporterUrl,
 } from './observers/node-test-reporter.js';
@@ -33,6 +36,11 @@ import {
 
 export { validateObservation, OBSERVER_VERSION, type ValidateInput } from './observation.js';
 export { ensurePythonObserver, pythonObserverDir, observerNonce, PYTHON_OBSERVER_BASENAME, PYTHON_RUNNER_ID } from './observers/python-observer.js';
+export {
+  PYTEST_OBSERVER_BASENAME, PYTEST_OBSERVER_SOURCE, PYTEST_RUNNER_ID, PYTEST_PLUGIN_MODULE,
+  PYTEST_OBSERVER_DIRNAME, ensurePytestObserver, pytestObserverDir, pytestRunnerIdentity,
+  pytestTreeSha256, isPytestObserverSuppressionToken,
+} from './observers/pytest-observer.js';
 export {
   NODE_TEST_REPORTER_BASENAME, NODE_TEST_REPORTER_SOURCE, NODE_TEST_RUNNER_ID,
   NODE_TEST_OBSERVER_DIRNAME, ensureNodeTestObserver, nodeTestReporterPath,
@@ -1060,13 +1068,34 @@ export class Recorder {
             plan.absentKind = 'runner-identity-unpinned';
           } else {
             out[0] = resolved;
-            const identity = pythonRunnerIdentity(resolved);
+            // The pin means "the RUNNER's own bytes": for `unittest` that is the
+            // interpreter (the stdlib runner IS the interpreter); for pytest it is
+            // the installed pytest distribution's source tree, hashed with bytecode
+            // caches excluded (they are regenerated per host and embed mtimes).
+            const identity = detected.runner === PYTEST_RUNNER_ID
+              ? pytestRunnerIdentity(resolved)
+              : pythonRunnerIdentity(resolved);
             if (identity !== null) plan.observedRunnerIdentitySha256 = identity.identitySha256;
+            // pytest's plugin is loaded from the environment, and a project's own
+            // `addopts`/argv could suppress it by name. The round still fails closed
+            // without it (no frames ⇒ INVALID), but an EXPLICIT suppression token is
+            // refused outright rather than left to that: a subject that names
+            // Canary's observer is stating an intent to disable it.
+            if (detected.runner === PYTEST_RUNNER_ID) {
+              const suppress = out.find((t) => isPytestObserverSuppressionToken(t));
+              if (suppress !== undefined) {
+                throw new CanaryError(
+                  `python -m pytest spec argv disables Canary's observer plugin ('${suppress}'): the injection point must stay closed to the subject — refusing the round fail-closed`,
+                  'subject-observer-suppression',
+                );
+              }
+            }
             const granted = d.runnerIdentities?.[detected.runner];
             if (identity !== null && granted !== undefined
               && granted.version === identity.version
               && granted.identitySha256 === identity.identitySha256) {
-              // The channel is loaded through PYTHONPATH, which the round sets.
+              // The channel is loaded through PYTHONPATH (and PYTEST_PLUGINS for
+              // pytest), which the round sets.
               plan.injected = true;
               plan.absentKind = null;
               plan.runner = detected.runner;
@@ -1150,6 +1179,9 @@ export class Recorder {
       // materialised HERE, write-then-byte-verify, immediately before the spawn.
       if (plan.runner === NODE_TEST_RUNNER_ID) {
         return { kind: 'node', dir: ensureNodeTestObserver(this.deps.ws.root), nonce };
+      }
+      if (plan.runner === PYTEST_RUNNER_ID) {
+        return { kind: 'pytest', dir: ensurePytestObserver(this.deps.ws.root), nonce };
       }
       return { kind: 'python', dir: ensurePythonObserver(this.deps.ws.root), nonce };
     })();

@@ -69,17 +69,24 @@ export interface EnvOptions {
 
 export interface ObserverInjection {
   /**
-   * `python` = PYTHONPATH=<dir> + a nonce + no user site-packages.
+   * `python` = PYTHONPATH=<dir> + a nonce + no user site-packages (the
+   *            `sitecustomize` door).
+   * `pytest` = the same PYTHONPATH door PLUS `PYTEST_PLUGINS`, whose value is the
+   *            fixed module name Canary writes — pytest imports it before any test.
    * `node`   = the per-round nonce only: Node's own `--test-reporter` mechanism
    *            loads Canary's bytes from an argv specifier, so the environment's
    *            single job is to bind the frames to THIS spawn.
    */
-  kind: 'python' | 'node';
+  kind: 'python' | 'pytest' | 'node';
   /** Directory holding Canary's observer bytes. Must resolve inside ws.root. */
   dir: string;
   /** Per-round binding token the observer echoes in its `hello` frame. */
   nonce: string;
 }
+
+/** The plugin name Canary asks pytest to load. Fixed by the channel, never a
+ *  caller-supplied string — this door accepts no module name from outside. */
+export const PYTEST_PLUGIN_MODULE_NAME = 'canary_pytest_observer';
 
 /** Variables an adapter may declare, and nothing else. */
 export const TOOLCHAIN_ENV_KEYS: ReadonlySet<string> = new Set([
@@ -114,9 +121,10 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolch
     if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
       throw new Error(`observer injection directory must live inside Canary's workspace root (got ${dirReal}, root ${rootReal})`);
     }
-    if (observer.kind === 'python') {
+    if (observer.kind === 'python' || observer.kind === 'pytest') {
       observed.PYTHONPATH = dirReal;
       observed.PYTHONNOUSERSITE = '1'; // keep a host user-site-packages tree out of the observation
+      if (observer.kind === 'pytest') observed.PYTEST_PLUGINS = PYTEST_PLUGIN_MODULE_NAME;
     }
     // The nonce is the binding for EVERY channel: it is what binds a frame to
     // THIS spawn (see the python observer's note on why pid equality alone is not

@@ -1,21 +1,25 @@
 /**
  * Provider-neutral runner observation — the registry cannot lie about itself.
  *
- * What these tests pin (v1.1 item A):
- *  1. The STRONG set is EXACTLY `{mocha}`. Adding a runner to it is a claim that
- *     an injected observer and a pinned release exist, so it must fail here
- *     until someone brings the evidence — that is the point.
- *  2. Every non-mocha runner the product recognises resolves to
- *     INCONCLUSIVE_ONLY with a stated reason, and unknown runners do too. A
- *     strong label can never be reached through an unobserved runner.
- *  3. `runnerRegistryProblems()` is empty: no STRONG without a pin, no
+ * What these tests pin (v1.1 item A, extended in Phase 2):
+ *  1. The STRONG set is EXACTLY `{mocha, node-test, pytest, unittest}` — every one
+ *     of them backed by a channel whose bytes are Canary's and an authority that
+ *     binds it. Adding a runner is a claim about IMPLEMENTATION, so it must fail
+ *     here until the evidence exists — that is the point.
+ *  2. Every STRONG row on a non-package authority names a `channelModule` that
+ *     EXISTS on disk: a capability nobody can open is not a capability.
+ *  3. The remaining runners resolve to INCONCLUSIVE_ONLY with a stated reason, and
+ *     unknown runners do too. A strong label can never be reached through an
+ *     unobserved runner.
+ *  4. `runnerRegistryProblems()` is empty: no STRONG without an authority, no
  *     INCONCLUSIVE_ONLY without a reason, no duplicate claims.
- *  4. Resolution is deterministic and totality holds (no input throws).
- *  5. The capability the registry reports for mocha AGREES with the real
- *     observer protocol in observation.ts — the declaration cannot drift from
- *     the implementation it describes.
+ *  5. Resolution is deterministic and totality holds (no input throws).
+ *  6. Every declared protocol AGREES with the implemented OBSERVER_VERSION — the
+ *     declaration cannot drift from the implementation it describes.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it } from 'node:test';
 
 import { OBSERVER_VERSION } from '../src/observation.js';
@@ -24,23 +28,59 @@ import {
   resolveRunnerAdapter, runnerCapabilityTable, runnerRegistryProblems,
 } from '../src/runners.js';
 
+/** The repository root, found by walking up from this test file. */
+function repoRoot(): string {
+  let dir = import.meta.dirname;
+  for (let i = 0; i < 8; i++) {
+    if (fs.existsSync(path.join(dir, 'tooling', 'probes'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error('repository root not found from ' + import.meta.dirname);
+}
+
 describe('runner registry — internal consistency', () => {
-  it('has no problems: every STRONG has a pin, every INCONCLUSIVE_ONLY a stated reason', () => {
+  it('has no problems: every STRONG has an authority, every INCONCLUSIVE_ONLY a stated reason', () => {
     assert.deepEqual(runnerRegistryProblems(), []);
   });
 
-  it('the STRONG set is exactly {mocha} — a claim that must be earned, not typed', () => {
-    const strong = RUNNER_ADAPTERS.filter((a) => a.capability === 'STRONG').map((a) => a.id);
-    assert.deepEqual(strong, ['mocha'],
-      'adding a STRONG runner requires an injected observer + a pinned release + its reviewed manifest; '
+  it('the STRONG set is exactly {mocha, node-test, pytest, unittest} — a claim that must be earned, not typed', () => {
+    const strong = RUNNER_ADAPTERS.filter((a) => a.capability === 'STRONG').map((a) => a.id).sort();
+    assert.deepEqual(strong, ['mocha', 'node-test', 'pytest', 'unittest'],
+      'adding or removing a STRONG runner requires a Canary-owned channel, an authority for it, and an executed probe; '
       + 'update this assertion in the same change that brings them');
   });
 
-  it('mocha\'s declared observer protocol equals the implemented OBSERVER_VERSION', () => {
-    const mocha = RUNNER_ADAPTERS.find((a) => a.id === 'mocha');
-    assert.ok(mocha?.observation, 'mocha must declare an observation contract');
-    assert.equal(mocha.observation.protocol, OBSERVER_VERSION,
-      'the registry describes an observer that must be the one observation.ts actually implements');
+  it('every STRONG row names the authority that binds it, and package-pin names a real npm release', () => {
+    const byId = new Map(RUNNER_ADAPTERS.map((a) => [a.id, a]));
+    assert.equal(byId.get('mocha')?.observation?.authority, 'package-pin');
+    assert.equal(byId.get('mocha')?.observation?.pinKey, 'mocha');
+    // The Node runtime's own runner needs no grant: the runner IS the verifying
+    // runtime, which is why this authority kind exists at all.
+    assert.equal(byId.get('node-test')?.observation?.authority, 'runtime-identity');
+    assert.equal(byId.get('pytest')?.observation?.authority, 'operator-identity');
+    assert.equal(byId.get('unittest')?.observation?.authority, 'operator-identity');
+  });
+
+  it('every non-package STRONG row names a channel module that EXISTS, and says what was executed', () => {
+    const root = repoRoot();
+    for (const a of RUNNER_ADAPTERS) {
+      if (a.capability !== 'STRONG' || a.observation?.authority === 'package-pin') continue;
+      const rel = a.observation?.channelModule;
+      assert.ok(rel, `${a.id}: a non-package STRONG claim must name its channel module`);
+      assert.ok(fs.existsSync(path.join(root, rel!)),
+        `${a.id}: channel module ${rel} does not exist — a capability nobody can open is not a capability`);
+      assert.ok((a.measuredOn ?? '').length > 20, `${a.id}: must record what was actually executed`);
+    }
+  });
+
+  it('every declared observer protocol equals the implemented OBSERVER_VERSION', () => {
+    for (const a of RUNNER_ADAPTERS) {
+      if (a.capability !== 'STRONG') continue;
+      assert.equal(a.observation?.protocol, OBSERVER_VERSION,
+        `${a.id}: the registry describes an observer that must be the one observation.ts actually implements`);
+    }
   });
 
   it('every registered adapter is reachable, so no entry is decorative', () => {
@@ -74,9 +114,6 @@ describe('runner registry — the INCONCLUSIVE floor is structural', () => {
     ['jest', { program: 'jest' }],
     ['vitest', { program: 'vitest' }],
     ['ava', { program: 'ava' }],
-    ['node-test', { script: 'node --test' }],
-    ['pytest', { program: 'pytest' }],
-    ['unittest', { script: 'python -m unittest' }],
     ['cargo-test', { script: 'cargo test --all' }],
     ['go-test', { script: 'go test ./...' }],
   ] as const;
@@ -107,11 +144,26 @@ describe('runner registry — the INCONCLUSIVE floor is structural', () => {
     assert.equal(observationCapabilityFor({ program: 'node' }).runner, 'unknown');
   });
 
-  it('only mocha reports STRONG, and it names its pin', () => {
+  it('only mocha reports a package pin, and it names it', () => {
     const d = observationCapabilityFor({ program: 'mocha' });
     assert.equal(d.capability, 'STRONG');
     assert.equal(d.observation?.pinKey, 'mocha');
     assert.equal(d.reason, undefined);
+  });
+
+  it('the newly strong runners report STRONG with their authority, and never a package pin', () => {
+    for (const [ref, authority] of [
+      [{ script: 'node --test' }, 'runtime-identity'],
+      [{ program: 'pytest' }, 'operator-identity'],
+      [{ script: 'python -m unittest discover' }, 'operator-identity'],
+    ] as const) {
+      const d = observationCapabilityFor(ref);
+      assert.equal(d.capability, 'STRONG');
+      assert.equal(d.observation?.authority, authority);
+      assert.equal(d.observation?.pinKey, undefined,
+        'a runner that is not an npm package must not borrow the package-pin story');
+      assert.equal(d.reason, undefined);
+    }
   });
 });
 
@@ -156,11 +208,11 @@ describe('runner registry — resolution is normalised, deterministic and total'
     // pretend it was.
     const table = runnerCapabilityTable();
     const byId = new Map(table.map((r) => [r.id, r]));
-    for (const id of ['cargo-test', 'go-test', 'unittest']) {
+    for (const id of ['cargo-test', 'go-test', 'unittest', 'node-test', 'pytest']) {
       assert.ok((byId.get(id)?.measuredOn ?? '').length > 20, `${id} was executed on this host and must record it`);
     }
-    // jest/vitest/ava/pytest were NOT executed here; they must not claim evidence.
-    for (const id of ['jest', 'vitest', 'ava', 'pytest']) {
+    // jest/vitest/ava were NOT executed here; they must not claim evidence.
+    for (const id of ['jest', 'vitest', 'ava']) {
       assert.equal(byId.get(id)?.measuredOn, undefined, `${id} was never executed and must not claim measured evidence`);
     }
   });

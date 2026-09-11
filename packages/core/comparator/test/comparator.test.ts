@@ -7,11 +7,13 @@ import {
   extractFailingTestNames,
   extractFailingTestNamesFor,
   extractNodeTestFailingNames,
+  extractPytestFailingNames,
   hasRunnerSummaryFor,
   inDependencySubtree,
   classifyTreeObservation,
   dependencyInTree,
   parseNodeTestCounts,
+  parsePytestCounts,
   parseSummaryCounts,
   parseSummaryCountsFor,
   streamsStable,
@@ -457,5 +459,80 @@ describe('node:test TAP summary parsing', () => {
     assert.deepEqual(extractNodeTestFailingNames('  1) suite\n     a title\n'), [], 'mocha grammar is not TAP');
     assert.deepEqual(extractFailingTestNamesFor(undefined, tapOnly).length, 0,
       'and the default dispatcher does not read TAP as mocha');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v1.1 Phase 2 — the pytest channel's text grammar. Every string is a real
+// pytest 9.1.1 headline or short-summary line, MEASURED
+// (tooling/probes/pytest-observer-events.mjs).
+// ---------------------------------------------------------------------------
+describe('pytest summary parsing', () => {
+  const REAL = [
+    'platform win32 -- Python 3.11.9, pytest-9.1.1, pluggy-1.6.0',
+    'collected 11 items',
+    '',
+    'test_sample.py ..FsxXE.F..                                         [100%]',
+    '',
+    '=========================== short test summary info ===========================',
+    'FAILED test_sample.py::test_fails - assert 1 == 2',
+    'FAILED test_sample.py::TestNested::test_nested_fail - AssertionError: a...',
+    'ERROR test_sample.py::test_errors_in_fixture - RuntimeError: fixture bl...',
+    '==== 2 failed, 5 passed, 1 skipped, 1 xfailed, 1 xpassed, 1 error in 0.10s ====',
+    '',
+  ].join('\n');
+
+  it('maps pytest categories onto the frame vocabulary', () => {
+    assert.deepEqual(parsePytestCounts(REAL), { passing: 5, failing: 3, pending: 3 },
+      'failed+error are failures; skipped+xfailed+xpassed are pending — the same mapping the observer applies');
+    assert.equal(hasRunnerSummaryFor('pytest', REAL), true);
+    assert.deepEqual(parseSummaryCountsFor('pytest', REAL), { passing: 5, failing: 3, pending: 3 });
+  });
+
+  it('reads the quiet form too (measured: -q drops the = padding)', () => {
+    const quiet = '2 failed, 5 passed, 1 skipped, 1 xfailed, 1 xpassed, 1 error in 0.08s\n';
+    assert.deepEqual(parsePytestCounts(quiet), { passing: 5, failing: 3, pending: 3 });
+  });
+
+  it('ignores the categories that carry no counter, and refuses an unmapped one', () => {
+    assert.deepEqual(parsePytestCounts('collected 2 items\n1 failed, 1 passed, 1 warning in 0.05s\n'),
+      { passing: 1, failing: 1, pending: 0 }, 'warnings are not a counter (and are not collected items)');
+    assert.deepEqual(parsePytestCounts('collected 4 items\n1 failed, 2 passed, 1 deselected in 0.05s\n'),
+      { passing: 2, failing: 1, pending: 0 }, 'deselected items were never run');
+    assert.equal(parsePytestCounts('collected 2 items\n1 failed, 1 rerun in 0.05s\n'), undefined,
+      'a category nobody mapped is not agreement — refuse rather than guess');
+  });
+
+  it('takes the LAST headline, so a subject-printed fake summary cannot win', () => {
+    const forged = `==== 9 passed in 0.01s ====\n${REAL}`;
+    assert.deepEqual(parsePytestCounts(forged), { passing: 5, failing: 3, pending: 3 });
+  });
+
+  it('cross-checks the collection line when present', () => {
+    assert.equal(parsePytestCounts('collected 11 items\n==== 2 failed, 5 passed in 0.10s ====\n'), undefined,
+      'a headline that leaves collected items unaccounted for is not a summary');
+    assert.deepEqual(parsePytestCounts('collected 7 items\n==== 2 failed, 5 passed in 0.10s ====\n'),
+      { passing: 5, failing: 2, pending: 0 }, 'and one that closes is accepted');
+  });
+
+  it('handles the empty run without pretending it passed', () => {
+    assert.deepEqual(parsePytestCounts('collected 0 items\n\nno tests ran in 0.01s\n'), { passing: 0, failing: 0, pending: 0 },
+      'zero counts, and the runner exit code is what stops an empty run from being a pass');
+    assert.equal(parsePytestCounts('collected 3 items\nno tests ran in 0.01s\n'), undefined,
+      '"no tests ran" alongside collected items is contradictory');
+    assert.equal(parsePytestCounts('all good thanks'), undefined);
+  });
+
+  it('names failing items from the short summary, nodeid intact', () => {
+    const names = extractPytestFailingNames(REAL);
+    assert.deepEqual(names, [
+      'test_sample.py::test_fails',
+      'test_sample.py::TestNested::test_nested_fail',
+      'test_sample.py::test_errors_in_fixture',
+    ]);
+    assert.deepEqual(extractFailingTestNamesFor('pytest', REAL), names);
+    // The ERRORS section header is NOT a short-summary line: no false identity.
+    assert.deepEqual(extractPytestFailingNames('______________ ERROR at setup of test_x ______________\n'), []);
+    assert.deepEqual(extractPytestFailingNames('some prose mentioning FAILED things\n'), []);
   });
 });

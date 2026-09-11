@@ -352,6 +352,90 @@ export function extractNodeTestFailingNames(log: string): string[] {
   return out;
 }
 
+// ─────────────────── pytest text summary (v1.1 Phase 2) ───────────────────
+/**
+ * pytest prints ONE headline line with per-category counts, and the categories do
+ * not line up with the frame vocabulary — so they are mapped explicitly:
+ *
+ *   ==== 2 failed, 5 passed, 1 skipped, 1 xfailed, 1 xpassed, 1 error in 0.09s ====
+ *   (with -q the padding is absent: MEASURED, hence no `=` requirement)
+ *
+ *   failing = failed + error        (pytest's `error` is a test that did not run
+ *                                    to completion — a failure for agreement)
+ *   pending = skipped + xfailed + xpassed
+ *             (an xfail/xpass is outside pytest's own `passed` count — the
+ *              observer maps them the same way, and a STRICT xpass arrives as a
+ *              failure on BOTH channels)
+ *   passing = passed
+ *
+ * The LAST matching line wins, because a subject printing a fake summary does it
+ * from inside its own test, before pytest writes the real one.
+ *
+ * Cross-checked against pytest's own collection line when present
+ * (`collected 11 items`): passing + failing + pending + deselected must equal it,
+ * so a subject cannot hand Canary a plausible PARTIAL headline. An unrecognised
+ * category refuses the whole line — a count nobody mapped is not agreement.
+ *
+ * Returns undefined when the text is not a pytest summary: rejecting what it cannot
+ * describe is the point, since this feeds the AGREEMENT check.
+ */
+export function parsePytestCounts(log: string): SummaryCounts | undefined {
+  const norm = runnerView(log);
+  let headline: string | undefined;
+  let collected: number | undefined;
+  for (const raw of norm.split('\n')) {
+    const t = raw.trim();
+    if (/^collected (\d+) items?/.test(t)) {
+      const m = /^collected (\d+) items?/.exec(t);
+      if (m) collected = Number(m[1]);
+      continue;
+    }
+    if (!/\sin \d+(?:\.\d+)?s\s*=*$/.test(t)) continue;
+    if (!/^(?:=+\s*)?(?:\d+\s+[a-z]+|no tests ran)/.test(t)) continue;
+    headline = t; // last one wins
+  }
+  if (headline === undefined) return undefined;
+  if (/^=*\s*no tests ran/.test(headline)) {
+    return collected === undefined || collected === 0
+      ? { passing: 0, failing: 0, pending: 0 }
+      : undefined; // "no tests ran" alongside collected items is contradictory
+  }
+  const IGNORED = new Set(['warning', 'warnings', 'deselected']);
+  let passing = 0; let failing = 0; let pending = 0; let deselected = 0;
+  let recognised = false;
+  for (const m of headline.matchAll(/(\d+)\s+([a-z]+)(?=[,\s]|$)/g)) {
+    const n = Number(m[1]);
+    const kind = m[2]!;
+    if (kind === 'passed') { passing += n; recognised = true; } else if (kind === 'failed') { failing += n; recognised = true; } else if (kind === 'error' || kind === 'errors') { failing += n; recognised = true; } else if (kind === 'skipped') { pending += n; recognised = true; } else if (kind === 'xfailed' || kind === 'xpassed') { pending += n; recognised = true; } else if (kind === 'deselected') { deselected += n; } else if (IGNORED.has(kind)) { /* no counter */ } else return undefined; // unmapped category: not a summary we can agree with
+  }
+  if (!recognised) return undefined;
+  if (collected !== undefined && passing + failing + pending + deselected !== collected) return undefined;
+  return { passing, failing, pending };
+}
+
+/**
+ * The failing-test identities a pytest short summary names:
+ *
+ *   FAILED tests/test_sample.py::test_fails - assert 1 == 2
+ *   ERROR  tests/test_sample.py::test_errors_in_fixture - RuntimeError: fixture bl...
+ *
+ * The NODEID is intact even when pytest truncates the reason with an ellipsis
+ * (measured), and it is exactly what the observer records from `report.nodeid`, so
+ * the two channels name the same thing by construction.
+ */
+export function extractPytestFailingNames(log: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const line of runnerView(log).split('\n')) {
+    const m = /^(?:FAILED|ERROR) (.+)$/.exec(line);
+    if (!m) continue;
+    const cut = m[1]!.indexOf(' - ');
+    const id = (cut === -1 ? m[1]! : m[1]!.slice(0, cut)).trim();
+    if (id !== '' && !seen.has(id)) { seen.add(id); out.push(id); }
+  }
+  return out;
+}
+
 /**
  * The text-summary parser for a named observation channel. ONE dispatcher, so
  * the executor and `prove` cannot disagree about which text meant what: an
@@ -361,6 +445,7 @@ export function extractNodeTestFailingNames(log: string): string[] {
 export function parseSummaryCountsFor(runner: string | undefined, log: string): SummaryCounts {
   if (runner === 'python-unittest') return parseUnittestCounts(log) ?? {};
   if (runner === 'node-test') return parseNodeTestCounts(log) ?? {};
+  if (runner === 'pytest') return parsePytestCounts(log) ?? {};
   return parseSummaryCounts(log);
 }
 
@@ -368,6 +453,7 @@ export function parseSummaryCountsFor(runner: string | undefined, log: string): 
 export function hasRunnerSummaryFor(runner: string | undefined, log: string): boolean {
   if (runner === 'python-unittest') return parseUnittestCounts(log) !== undefined;
   if (runner === 'node-test') return parseNodeTestCounts(log) !== undefined;
+  if (runner === 'pytest') return parsePytestCounts(log) !== undefined;
   return parseSummaryCounts(log).passing !== undefined || parseSummaryCounts(log).failing !== undefined;
 }
 
@@ -379,5 +465,6 @@ export function hasRunnerSummaryFor(runner: string | undefined, log: string): bo
  */
 export function extractFailingTestNamesFor(runner: string | undefined, log: string): string[] {
   if (runner === 'node-test') return extractNodeTestFailingNames(log);
+  if (runner === 'pytest') return extractPytestFailingNames(log);
   return extractFailingTestNames(log);
 }
