@@ -73,6 +73,13 @@ export interface RunnerAdapter {
   blockedBy?: string;
   /** Present iff INCONCLUSIVE_ONLY: what would have to exist first. */
   requiredToUnblock?: string;
+  /**
+   * What was ACTUALLY EXECUTED to establish this row, or an explicit statement
+   * that nothing was. Without this, "blocked" and "not tried" look identical in
+   * a table — and a host limit must never be reported as a design decision, nor
+   * the reverse (v1.1 Phase 2).
+   */
+  measuredOn?: string;
 }
 
 /** What a STRONG adapter needs, spelled once so every reason can point at it. */
@@ -161,10 +168,27 @@ export const RUNNER_ADAPTERS: readonly RunnerAdapter[] = [
     programs: [],
     scriptMarkers: [/\bunittest\b/],
     capability: 'INCONCLUSIVE_ONLY',
-    blockedBy: 'no injected observer and no pin: the Python journey Canary ships (project adapter '
-      + 'discovery -> `-m unittest`) runs with no Canary-owned channel, so its output is SUBJECT '
-      + 'TEXT and rule 14 sends the verdict to INCONCLUSIVE',
-    requiredToUnblock: STRONG_REQUIREMENTS,
+    // The CHANNEL is built and verified on this host
+    // (tooling/probes/runner-observation-python.mjs, ALL PASS): Canary's
+    // `sitecustomize` bytes load before any test module, hook
+    // unittest.TestResult, and write the same NDJSON frames on fd 3 as the mocha
+    // observer. Text forgery yields zero observed counts, and a result for a test
+    // whose startTest was never watched is rejected live.
+    //
+    // What is still missing is the PRODUCT wiring, which is exactly why the
+    // capability is not yet STRONG: the executor's spec path does not yet resolve
+    // a Python runner, and the interpreter-identity pin (version + a digest of
+    // the interpreter's own bytes, required by the validator) has no authority
+    // source on that path. Claiming STRONG from a verified channel alone would be
+    // the same category error as claiming a boundary from an interface.
+    blockedBy: 'the observation channel exists and is verified, but it is not yet wired into the '
+      + 'executor\'s round path, and no authority source supplies the required interpreter identity — '
+      + 'so no Python round can currently produce a VALID observation in the product',
+    requiredToUnblock: 'wire the python channel into expandArgvWithPlan + the round capture (observer '
+      + 'env, fd 3, neutral validation) and give the identity pin an authority source (the sealed plan '
+      + 'on the CLI path, an explicit in-process grant on the spec path)',
+    measuredOn: 'python 3.11.9 win32-x64: real unittest run observed end-to-end; text forgery produced '
+      + 'zero counts; fabricated addSuccess rejected',
   },
   {
     id: 'cargo-test',
@@ -173,12 +197,28 @@ export const RUNNER_ADAPTERS: readonly RunnerAdapter[] = [
     programs: [],
     scriptMarkers: [/\bcargo\s+test\b/, /\bcargo\b.*\btest\b/],
     capability: 'INCONCLUSIVE_ONLY',
-    blockedBy: 'no injected observer and no pin, AND no cargo/rustc is installed on the '
-      + 'verification host, so no adapter here could be executed even once. An unexecuted '
-      + 'observation path is not evidence, so it is not claimed',
-    requiredToUnblock: STRONG_REQUIREMENTS + '; cargo offers a runner shim '
-      + '(CARGO_TARGET_<TRIPLE>_RUNNER) that Canary could own, but it must be executed and '
-      + 'mutation-pinned on a host that actually has the toolchain',
+    // MEASURED ON THIS HOST (tooling/probes/runner-channels-rust-go.mjs, with a
+    // workspace-local rust 1.98.1 on the GNU target because no MSVC linker is
+    // installed). This is a PLATFORM limit, not an implementation gap:
+    //   - `cargo test` runs and prints libtest's text summary;
+    //   - `cargo test -- --format json` is REFUSED by the compiler itself:
+    //     'The "json" format is only accepted on the nightly compiler with
+    //      -Z unstable-options'.
+    // So on stable Rust there is NO per-test event stream for Canary to
+    // re-count. The text summary is a claim, and a claim is not proof.
+    // Canary CAN own the launch (`CARGO_TARGET_<TRIPLE>_RUNNER` is honored: the
+    // shim was invoked with the test binary and its args), which proves the
+    // runner executed and binds the binary's identity — but per-test OUTCOMES
+    // would still come from libtest's text.
+    blockedBy: 'stable libtest exposes no machine-readable per-test event stream (the compiler refuses '
+      + '"--format json" outside nightly with -Z unstable-options), so per-test outcomes can only come '
+      + 'from libtest text — a claim, not an observation. Measured, not assumed; see '
+      + 'tooling/probes/runner-channels-rust-go.mjs',
+    requiredToUnblock: STRONG_REQUIREMENTS + '; the real seam is a Canary-owned test harness '
+      + '(a `[[test]] harness = false` target whose main is Canary\'s), which turns per-test outcomes into '
+      + 'Canary-emitted events. A nightly-only format is not a supportable pin',
+    measuredOn: 'cargo 1.98.1 (GNU target), win32-x64: cargo test ran; --format json refused by the compiler; '
+      + 'CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER honored',
   },
   {
     id: 'go-test',
@@ -187,12 +227,25 @@ export const RUNNER_ADAPTERS: readonly RunnerAdapter[] = [
     programs: [],
     scriptMarkers: [/\bgo\s+test\b/],
     capability: 'INCONCLUSIVE_ONLY',
-    blockedBy: 'no injected observer and no pin, AND no Go toolchain is installed on the '
-      + 'verification host, so no adapter here could be executed even once. An unexecuted '
-      + 'observation path is not evidence, so it is not claimed',
-    requiredToUnblock: STRONG_REQUIREMENTS + '; `go test -exec=<shim>` is the plausible '
-      + 'Canary-owned seam, but it must be executed and mutation-pinned on a host that actually '
-      + 'has the toolchain',
+    // MEASURED ON THIS HOST (tooling/probes/runner-channels-rust-go.mjs, with a
+    // workspace-local go1.27.1):
+    //   - `go test -json` emits a real per-test event stream (17 events, named
+    //     pass/skip records) that Canary can independently re-count;
+    //   - `go test -exec=<shim>` IS honored, so Canary can own the launch of
+    //     each test binary (the shim received `<pkg>.test.exe -test.paniconexit0 …`).
+    // What is NOT yet closed is the FORGERY question: those events are produced
+    // by the `go` tool from the test binary's own `test2json` output, so test
+    // code that prints test-runner-shaped lines can mint events. That is an
+    // implementation gap (a reviewed binding between the Canary-owned shim and
+    // the event stream), not a platform limit.
+    blockedBy: 'the event stream exists and Canary can own the test-binary launch, but nothing yet binds '
+      + 'those events to the Canary-owned shim: `go test -json` derives them from the test binary\'s own '
+      + 'test2json output, so subject test code can mint them. Measured; see '
+      + 'tooling/probes/runner-channels-rust-go.mjs',
+    requiredToUnblock: STRONG_REQUIREMENTS + '; the shim must frame the per-binary observation itself '
+      + '(identity + count + exit bound to the pid Canary spawned) rather than trusting the tool\'s relay',
+    measuredOn: 'go1.27.1 win32-x64: go test ran; -json produced named per-test pass/skip events; '
+      + '-exec shim was invoked with the test binary',
   },
 ];
 
@@ -325,7 +378,7 @@ export function runnerRegistryProblems(): string[] {
 }
 
 /** Every runner the registry recognises, for reporting surfaces (`canary result`). */
-export function runnerCapabilityTable(): Array<{ id: string; family: RunnerFamily; capability: ObservationCapability; why: string }> {
+export function runnerCapabilityTable(): Array<{ id: string; family: RunnerFamily; capability: ObservationCapability; why: string; measuredOn?: string }> {
   return RUNNER_ADAPTERS.map((a) => ({
     id: a.id,
     family: a.family,
@@ -333,5 +386,8 @@ export function runnerCapabilityTable(): Array<{ id: string; family: RunnerFamil
     why: a.capability === 'STRONG'
       ? `injected observer (${a.observation?.protocol ?? 'unstated'}) bound to pinned release "${a.observation?.pinKey ?? 'unstated'}"`
       : (a.blockedBy ?? 'no reason recorded'),
+    // Reporting the evidence keeps "blocked" and "not tried" distinguishable on
+    // every surface, not only in this file's comments.
+    ...(a.measuredOn !== undefined ? { measuredOn: a.measuredOn } : {}),
   }));
 }

@@ -150,6 +150,21 @@ describe('runner registry — resolution is normalised, deterministic and total'
     }
   });
 
+  it('a runner that was MEASURED on a host says so, and one that was not says nothing', () => {
+    // v1.1 Phase 2: "blocked" and "not tried" must be distinguishable. A row
+    // that was actually executed carries measuredOn; a row that was not must not
+    // pretend it was.
+    const table = runnerCapabilityTable();
+    const byId = new Map(table.map((r) => [r.id, r]));
+    for (const id of ['cargo-test', 'go-test', 'unittest']) {
+      assert.ok((byId.get(id)?.measuredOn ?? '').length > 20, `${id} was executed on this host and must record it`);
+    }
+    // jest/vitest/ava/pytest were NOT executed here; they must not claim evidence.
+    for (const id of ['jest', 'vitest', 'ava', 'pytest']) {
+      assert.equal(byId.get(id)?.measuredOn, undefined, `${id} was never executed and must not claim measured evidence`);
+    }
+  });
+
   it('the synthesized unknown adapter is never strong and carries no pin', () => {
     assert.equal(UNVERIFIED_RUNNER.capability, 'INCONCLUSIVE_ONLY');
     assert.equal(UNVERIFIED_RUNNER.observation, undefined);
