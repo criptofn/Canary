@@ -173,9 +173,20 @@ canary agents    [install|uninstall <id>]   # which agents work here, and at wha
 canary work <name> "<intent>"  # the ORDINARY path: register the intent + open the candidate in one step
 canary finish <name>         # verify the candidate from outside it, then promote if the proof holds
 canary mcp                   # MCP server on stdio: the same operations as tools, for any MCP client
+canary provider <sub>        # status | install-plan | uninstall-plan | serve | call — the HARDENED provider lifecycle
 canary uninstall             # remove exactly Canary's own changes (recorded strings, never guesswork)
 canary checkpoint            # harness-internal: runs at the agent's completion boundary (Stop hook)
 ```
+
+`canary provider status` MEASURES the boundary rather than asserting it: which
+account this process is, whether the store can be written by a worker identity,
+whether a broker service exists and as which account, and what a restricted
+runner could actually be jailed with. `HARDENED` appears only when every one of
+those controls is observed available. `canary provider install-plan` prints the
+exact privileged steps (creating the identities, installing the service,
+rewriting the store's ACL, and the rollback) and executes none of them — routine
+Canary use after activation needs no elevation, because the service holds the
+privileged identity, and the broker never executes candidate code with it.
 
 `canary mcp` speaks the Model Context Protocol on stdio so a generic agent can
 drive Canary without a bespoke integration. It is a **transport, not a second

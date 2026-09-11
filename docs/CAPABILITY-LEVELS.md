@@ -7,7 +7,7 @@ line, and it is produced by a probe that fails closed.
 
 | Level | Means | How it is established |
 |---|---|---|
-| `HARDENED` | Authority is protected from the worker's own identity: the worker cannot rewrite the records, the key, or the history that judge it. | Requires a broker with a **different OS identity** than the worker. **Unreachable in this build** — there is no code path that can report it, and none may be added until that provider provably exists. |
+| `HARDENED` | Authority is protected from the worker's own identity: the worker cannot rewrite the records, the key, or the history that judge it. | Requires a broker with a **different OS identity** than the worker. The provider that establishes it is IMPLEMENTED (`apps/cli/src/provider/`) but not INSTALLED here, and `HARDENED` is produced only by a boundary MEASUREMENT in which every control is observed available (`measuredCapabilities`). Run `canary provider status` to see which control is missing on this host, and `canary provider install-plan` for the privileged steps. |
 | `LOCAL` | Records are sealed with an Ed25519 key that lives outside every project tree, so rewriting repo bytes no longer rewrites the checker's memory of them. The **same uid** that runs the worker can still replace the store, the key and the ledger together. | The store write probe **succeeds** — which is exactly what proves a same-uid writer could also write it. |
 | `ADVISORY` | Canary observes and reports, but cannot prevent or block. | Used where a mechanism is a convention rather than an enforcement point. |
 | `UNSUPPORTED` | The probe could not establish even the weaker guarantees (for example: the store is not writable, so authority-changing operations cannot be trusted). | The write probe fails, or the store cannot be examined. Verdicts that would need authority fail closed. |
@@ -42,10 +42,12 @@ Refused on purpose, and each refusal has a test:
 
 The enforceable boundary ends at the worker's own identity. Everything above the
 `LOCAL` line — the broker with a separate identity, the restricted runner, the
-protected promoter, the authenticated review path — is **architecture, not
-protection**: the contracts exist (see `broker.ts`, `platform-boundary.ts`), but
-no installed provider implements them yet, and nothing in this build routes the
-CLI's real paths through them.
+protected promoter, the authenticated review path — is **implemented but not
+INSTALLED**: the provider exists (`apps/cli/src/provider/`, with its boundary
+measurement, authenticated IPC, refusing service and privileged install plan,
+plus Linux enforcement code that carries `hostVerified: false`), and nothing in
+this build routes the CLI's real paths through it yet. Until the owner authorizes
+activation, the honest level remains `LOCAL`, and the measurement says so.
 
 `docs/SECURITY.md` remains the full contract, including the tiers
 (A: enforced in code, B: structural convention, C: absent and not claimed) and

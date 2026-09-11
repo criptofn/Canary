@@ -10,6 +10,58 @@ changed*; the evidence ledgers record *what was observed*.
 
 ## [Unreleased] — v1.1 implementation candidate
 
+### Added — the HARDENED provider (implemented; activation is the owner's)
+
+- **`canary provider status|install-plan|uninstall-plan|serve|call`.** The
+  provider is real code: a boundary MEASUREMENT (account, elevation, store
+  writers via an `icacls` decision that cannot mistake a read ACE for a write
+  grant, the broker service and its account, and what a restricted runner could
+  be jailed with), an authenticated IPC transport with a CLOSED operation set
+  (unknown fields are refused, so a caller cannot smuggle in a command, path,
+  env, key or policy), a broker service that refuses to start without a proven
+  separation, and a restricted runner that refuses rather than executing
+  candidate code as the broker.
+- **`HARDENED` is now DERIVED, not unreachable by construction.**
+  `measuredCapabilities` is its only producer and requires EVERY control
+  observed available; one missing control keeps the level local. On the current
+  host six are unavailable (measured), so `LOCAL` is reported for a measured
+  reason and `install-plan` prints the exact privileged steps that would change
+  it.
+- **A Linux provider path** (users, an inspectable systemd unit, `setfacl`,
+  `nft` for egress only if HARDENED is to claim it), contract-tested on this
+  host and marked `hostVerified: false` because it has never been executed on
+  Linux.
+
+### Added — provider-neutral runner observation
+
+- **The observation validator is channel-neutral.** `validateObservation` takes
+  an optional neutral channel (runner id, required version, required runner-bytes
+  digest, per-round nonce) and keeps the mocha path byte-for-byte unchanged when
+  no channel is named. A neutral round that states no requirement is refused.
+- **A real Python observation channel.** Canary's `sitecustomize` bytes on the
+  child's `PYTHONPATH` hook `unittest.TestResult` and write the same NDJSON
+  frames on fd 3 as the mocha observer. Executed here: a real
+  `python -m unittest discover` is WATCHED (3 pass, 1 pending, agreeing with the
+  interpreter's own summary), printed text cannot mint counts, and a fabricated
+  result is rejected live.
+- **Rust and Go channels MEASURED, not assumed**: stable libtest exposes no
+  per-test event stream (the compiler refuses `--format json` outside nightly),
+  while `go test -json` does and `-exec`/`CARGO_TARGET_*_RUNNER` let Canary own
+  the test-binary launch. Both remain `INCONCLUSIVE_ONLY` with the exact blocker
+  and the fix named.
+- **Workspace-local Rust and Go toolchains** (`tooling/toolchains.mjs`): no
+  administrator rights, no global machine change, so "no toolchain" is no longer
+  a reason these paths go unmeasured.
+
+### Added — cross-platform distribution
+
+- **Real linux-x64 and darwin-arm64 build paths.** `--list-targets` states which
+  target this host can build, a cross-build is REFUSED with the reason, and a CI
+  `standalone` job builds and EXECUTES the artifact on ubuntu, macOS and Windows
+  (the builder will not report success without running it). `distribution.json`
+  records what was built where; the npm tarball remains the platform-neutral
+  alternate.
+
 **Not released, not tagged.** `HARDENED` is still unreachable (no provider with a
 separate OS identity is installed — see
 [`docs/TRUST-ARCHITECTURE.md`](docs/TRUST-ARCHITECTURE.md)). The six probes that
