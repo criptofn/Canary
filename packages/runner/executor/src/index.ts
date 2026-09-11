@@ -30,6 +30,16 @@ export {
   OBSERVER_PRELOAD_BASENAME, OBSERVER_PRELOAD_SOURCE, OBSERVER_MOCHA_ANCHOR_REL,
   observerPreloadPath, ensureObserverPreload,
 } from './observer-preload.js';
+// Provider-neutral runner observation registry (v1.1 item A): which runners can
+// reach a strong label, and — for every one that cannot — the exact reason.
+// `capability: 'STRONG'` is checked against KNOWN_RUNNER_RELEASES by
+// runnerRegistryProblems(); unknown runners are INCONCLUSIVE by construction.
+export {
+  RUNNER_ADAPTERS, UNVERIFIED_RUNNER, normalizeProgram, resolveRunnerAdapter,
+  observationCapabilityFor, runnerRegistryProblems, runnerCapabilityTable,
+  type RunnerAdapter, type RunnerFamily, type ObservationCapability,
+  type StrongObservation, type RunnerRef, type RunnerObservationDecision,
+} from './runners.js';
 
 export interface ExecutorDeps {
   ws: WorkspaceLayout;

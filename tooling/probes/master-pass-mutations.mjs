@@ -65,24 +65,48 @@ const MUTATIONS = [
   { id: 'M2', file: 'onboarding', from: 'if (!opts.yes && !interactive) {', to: 'if (!opts.yes && !interactive) { return 2;', owner: 'onboarding', what: 'S1 reverted: unattended setup demands --yes again after writing everything' },
   { id: 'M3', file: 'candidate', from: "unproven.every((x) => x.mode === 'non-objective')", to: "unproven.some((x) => x.mode === 'non-objective')", owner: 'subjectivity', what: 'S3 split verdict leaks onto objectives-open candidates (any non-objective unproven claims TECHNICAL EVIDENCE: PROVEN)' },
   { id: 'M4', file: 'candidate', from: 'for (const x of unproven)', to: 'for (const x of [])', owner: 'subjectivity', what: 'S3 compact stdout drops the UNPROVEN duty list entirely (PART III failure UX gutted)' },
-  { id: 'M5', file: 'onboarding', from: 'const drift = planAuthorityDrift(root, cfg, pkg);', to: 'const drift = null;', owner: 'status', what: 'S1 status becomes drift-blind (sealed authority changes go unreported)' },
+  // RE-PINNED (v1.1): M5, M8 and M9's original anchors were refactored away by
+  // later commits — including the pre10-env-authority fix that introduced the
+  // named `gitCandidates()` helper. The battery's own rule is "update this
+  // battery in the same change as the gate", so the anchors follow the code and
+  // each mutation keeps its ORIGINAL failure mode, not its original text.
+  { id: 'M5', file: 'onboarding', from: 'const drift = planAuthorityDrift(root, cfg);', to: 'const drift = null;', owner: 'status', what: 'S1 status becomes drift-blind (sealed authority changes go unreported)' },
   { id: 'M6', file: 'onboarding', from: 'const seen = configTrackedMemo.get(root);', to: 'const seen = false;', owner: 'status', what: 'S2 memo poisons config ownership: a git-committed config reads as this machine\'s own' },
   // Pre-1.0 blocker closure: each mutant re-opens exactly one door the GLM audit
   // found. pre10-env-authority owns the execution-authority trio,
   // pre10-acceptance the human-acceptance quartet, M13's root duty belongs to the
   // subjectivity battery (its G case is the no-authority law).
   { id: 'M7', file: 'onboarding', from: 'const hardenedEnv = (fixture) => sanitizedEnv({ ws: { root: os.tmpdir(), fixture }, nodeDir: NODE_DIR });', to: 'const hardenedEnv = (fixture) => ({ ...process.env, ...sanitizedEnv({ ws: { root: os.tmpdir(), fixture }, nodeDir: NODE_DIR }) });', owner: 'env', what: 'B1 merge escape: caller NODE_OPTIONS/npm_config_* poison reaches proof-authoritative children (deny-by-omission becomes allow-by-inheritance)' },
-  { id: 'M8', file: 'onboarding', from: 'const resolved = resolvePm(argv[0]);', to: "const resolved = { spawnArgv: argv, file: argv[0], via: 'trusted-path' };", owner: 'env', what: 'B1 pm door: bare pm name resolves on the caller PATH — the liar shim decides PASS and promotion' },
-  { id: 'M9', file: 'onboarding', from: 'gitExeCache = cands.find((c) => fs.existsSync(c)) ?? null;', to: "gitExeCache = 'git';", owner: 'env', what: 'B1 git door: bare git resolves on the caller PATH — attacker git forges base/evidence at promotion' },
+  // M8 re-pinned onto the real step-execution resolution: keep the exact command
+  // (spawnArgv stays the full argv) but stop resolving the program through the
+  // trusted dirs, so `exec.file` becomes the bare name and a caller-PATH shim can
+  // decide the verdict. That is the same door the original anchor mutated.
+  { id: 'M8', file: 'onboarding', from: 'const resolved = resolveProgram(program, step.adapter);', to: "const resolved = { spawnArgv: argv, file: program, via: 'trusted-path' };", owner: 'env', what: 'B1 pm door: the step program is no longer resolved through the trusted dirs — a bare name on the caller PATH decides PASS and promotion' },
+  // M9 re-pinned onto the current gitExe(): the helper is named now, the door is
+  // the same — resolve git as a bare name on PATH instead of the fixed literals.
+  { id: 'M9', file: 'onboarding', from: 'gitExeCache = gitCandidates().find((c) => fs.existsSync(c)) ?? null;', to: "gitExeCache = 'git';", owner: 'env', what: 'B1 git door: bare git resolves on the caller PATH — attacker git forges base/evidence at promotion' },
   { id: 'M10', file: 'candidate', from: 'if (!process.stdin.isTTY || !process.stdout.isTTY) {', to: 'if (false) {', owner: 'acceptance', what: 'B3 terminal gate gone: an agent pipe that merely supplies the name self-accepts its own work' },
   { id: 'M11', file: 'candidate', from: "typeof context !== 'string' && acc.subjectDigest === subjectDigest(context.subject)", to: 'true', owner: 'acceptance', what: 'B3 freshness gutted: acceptance rides onto commits made AFTER the human signed' },
   { id: 'M12', file: 'candidate', from: 'if (!frozen || !frozen.kinds.length)', to: 'if (!frozen)', owner: 'acceptance', what: 'B3 accept mints authority: an empty frozen kind set can be accepted' },
   { id: 'M13', file: 'candidate', from: 'if (!frozenKinds.length || !canonicalTask(frozenTask))', to: 'if (false)', owner: 'subjectivity', what: 'B3/F4 root: task-authority duty dropped — a never-registered candidate reaches PASS and promotion' },
 ];
 
+/**
+ * An owner's verdict, with the repo's host-bound SKIP convention understood.
+ *
+ * Exit 3 means "everything THIS host could run passed, with explicit SKIP lines"
+ * (`tooling/verify-productization.mjs`, htg-inline-interpreter-corpus.mjs). The
+ * two acceptance owners use it where the host has no drivable real pty, so:
+ *   - as a BASELINE, 3 is legitimate: the owner is as green as the host permits;
+ *   - as a MUTANT result, 3 is NOT a catch: nothing actually failed, so a
+ *     mutation that leaves the owner at 3 survived. Only a real FAIL (exit 1/2)
+ *     counts as caught. Treating "not 0" as caught would let a mutation pass by
+ *     making the owner skip, which is exactly the kind of silent green this
+ *     battery exists to prevent.
+ */
 function runOwner(owner) {
   const r = spawnSync(process.execPath, OWNERS[owner], { cwd: REPO, encoding: 'utf8', timeout: 900_000, maxBuffer: 64 * 1024 * 1024 });
-  return r.status === 0;
+  return { status: r.status, green: r.status === 0 || r.status === 3 };
 }
 let failures = 0;
 const originals = new Map();
@@ -90,9 +114,9 @@ for (const [k, p] of Object.entries(CLI_FILES)) originals.set(k, fs.readFileSync
 
 console.log('=== master-pass-mutations: baseline owner runs ===');
 for (const owner of new Set(MUTATIONS.map((m) => m.owner))) {
-  const ok = runOwner(owner);
-  console.log(`${ok ? 'PASS' : 'FAIL'} baseline owner=${owner}`);
-  if (!ok) { failures++; console.log('  baseline must be green before mutating — aborting'); process.exit(1); }
+  const { status, green } = runOwner(owner);
+  console.log(`${green ? 'PASS' : 'FAIL'} baseline owner=${owner} (exit ${status}${status === 3 ? ' = host-bound SKIP: ran everything this host could' : ''})`);
+  if (!green) { failures++; console.log('  baseline must be green before mutating — aborting'); process.exit(1); }
 }
 
 for (const m of MUTATIONS) {
@@ -102,9 +126,9 @@ for (const m of MUTATIONS) {
   if (n !== 1) { failures++; console.log(`FAIL ${m.id}: anchor not unique (${n}x): ${m.from}`); continue; }
   fs.writeFileSync(p, src.replace(m.from, m.to));
   try {
-    const survived = runOwner(m.owner);
-    if (survived) { failures++; console.log(`FAIL ${m.id} SURVIVED: ${m.what}\n     owner=${m.owner} still green under this mutation — the proof has a hole`); }
-    else console.log(`PASS ${m.id} caught by ${m.owner}: ${m.what}`);
+    const { status, green } = runOwner(m.owner);
+    if (green) { failures++; console.log(`FAIL ${m.id} SURVIVED: ${m.what}\n     owner=${m.owner} still green (exit ${status}) under this mutation — the proof has a hole`); }
+    else console.log(`PASS ${m.id} caught by ${m.owner} (exit ${status}): ${m.what}`);
   } finally {
     fs.writeFileSync(p, originals.get(m.file));
     const back = fs.readFileSync(p).equals(originals.get(m.file));
