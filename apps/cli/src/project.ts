@@ -267,6 +267,19 @@ export function planAuthorityDrift(root: string, cfg: AuthorityCarrier, pkg?: Re
   const pkgBytes = pkg === undefined ? (needsPkg ? parseJsonOrNull(path.join(root, 'package.json')) : null) : pkg;
   const scripts = pkgBytes ? (pkgBytes.scripts ?? {}) as Record<string, unknown> : null;
   if (scripts === null && needsPkg && cfg.plan.length > 0) drift.push('package.json cannot be read to compare the sealed scripts');
+  // 1.1 §23 — a live edit to the fast-path declaration IS drift. The sealed copy
+  // still governs (an undeclared check always runs, and only the seal can justify
+  // a skip), but a project that edited `canary.paths` and believes it changed
+  // what may be left out must be told that it did not: the recovery is a
+  // deliberate `canary setup` re-seal, not a silent edit.
+  if (seal.stepPaths !== undefined) {
+    const livePaths = (pkgBytes?.canary as { paths?: unknown } | undefined)?.paths;
+    const canon = (v: unknown): string => JSON.stringify(Object.fromEntries(
+      Object.entries((v ?? {}) as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))));
+    if (canon(livePaths) !== canon(seal.stepPaths)) {
+      drift.push('the fast-path declaration (canary.paths) changed since setup sealed it');
+    }
+  }
   for (const s of cfg.plan) {
     const key = stepKey(s);
     const safe = isSafeScriptName(s.script) && (s.scope === undefined || /^[A-Za-z0-9._/-]{0,120}$/.test(s.scope));

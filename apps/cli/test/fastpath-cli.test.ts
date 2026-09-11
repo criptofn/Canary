@@ -116,6 +116,32 @@ describe('1.1 fast path: sealed declaration, opt-in skipping', () => {
     assert.ok(!/FAST PATH/.test(fast.stdout), 'nothing may be skipped');
   });
 
+  it('editing canary.paths after setup is reported as drift — the sealed copy still governs', () => {
+    const root = fixture('declaration-drift');
+    assert.equal(canary(['setup', '--yes'], root).status, 0);
+    const pkgPath = path.join(root, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as Record<string, unknown>;
+    // widen the declaration in the live file: it must NOT loosen the sealed one,
+    // and the project must be told that it did not
+    (pkg.canary as Record<string, unknown>).paths = { typecheck: ['**'] };
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+    commit(root, 'chore: widen the fast-path declaration without re-sealing');
+
+    const d = canary(['doctor', root], root);
+    assert.equal(d.status, 2, d.stdout);
+    assert.match(d.stdout, /fast-path declaration \(canary\.paths\) changed since setup sealed it/);
+
+    // and the widened live declaration grants nothing: doctor refuses outright on
+    // drifted authority, so there is no plan execution to skip inside
+    fs.writeFileSync(path.join(root, 'README.md'), '# docs only\n');
+    commit(root, 'docs: readme only');
+    const fast = canary(['doctor', '--fast', root], root);
+    assert.equal(fast.status, 2, fast.stdout);
+    assert.ok(!/FAST PATH/.test(fast.stdout), 'a drifted declaration must not authorize a skip');
+    assert.ok(!/✓ typecheck/.test(fast.stdout), 'drifted authority must refuse before executing anything');
+    assert.match(fast.stdout, /changed since setup sealed it/);
+  });
+
   it('a malformed declaration is refused at setup rather than quietly ignored', () => {
     const root = fixture('bad-declaration');
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as Record<string, unknown>;
