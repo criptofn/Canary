@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { after, describe, it } from 'node:test';
 
 import * as store from '../src/trust-store.js';
@@ -133,5 +134,88 @@ describe('the level probe measures, it never inflates', () => {
     assert.equal(root.includes('.git'), false);
     if (process.platform === 'win32') assert.ok(root.endsWith(path.join('AppData', 'Local', 'canary', 'trust')), root);
     else assert.ok(root.endsWith(path.join('.local', 'share', 'canary', 'trust')), root);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.1 hardening — the custody the store must REFUSE, and the minting race it
+// must not lose. Every case below is an attack or an accident that would
+// otherwise let a second name, a mismatched pair, or a concurrent writer speak
+// for the store. Each one fails closed; none of them may read as 'valid'.
+// ---------------------------------------------------------------------------
+const REPO = path.resolve(import.meta.dirname, '..', '..', '..', '..');
+const SEAL_FIXTURE = path.join(REPO, 'tooling', 'test-support', 'fixtures', 'trust-seal-once.mjs');
+const unique = (what: string): string => path.join(TMP, `${what}-${process.pid}-${n++}`);
+
+describe('1.1 hardening — custody refusals', () => {
+  it('key halves that disagree refuse to mint, and past records read as forged', () => {
+    const s = freshStore();
+    sealTest(s);
+    fs.writeFileSync(
+      path.join(s.root, 'keys', 'ed25519.pub'),
+      crypto.generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }) as string,
+    );
+    assert.throws(() => store.ensureStoreKey(s), /inconsistent/);
+    assert.throws(() => sealTest(s), /inconsistent/);
+    // the existing record cannot be certified by a key that never signed it:
+    assert.equal(store.openSealed(s, { projectId: 'proj-a', kind: 'registration' }).status, 'forged');
+  });
+
+  it('a linked keys directory is refused before any byte is trusted', () => {
+    const s = freshStore();
+    sealTest(s); // coherent keypair inside s.root/keys
+    const real = unique('real-keys');
+    fs.renameSync(path.join(s.root, 'keys'), real);
+    fs.symlinkSync(real, path.join(s.root, 'keys'), 'junction'); // dir junction: no elevation required
+    assert.throws(() => store.ensureStoreKey(s), /symbolic link or junction/);
+    assert.equal(store.openSealed(s, { projectId: 'proj-a', kind: 'registration' }).status, 'unavailable');
+  });
+
+  it('a hard-linked private key is refused (the same bytes have a second name)', (t) => {
+    const s = freshStore();
+    sealTest(s);
+    const priv = path.join(s.root, 'keys', 'ed25519');
+    fs.linkSync(priv, unique('stolen-key.pem')); // the second name the worker would create
+    if (fs.lstatSync(priv).nlink < 2) {
+      // A platform that cannot report link counts cannot enforce this refusal.
+      // Say so as a SKIP — visible coverage loss, never a pass.
+      t.skip('this host does not report hard-link counts; the hardlink refusal cannot be verified here');
+      return;
+    }
+    assert.throws(() => store.ensureStoreKey(s), /hard links/);
+  });
+
+  it('a reserved Windows device name is refused as an id or a kind', () => {
+    const s = freshStore();
+    const seal = (projectId: string) => store.sealRecord(s, { projectId, kind: 'registration', payload: {}, canaryVersion: 'test' });
+    assert.throws(() => seal('CON'), /reserved Windows device name/);
+    assert.throws(() => seal('com1.txt'), /reserved Windows device name/);
+    assert.throws(() => seal('Lpt9'), /reserved Windows device name/);
+    assert.equal(store.openSealed(s, { projectId: 'nul', kind: 'registration' }).status, 'malformed');
+  });
+});
+
+describe('1.1 hardening — minting is serialized', () => {
+  it('concurrent minters never share a generation (no lost ledger update)', async () => {
+    const s = freshStore();
+    const spawnOne = (): Promise<{ seq: number; pid: number }> => new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [SEAL_FIXTURE, s.root, 'proj-race', 'registration'], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', (d) => { out += String(d); });
+      child.stderr.on('data', (d) => { err += String(d); });
+      child.on('close', (code) => {
+        if (code !== 0) { reject(new Error(`seal fixture exited ${code}: ${err || out}`)); return; }
+        try { resolve(JSON.parse(out.trim().split('\n').pop() as string) as { seq: number; pid: number }); }
+        catch (e) { reject(e as Error); }
+      });
+    });
+
+    const results = await Promise.all(Array.from({ length: 6 }, spawnOne));
+    const seqs = results.map((r) => r.seq).sort((a, b) => a - b);
+    assert.deepEqual(seqs, [1, 2, 3, 4, 5, 6], `generations must be distinct across ${results.length} concurrent minters, got ${JSON.stringify(seqs)}`);
+    const ledger = JSON.parse(fs.readFileSync(path.join(s.root, 'ledger.json'), 'utf8')) as Record<string, number>;
+    assert.equal(ledger['proj-race/registration'], 6, 'the ledger must account for every minted generation');
+    assert.equal(store.openSealed(s, { projectId: 'proj-race', kind: 'registration' }).status, 'valid');
   });
 });

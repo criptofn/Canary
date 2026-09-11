@@ -93,20 +93,82 @@ export function projectIdForRoot(root: string): string {
 
 /** ids/kinds become path segments — only inert characters may appear. */
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
+/** Windows resolves these as DEVICES even with an extension or trailing space,
+ *  so a segment naming one can never become an ordinary directory entry.
+ *  The candidate registry already refuses them for candidate names
+ *  (candidate.ts); trust-store segments are path components too, so the same
+ *  refusal belongs here — one rule, every path segment Canary creates. */
+const RESERVED_DEVICE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 const safeSegment = (value: string, what: string): string => {
   if (!SAFE_ID.test(value)) throw new Error(`${what} "${value}" is not a safe identifier`);
+  if (RESERVED_DEVICE.test(value)) throw new Error(`${what} "${value}" is a reserved Windows device name`);
   return value;
 };
 
 const keyPath = (store: TrustStore): string => path.join(store.root, 'keys', 'ed25519');
+
+/**
+ * Key material must be a PLAIN file at a PLAIN directory entry. A symlink,
+ * junction or hardlink is a second name for bytes someone else can re-aim or
+ * share, which is exactly the custody this store exists to deny:
+ *   - a linked public half lets whoever controls the target swap in a key they
+ *     own, after which records THEY signed verify as valid;
+ *   - a linked private half aims the signing operation at bytes outside the
+ *     store (the private key stops being store-only in the only sense that
+ *     matters: who can replace it);
+ *   - a hardlink is not a copy. The same bytes appear under a second path the
+ *     worker controls, so "the key never leaves the store" is false while every
+ *     mode bit still looks right.
+ * All three are refused, never followed. The store ROOT is deliberately NOT
+ * checked: it may legitimately sit behind a linked directory (macOS
+ * /var -> /private/var, dev fixtures, CI temp roots). Only the keys directory
+ * and the two key files are custody-bearing.
+ */
+function assertPlainKeyMaterial(store: TrustStore): void {
+  const keysDir = path.dirname(keyPath(store));
+  const check = (p: string, what: string): void => {
+    let st: fs.Stats;
+    try { st = fs.lstatSync(p); } catch { return; } // absent: the caller decides
+    if (st.isSymbolicLink()) {
+      throw new Error(`${what} is a symbolic link or junction — a second name for these bytes is not trust material`);
+    }
+    if (st.isFile() && st.nlink > 1) {
+      throw new Error(`${what} has ${st.nlink} hard links — the same bytes have another name outside the store`);
+    }
+  };
+  check(keysDir, 'the trust store keys directory');
+  check(keyPath(store), 'the trust store private key');
+  check(`${keyPath(store)}.pub`, 'the trust store public key');
+}
+
+/**
+ * Does the private half actually derive the stored public half? A store whose
+ * halves disagree signs records that verify as `forged` and reports every past
+ * record as `forged` too — a failure indistinguishable from an attack, and one
+ * that would tempt a caller to "fix" it by re-minting. Refuse it up front
+ * instead, so the two halves can only ever be coherent or absent.
+ */
+function keypairMatches(privPath: string, publicPem: string): boolean {
+  try {
+    const derived = crypto.createPublicKey(crypto.createPrivateKey(fs.readFileSync(privPath, 'utf8')))
+      .export({ type: 'spki', format: 'pem' })
+      .toString();
+    return derived.trim() === publicPem.trim();
+  } catch { return false; }
+}
 
 /** Generate or load the store keypair. The private PEM never leaves the
  *  store dir and is never handed to any child process or return value. */
 export function ensureStoreKey(store: TrustStore): { publicKey: string } {
   const pubPath = `${keyPath(store)}.pub`;
   const privPath = keyPath(store);
+  assertPlainKeyMaterial(store); // links are refused before any byte is trusted
   if (fs.existsSync(pubPath) && fs.existsSync(privPath)) {
-    return { publicKey: fs.readFileSync(pubPath, 'utf8') };
+    const publicKey = fs.readFileSync(pubPath, 'utf8');
+    if (!keypairMatches(privPath, publicKey)) {
+      throw new Error('trust store key material is inconsistent (the private half does not match the public half) — refusing to sign or verify with a mismatched keypair');
+    }
+    return { publicKey };
   }
   if (fs.existsSync(pubPath) !== fs.existsSync(privPath)) {
     // half a keypair: refusing beats "regenerate and orphan every record".
@@ -142,10 +204,63 @@ function writeAtomic(file: string, text: string): void {
   fs.renameSync(tmp, file); // win32 rename replaces an existing target
 }
 
+/** Bounded wait for a concurrent minter, and the age at which a lock left by a
+ *  crashed process is treated as stale rather than allowed to wedge the store. */
+const LOCK_WAIT_MS = 5_000;
+const LOCK_STALE_MS = 60_000;
+const LOCK_POLL_MS = 25;
+
+/** No async lives in this module (every caller is synchronous and must be able
+ *  to fail closed mid-step), so a synchronous park is the honest primitive. */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Serialize MINTERS on one store. The seq ledger is read-modify-write: two
+ * concurrent seals of one lane can both read seq N and both write N+1, so one
+ * record silently replaces the other and a generation disappears from the
+ * store's history. The lock is advisory — a file inside a store whose ceiling
+ * is already same-uid — but it converts an accidental lost update into either
+ * a bounded wait or a refusal, and it never invents authority: if the lock
+ * cannot be taken this THROWS and the caller fails closed. A lock older than
+ * LOCK_STALE_MS is reclaimed, so a killed process cannot wedge the store.
+ */
+function withMinterLock<T>(store: TrustStore, fn: () => T): T {
+  const lock = path.join(store.root, '.minter-lock');
+  fs.mkdirSync(store.root, { recursive: true });
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  let fd: number | undefined;
+  for (;;) {
+    try { fd = fs.openSync(lock, 'wx'); break; }
+    catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      let ageMs: number | null = null;
+      try { ageMs = Date.now() - fs.statSync(lock).mtimeMs; } catch { ageMs = null; }
+      if (ageMs !== null && ageMs > LOCK_STALE_MS) {
+        try { fs.unlinkSync(lock); } catch { /* another process reclaimed it first */ }
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`the trust store is busy: another Canary process holds ${lock} (${ageMs === null ? 'age unknown' : `${Math.round(ageMs)}ms`}) — refusing to mint a record that could overwrite a concurrent seal`);
+      }
+      sleepSync(LOCK_POLL_MS);
+    }
+  }
+  try {
+    fs.writeSync(fd, `${process.pid} ${new Date().toISOString()}\n`);
+    return fn();
+  } finally {
+    try { fs.closeSync(fd); } catch { /* already closed */ }
+    try { fs.unlinkSync(lock); } catch { /* reclaimed as stale by someone else */ }
+  }
+}
+
 /**
  * Mint a sealed record: strictly newer than the last seq for (project,kind),
  * signed with the store key. Any failure THROWS — callers fail closed; there
- * is no partial authority and no unsigned fallback.
+ * is no partial authority and no unsigned fallback. Minting is serialized per
+ * store because the seq is read-modify-write (see withMinterLock).
  */
 export function sealRecord(
   store: TrustStore,
@@ -153,7 +268,17 @@ export function sealRecord(
 ): RecordEnvelope {
   const projectId = safeSegment(input.projectId, 'project id');
   const kind = safeSegment(input.kind, 'record kind');
-  ensureStoreKey(store); // ensures both halves before signing
+  return withMinterLock(store, () => sealLocked(store, { projectId, kind, payload: input.payload, canaryVersion: input.canaryVersion }));
+}
+
+/** The critical section. Segments are already validated by sealRecord, and the
+ *  ledger is read INSIDE the lock — reading it outside is the lost update. */
+function sealLocked(
+  store: TrustStore,
+  input: { projectId: string; kind: string; payload: unknown; canaryVersion: string },
+): RecordEnvelope {
+  const { projectId, kind, payload, canaryVersion } = input;
+  ensureStoreKey(store); // ensures both halves (and their plainness) before signing
   const ledger = readLedger(store);
   const lane = `${projectId}/${kind}`;
   const seq = (ledger[lane] ?? 0) + 1;
@@ -163,8 +288,8 @@ export function sealRecord(
     kind,
     seq,
     issuedAt: new Date().toISOString(),
-    canaryVersion: input.canaryVersion,
-    payload: input.payload,
+    canaryVersion,
+    payload,
   };
   const priv = crypto.createPrivateKey(fs.readFileSync(keyPath(store), 'utf8'));
   const signature = crypto.sign(null, signedBytes(body), priv).toString('base64');
@@ -211,8 +336,18 @@ export function openSealed(store: TrustStore, want: { projectId: string; kind: s
   try { projectId = safeSegment(want.projectId, 'project id'); kind = safeSegment(want.kind, 'record kind'); }
   catch (e) { return { status: 'malformed', reason: (e as Error).message }; }
   let pub: string;
-  try { pub = fs.readFileSync(`${keyPath(store)}.pub`, 'utf8'); }
-  catch { return { status: 'unavailable', reason: 'the trust store has no verification key — nothing can be certified from it' }; }
+  try {
+    assertPlainKeyMaterial(store); // a linked verification key verifies the WRONG signer
+    pub = fs.readFileSync(`${keyPath(store)}.pub`, 'utf8');
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException;
+    return {
+      status: 'unavailable',
+      reason: err.code === 'ENOENT'
+        ? 'the trust store has no verification key — nothing can be certified from it'
+        : `the trust store key material is not usable here: ${err.message}`,
+    };
+  }
   const file = path.join(store.root, 'records', projectId, `${kind}.json`);
   let env: unknown;
   try { env = JSON.parse(fs.readFileSync(file, 'utf8')); }
@@ -242,15 +377,20 @@ export function openSealed(store: TrustStore, want: { projectId: string; kind: s
  * one, so failure here can only report UNSUPPORTED.
  */
 export function probeTrustLevel(store: TrustStore): { level: TrustLevel; reasons: string[] } {
-  const probeFile = path.join(store.root, '.write-probe');
+  // Unique per call: a pid-only probe name is itself a race — two probes in
+  // flight would read each other's bytes, one would see a foreign pid, and the
+  // store would be reported UNSUPPORTED for no reason (a false NEGATIVE that
+  // would hide a real store).
+  const probeFile = path.join(store.root, `.write-probe-${process.pid}-${crypto.randomBytes(4).toString('hex')}`);
   try {
     fs.mkdirSync(store.root, { recursive: true });
     fs.writeFileSync(probeFile, String(process.pid));
     const back = fs.readFileSync(probeFile, 'utf8');
-    fs.unlinkSync(probeFile);
     if (back !== String(process.pid)) return { level: 'UNSUPPORTED', reasons: ['the trust store write probe did not read back — authority cannot live here'] };
   } catch {
     return { level: 'UNSUPPORTED', reasons: [`the trust store at ${store.root} is not writable by this process — authority-changing operations fail closed here`] };
+  } finally {
+    try { fs.unlinkSync(probeFile); } catch { /* never created, or already gone */ }
   }
   return {
     level: 'LOCAL',
