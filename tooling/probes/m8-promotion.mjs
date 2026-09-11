@@ -53,6 +53,41 @@ assert(fs.existsSync(CLI), `missing built CLI (run npm run build): ${CLI}`);
   assert(m && Number(m[1]) * 100 + Number(m[2]) >= 230, `git too old for worktree plumbing used by promotion: ${gv.stdout.trim()}`);
 }
 
+/**
+ * ABSOLUTE git, resolved ONCE on the CALLER's PATH, to be sealed into the one
+ * generated step that must commit from inside the verification window.
+ *
+ * Why this exists (diagnosed, not guessed — `tooling/probes/m8-midplan-repro.mjs`
+ * prints the complete unfiltered evidence): a sealed step runs in Canary's
+ * SANITIZED environment, whose PATH is the running Node's directory plus the
+ * OS-managed dirs and deliberately NOT the caller's PATH
+ * (`packages/support/src/index.ts` `sanitizedEnv`, contract in docs/SECURITY.md).
+ * The mid-plan fixture used to call bare `git` through `execSync`, so under the
+ * product's own environment `git` was not resolvable at all; the resulting
+ * `Error: Command failed: git add -A && git commit -m midplan-fix` was thrown
+ * from the fixture, the step went red, and the scenario reported
+ * `CANDIDATE FAIL` before the identity sandwich could ever speak. The truncated
+ * tail showed only `node:internal/modules/cjs/loader` frames, which is why the
+ * previous session read it as a module-load problem.
+ *
+ * This is a FIXTURE defect, not a product defect: the product is behaving exactly
+ * as documented. The correction is the same discipline the product applies to a
+ * plan's own programs (`pinPlanPrograms` pins `argv[0]` to an absolute path at
+ * setup and never consults PATH again) — the fixture must name its tool
+ * absolutely too. `execFileSync` is used instead of `execSync` so no shell is
+ * involved and no PATH lookup can happen at all.
+ */
+function resolveGitOnPath() {
+  const p = process.platform === 'win32'
+    ? spawnSync('where', ['git.exe'], { encoding: 'utf8', timeout: 15_000 })
+    : spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 15_000 });
+  const first = (p.stdout ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
+  assert(p.status === 0 && first !== undefined,
+    'git is not resolvable on the caller PATH; the mid-plan fixture needs an absolute git to seal');
+  return first;
+}
+const GIT_FOR_FIXTURE = resolveGitOnPath();
+
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-m8-probe-'));
 
 function git(dir, ...args) {
@@ -265,9 +300,14 @@ try {
     // the sealed step turns green AND commits while running — the sandwich must
     // notice the head moved between the identity read at verify start and the
     // identity read before apply: the bytes that passed are not a stable commit.
+    // The commit names git ABSOLUTELY and uses execFileSync (no shell, no PATH):
+    // the step runs in the sanitized environment, where bare `git` does not
+    // resolve — see resolveGitOnPath() for the full diagnosis.
     fs.writeFileSync(path.join(c, 'checks', 'verify.js'),
-      "const fs=require('node:fs');const {execSync}=require('node:child_process');\n" +
-      "if(fs.readFileSync('marker.txt','utf8').includes('FAIL')){fs.writeFileSync('marker.txt','ok\\n');execSync('git add -A && git commit -m midplan-fix',{stdio:'ignore'});}\n" +
+      "const fs=require('node:fs');const {execFileSync}=require('node:child_process');\n" +
+      `const GIT=${JSON.stringify(GIT_FOR_FIXTURE)};\n` +
+      "if(fs.readFileSync('marker.txt','utf8').includes('FAIL')){fs.writeFileSync('marker.txt','ok\\n');" +
+      "execFileSync(GIT,['add','-A'],{stdio:'pipe'});execFileSync(GIT,['commit','-m','midplan-fix'],{stdio:'pipe'});}\n" +
       'process.exit(0);\n');
     git(c, 'add', '-A'); git(c, 'commit', '-m', 'step commits mid-run');
     const fp = fingerprint(mp);

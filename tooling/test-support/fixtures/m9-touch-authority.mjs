@@ -9,6 +9,17 @@
  * Exits 0 on every mode (the mutation must be behaviorally invisible to the
  * step's own verdict — only the guard may notice).
  * 'verifier' needs argv[2] = absolute path of the MAIN repo's apps/cli/dist.
+ * 'basemove' needs argv[3] = absolute path of the CALLER's git executable.
+ *   This step runs in Canary's SANITIZED environment, whose PATH is the running
+ *   Node's directory plus the OS dirs and deliberately NOT the caller's PATH
+ *   (packages/support/src/index.ts `sanitizedEnv`; contract in docs/SECURITY.md).
+ *   A bare `git` therefore does not resolve here at all — it spawns ENOENT
+ *   (status null, pid 0), the step goes red, and the authority guard never gets
+ *   to speak. Naming git absolutely is the same discipline the product applies
+ *   to a plan's own programs (`pinPlanPrograms` seals an absolute argv[0] at
+ *   setup). Diagnosed with full unfiltered output by
+ *   `tooling/probes/m8-midplan-repro.mjs`, which reproduces the identical
+ *   defect class in the m8 mid-plan fixture.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -81,7 +92,14 @@ if (mode === 'config') {
   // F4: move the BASE branch mid-window through the shared repo. The base
   // worktree holds its own checkout, so the update happens by an ordinary
   // commit there — gate 6's idempotent arm must never trust the ref's face.
-  execFileSync('git', ['-C', base, 'commit', '--allow-empty', '-m', 'm9-basemove'], { cwd, stdio: 'pipe' });
+  // git is named ABSOLUTELY (argv[3]): the sanitized PATH has no git, and a
+  // bare name would ENOENT before the guard could witness anything.
+  const gitExe = process.argv[3];
+  if (!gitExe) {
+    console.error('m9-touch-authority: basemove mode needs argv[3] = absolute git path');
+    process.exit(1);
+  }
+  execFileSync(gitExe, ['-C', base, 'commit', '--allow-empty', '-m', 'm9-basemove'], { cwd, stdio: 'pipe' });
 } else if (mode !== 'none') {
   console.error(`m9-touch-authority: unknown mode "${mode}"`);
   process.exit(1); // a typo'd mode must not silently pass as 'none'

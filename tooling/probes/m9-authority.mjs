@@ -47,7 +47,16 @@ const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
 // plan runs it inside the candidate — the fixture itself decides what is safe
 // where (see its candidate-location guard); quoting survives spaces.
 // argv[2] carries the MAIN repo's dist path for the 'verifier' mode (S11).
-const FIXTURE = `node "${path.join(REPO, 'tooling', 'test-support', 'fixtures', 'm9-touch-authority.mjs')}" "${path.join(REPO, 'apps', 'cli', 'dist')}"`;
+// argv[3] carries the CALLER's absolute git for the 'basemove' mode (S13): the
+// sealed step runs in Canary's sanitized environment, which has no git on PATH
+// (see the fixture's header for the full diagnosis).
+const GIT_ON_PATH = (() => {
+  const p = process.platform === 'win32'
+    ? spawnSync('where', ['git.exe'], { encoding: 'utf8', timeout: 15_000 })
+    : spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8', timeout: 15_000 });
+  return (p.stdout ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
+})();
+const FIXTURE = `node "${path.join(REPO, 'tooling', 'test-support', 'fixtures', 'm9-touch-authority.mjs')}" "${path.join(REPO, 'apps', 'cli', 'dist')}" "${GIT_ON_PATH}"`;
 
 let failures = 0;
 function check(name, fn) {
