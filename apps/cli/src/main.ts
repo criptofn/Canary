@@ -53,6 +53,7 @@ import {
 import { verifyTreeSnapshots } from './verify-tree.js';
 import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, cmdResult, cmdAgents } from './onboarding.js';
 import { cmdIsolate, cmdAccept } from './candidate.js';
+import { appendMetric, metricFor, metricsTarget, streamSnapshot } from './metrics.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -370,10 +371,23 @@ async function main(argv: string[]): Promise<number> {
   return usage();
 }
 
+// 1.1 §35 — one metrics record per invocation, and only when CANARY_METRICS
+// names a file. The recording is fail-OPEN on purpose: a measurement must never
+// be able to change a verdict, so a write problem is reported in verbose mode
+// and otherwise ignored, and the exit code is exactly the one Canary decided.
+const METRICS_START = Date.now();
+const METRICS_BYTES = streamSnapshot();
+const METRICS_TARGET = metricsTarget();
+function finish(code: number): never {
+  const problem = appendMetric(metricFor(process.argv.slice(2), code, Date.now() - METRICS_START, METRICS_BYTES, CANARY_VERSION), METRICS_TARGET);
+  if (problem !== null && process.env.CANARY_VERBOSE) console.error(problem);
+  process.exit(code);
+}
+
 main(process.argv.slice(2))
-  .then((code) => process.exit(code))
+  .then((code) => finish(code))
   .catch((e: unknown) => {
-    if (e instanceof InfraAbort) { console.error(String(e.message)); process.exit(2); }
+    if (e instanceof InfraAbort) { console.error(String(e.message)); finish(2); }
     console.error('ERROR:', e instanceof Error ? e.message : e);
-    process.exit(3);
+    finish(3);
   });
