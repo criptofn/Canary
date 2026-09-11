@@ -43,7 +43,52 @@ const SCRIPT_KINDS: Array<[string, PlanKind]> = [
 ];
 const PLAN_ORDER: Record<PlanKind, number> = { typecheck: 0, tests: 1, build: 2, bench: 3, e2e: 4 };
 
-export interface PlanStep { kind: PlanKind; script: string }
+/**
+ * One normalized check in the sealed plan.
+ *
+ * 1.0 shape was `{kind, script}` — a package.json script name, re-invoked
+ * later as `<pm> run <script>`. That shape cannot describe a check in a project
+ * that has no package.json, and `cfg.pm` (one flat runner per repo) cannot
+ * describe a polyglot repo at all.
+ *
+ * The 1.1 fields are ADDITIVE and optional, and absent fields keep 1.0
+ * behaviour byte-for-byte:
+ *   - `argv`    the exact command, as data, when the ecosystem does not run
+ *               through a package-manager script (python/rust/go). When
+ *               present it is the sealed authority for this step and it is
+ *               what the executor spawns — never re-derived later.
+ *   - `adapter` which ecosystem declared this check (audit/provenance).
+ *   - `scope`   the project root this check belongs to, relative to the repo
+ *               root ('' or absent = the repo root). Two ecosystems in one
+ *               repo need two scopes, and digests must not collide across them.
+ */
+export interface PlanStep {
+  kind: PlanKind;
+  script: string;
+  adapter?: string;
+  scope?: string;
+  argv?: string[];
+}
+
+/** The sealed-identity key of a step. Legacy steps (no scope) key on the bare
+ *  script name — the 1.0 digest map, unchanged. Scoped steps are qualified, so
+ *  a `test` script in `web/` can never be mistaken for a `test` script in
+ *  `backend/` (same name, different bytes, different authority). */
+export function stepKey(step: PlanStep): string {
+  return step.scope ? `${step.scope}::${step.script}` : step.script;
+}
+
+/** Canonical form for hashing. Field ORDER is fixed and new fields appear ONLY
+ *  when present, so a 1.0 plan hashes exactly as it did before 1.1 — every
+ *  existing seal stays valid, which is what lets the store and the config stay
+ *  byte-identical across the upgrade. */
+function canonicalStep(step: PlanStep): Record<string, unknown> {
+  const out: Record<string, unknown> = { kind: step.kind, script: step.script };
+  if (step.adapter !== undefined) out.adapter = step.adapter;
+  if (step.scope !== undefined) out.scope = step.scope;
+  if (step.argv !== undefined) out.argv = [...step.argv];
+  return out;
+}
 
 export function detectPm(root: string): { pm: string; note: string } {
   for (const [file, pm] of LOCKFILES) {
@@ -70,10 +115,42 @@ export function stepArgv(pm: string, script: string): string[] {
   return [pm, 'run', script];
 }
 
-/** sha256 over the canonical plan ([{kind,script}] in order). The per-step
- *  executed argv is recorded separately; this binds WHICH plan was in force. */
+/**
+ * Validate an EXPLICIT argv (a non-script ecosystem's declared command).
+ *
+ * No shell is ever involved (`shell: false` everywhere), so this is not shell-
+ * quoting hygiene: it is the fact that this argv becomes SEALED AUTHORITY and
+ * is spawned verbatim. Rules:
+ *   - non-empty array of non-empty strings, bounded in size and count;
+ *   - `argv[0]` is a bare program name or an absolute path — never empty, never
+ *     a path fragment like `./tool` or `..\\tool` that resolves relative to a
+ *     candidate's working directory;
+ *   - no NUL bytes (the one character that cannot survive an OS exec call).
+ * Anything else is refused by THROWING; a step that cannot be validated is
+ * never "run anyway".
+ */
+export function assertStepArgv(argv: unknown): string[] {
+  if (!Array.isArray(argv) || argv.length === 0 || argv.length > 32) {
+    throw new Error('a plan step argv must be a non-empty array of at most 32 arguments');
+  }
+  for (const a of argv) {
+    if (typeof a !== 'string' || a.length === 0 || a.length > 512) throw new Error('plan step argv entries must be non-empty strings under 512 characters');
+    if (a.includes('\0')) throw new Error('plan step argv entries must not contain NUL');
+  }
+  const head = argv[0] as string;
+  const isAbsolute = path.isAbsolute(head);
+  const isBareProgram = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(head);
+  if (!isAbsolute && !isBareProgram) {
+    throw new Error(`plan step program ${JSON.stringify(head)} must be a bare program name or an absolute path — a relative path would resolve against whatever directory the step happens to run in`);
+  }
+  return [...argv] as string[];
+}
+
+/** sha256 over the canonical plan ([{kind,script,…}] in order, new fields only
+ *  when present). The per-step executed argv is recorded separately; this binds
+ *  WHICH plan was in force. */
 export function planDigest(plan: PlanStep[]): string {
-  return sha256(JSON.stringify(plan.map((s) => ({ kind: s.kind, script: s.script }))));
+  return sha256(JSON.stringify(plan.map((s) => canonicalStep(s))));
 }
 
 // ---------- M5 trusted verification plan ----------
@@ -127,8 +204,16 @@ export interface AuthorityCarrier {
 export function sealPlanAuthority(plan: PlanStep[], pkgScripts: Record<string, unknown>, bindings?: unknown): PlanAuthority {
   const scriptDigests: Record<string, string> = {};
   for (const s of plan) {
+    const key = stepKey(s);
+    if (s.argv !== undefined) {
+      // A non-script ecosystem's authority is its exact command, as data: the
+      // sealed bytes and the spawned bytes are the same array, so a swapped
+      // command is drift, not a detail.
+      scriptDigests[key] = sha256(JSON.stringify(assertStepArgv(s.argv)));
+      continue;
+    }
     const t = pkgScripts[s.script];
-    if (typeof t === 'string') scriptDigests[s.script] = sha256(t);
+    if (typeof t === 'string') scriptDigests[key] = sha256(t);
   }
   if (bindings !== undefined && (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)
     || !Object.entries(bindings).every(([d,s]) => /^[0-9a-f]{64}$/.test(d) && typeof s === 'string' && plan.some(p => p.script === s)))) {
@@ -156,19 +241,30 @@ export function planAuthorityDrift(root: string, cfg: AuthorityCarrier, pkg?: Re
   if (planDigest(cfg.plan) !== seal.planDigest) drift.push('the plan no longer matches the sealed plan');
   // pkg may be the caller's already-read copy (candidate.ts's seal check reads
   // the same file one line later for the lifecycle-hook scan); absent = read.
-  const pkgBytes = pkg === undefined ? parseJsonOrNull(path.join(root, 'package.json')) : pkg;
+  // A plan made only of explicit-argv steps (python/rust/go) declares no
+  // package.json scripts, so unreadable package.json is not drift for it.
+  const needsPkg = cfg.plan.some((s) => s.argv === undefined);
+  const pkgBytes = pkg === undefined ? (needsPkg ? parseJsonOrNull(path.join(root, 'package.json')) : null) : pkg;
   const scripts = pkgBytes ? (pkgBytes.scripts ?? {}) as Record<string, unknown> : null;
-  if (scripts === null && cfg.plan.length > 0) drift.push('package.json cannot be read to compare the sealed scripts');
+  if (scripts === null && needsPkg && cfg.plan.length > 0) drift.push('package.json cannot be read to compare the sealed scripts');
   for (const s of cfg.plan) {
-    const name = isSafeScriptName(s.script) ? s.script : '<odd plan entry>'; // never echo raw config text
-    if (!Object.hasOwn(seal.scriptDigests, s.script)) {
+    const key = stepKey(s);
+    const safe = isSafeScriptName(s.script) && (s.scope === undefined || /^[A-Za-z0-9._/-]{0,120}$/.test(s.scope));
+    const name = safe ? key : '<odd plan entry>'; // never echo raw config text
+    if (!Object.hasOwn(seal.scriptDigests, key)) {
       drift.push(`script "${name}" is in the plan but was never sealed`);
+      continue;
+    }
+    if (s.argv !== undefined) {
+      if (sha256(JSON.stringify(assertStepArgv(s.argv))) !== seal.scriptDigests[key]) {
+        drift.push(`check "${name}" changed since setup sealed it`);
+      }
       continue;
     }
     if (scripts === null) continue; // unreadable pkg already reported
     const cur = scripts[s.script];
     if (typeof cur !== 'string') drift.push(`script "${name}" no longer exists in package.json`);
-    else if (sha256(cur) !== seal.scriptDigests[s.script]) drift.push(`script "${name}" changed since setup sealed it`);
+    else if (sha256(cur) !== seal.scriptDigests[key]) drift.push(`script "${name}" changed since setup sealed it`);
   }
   return drift.length ? drift.join('; ') : null;
 }
@@ -222,6 +318,13 @@ export interface ProjectAdapter {
   stepArgv(pm: string, step: PlanStep): string[];
   /** Base names whose change means the dependency set moved (M6 signal). */
   readonly dependencyPaths: readonly string[];
+  /** Absolute directories this ecosystem's programs may be resolved from, in
+   *  addition to the runner's baseline trusted dirs. PATH is never consulted,
+   *  so an ecosystem whose toolchain lives outside the OS-managed dirs states
+   *  its conventional locations HERE (fixed literals, like gitExe's candidate
+   *  list) or the step refuses with a message naming the problem. Empty is a
+   *  complete answer: it means "the baseline dirs are enough". */
+  readonly trustedProgramDirs: readonly string[];
 }
 
 export const nodeAdapter: ProjectAdapter = {
@@ -259,6 +362,7 @@ export const nodeAdapter: ProjectAdapter = {
   },
   stepArgv(pm, step) { return stepArgv(pm, step.script); },
   dependencyPaths: LOCKFILES.map(([f]) => f),
+  trustedProgramDirs: [], // npm-family runners resolve from the running Node's own install dir
 };
 
 /** Registered project adapters. A config may only name an id present HERE —

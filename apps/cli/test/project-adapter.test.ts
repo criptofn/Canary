@@ -145,3 +145,74 @@ describe('fail-closed: the seam cannot create READY or PASS', () => {
     assert.throws(() => project.nodeAdapter.stepArgv('npm', { kind: 'tests', script: 'rm -rf' }), /refused unsafe plan step/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 1.1 §1 foundation — a plan step can name a non-script ecosystem's command
+// WITHOUT changing one byte of what a 1.0 Node project hashes or spawns. The
+// digest compatibility below is the load-bearing part: every project sealed
+// before 1.1 must keep verifying, so the new fields may only ever ADD to a
+// digest, never alter an existing one.
+// ---------------------------------------------------------------------------
+describe('1.1 plan-step foundation (byte-compatible with 1.0 seals)', () => {
+  const legacy: PlanStep[] = [{ kind: 'typecheck', script: 'typecheck' }, { kind: 'tests', script: 'test' }];
+
+  it('a legacy plan digests exactly as 1.0 did, so existing seals stay valid', () => {
+    // The 1.0 formula, written out here on purpose: if this ever changes, every
+    // project sealed before 1.1 starts reporting drift — that must be a
+    // deliberate, visible act, never a side effect of adding a field.
+    assert.equal(project.planDigest(legacy),
+      sha256(JSON.stringify([{ kind: 'typecheck', script: 'typecheck' }, { kind: 'tests', script: 'test' }])));
+  });
+
+  it('legacy steps keep <pm> run <script>; an explicit argv is the command', () => {
+    assert.deepEqual(onboarding.stepCommand('npm', { kind: 'tests', script: 'test' }), ['npm', 'run', 'test']);
+    assert.deepEqual(
+      onboarding.stepCommand('npm', { kind: 'tests', script: 'pytest', adapter: 'python', argv: ['python', '-m', 'pytest', '-q'] }),
+      ['python', '-m', 'pytest', '-q']);
+  });
+
+  it('an explicit argv is refused unless it can be spawned as sealed authority', () => {
+    const bad: Array<[string, unknown]> = [
+      ['empty', []],
+      ['not an array', 'python -m pytest'],
+      ['non-string entry', ['python', 7]],
+      ['empty entry', ['python', '']],
+      ['relative program', ['./tools/run', 'x']],
+      ['parent-relative program', ['../bin/run', 'x']],
+      ['NUL byte', ['python', 'a\0b']],
+      ['too many arguments', ['python', ...Array.from({ length: 40 }, () => 'x')]],
+    ];
+    for (const [label, argv] of bad) assert.throws(() => project.assertStepArgv(argv), /plan step/, `${label} must be refused`);
+    assert.deepEqual(project.assertStepArgv(['python', '-m', 'pytest']), ['python', '-m', 'pytest']);
+    assert.deepEqual(project.assertStepArgv([process.execPath, '--version']), [process.execPath, '--version']);
+  });
+
+  it('scoped steps cannot collide: one script name in two scopes seals separately', () => {
+    const plan: PlanStep[] = [
+      { kind: 'tests', script: 'test', adapter: 'node', scope: 'web' },
+      { kind: 'tests', script: 'test', adapter: 'python', scope: 'backend', argv: ['python', '-m', 'pytest'] },
+    ];
+    const seal = project.sealPlanAuthority(plan, { test: 'node web-test.js' });
+    assert.deepEqual(Object.keys(seal.scriptDigests).sort(), ['backend::test', 'web::test']);
+    assert.equal(seal.scriptDigests['web::test'], sha256('node web-test.js'));
+    assert.equal(seal.scriptDigests['backend::test'], sha256(JSON.stringify(['python', '-m', 'pytest'])));
+    assert.notEqual(seal.scriptDigests['web::test'], seal.scriptDigests['backend::test']);
+  });
+
+  it('a changed explicit argv is drift, and an unsealed step is drift', () => {
+    const root = dir('scoped-drift', { 'package.json': pkg({ test: 'node x.js' }) });
+    const plan: PlanStep[] = [{ kind: 'tests', script: 'pytest', adapter: 'python', argv: ['python', '-m', 'pytest'] }];
+    const seal = project.sealPlanAuthority(plan, {});
+    // unchanged bytes → no drift, and no package.json complaint for an argv-only plan
+    assert.equal(project.planAuthorityDrift(root, { plan, planAuthority: seal }), null);
+    const moved: PlanStep[] = [{ kind: 'tests', script: 'pytest', adapter: 'python', argv: ['python', '-m', 'pytest', '-k', 'not-slow'] }];
+    assert.match(String(project.planAuthorityDrift(root, { plan: moved, planAuthority: seal })), /changed since setup sealed it/);
+    const substituted: PlanStep[] = [{ kind: 'tests', script: 'other', adapter: 'python', argv: ['python', '-m', 'pytest'] }];
+    assert.match(String(project.planAuthorityDrift(root, { plan: substituted, planAuthority: seal })), /never sealed/);
+  });
+
+  it('every registered adapter declares its trusted program directories', () => {
+    assert.deepEqual([...project.nodeAdapter.trustedProgramDirs], []);
+    for (const a of Object.values(project.ADAPTERS)) assert.ok(Array.isArray(a.trustedProgramDirs), a.id);
+  });
+});

@@ -63,7 +63,7 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // 1.1 §1 — the project model lives in project.js. onboarding re-exports the
 // names it used to own so every existing importer (candidate.ts, the contract
 // tests) compiles and behaves unchanged while the seam gains a second owner.
-import { ADAPTERS, adapterFor, LOCKFILES, nodeAdapter, parseJsonOrNull, planDigest, sha256, stepArgv } from './project.js';
+import { ADAPTERS, adapterFor, assertStepArgv, LOCKFILES, nodeAdapter, parseJsonOrNull, planDigest, sha256, stepArgv } from './project.js';
 import type { PlanAuthority, PlanStep } from './project.js';
 // 1.1 P0 — the sealed authority store outside the repo. In this slice the
 // store is SEALED at setup and REPORTED at status/doctor; no v1.0 verdict
@@ -164,7 +164,19 @@ function validConfigShape(v: unknown): v is CanaryConfig {
   const c = v as Record<string, unknown>;
   const isStr = (x: unknown): boolean => typeof x === 'string';
   return isStr(c.version) && isStr(c.installedAt) && isStr(c.pm) && isStr(c.cliPath) && isStr(c.hookCommand)
-    && Array.isArray(c.plan) && c.plan.every((s) => s && typeof s === 'object' && isStr((s as PlanStep).kind) && isStr((s as PlanStep).script))
+    // 1.1: a step's optional fields are shape-checked HERE, so a hand-edited
+    // config with a malformed argv is 'corrupt' (documented self-heal) rather
+    // than a runtime throw at execution time. An empty argv can never execute,
+    // so it is corrupt too — refusing early beats discovering it mid-plan.
+    && Array.isArray(c.plan) && c.plan.every((s) => {
+      if (!s || typeof s !== 'object') return false;
+      const p = s as PlanStep;
+      if (!isStr(p.kind) || !isStr(p.script)) return false;
+      if (p.adapter !== undefined && !isStr(p.adapter)) return false;
+      if (p.scope !== undefined && !isStr(p.scope)) return false;
+      if (p.argv !== undefined && (!Array.isArray(p.argv) || p.argv.length === 0 || !p.argv.every(isStr))) return false;
+      return true;
+    })
     && Array.isArray(c.hookCommands) && c.hookCommands.every(isStr)
     && Array.isArray(c.touched) && c.touched.every((t) => t && typeof t === 'object' && isStr((t as TouchedFile).path) && typeof (t as TouchedFile).created === 'boolean')
     // 1.1 §1: a config may only name a REGISTERED adapter — an unknown id is
@@ -530,6 +542,54 @@ export function resolvePm(pm: string): ResolvedPm | null {
   return null;
 }
 
+const PM_NAMES = new Set(['npm', 'pnpm', 'yarn', 'bun']);
+
+/**
+ * Resolve one program to TRUSTED bytes for a step's argv[0].
+ *
+ * Package managers keep their existing resolution exactly (this is the same
+ * resolvePm the doctor liveness probe uses, so plan and probe still consult one
+ * door). Any OTHER program — an interpreter or toolchain a non-script ecosystem
+ * declares — is looked for in the baseline trusted dirs plus the declaring
+ * adapter's conventional dirs. PATH is still never consulted, so a candidate
+ * cannot plant a `python` ahead of the sealed one and have Canary spawn it as
+ * sealed authority. An ABSOLUTE program path is accepted as the authority the
+ * seal already covers (setup sealed the argv that names it) and is still
+ * digest-recorded for evidence. null = unresolvable: callers fail closed.
+ */
+export function resolveProgram(program: string, adapterId?: string): ResolvedPm | null {
+  const asPm = resolvePm(program);
+  if (asPm !== null) return asPm;
+  const dirs: string[] = [...trustedDirs()];
+  try { dirs.push(...adapterFor(adapterId === undefined ? {} : { project: adapterId }).trustedProgramDirs); }
+  catch { /* unregistered adapter id: baseline dirs only, and the step will refuse below */ }
+  const names = path.isAbsolute(program)
+    ? [program]
+    : process.platform === 'win32' ? [`${program}.exe`, `${program}.cmd`, `${program}.bat`, program] : [program];
+  for (const n of names) {
+    const candidates = path.isAbsolute(n) ? [n] : dirs.map((d) => path.join(d, n));
+    for (const abs of candidates) {
+      if (!fs.existsSync(abs)) continue;
+      if (/\.(cmd|bat)$/i.test(abs)) {
+        // literal, never %ComSpec%: the caller owns that env var (same rule as resolvePm)
+        const cmdExe = 'C:\\Windows\\System32\\cmd.exe';
+        if (!fs.existsSync(cmdExe)) continue;
+        return { spawnArgv: [cmdExe, '/d', '/s', '/c', abs], file: abs, via: 'trusted-cmd' };
+      }
+      return { spawnArgv: [abs], file: abs, via: 'trusted-path' };
+    }
+  }
+  return null;
+}
+
+/** The exact command a step will run, from whichever authority owns it: an
+ *  explicit sealed argv (a non-script ecosystem), or the validated
+ *  `<pm> run <script>` shape (Node). Throws on anything it cannot validate — a
+ *  step that cannot be validated is never run anyway. */
+export function stepCommand(pm: string, step: PlanStep): string[] {
+  return step.argv !== undefined ? assertStepArgv(step.argv) : stepArgv(pm, step.script);
+}
+
 /** Shared spawn for a resolved pm: the plan runner and doctor's liveness
  *  probe must consult the SAME bytes, so they share this one door. */
 function spawnHardened(resolved: ResolvedPm, args: string[], cwd: string, timeoutMs: number) {
@@ -558,23 +618,30 @@ export interface StepResult {
 function unresolvedStep(root: string, pm: string, step: PlanStep, err: unknown): StepResult {
   const at = new Date().toISOString();
   const msg = String(err);
+  // the command is usually still computable here (resolution failed, not
+  // validation) — but never at the cost of throwing inside a failure reporter
+  let argv: string[];
+  try { argv = stepCommand(pm, step); } catch { argv = [pm, 'run', step.script]; }
   return {
-    kind: step.kind, display: `${pm} run ${step.script}`, ok: false, exitCode: null, secs: 0,
-    tail: msg, argv: [pm, 'run', step.script], cwd: root, stdout: '', stderr: msg,
+    kind: step.kind, display: argv.join(' '), ok: false, exitCode: null, secs: 0,
+    tail: msg, argv, cwd: root, stdout: '', stderr: msg,
     execArgv: [], exec: { file: '', digest: null, via: 'unresolved', policy: ENV_POLICY },
     startedAt: at, endedAt: at,
   };
 }
 
 export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs = 600_000): StepResult {
-  const argv = stepArgv(pm, step.script); // throws unless [pm, 'run', script] is fully whitelisted
+  const argv = stepCommand(pm, step); // throws unless the step's command is fully validated
   const display = argv.join(' ');
-  const resolved = resolvePm(argv[0] as string);
+  const program = argv[0] as string;
+  const resolved = resolveProgram(program, step.adapter);
   if (resolved === null) {
-    throw new Error(`package manager "${pm}" is not resolvable in Canary's trusted execution environment (the running Node's install dir and OS-managed dirs only — the calling PATH is deliberately ignored). Install it with corepack or into the same Node prefix, then re-run.`);
+    throw new Error(PM_NAMES.has(program)
+      ? `package manager "${program}" is not resolvable in Canary's trusted execution environment (the running Node's install dir and OS-managed dirs only — the calling PATH is deliberately ignored). Install it with corepack or into the same Node prefix, then re-run.`
+      : `program "${program}" is not resolvable in Canary's trusted execution environment (the running Node's install dir, the OS-managed dirs, and the directories the declaring project adapter names — the calling PATH is deliberately ignored). Install it in one of those locations, or seal its absolute path in the plan, then re-run.`);
   }
   const startedAt = new Date().toISOString();
-  const r = spawnHardened(resolved, ['run', step.script], root, timeoutMs);
+  const r = spawnHardened(resolved, argv.slice(1), root, timeoutMs);
   const stdout = r.stdout ?? '';
   const stderr = r.stderr ?? '';
   const out = `${stdout}${stderr}`;
@@ -584,7 +651,7 @@ export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs 
     exitCode: infra ? null : r.status, secs: 0,
     tail: out.split(/\r?\n/).filter(Boolean).slice(-12).join('\n'),
     argv, cwd: root, stdout, stderr,
-    execArgv: [...resolved.spawnArgv, 'run', step.script],
+    execArgv: [...resolved.spawnArgv, ...argv.slice(1)],
     exec: { file: resolved.file, digest: execDigest(resolved.file), via: resolved.via, policy: ENV_POLICY },
     startedAt, endedAt: new Date().toISOString(),
   };
@@ -808,14 +875,23 @@ export function inferTaskKinds(text: string): TaskKind[] {
 const isTestDirPath = (p: string): boolean =>
   /(^|[\\/])(tests?|__tests__|spec[s]?)([\\/]|$)/i.test(p);
 const isTestPath = (p: string): boolean =>
-  isTestDirPath(p) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(p);
+  isTestDirPath(p)
+  || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(p)   // node: *.test.ts / *.spec.js
+  || /(^|[\\/])test_[^\\/]*\.py$/i.test(p)     // python: test_*.py
+  || /_test\.py$/i.test(p)                     // python: *_test.py
+  || /_test\.go$/i.test(p)                     // go: *_test.go
+  || /_test\.rs$/i.test(p);                    // rust: *_test.rs
 // Lockfiles ONLY: package.json edits are authority moves (script text — M5's
 // sealed turf), not dependency-graph evidence, and blaming them here made
 // every setup-repair story trip the dep obligation. A deps bump without a
 // lockfile change is still caught one-way by `canary task --kind dependency`.
+// 1.1: every REGISTERED adapter's declared manifests count as well, so a
+// python/rust/go lockfile change is dependency evidence through the same one
+// predicate — never guessed from a file extension.
 const isDepPath = (p: string): boolean => {
   const base = p.split(/[\\/]/).pop() ?? '';
-  return LOCKFILES.some(([f]) => base === f);
+  if (LOCKFILES.some(([f]) => base === f)) return true;
+  return Object.values(ADAPTERS).some((a) => a.dependencyPaths.includes(base));
 };
 /** A path rides human-facing notes ONLY in this shape (odd names collapse —
  *  classification never sees this layer: git probes answer in -z raw bytes). */
