@@ -51,7 +51,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
-import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask } from './onboarding.js';
+import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, cmdResult } from './onboarding.js';
 import { cmdIsolate, cmdAccept } from './candidate.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
@@ -74,6 +74,11 @@ usage:
                             writes (a few read-only git metadata reads);
                             CONNECTED / NEEDS ATTENTION / NOT CONNECTED. A statement about
                             STATE, never a claim that anything passes
+  canary result             the same state answer as the status command, for PROGRAMS:
+                            compact, versioned JSON on stdout (checks, sealed authority,
+                            MEASURED custody level, harness capability, last checkpoint)
+                            and no log dump — full evidence stays in the files the envelope
+                            names. Never runs the plan, so it is free to call
   canary doctor             is Canary actually protecting this repo? Runs the checks now;
                             READY / NEEDS ATTENTION / UNSUPPORTED (--run accepted, always on)
   canary uninstall          remove Canary's own changes, keep everything else
@@ -348,6 +353,7 @@ async function main(argv: string[]): Promise<number> {
   // 2 NEEDS ATTENTION/UNSUPPORTED/BLOCKED, 3 misuse.
   if (cmd === 'setup') return cmdSetup(rest);
   if (cmd === 'status') return cmdStatus(rest);
+  if (cmd === 'result') return cmdResult(rest); // 1.1 §21: the machine-readable state answer for agents
   if (cmd === 'doctor') return cmdDoctor(rest);
   if (cmd === 'uninstall') return cmdUninstall(rest);
   if (cmd === 'checkpoint') return cmdCheckpoint();

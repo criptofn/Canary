@@ -64,6 +64,7 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // names it used to own so every existing importer (candidate.ts, the contract
 // tests) compiles and behaves unchanged while the seam gains a second owner.
 import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, sealPlanAuthority, sha256, stepArgv } from './project.js';
+import { emitEnvelope, PROTOCOL_RESULT, PROTOCOL_STATUS, type ProtocolEnvelope } from './protocol.js';
 import type { PlanAuthority, PlanStep } from './project.js';
 // 1.1 P0 — the sealed authority store outside the repo. In this slice the
 // store is SEALED at setup and REPORTED at status/doctor; no v1.0 verdict
@@ -1294,7 +1295,7 @@ export function writeAcceptance(root: string, rec: AcceptanceRecord): boolean {
  */
 export function cmdTask(rawArgs: string[]): number {
   const { opts, rest } = parseGlobals(rawArgs);
-  const o = new Out(opts.verbose);
+  const o = new Out(opts.verbose, opts.json);
   const root = findRepoRoot(process.cwd());
   if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository — there is no project here to attach a task to.', 'cd into your project and try again'); return 2; }
   const cfg = readConfig(root);
@@ -1486,26 +1487,49 @@ function rel(root: string, p: string): string { return path.relative(root, p) ||
 // ---------- friendly output ----------
 
 export class Out {
-  constructor(private verbose: boolean) {}
-  say(s = '') { console.log(s); }
-  detail(s: string) { if (this.verbose) console.log(`   ${s}`); }
+  private json: boolean;
+  private ctx: Partial<ProtocolEnvelope> = {};
+  constructor(private verbose: boolean, json = false) { this.json = json; }
+  /** In JSON mode the human prose goes to STDERR: stdout carries exactly one
+   *  JSON object, so an agent's parser never skips past sentences. Exit codes
+   *  and verdicts are identical in both modes — --json changes where the words
+   *  go, never what Canary decided. */
+  private line(s: string): void { if (this.json) console.error(s); else console.log(s); }
+  say(s = '') { this.line(s); }
+  detail(s: string) { if (this.verbose) this.line(`   ${s}`); }
   step(r: StepResult) {
-    console.log(`${r.ok ? '✓' : '✗'} ${r.kind}: ${r.display}${r.exitCode === null ? ' (could not run)' : ` (exit ${r.exitCode})`}`);
-    if (!r.ok && r.tail) console.log(r.tail.split('\n').map((l) => `      ${l}`).join('\n'));
+    this.line(`${r.ok ? '✓' : '✗'} ${r.kind}: ${r.display}${r.exitCode === null ? ' (could not run)' : ` (exit ${r.exitCode})`}`);
+    if (!r.ok && r.tail) this.line(r.tail.split('\n').map((l) => `      ${l}`).join('\n'));
   }
+  /** Facts the envelope must carry. Attach them BEFORE the verdict. */
+  context(partial: Partial<ProtocolEnvelope>): void { this.ctx = { ...this.ctx, ...partial }; }
   // CONNECTED / NOT CONNECTED are the canary status (read-only) family: state
   // facts, deliberately NOT READY (only a completed plan run earns READY).
   verdict(v: 'READY' | 'CONNECTED' | 'NOT CONNECTED' | 'NEEDS ATTENTION' | 'UNSUPPORTED', why: string, next?: string) {
-    console.log('');
-    console.log(v === 'READY' ? `READY — ${why}` : `${v} — ${why}`);
-    if (next) console.log(`next: ${next}`);
+    this.line('');
+    this.line(v === 'READY' ? `READY — ${why}` : `${v} — ${why}`);
+    if (next) this.line(`next: ${next}`);
+    if (!this.json) return;
+    // READY and CONNECTED are the only non-blocking verdicts; every other one
+    // is a refusal, which is exit 2 across Canary's command surface.
+    const exitCode = this.ctx.exitCode ?? ((v === 'READY' || v === 'CONNECTED') ? 0 : 2);
+    const env: ProtocolEnvelope = {
+      schema: this.ctx.schema ?? PROTOCOL_STATUS, ...this.ctx,
+      command: this.ctx.command ?? 'canary', status: v, exitCode,
+    };
+    if (next !== undefined) env.next = next;
+    emitEnvelope(env);
   }
 }
 
-export interface GlobalOpts { verbose: boolean; yes: boolean }
+export interface GlobalOpts { verbose: boolean; yes: boolean; json: boolean }
 export function parseGlobals(args: string[]): { opts: GlobalOpts; rest: string[] } {
-  const opts: GlobalOpts = { verbose: args.includes('--verbose') || !!process.env.CANARY_VERBOSE, yes: args.includes('--yes') };
-  return { opts, rest: args.filter((a) => a !== '--verbose' && a !== '--yes') };
+  const opts: GlobalOpts = {
+    verbose: args.includes('--verbose') || !!process.env.CANARY_VERBOSE,
+    yes: args.includes('--yes'),
+    json: args.includes('--json'),
+  };
+  return { opts, rest: args.filter((a) => a !== '--verbose' && a !== '--yes' && a !== '--json') };
 }
 /** The directory argument = first non-flag token, anywhere in the args. Never mistake --run for a path. */
 export function dirArg(rest: string[]): string | undefined { return rest.find((a) => !a.startsWith('--')); }
@@ -1514,7 +1538,7 @@ export function dirArg(rest: string[]): string | undefined { return rest.find((a
 
 export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const { opts, rest } = parseGlobals(rawArgs);
-  const o = new Out(opts.verbose);
+  const o = new Out(opts.verbose, opts.json);
   const root = findRepoRoot(dirArg(rest) ?? process.cwd());
   if (!root) { o.verdict('UNSUPPORTED', 'this folder is not inside a git repository.', 'cd into your project and try again'); return 2; }
   // 1.1 §12–17: the project is whatever the registered adapters declare, not
@@ -1820,6 +1844,44 @@ function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean)
  * "is what the repo claims also what the store sealed?" gets the measured
  * truth, including "there is no sealed copy yet" for legacy projects.
  */
+/**
+ * 1.1 §5/§21 — the measured custody level and the real harness capability, as
+ * data. Both are REPORTED, never inferred: `probeTrustLevel` measures whether
+ * this process can write the store (a same-uid writer means LOCAL, and
+ * HARDENED is unreachable without a broker of a different identity), and a
+ * harness that cannot gate is reported as not gating rather than as protection.
+ */
+export function securityCapability(): { level: 'HARDENED' | 'LOCAL' | 'ADVISORY' | 'UNSUPPORTED'; reasons: string[] } {
+  try {
+    return probeTrustLevel(storeFromEnv());
+  } catch (e) {
+    return { level: 'UNSUPPORTED', reasons: [`the trust store could not be examined: ${String((e as Error).message ?? e)}`] };
+  }
+}
+
+/** Which harnesses are present here, and whether each can actually gate an
+ *  agent's completion. `gated: false` is a fact an agent must not misread. */
+export function agentCapability(root: string): { harnesses: Array<{ id: string; label: string; gated: boolean; reason: string }>; hooked: boolean } {
+  const { found, integrable } = detectHarnesses(root);
+  return {
+    harnesses: found.map((h) => ({ id: h.name, label: h.label, gated: h.supported, reason: h.action })),
+    hooked: integrable !== null,
+  };
+}
+
+/** The checks as an agent needs them: what, which ecosystem, where, and the
+ *  exact command. Never throws — a legacy step reports the command shape that
+ *  will actually be built for it. */
+export function protocolChecks(cfg: CanaryConfig): Array<{ kind: string; script: string; adapter: string; scope: string; argv: string[] }> {
+  return cfg.plan.map((s) => ({
+    kind: s.kind,
+    script: s.script,
+    adapter: s.adapter ?? cfg.project ?? 'node',
+    scope: s.scope ?? '',
+    argv: s.argv ?? [cfg.pm, 'run', s.script],
+  }));
+}
+
 function sealedCopyReport(root: string, cfg: CanaryConfig): string {
   const store = storeFromEnv();
   let projectId: string, tail: string, level: string;
@@ -1850,9 +1912,11 @@ function sealedCopyReport(root: string, cfg: CanaryConfig): string {
  */
 export function cmdStatus(rawArgs: string[]): number {
   const { opts, rest } = parseGlobals(rawArgs);
-  const o = new Out(opts.verbose);
+  const o = new Out(opts.verbose, opts.json);
+  o.context({ command: 'status' });
   const root = findRepoRoot(dirArg(rest) ?? process.cwd());
   if (!root) { o.verdict('NOT CONNECTED', 'not inside a git repository — Canary has nothing to attach to here.', 'cd into your project, then: canary setup --yes'); return 2; }
+  o.context({ root });
   const cfg = readConfig(root);
   if (cfg === 'corrupt') { o.verdict('NOT CONNECTED', "Canary's local config (.canary/canary.local.json) is unreadable.", 'run: canary setup --yes (rewrites it; your other settings are untouched)'); return 2; }
   if (!cfg) { o.verdict('NOT CONNECTED', `${root} is a git repository but Canary was never set up here — no config, no hooks, no proof.`, 'when you want protection here: canary setup --yes'); return 2; }
@@ -1860,11 +1924,17 @@ export function cmdStatus(rawArgs: string[]): number {
   if (distrust) { o.verdict('NOT CONNECTED', `Canary found a local config it does not trust (${distrust}) — it will not run plans from it.`, "run: canary setup --yes (rewrites it as this machine's own)"); return 2; }
   const problems = readOnlyProblems(root, cfg, false); // state only — no liveness spawn
   if (problems.length) {
+    o.context({ problems });
     o.verdict('NEEDS ATTENTION', `Canary is set up in ${root}, but its wiring is not sound:`, '');
-    for (const p of problems) console.log(`  - ${p}`);
-    console.log('next: canary setup --yes repairs the above; canary doctor proves the checks actually run');
+    for (const p of problems) o.say(`  - ${p}`);
+    o.say('next: canary setup --yes repairs the above; canary doctor proves the checks actually run');
     return 2;
   }
+  o.context({
+    checks: protocolChecks(cfg),
+    security: securityCapability(),
+    agent: agentCapability(root),
+  });
   o.say(`repo: ${root}`);
   o.say(`plan: ${cfg.plan.length} step(s): ${cfg.plan.map((s) => `${s.kind}:${s.script}`).join(', ')} — sealed authority intact`);
   o.detail(sealedCopyReport(root, cfg));
@@ -1881,9 +1951,11 @@ export function cmdStatus(rawArgs: string[]): number {
 
 export function cmdDoctor(rawArgs: string[]): number {
   const { opts, rest } = parseGlobals(rawArgs);
-  const o = new Out(opts.verbose);
+  const o = new Out(opts.verbose, opts.json);
+  o.context({ command: 'doctor' });
   const root = findRepoRoot(dirArg(rest) ?? process.cwd());
   if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository.', 'cd into your project'); return 2; }
+  o.context({ root });
   // 1.1: the "no package.json → UNSUPPORTED" gate is gone. Doctor's question is
   // "is Canary actually protecting this repo?", and the config answers it for
   // every ecosystem; a repo that was never set up says so below.
@@ -1906,11 +1978,15 @@ export function cmdDoctor(rawArgs: string[]): number {
 
   const problems = readOnlyProblems(root, cfg, true); // doctor is about to execute — liveness is its question
   if (problems.length) {
+    o.context({ problems });
     o.verdict('NEEDS ATTENTION', 'Canary is NOT fully active here:', '');
-    for (const p of problems) console.log(`  - ${p}`);
-    console.log('next: canary setup --yes repairs the above without touching your other settings');
+    for (const p of problems) o.say(`  - ${p}`);
+    o.say('next: canary setup --yes repairs the above without touching your other settings');
     return 2;
   }
+  // Facts every later verdict in this command needs: the sealed checks, the
+  // MEASURED custody level, and which harnesses can actually gate an agent.
+  o.context({ checks: protocolChecks(cfg), security: securityCapability(), agent: agentCapability(root) });
   // READY is earned HERE, now — the plan runs in every doctor invocation, so a
   // hand-written or stale checkpoint can never produce READY on its own (S4).
   // --run is accepted but no longer changes behavior.
@@ -1928,14 +2004,16 @@ export function cmdDoctor(rawArgs: string[]): number {
     // a script name Canary will not execute is a config problem, not a test
     // result — honest NEEDS ATTENTION, no checkpoint, no fake run.
     writeVerificationBundle(root, 'doctor', ran, 'blocked', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
+    o.context({ problems: refused });
     o.verdict('NEEDS ATTENTION', 'the config names a script Canary will not execute — doctor cannot certify this plan:', '');
-    for (const p of refused) console.log(`  - ${p}`);
-    console.log('next: canary setup --yes reseals from the package.json scripts');
+    for (const p of refused) o.say(`  - ${p}`);
+    o.say('next: canary setup --yes reseals from the package.json scripts');
     return 2;
   }
   writeVerificationBundle(root, 'doctor', ran, failed.length ? 'fail' : 'pass', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
   writeCheckpoint(root, failed.length ? 'fail' : 'pass', failed.map((f) => f.kind), 'doctor');
   if (failed.length) {
+    o.context({ problems: failed.map((f) => `${f.kind} failed: ${f.display}`) });
     o.verdict('NEEDS ATTENTION', `wiring is good, but the checks just failed (${failed.map((f) => f.kind).join(', ')}) — your code is talking, not Canary.`, 'fix the failing checks (ask the agent), then: canary doctor');
     return 2;
   }
@@ -1947,9 +2025,11 @@ export function cmdDoctor(rawArgs: string[]): number {
   const unmet = obligations.filter((x) => x.status === 'unmet');
   const unproven = obligations.filter((x) => x.status === 'unproven');
   if (unmet.length > 0) {
+    o.context({ problems: unmet.map((x) => x.note) });
     o.verdict('NEEDS ATTENTION', `the sealed checks pass, but a proof obligation is objectively violated — ${unmet.map((x) => x.note).join('; ')}`, 'restore the deleted verification files (git checkout -- <path>) — or a human reviews this deletion; then: canary doctor');
     return 2;
   }
+  if (unproven.length > 0) o.context({ problems: unproven.map((x) => `UNPROVEN: ${x.note}`) });
   o.verdict('READY', 'wiring verified; the checks just ran and passed.', 'nothing to do — the agent finishes, Canary checks');
   if (unproven.length > 0) o.say(`proof obligations open: ${unproven.length} UNPROVEN — the plan passing does not make the task proven (NO PROOF, NO DONE).`);
   for (const ob of obligations) o.detail(`obligation [${ob.id}] ${ob.status.toUpperCase()} (${ob.mode}): ${ob.note}`);
@@ -1962,7 +2042,7 @@ export function cmdDoctor(rawArgs: string[]): number {
 
 export function cmdUninstall(rawArgs: string[]): number {
   const { opts, rest } = parseGlobals(rawArgs);
-  const o = new Out(opts.verbose);
+  const o = new Out(opts.verbose, opts.json);
   const root = findRepoRoot(dirArg(rest) ?? process.cwd());
   if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository.', 'cd into the project you set up'); return 2; }
   const cfg = readConfig(root);
@@ -2139,7 +2219,7 @@ export async function cmdCheckpoint(): Promise<number> {
  */
 export function cmdClaim(rawArgs: string[]): number {
   const { opts, rest } = parseGlobals(rawArgs);
-  const o = new Out(opts.verbose);
+  const o = new Out(opts.verbose, opts.json);
   const text = rest.filter((a) => !a.startsWith('--')).join(' ').trim();
   if (!text) { o.say('usage: canary claim "<what the agent believes happened>"'); return 3; }
   const root = findRepoRoot(process.cwd());
@@ -2173,5 +2253,56 @@ export function cmdClaim(rawArgs: string[]): number {
   }
   o.say('claim recorded as an UNTRUSTED hint. Canary does not execute, trust, or report anything from it;');
   o.say('the next completion check re-runs the plan itself and judges only its own execution (claim ≠ evidence).');
+  return 0;
+}
+
+/**
+ * 1.1 §21/§26 — `canary result`: the machine-readable answer to "what does
+ * Canary know about this repo right now?" for an agent that must NOT spend its
+ * context parsing prose or slurping logs.
+ *
+ * It reports FACTS with their provenance: the sealed checks, where the state
+ * lives, the MEASURED custody level, which harnesses can actually gate, the
+ * last recorded completion (labelled as history, never as health), and any
+ * reason the wiring is not sound. It never runs the plan — that is `doctor` —
+ * so calling it is free and safe for an agent to do at any time.
+ */
+export function cmdResult(rawArgs: string[]): number {
+  const { opts, rest } = parseGlobals(rawArgs);
+  const o = new Out(opts.verbose, opts.json);
+  o.context({ command: 'result', schema: PROTOCOL_RESULT });
+  const root = findRepoRoot(dirArg(rest) ?? process.cwd());
+  if (!root) { o.verdict('NOT CONNECTED', 'not inside a git repository — there is no Canary state to report here.', 'cd into your project, then: canary setup --yes'); return 2; }
+  o.context({ root });
+  const cfg = readConfig(root);
+  if (cfg === 'corrupt') { o.verdict('NOT CONNECTED', "Canary's local config (.canary/canary.local.json) is unreadable, so nothing here can be reported as its state.", 'run: canary setup --yes (rewrites it; your other settings are untouched)'); return 2; }
+  if (!cfg) { o.verdict('NOT CONNECTED', `${root} is a git repository but Canary was never set up here — no sealed checks, no proof, no result.`, 'when you want protection here: canary setup --yes'); return 2; }
+  const distrust = untrustedConfigReason(root, cfg);
+  if (distrust) { o.verdict('NOT CONNECTED', `Canary found a local config it does not trust (${distrust}) — it will not report results from it.`, 'run: canary setup --yes (rewrites it as this machine\'s own)'); return 2; }
+  const problems = readOnlyProblems(root, cfg, false); // state only: no commands, no liveness spawn
+  const cp = parseJsonOrNull(path.join(root, CONFIG_DIR, CHECKPOINT_FILE));
+  const task = readTaskRecord(root);
+  o.context({
+    checks: protocolChecks(cfg),
+    security: securityCapability(),
+    agent: agentCapability(root),
+    // The full record (bundles, checkpoints, claims) lives here; the envelope
+    // names it instead of pasting it, so an agent's context stays small.
+    evidencePath: path.join(root, CONFIG_DIR),
+    ...(task ? { next: `task registered: ${task.kinds.join('+')} (${task.requirementCount} requirement(s))` } : {}),
+  });
+  o.say(`repo: ${root}`);
+  o.say(`checks: ${cfg.plan.map((s) => `${s.kind}:${s.script}`).join(', ')}`);
+  o.say(`last checkpoint: ${cp ? `${cp.status} (${cp.source}) at ${cp.at}` : 'none — no completion has been checked here yet'}`);
+  if (problems.length) {
+    o.context({ problems });
+    o.verdict('NEEDS ATTENTION', 'a recorded result cannot be treated as current: the wiring is not sound here.', 'run: canary setup --yes');
+    for (const p of problems) o.say(`  - ${p}`);
+    return 2;
+  }
+  o.verdict('CONNECTED',
+    cp ? `last recorded completion: ${cp.status} (${cp.source}) at ${cp.at} — a past run, not a claim about now`
+      : 'no completion has been checked here yet — the wiring is sound, but nothing has been proven',
+    'to check the code now: canary doctor');
   return 0;
 }
