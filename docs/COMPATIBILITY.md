@@ -23,7 +23,7 @@ converts that into `NEEDS ATTENTION`, never `READY`.
 | Layout | Status |
 |---|---|
 | Several ecosystems declaring checks **at the repository root** (e.g. `package.json` + `pyproject.toml` in one directory) | **Proven** — one composite plan, deterministic order, each step carrying its adapter and scope |
-| Ecosystems in **subdirectories** (`web/` Node + `backend/` Python) | **Not yet wired.** The walk exists and is tested (`discoverScopes`), but it is deliberately not the default: a sealed plan must not gain checks from a directory the user does not consider part of the project — this repository's own `archive/python-golden-prototype/pyproject.toml` is the example. Enabling it needs an explicit declaration |
+| Ecosystems in **subdirectories**, explicitly declared in `canary.scopes.json` (`web/` Node + `backend/` Python) | **Proven** — the declaration is sealed at setup, and the plan contains EXACTLY the declared scopes plus the root when it declares something. Nothing is discovered by walking, so `archive/`, `examples/` or `vendor/` cannot add a check. A step runs in its own scope directory and with its own scope's package manager, both sealed with the step. An unusable declaration stops setup in full rather than shipping a partial plan |
 
 ### Toolchain pinning
 
@@ -65,6 +65,10 @@ it could.
   [`CAPABILITY-LEVELS.md`](CAPABILITY-LEVELS.md).
 - **npm registry install**: the CLI ships as a release tarball; there is no
   `npm install canary` yet.
-- **Standalone (Node-free) binary**: Canary is a Node.js program. A Python or
-  Rust *project* needs no `package.json`, but running Canary itself still needs
-  Node 22+ on the machine.
+- **Standalone (Node-free) binary**: **built and executed for win32-x64** via
+  `npm run standalone` — one executable with Node embedded, proven by running it
+  with every Node directory removed from `PATH`. `--build-sea` embeds the running
+  `node` binary, so **linux-x64 and darwin-arm64 must be built and executed on
+  those hosts and are NOT claimed from here**. Running Canary no longer requires a
+  Node installation for the supported host; a *Node project's* checks still need
+  that project's own Node/npm, because Canary runs the project's scripts.
