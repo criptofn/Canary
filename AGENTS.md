@@ -23,11 +23,16 @@ npm run verify:productization         # the whole productization surface, ONE co
   per-step `PASS` / `SKIP` / `FAIL` summary.
 - Exit `0` means every step passed **or** ended in an explicit, listed host-bound
   `SKIP`. A `SKIP` is never a pass.
-- Six probes are **known-red on this host** and were red before the v1.1 work:
-  `m8-promotion`, `m9-authority`, `pre10-env-authority`, `pre10-acceptance`,
-  `f3-acceptance-growth`, `master-pass-mutations`. See
-  [`CONTRIBUTING.md`](CONTRIBUTING.md). Do not "fix" them by weakening an
-  assertion.
+- **The six probes that were previously known-red are fixed** (v1.1): `m8-promotion`
+  and `m9-authority` were FIXTURE defects (a sealed step called bare `git`, which
+  the sanitized step environment deliberately does not have on PATH);
+  `pre10-acceptance` and `f3-acceptance-growth` now use one terminal provider and
+  run every product assertion, reporting the one thing this host cannot prove (a
+  real pty) as an explicit host-bound `SKIP`; `master-pass-mutations` had a
+  cascade and three stale source anchors, both re-pinned. `pre10-env-authority`
+  was fixed earlier. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and
+  [`docs/V1.1-STATUS.md`](docs/V1.1-STATUS.md). Never re-open one of these by
+  weakening an assertion.
 - Quote numbers only from an executed reporter's output
   ([`docs/TEST-COUNTING.md`](docs/TEST-COUNTING.md)).
 

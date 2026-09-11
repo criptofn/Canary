@@ -10,11 +10,72 @@ changed*; the evidence ledgers record *what was observed*.
 
 ## [Unreleased] — v1.1 implementation candidate
 
-**Not released, not tagged.** Two things bound every entry below: `HARDENED` is
-still unreachable (no provider with a separate OS identity is installed — see
-[`docs/TRUST-ARCHITECTURE.md`](docs/TRUST-ARCHITECTURE.md)), and the
-productization oracle still reports six pre-existing host-bound probe failures
-(see [`CONTRIBUTING.md`](CONTRIBUTING.md)).
+**Not released, not tagged.** `HARDENED` is still unreachable (no provider with a
+separate OS identity is installed — see
+[`docs/TRUST-ARCHITECTURE.md`](docs/TRUST-ARCHITECTURE.md)). The six probes that
+were previously reported as pre-existing host-bound failures are now **closed**
+— no assertion was weakened, and none of them was a product defect (see
+[`docs/V1.1-STATUS.md`](docs/V1.1-STATUS.md)).
+
+### Fixed — the six previously-red probes
+
+- **`m8-promotion` / `m9-authority`** were FIXTURE defects, not product defects.
+  Both sealed steps called bare `git`, which the sanitized step environment
+  deliberately does not have on PATH, so the step spawned ENOENT and the
+  authority/identity sandwich never got to speak. The fixtures now name git
+  absolutely — the same discipline `pinPlanPrograms` already applies to a plan's
+  own programs. Both probes report ALL PASS (16/16 each) with the product
+  unchanged; `m9-mutation-battery` is 15/15.
+- **`pre10-acceptance` / `f3-acceptance-growth`** needed a real pty, which this
+  host cannot provide (measured: no `script(1)`, and `winpty` without a console
+  aborts on its own size assertion). One terminal provider now drives every
+  product assertion through the repo's in-process terminal driver and reports
+  the missing pty as an explicit host-bound `SKIP` (exit 3). 8/8 and 10/10 checks
+  execute and pass; a `SKIP` is still never a pass.
+- **`master-pass-mutations`** had a cascade (its baseline required an owner to
+  exit 0, where a host-bound `SKIP` is exit 3) and three source anchors that
+  later refactors had moved. Anchors re-pinned; all 13 mutations are caught.
+- **`pre10-env-authority`** (fixed earlier): `trustedDirs()` is exported and
+  includes the directories `gitExe()` actually executes from.
+
+### Added — runner observation is now provider-neutral
+
+- **`packages/runner/executor/src/runners.ts`**: a registry stating, per runner,
+  whether a strong label is reachable and — where it is not — exactly why and
+  what would have to exist first. `STRONG` is checked against
+  `KNOWN_RUNNER_RELEASES`, the STRONG set is exactly `{mocha}`, and an unknown
+  runner answers `INCONCLUSIVE_ONLY` by construction. jest, vitest, ava,
+  `node --test`, pytest, `unittest`, cargo and go are registered with their real
+  blockers; cargo and go were never executed here (no toolchain on this host) and
+  are not claimed as working paths.
+
+### Added — explicit nested ecosystem scopes
+
+- **`canary.scopes.json`** declares `{ path, ecosystem }` scopes such as
+  `web` Node, `backend` Python, `service` Go. Declared ⇒ exactly those scopes;
+  undeclared ⇒ root only. Nothing is discovered by walking, so an undeclared
+  `vendor/`, `archive/` or `examples/` tree can never add a check. An unusable
+  declaration stops setup in full instead of shipping a partial plan, and the
+  declaration is sealed, so editing it afterwards surfaces as authority drift.
+
+### Added — MCP
+
+- **`canary mcp`** serves six tools over stdio JSON-RPC (result, status, agents,
+  doctor, work, finish), each a fixed argv template over an operation the CLI
+  already had. It is a transport with no authority of its own: every call runs
+  the same CLI and relays its verdict and exit code unchanged, no tool accepts an
+  argument that could influence a verdict, and `canary accept` is deliberately
+  not exposed — a machine channel must not reach the human terminal act.
+
+### Added — Node-free distribution (host-target only)
+
+- **`tooling/standalone.mjs`** builds a single executable with Node embedded via
+  `node --build-sea` (one step on the Node builds this repo targets), and
+  **executes** it with every Node directory removed from PATH before reporting
+  success, writing the sha256 and the observed runs beside the artifact. Only the
+  host's own target can be produced — `--build-sea` embeds the running `node`, so
+  Linux and macOS artifacts must be built and executed on those hosts.
+
 
 ### Added — projects
 
@@ -24,8 +85,9 @@ productization oracle still reports six pre-existing host-bound probe failures
   of `.py` files, or a tool named only in a comment, declares nothing.
 - **Deterministic polyglot composition** across ecosystems that declare checks at
   a repository root, with each step carrying its adapter and scope. Nested scopes
-  are deliberately not discovered by default, so an `archive/` or `examples/`
-  directory cannot silently add checks to the project containing it.
+  are discovered only when the project declares them in `canary.scopes.json`, so
+  an `archive/` or `examples/` directory cannot silently add checks to the
+  project containing it (see "Added — explicit nested ecosystem scopes").
 - **Toolchain pinning**: at setup, each declared program is resolved once and
   sealed as an **absolute path**; verification later resolves only that path.
 

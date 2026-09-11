@@ -52,6 +52,10 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+// Single-executable (SEA) detection for the standalone distribution (v1.1 item
+// C). `node:sea` exists in every supported Node and `isSea()` is simply false
+// outside a SEA build, so this import costs nothing in the ordinary case.
+import sea from 'node:sea';
 import { resolveNpmCli, sanitizedEnv } from '@canary-rn/support';
 
 // M9 §9.5 — the quarantine marker filename. authority.ts imports only node
@@ -79,7 +83,20 @@ export type { PlanKind, PlanStep, PlanAuthority } from './project.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The absolute path of the built CLI entry — what harness hooks invoke. */
-export const CLI_ENTRY = path.join(HERE, 'main.js');
+export const CLI_ENTRY = sea.isSea() ? process.execPath : path.join(HERE, 'main.js');
+
+/** argv that runs THIS Canary with `args`.
+ *
+ *  In a single-executable build there is no `main.js` on disk — the executable
+ *  IS the CLI — so spawning `process.execPath` with the CLI path as its first
+ *  argument would feed the binary its own path as a command name. `import.meta
+ *  .url` cannot be used to detect this either: inside a SEA it resolves to the
+ *  BUILD-time path, not the installed binary's. `sea.isSea()` is the supported
+ *  signal, and this function is the ONE place that turns it into an argv, so no
+ *  caller can get the standalone case wrong. */
+export function selfArgv(args: readonly string[]): string[] {
+  return sea.isSea() ? [...args] : [CLI_ENTRY, ...args];
+}
 
 export const CONFIG_DIR = '.canary';
 const CONFIG_FILE = 'canary.local.json';
@@ -153,7 +170,9 @@ function hasExe(name: string): boolean {
 /** Build the hook command; null when the CLI path cannot be safely quoted. */
 export function buildHookCommand(cliPath: string): string | null {
   if (cliPath.includes('"') || cliPath.includes('\n')) return null; // cannot embed safely
-  return `node "${cliPath}" checkpoint`;
+  // A single-executable Canary IS the command: prefixing `node` would demand a
+  // Node installation, which is exactly what the standalone build removes.
+  return sea.isSea() ? `"${cliPath}" checkpoint` : `node "${cliPath}" checkpoint`;
 }
 
 // ---------- config + settings.json plumbing ----------

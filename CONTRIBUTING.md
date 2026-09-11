@@ -25,13 +25,22 @@ Requirements: Node.js 22 or newer (CI tests 22; the committed *proof host* is
 Windows + Node 26.3.0 + npm 11.16.0). There are no runtime dependencies — the CLI
 ships as one esbuild bundle.
 
-**Known, pre-existing reds.** Six probes in the oracle fail on the current
-Windows host and failed identically before the v1.1 work began:
-`m8-promotion`, `m9-authority`, `pre10-env-authority`, `pre10-acceptance`,
-`f3-acceptance-growth`, `master-pass-mutations` (the last cascades: its baseline
-arm is red, so it aborts). They are host-bound (git resolving outside the trusted
-dirs, PTY-driven acceptance). Fix them if you can — but never by weakening an
-assertion or a gate. Record what you changed; do not "green" them by deletion.
+**The six previously-known reds are fixed (v1.1).** They were never one cause, and
+none of them was a weakened assertion:
+
+| Probe | What it actually was |
+|---|---|
+| `m8-promotion` | FIXTURE defect. The mid-plan step called bare `git` through `execSync`; a sealed step runs in Canary's SANITIZED environment, whose PATH is the Node dir plus the OS dirs and deliberately NOT the caller's, so `git` did not resolve, the step went red, and `CANDIDATE FAIL` was reported before the identity sandwich could speak. Fixed by naming git absolutely (the discipline `pinPlanPrograms` already applies). |
+| `m9-authority` | Same defect class: `m9-touch-authority.mjs` mode `basemove` called `execFileSync('git', …)` and spawned ENOENT. |
+| `pre10-env-authority` | Fixed earlier (`1abe0b2`): the probe mirrored `trustedDirs()`; the set is now exported and includes the directories `gitExe()` executes from. |
+| `pre10-acceptance` | Host-bound. There is no drivable real pty on this host (measured: no `script(1)`, and `winpty` without a console aborts on its own cols/rows assertion). The probe now uses one terminal provider, runs EVERY product assertion through the repo's in-process terminal driver, and reports the missing pty as an explicit host-bound `SKIP` (exit 3). |
+| `f3-acceptance-growth` | Same host-bound pty gap, same provider. |
+| `master-pass-mutations` | A cascade (its baseline arm required `pre10-acceptance` to exit 0, not 3) plus three source anchors that later refactors had moved, including the `gitCandidates()` change above. Anchors re-pinned; all 13 mutations are caught. |
+
+Fix them if you can — but never by weakening an assertion or a gate. Record what
+you changed; do not "green" them by deletion. A host-bound `SKIP` is the honest
+outcome where the platform genuinely cannot do the thing, and a `SKIP` is never a
+pass.
 
 ## Rules that are not negotiable
 

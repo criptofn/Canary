@@ -26,7 +26,7 @@
 import { spawnSync } from 'node:child_process';
 import readline from 'node:readline';
 
-import { CLI_ENTRY } from './onboarding.js';
+import { CLI_ENTRY, selfArgv } from './onboarding.js';
 import { CANARY_VERSION } from './pipeline.js';
 
 /** The MCP revision this server speaks. */
@@ -201,9 +201,11 @@ interface ChildOutcome {
 }
 
 /** Run the trusted CLI. argv is built from a FIXED template plus validated
- *  values — nothing a client sends is ever passed through as a flag. */
+ *  values — nothing a client sends is ever passed through as a flag. Under a
+ *  single-executable build `selfArgv` drops the `main.js` path, because the
+ *  executable is the CLI and there is no script to name. */
 function runCli(argv: readonly string[], cwd: string): ChildOutcome {
-  const r = spawnSync(process.execPath, [CLI_ENTRY, ...argv], {
+  const r = spawnSync(process.execPath, selfArgv(argv), {
     cwd, encoding: 'utf8', timeout: CHILD_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024,
   });
   const timedOut = r.error !== undefined && (r.error as NodeJS.ErrnoException).code === 'ETIMEDOUT';

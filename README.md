@@ -172,9 +172,34 @@ canary result    [--json]    # the same state as ONE compact JSON object — fre
 canary agents    [install|uninstall <id>]   # which agents work here, and at what capability
 canary work <name> "<intent>"  # the ORDINARY path: register the intent + open the candidate in one step
 canary finish <name>         # verify the candidate from outside it, then promote if the proof holds
+canary mcp                   # MCP server on stdio: the same operations as tools, for any MCP client
 canary uninstall             # remove exactly Canary's own changes (recorded strings, never guesswork)
 canary checkpoint            # harness-internal: runs at the agent's completion boundary (Stop hook)
 ```
+
+`canary mcp` speaks the Model Context Protocol on stdio so a generic agent can
+drive Canary without a bespoke integration. It is a **transport, not a second
+authority**: every tool runs the same CLI and relays its verdict and exit code
+unchanged, no tool takes an argument that could influence a verdict, and
+`canary accept` is deliberately not exposed — acceptance is a human act in a real
+terminal, so a machine channel must not be able to reach it.
+
+### More than one ecosystem in one repository
+
+A repository whose checks live in subdirectories — `web/` Node, `backend/`
+Python, `service/` Go — declares them once, at the root:
+
+```json
+{ "schema": "canary-scopes/1",
+  "scopes": [ { "path": "web", "ecosystem": "node" },
+              { "path": "backend", "ecosystem": "python" },
+              { "path": "service", "ecosystem": "go" } ] }
+```
+
+`canary.scopes.json` is **sealed** by `setup` like every other declaration. What
+is declared is what counts: nothing is discovered by walking, so an undeclared
+`vendor/`, `archive/` or `examples/` tree can never add a check to your plan. A
+declaration Canary cannot honour stops setup instead of shipping a partial plan.
 
 Every command accepts `--json`: the human prose moves to stderr and stdout
 carries exactly one versioned object (`{"schema":"canary-status/1", …}`). Exit

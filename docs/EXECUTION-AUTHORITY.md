@@ -180,6 +180,32 @@ CLAIM, not the mechanism.
   `validateObservation` (`packages/runner/executor/src/observation.ts`) —
   used at capture, at prove-time derivation replay, and by the golden proof
   floor. No second implementation to drift.
+- **Which runners can be strong (v1.1 §A) — the gap is now explicit, not
+  implicit.** The contract above is mocha's: `validateObservation` names mocha's
+  fields, injection is decided by `mochaBin !== undefined`, and the pin table has
+  exactly one real runner. So every other runner (jest, vitest, ava,
+  `node --test`, pytest, `unittest`, cargo, go) **cannot** reach
+  `PASS` / `CONFIRMED_REGRESSION` / `FLAKY` / `PRE_EXISTING_FAILURE` — rule 14
+  sends them to `INCONCLUSIVE`. That is the fail-closed floor working, not a bug.
+  What v1.1 adds is `packages/runner/executor/src/runners.ts`: a provider-neutral
+  registry that states, per runner, whether a strong label is reachable and — for
+  every one where it is not — **precisely why, and what would have to exist
+  first**. `capability: 'STRONG'` is a claim about implementation, so it is
+  declared per adapter and then CHECKED against `KNOWN_RUNNER_RELEASES` by
+  `runnerRegistryProblems()` (STRONG without a pin, or with only a
+  `canary-double` pin, is a reported problem; `INCONCLUSIVE_ONLY` without a
+  stated reason is too). `resolveRunnerAdapter` / `observationCapabilityFor` are
+  the ONE place a caller asks the question; anything unrecognised answers
+  `INCONCLUSIVE_ONLY` with runner `unknown`, so "unknown/unverified ⇒
+  INCONCLUSIVE, never fabricated strong proof" is structural rather than a thing
+  someone has to remember. **The STRONG set is exactly `{mocha}`** and
+  `runners.test.ts` pins that, so promoting a runner to strong is a deliberate,
+  reviewable change that must arrive with its observer, its pin and its reviewed
+  manifest. Two honesty notes: `cargo`/`rustc` and Go are **not installed on the
+  verification host**, so no cargo/go adapter could be executed even once and
+  none is claimed as a working path; and the multiplexers (`node`, `python`,
+  `cargo`, `go`) resolve by script marker only, so a bare `node script.js` is
+  never mistaken for a test runner.
 - **The gate:** `observationGateIssue` / `STRONG_EXECUTION_LABELS`
   (`packages/core/classification/`): every round VALID; per round
   `observedCounts == text counts` under the audit-F1 `?? 0` semantics;
