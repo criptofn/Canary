@@ -116,8 +116,9 @@ let failures = 0;
 const originals = new Map();
 for (const [k, p] of Object.entries(CLI_FILES)) originals.set(k, fs.readFileSync(p));
 // Custody: a sidecar copy of every file this battery will mutate, so an interrupted
-// run is discovered and repaired instead of silently trusted.
-const custody = beginDistMutation([...CLI_FILES].map(([, p]) => p).filter((p, i, a) => a.indexOf(p) === i));
+// run is discovered and repaired instead of silently trusted. `CLI_FILES` is a
+// MAP of name -> path, so it is `Object.values`, not a spread of the object.
+const custody = beginDistMutation([...new Set(Object.values(CLI_FILES))]);
 
 console.log('=== master-pass-mutations: baseline owner runs ===');
 for (const owner of new Set(MUTATIONS.map((m) => m.owner))) {

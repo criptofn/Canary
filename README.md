@@ -224,6 +224,42 @@ canary report [evidence.json] [out.html]  # defaults: latest run
 canary version
 ```
 
+### Installing, updating and removing Canary
+
+Three ways to get it, in increasing order of what you must already have:
+
+| You have | Use | Result |
+|---|---|---|
+| A Node.js 22+ installation | `npm pack` (see `tooling/pack.mjs`) and install the tarball, or run straight from a checkout with `node apps/cli/dist/src/main.js` | one self-contained bundle, zero runtime dependencies |
+| No Node.js, and a supported host | `npm run standalone` (see `tooling/standalone.mjs`) | ONE executable with Node embedded |
+| A source checkout | `npm ci && npm run build` | the development tree |
+
+`tooling/standalone.mjs` builds for **the host it runs on** and then executes the
+artifact with every Node directory removed from `PATH` before it reports success,
+so the result is a measured fact rather than a build log. It writes the artifact,
+its sha256 and the observed runs under `pack/standalone/`. `--build-sea` embeds
+the running `node` binary, so a Linux or macOS artifact must be built and executed
+*on* Linux or macOS; no other target is claimed from here.
+
+- **Install**: copy the single executable into a directory of its OWN and put it
+  on `PATH`. The directory matters: Canary fingerprints its own bytes as the
+  verifier's code, and under a single-executable build that is the file itself —
+  a directory shared with unrelated files would make unrelated edits look like
+  verifier tampering.
+- **Update**: replace the executable, then re-run `canary setup --yes` in each
+  wired repository. The plan and its seal are re-derived; nothing about the old
+  binary is trusted afterwards. Upgrading an existing 1.0 installation is
+  documented separately in [`docs/MIGRATION-1.0-TO-1.1.md`](docs/MIGRATION-1.0-TO-1.1.md).
+- **Uninstall**: `canary uninstall` in each wired repository removes exactly
+  Canary's own recorded changes (hook entries, config, its own ignore line) and
+  refuses to delete `.canary` while candidates exist; then delete the executable.
+  Both directions are exercised end to end by the feature smoke.
+
+Note what a standalone build does *not* change: a **Node project's** checks still
+need that project's own Node/npm to run, because Canary runs *your* scripts. The
+standalone build removes Node as a requirement for **running Canary** — which is
+what makes Canary usable on a Python, Rust or Go project that has no Node at all.
+
 Exit codes: `0` proof holds fully (on the committed proof host) / regression
 confirmed / self-consistent report / onboarding READY · `1` a proof assertion
 diverged (or `run` classified PASS) · `2` other classification / infra /
