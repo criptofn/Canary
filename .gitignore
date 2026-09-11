@@ -39,6 +39,13 @@ Thumbs.db
 # of record is proven by tooling/probes/cleanroom-packed-artifact.mjs, not committed
 /pack/
 
+# Workspace-local toolchains provisioned by tooling/toolchains.mjs (Go, Rust).
+# They exist so Rust and Go can be VALIDATED without administrator rights and
+# without touching global machine state; they are hundreds of MB and
+# machine-specific, so they are never committed.
+# Re-provision with: node tooling/toolchains.mjs all
+/_toolchains/
+
 # Local secrets and credentials
 .env
 .env.*
