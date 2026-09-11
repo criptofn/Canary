@@ -237,3 +237,66 @@ export function parseSummaryCounts(log: string): SummaryCounts {
 export function streamsStable(hashes: readonly string[]): boolean {
   return hashes.length > 0 && hashes.every((h) => h === hashes[0]);
 }
+
+// ─────────────────── Python `unittest` text summary (v1.1 Phase 2) ───────────────────
+/**
+ * `unittest` prints TWO facts and expects you to do the arithmetic:
+ *
+ *   Ran 4 tests in 0.000s
+ *   OK (skipped=1)
+ *   FAILED (failures=1, errors=2, skipped=3, expected failures=4, unexpected successes=5)
+ *
+ * The count that matters for observation agreement is per-CATEGORY, and the
+ * categories are not the same three mocha reports, so they are mapped explicitly
+ * rather than guessed:
+ *   failing = failures + errors + unexpected successes   (a test that passed
+ *             while marked as an expected failure IS a failure)
+ *   pending = skipped + expected failures
+ *   passing = total - failing - pending
+ *
+ * Returns undefined when the text is not a unittest summary OR when the numbers
+ * cannot describe a run at all (`passing` negative). Refusing to invent counts
+ * from inconsistent text is the point: this function feeds the AGREEMENT check
+ * that makes printed output refutable, never the source of a count.
+ */
+export function parseUnittestCounts(log: string): SummaryCounts | undefined {
+  const norm = runnerView(log);
+  const ran = /^\s*Ran (\d+) tests? in /m.exec(norm);
+  if (!ran) return undefined;
+  const total = Number(ran[1]);
+  // The verdict line is the LAST "OK"/"FAILED" line: unittest prints failure
+  // detail blocks before it, and a test's own output could contain the word.
+  let verdict: RegExpExecArray | null = null;
+  const verdictRe = /^\s*(OK|FAILED)\b([^\n]*)$/gm;
+  for (let m = verdictRe.exec(norm); m !== null; m = verdictRe.exec(norm)) verdict = m;
+  if (verdict === null) return undefined;
+  const detail = (verdict[2] ?? '').replace(/^\s*\(/, '').replace(/\)\s*$/, '');
+  const counts = new Map<string, number>();
+  for (const part of detail.split(',')) {
+    const m = /^\s*([A-Za-z][A-Za-z ]*?)\s*=\s*(\d+)\s*$/.exec(part);
+    if (m) counts.set(m[1]!.trim().toLowerCase(), Number(m[2]));
+  }
+  const n = (k: string): number => counts.get(k) ?? 0;
+  const failing = n('failures') + n('errors') + n('unexpected successes');
+  const pending = n('skipped') + n('expected failures');
+  const passing = total - failing - pending;
+  if (passing < 0) return undefined; // text that cannot describe a run is not a summary
+  return { passing, failing, pending };
+}
+
+/**
+ * The text-summary parser for a named observation channel. ONE dispatcher, so
+ * the executor and `prove` cannot disagree about which text meant what: an
+ * unknown runner has NO text counts, which is exactly right — its text is a
+ * claim nothing can corroborate.
+ */
+export function parseSummaryCountsFor(runner: string | undefined, log: string): SummaryCounts {
+  if (runner === 'python-unittest') return parseUnittestCounts(log) ?? {};
+  return parseSummaryCounts(log);
+}
+
+/** Whether `log` contains the summary a named channel expects. */
+export function hasRunnerSummaryFor(runner: string | undefined, log: string): boolean {
+  if (runner === 'python-unittest') return parseUnittestCounts(log) !== undefined;
+  return parseSummaryCounts(log).passing !== undefined || parseSummaryCounts(log).failing !== undefined;
+}

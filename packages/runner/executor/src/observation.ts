@@ -74,11 +74,34 @@ export interface ValidateInput {
   expectedRunnerTreeSha256?: string | undefined;
   /** Hash of the located mocha directory, present iff a mocha package was found. */
   observedRunnerTreeSha256?: string | undefined;
+  /** sha256 of the NON-package runner's own bytes as Canary hashed them on disk
+   *  (a stdlib test package, a toolchain binary). Present iff this round carries
+   *  a provider-neutral identity pin. */
+  observedRunnerIdentitySha256?: string | undefined;
   /** Text channel (agreement checks; `?? 0` semantics mirror audit-F1 —
    *  a summary line mocha omits parses to undefined, credited as 0). */
   textCounts: { passing?: number | undefined; failing?: number | undefined; pending?: number | undefined };
   hasSummary: boolean;
   textFailingNames: readonly string[];
+  /**
+   * PROVIDER-NEUTRAL CHANNEL (v1.1 Phase 2). Present iff a runner adapter other
+   * than the mocha channel produced this round. When set, `expectedRunner` is
+   * mandatory: an observation with no stated requirement is exactly the
+   * "trust the text" failure this whole file exists to prevent.
+   */
+  runner?: string | undefined;
+  expectedRunner?: {
+    /** Must equal `runner` — a mismatch is a caller bug, refused loudly. */
+    id: string;
+    /** Version Canary requires, from its own pin or sealed identity. */
+    version?: string | undefined;
+    /** sha256 of the runner's own bytes Canary requires. */
+    identitySha256?: string | undefined;
+  } | undefined;
+  /** The per-round nonce Canary placed in the child's observer environment.
+   *  Binds the frames to THIS spawn; see the python observer's note on why pid
+   *  equality alone is not sufficient on Windows. */
+  expectedNonce?: string | undefined;
 }
 
 /**
@@ -91,8 +114,19 @@ export function validateObservation(v: ValidateInput): ExecutionObservation {
   const framesSha256 = sha256hex(v.raw);
   const count = (v.raw === '' ? 0 : v.raw.replace(/\n$/, '').split('\n').length);
   const base = { framesSha256, frameCount: count, observedFailingIdentities: [] as string[] };
+  // Provider-neutral identity carrier: mocha rounds keep emitting only the
+  // mocha fields (so every existing iff-rule and bundle stays byte-identical),
+  // and a non-mocha round emits the neutral ones.
+  const chan = v.runner !== undefined
+    ? {
+        runner: v.runner,
+        ...(v.expectedRunner?.version !== undefined ? { expectedRunnerVersion: v.expectedRunner.version } : {}),
+        ...(v.expectedRunner?.identitySha256 !== undefined ? { expectedRunnerIdentitySha256: v.expectedRunner.identitySha256 } : {}),
+        ...(v.observedRunnerIdentitySha256 !== undefined ? { observedRunnerIdentitySha256: v.observedRunnerIdentitySha256 } : {}),
+      }
+    : {};
   const bad = (invalidReason: string): ExecutionObservation => ({
-    ...base, status: 'INVALID', invalidReason,
+    ...base, ...chan, status: 'INVALID', invalidReason,
     ...(v.expectedMochaVersion !== undefined ? { expectedMochaVersion: v.expectedMochaVersion } : {}),
     ...(v.observedRunnerTreeSha256 !== undefined ? { observedRunnerTreeSha256: v.observedRunnerTreeSha256 } : {}),
   });
@@ -106,8 +140,8 @@ export function validateObservation(v: ValidateInput): ExecutionObservation {
   // was being measured — ABSENT with an anomaly note (panel decision A).
   if (!v.injected) {
     return v.raw === ''
-      ? { ...base, ...located, status: 'ABSENT', absentKind: v.absentKind }
-      : { ...base, ...located, status: 'ABSENT', absentKind: v.absentKind,
+      ? { ...base, ...chan, ...located, status: 'ABSENT', absentKind: v.absentKind }
+      : { ...base, ...chan, ...located, status: 'ABSENT', absentKind: v.absentKind,
         strayFd3Bytes: true, strayFd3Sha256: framesSha256 };
   }
 
@@ -139,15 +173,51 @@ export function validateObservation(v: ValidateInput): ExecutionObservation {
   if (frames.some((f) => f.k === 'reject')) return bad('rejected-event');
   if (frames.some((f) => f.k === 'adapter-error')) return bad('adapter-error'); // our hook broke: never trust
 
-  const mv = typeof hello.mochaVersion === 'string' ? hello.mochaVersion : '';
-  const nv = typeof hello.node === 'string' ? hello.node : '';
   const ov = typeof hello.observerVersion === 'string' ? hello.observerVersion : '';
-  const pid = typeof hello.pid === 'number' ? hello.pid : NaN;
-  if (!/^\d+\.\d+\.\d+[^\s]*$/.test(mv)) return bad('hello-mochaVersion');
-  if (!/^v?\d+\./.test(nv)) return bad('hello-node');
   if (ov !== OBSERVER_VERSION) return bad('observerVersion-mismatch'); // loaded bytes are not our current observer
-  if (!Number.isInteger(pid) || v.childPid === undefined || pid !== v.childPid) return bad('pid-mismatch');
-  if (v.expectedMochaVersion !== undefined && mv !== v.expectedMochaVersion) return bad('mochaVersion-vs-pin');
+
+  // ── Channel identity. Mocha's rules are byte-for-byte what they always were
+  // (an absent `runner` field means the mocha channel); a provider-neutral round
+  // states its own requirement and is bound by it.
+  let observedRunnerVersion: string | undefined;
+  if (v.runner === undefined) {
+    const mv = typeof hello.mochaVersion === 'string' ? hello.mochaVersion : '';
+    const nv = typeof hello.node === 'string' ? hello.node : '';
+    const pid = typeof hello.pid === 'number' ? hello.pid : NaN;
+    if (!/^\d+\.\d+\.\d+[^\s]*$/.test(mv)) return bad('hello-mochaVersion');
+    if (!/^v?\d+\./.test(nv)) return bad('hello-node');
+    if (!Number.isInteger(pid) || v.childPid === undefined || pid !== v.childPid) return bad('pid-mismatch');
+    if (v.expectedMochaVersion !== undefined && mv !== v.expectedMochaVersion) return bad('mochaVersion-vs-pin');
+  } else {
+    const er = v.expectedRunner;
+    // An adapter round MUST state what it required: "observed something" is not
+    // a requirement, and accepting it would be the text-trust failure again.
+    if (er === undefined || er.id !== v.runner) return bad('runner-requirement-missing');
+    const rid = typeof hello.runner === 'string' ? hello.runner : '';
+    if (rid !== er.id) return bad('runner-mismatch');
+    const rv = typeof hello.runnerVersion === 'string' ? hello.runnerVersion : '';
+    if (!/^\d+\.\d+/.test(rv)) return bad('hello-runnerVersion');
+    if (er.version !== undefined && rv !== er.version) return bad('runnerVersion-vs-seal');
+    observedRunnerVersion = rv;
+    const nv = typeof hello.node === 'string' ? hello.node : '';
+    if (!/^[A-Za-z]/.test(nv)) return bad('hello-host');
+    // Process binding: the NONCE Canary put in THIS spawn's observer environment
+    // must round-trip, and the reporting process must be the spawned one or its
+    // direct child (a Windows virtualenv's python.exe re-executes the base
+    // interpreter, so pid equality alone would reject every legitimate venv).
+    if (v.expectedNonce !== undefined) {
+      const nonce = typeof hello.nonce === 'string' ? hello.nonce : '';
+      if (nonce !== v.expectedNonce) return bad('nonce-mismatch');
+    }
+    const pid = typeof hello.pid === 'number' ? hello.pid : NaN;
+    const ppid = typeof hello.ppid === 'number' ? hello.ppid : NaN;
+    if (v.childPid === undefined || (!Number.isInteger(pid) && !Number.isInteger(ppid))) return bad('pid-mismatch');
+    if (pid !== v.childPid && ppid !== v.childPid) return bad('pid-mismatch');
+    // The runner's own bytes, required vs as hashed on disk by Canary.
+    if (er.identitySha256 !== undefined && v.observedRunnerIdentitySha256 !== er.identitySha256) {
+      return bad('runner-identity-drift');
+    }
+  }
 
   // ── Canary's own replay of the lifecycle stream — the authority for counts
   // and identities. bye.counts must agree with it, never replace it.
@@ -201,9 +271,12 @@ export function validateObservation(v: ValidateInput): ExecutionObservation {
 
   return {
     ...base,
+    ...chan,
     ...versioned,
     status: 'VALID',
-    observedMochaVersion: mv,
+    ...(v.runner === undefined
+      ? { observedMochaVersion: typeof hello.mochaVersion === 'string' ? hello.mochaVersion : '' }
+      : { runner: v.runner, ...(observedRunnerVersion !== undefined ? { observedRunnerVersion } : {}) }),
     ...(v.expectedRunnerTreeSha256 !== undefined ? { expectedRunnerTreeSha256: v.expectedRunnerTreeSha256 } : {}),
     ...(v.observedRunnerTreeSha256 !== undefined ? { observedRunnerTreeSha256: v.observedRunnerTreeSha256 } : {}),
     observedCounts: { passing, failing, pending },

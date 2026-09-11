@@ -31,15 +31,60 @@ export interface EnvOptions {
   nodeDir: string;
   /** Metadata-only callers need an isolated environment without creating dirs. */
   materialize?: boolean;
+  /**
+   * CANARY-OWNED observer injection (v1.1 Phase 2).
+   *
+   * This is deliberately NOT an env-merge and NOT a general `envExtra`: audit F9
+   * removed that vector, and the master-pass M7 mutant ("merge the CALLER
+   * environment under the sanitized one") must stay dead. Every value here is a
+   * path or token CANARY computed — the directory must live inside Canary's own
+   * workspace root, and the variable NAMES are fixed by `kind`, so no
+   * caller/subject-supplied string can reach the child's environment through this
+   * door.
+   *
+   * Only runners whose observer needs an environment injection use it: Python's
+   * `sitecustomize` is found through PYTHONPATH. Rust/Go inject through argv and
+   * need nothing here.
+   */
+  observer?: ObserverInjection | undefined;
 }
 
-export function sanitizedEnv({ ws, nodeDir, materialize = true }: EnvOptions): NodeJS.ProcessEnv {
+export interface ObserverInjection {
+  /** `python` = PYTHONPATH=<dir> + a nonce + no user site-packages. */
+  kind: 'python';
+  /** Directory holding Canary's observer bytes. Must resolve inside ws.root. */
+  dir: string;
+  /** Per-round binding token the observer echoes in its `hello` frame. */
+  nonce: string;
+}
+
+export function sanitizedEnv({ ws, nodeDir, materialize = true, observer }: EnvOptions): NodeJS.ProcessEnv {
   const systemRoot = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
   const home = path.join(ws.root, 'isolated-home');
   const tmp = path.join(ws.root, 'tmp');
   if (materialize) {
     fs.mkdirSync(home, { recursive: true });
     fs.mkdirSync(tmp, { recursive: true });
+  }
+  // Canary-owned observer variables. Fail closed on anything that is not a real
+  // directory inside Canary's own workspace: this door must never become a way to
+  // put a subject-chosen path (or value) into a verification child's environment.
+  const observed: NodeJS.ProcessEnv = {};
+  if (observer !== undefined) {
+    const rootReal = (() => { try { return fs.realpathSync(ws.root); } catch { return path.resolve(ws.root); } })();
+    const dirReal = (() => { try { return fs.realpathSync(observer.dir); } catch { return null; } })();
+    if (dirReal === null || !fs.statSync(dirReal).isDirectory()) {
+      throw new Error(`observer injection directory does not exist: ${observer.dir}`);
+    }
+    const rel = path.relative(rootReal, dirReal);
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error(`observer injection directory must live inside Canary's workspace root (got ${dirReal}, root ${rootReal})`);
+    }
+    if (observer.kind === 'python') {
+      observed.PYTHONPATH = dirReal;
+      observed.PYTHONNOUSERSITE = '1'; // keep a host user-site-packages tree out of the observation
+      observed.CANARY_OBSERVER_NONCE = observer.nonce;
+    }
   }
 
   if (process.platform === 'win32') {
@@ -74,6 +119,7 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true }: EnvOptions): N
       HOMEDRIVE: homeDrive,
       HOMEPATH: homeRelative,
       SYSTEMDRIVE: homeDrive,
+      ...observed,
     };
   }
   // POSIX analogues — the loader appends nothing here (child envp is exactly
@@ -83,6 +129,7 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true }: EnvOptions): N
     HOME: home,
     TMPDIR: tmp,
     LANG: 'C.UTF-8',
+    ...observed,
   };
 }
 
@@ -194,6 +241,13 @@ export interface RunOptions {
    * 'close' waits for every stdio stream, so no post-exit race exists.
    */
   observeChildFd3?: boolean;
+  /**
+   * Canary-owned observer environment injection for a round that injects its own
+   * observer bytes (v1.1 Phase 2). Passed straight through to `sanitizedEnv`,
+   * where the variable names are fixed by `kind` and the directory must live
+   * inside Canary's workspace root — see `ObserverInjection`.
+   */
+  observer?: ObserverInjection;
 }
 
 export interface RunOutcome {

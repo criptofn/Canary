@@ -131,6 +131,27 @@ export interface ExecutionObservation {
   expectedRunnerTreeSha256?: string;
   /** Hash Canary computed over the resolved package directory at expansion. */
   observedRunnerTreeSha256?: string;
+  /**
+   * PROVIDER-NEUTRAL CHANNEL IDENTITY (v1.1 Phase 2).
+   *
+   * The mocha fields above were the only channel identity that existed, which
+   * made "strong label" structurally synonymous with "pinned mocha". These
+   * fields carry the same facts for any adapter — the runner Canary required,
+   * the version it required, and a digest of the runner's own bytes as Canary
+   * hashed them on disk — so a non-package runner (a stdlib test framework, a
+   * toolchain binary) can be bound just as tightly without inventing a second
+   * observation vocabulary. They are ABSENT on mocha rounds, which keeps every
+   * existing iff-rule and every existing bundle byte-identical.
+   */
+  runner?: string;
+  /** The version Canary required (from its own pin/sealed identity), and what
+   *  the observer reported. Present iff a non-mocha channel was attempted. */
+  expectedRunnerVersion?: string;
+  observedRunnerVersion?: string;
+  /** sha256 of the runner's own bytes: Canary-computed (observed) and required
+   *  (expected). Present iff a non-mocha channel carried an identity pin. */
+  expectedRunnerIdentitySha256?: string;
+  observedRunnerIdentitySha256?: string;
   invalidReason?: string;
   absentKind?: AbsentKind;
   /** ABSENT-only tripwire: bytes arrived on an un-injected fd-3 pipe — a
