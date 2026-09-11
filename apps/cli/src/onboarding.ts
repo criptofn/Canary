@@ -65,6 +65,7 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // tests) compiles and behaves unchanged while the seam gains a second owner.
 import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, sealPlanAuthority, sha256, stepArgv } from './project.js';
 import { emitEnvelope, PROTOCOL_RESULT, PROTOCOL_STATUS, type ProtocolEnvelope, type ProtocolIntegration } from './protocol.js';
+import { decideFastPath } from './fastpath.js';
 import { AGENT_INTEGRATIONS, hasAdvisory, installAdvisory, removeAdvisory } from './agents.js';
 import type { PlanAuthority, PlanStep } from './project.js';
 // 1.1 P0 — the sealed authority store outside the repo. In this slice the
@@ -1523,14 +1524,15 @@ export class Out {
   }
 }
 
-export interface GlobalOpts { verbose: boolean; yes: boolean; json: boolean }
+export interface GlobalOpts { verbose: boolean; yes: boolean; json: boolean; fast: boolean }
 export function parseGlobals(args: string[]): { opts: GlobalOpts; rest: string[] } {
   const opts: GlobalOpts = {
     verbose: args.includes('--verbose') || !!process.env.CANARY_VERBOSE,
     yes: args.includes('--yes'),
     json: args.includes('--json'),
+    fast: args.includes('--fast'),
   };
-  return { opts, rest: args.filter((a) => a !== '--verbose' && a !== '--yes' && a !== '--json') };
+  return { opts, rest: args.filter((a) => a !== '--verbose' && a !== '--yes' && a !== '--json' && a !== '--fast') };
 }
 /** The directory argument = first non-flag token, anywhere in the args. Never mistake --run for a path. */
 export function dirArg(rest: string[]): string | undefined { return rest.find((a) => !a.startsWith('--')); }
@@ -1600,9 +1602,12 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   try {
     // ONE seal over the whole composite plan. Each step is digested by what its
     // own ecosystem declared: an argv step by its exact command, a Node script
-    // step by the package.json script text (unchanged M5 semantics).
+    // step by the package.json script text (unchanged M5 semantics). The
+    // project's fast-path declaration is sealed HERE too, so a check may only be
+    // left out on authority the project gave at setup.
+    const canaryBlock = rootDisc?.source.canary as { proofs?: unknown; paths?: unknown } | undefined;
     seal = sealPlanAuthority(plan, (rootDisc?.source.scripts ?? {}) as Record<string, unknown>,
-      (rootDisc?.source.canary as { proofs?: unknown } | undefined)?.proofs);
+      canaryBlock?.proofs, canaryBlock?.paths);
   } catch (e) { o.say(`REFUSED — ${(e as Error).message}`); return 2; }
 
   o.say(`repo: ${root}`);
@@ -1994,11 +1999,25 @@ export function cmdDoctor(rawArgs: string[]): number {
   // READY is earned HERE, now — the plan runs in every doctor invocation, so a
   // hand-written or stale checkpoint can never produce READY on its own (S4).
   // --run is accepted but no longer changes behavior.
+  // 1.1 §23 — the OPT-IN fast path. It is off unless `--fast` is asked for, and
+  // it can only leave out a step the PROJECT declared paths for, whose declared
+  // paths the change provably missed. An undeclared check always runs, an empty
+  // change set runs everything, and every skip is printed AND carried in the
+  // envelope: a skip is not a pass, and a run that was not the full plan must not
+  // be readable as one.
+  const changedTouched = opts.fast ? collectDiffSignals(root, cfg).touched : [];
+  const decision = opts.fast ? decideFastPath(cfg.plan, cfg.planAuthority?.stepPaths ?? {}, changedTouched) : null;
+  if (decision !== null && decision.usedFastPath) {
+    o.context({ skipped: decision.skipped.map((s) => ({ step: s.key, reason: s.reason })) });
+    o.say('FAST PATH — sealed declarations justify leaving out these checks (a skip is NOT a pass):');
+    for (const s of decision.skipped) o.say(`  ~ skipped ${s.step.kind}: ${s.step.script} — ${s.reason}`);
+  }
+  const stepsToRun = decision === null ? cfg.plan : decision.run;
   o.say('running the verification plan:');
   const failed: StepResult[] = [];
   const ran: StepResult[] = [];
   const refused: string[] = [];
-  for (const s of cfg.plan) {
+  for (const s of stepsToRun) {
     let r: StepResult;
     try { r = runPlanStep(root, cfg.pm, s); }
     catch (e) { refused.push(`plan step "${s.script}" refused: ${(e as Error).message}`); continue; }

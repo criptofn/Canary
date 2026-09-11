@@ -233,6 +233,7 @@ const STEPS = [
   ['1.1 §35 metrics record (off by default, never changes a verdict)', process.execPath, ['--test', 'apps/cli/dist/test/metrics.test.js'], {}],
   ['1.1 §22 workflow (work -> finish) tests', process.execPath, ['--test', 'apps/cli/dist/test/orchestrate.test.js'], {}],
   ['1.1 §23 fast-path decision tests (fail-closed rules)', process.execPath, ['--test', 'apps/cli/dist/test/fastpath.test.js'], {}],
+  ['1.1 §23 fast-path WIRED (sealed declaration, opt-in skipping)', process.execPath, ['--test', 'apps/cli/dist/test/fastpath-cli.test.js'], {}],
   ['1.1 P0 trust-store attack contract tests', process.execPath, ['--test', 'apps/cli/dist/test/trust-store-attacks.test.js'], {}],
   ['1.1 P0 broker authorization contract tests', process.execPath, ['--test', 'apps/cli/dist/test/broker.test.js'], {}],
   ['1.1 P0 platform-boundary contract tests', process.execPath, ['--test', 'apps/cli/dist/test/platform-boundary.test.js'], {}],

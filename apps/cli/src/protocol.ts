@@ -68,6 +68,10 @@ export interface ProtocolEnvelope {
   security?: ProtocolSecurity;
   agent?: ProtocolAgent;
   integrations?: ProtocolIntegration[];
+  /** Steps the fast path left out, each with its reason. Present ONLY when
+   *  something was skipped: a consumer must be able to see that a run was not
+   *  the full plan, and a skip is never a pass. */
+  skipped?: Array<{ step: string; reason: string }>;
   problems?: string[];
   /** The one thing to do next, when there is one. */
   next?: string;

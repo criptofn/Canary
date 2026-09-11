@@ -16,6 +16,10 @@ import path from 'node:path';
 // module's helpers only at CALL time, never during module evaluation, while the
 // adapter objects it exports are plain constants this module needs at init.
 import { ECOSYSTEM_ADAPTERS } from './ecosystems.js';
+// The fast-path declaration validator. The import is a cycle (fastpath.ts uses
+// this module's `stepKey`/`PlanStep`) and is safe for the same reason the
+// ecosystems cycle is: nothing here is called during module evaluation.
+import { validateStepPaths } from './fastpath.js';
 
 export const sha256 = (s: string): string => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
 
@@ -193,6 +197,10 @@ export interface PlanAuthority {
   scriptDigests: Record<string, string>;
   /** Explicit task/requirement digest -> plan script, sealed by setup. */
   proofBindings?: Record<string, string>;
+  /** 1.1 §23 — the project's own declaration of which PATHS each check depends
+   *  on, sealed here so the fast path can never rest on a guess. Absent means
+   *  "undeclared", and an undeclared check always runs. */
+  stepPaths?: Record<string, string[]>;
 }
 
 /** The subset of the onboarding config a drift check reads (CanaryConfig
@@ -207,7 +215,7 @@ export interface AuthorityCarrier {
  *  text of every script it references. detectPlan guarantees plan scripts
  *  exist as non-empty strings in pkgScripts; anything else is left unsealed
  *  and the drift check fails closed on it. */
-export function sealPlanAuthority(plan: PlanStep[], pkgScripts: Record<string, unknown>, bindings?: unknown): PlanAuthority {
+export function sealPlanAuthority(plan: PlanStep[], pkgScripts: Record<string, unknown>, bindings?: unknown, declaredPaths?: unknown): PlanAuthority {
   const scriptDigests: Record<string, string> = {};
   for (const s of plan) {
     const key = stepKey(s);
@@ -221,11 +229,17 @@ export function sealPlanAuthority(plan: PlanStep[], pkgScripts: Record<string, u
     const t = pkgScripts[s.script];
     if (typeof t === 'string') scriptDigests[key] = sha256(t);
   }
+  // 1.1 §23 — the fast-path declaration is SEALED with the plan, and validated
+  // before it is: a malformed one is refused by setup rather than quietly
+  // ignored, because a project that believes it declared something it did not
+  // would be making a decision on authority it never gave.
+  const stepPaths = validateStepPaths(declaredPaths, plan);
   if (bindings !== undefined && (!bindings || typeof bindings !== 'object' || Array.isArray(bindings)
     || !Object.entries(bindings).every(([d,s]) => /^[0-9a-f]{64}$/.test(d) && typeof s === 'string' && plan.some(p => p.script === s)))) {
     throw new Error('package.json canary.proofs must map full task/requirement digests to recognized plan scripts');
   }
   return { at: new Date().toISOString(), planDigest: planDigest(plan), scriptDigests,
+    ...(Object.keys(stepPaths).length > 0 ? { stepPaths } : {}),
     proofBindings: Object.fromEntries(Object.entries((bindings ?? {}) as Record<string,string>).sort(([a],[b]) => a.localeCompare(b))) };
 }
 
@@ -354,7 +368,8 @@ export const nodeAdapter: ProjectAdapter = {
   },
   describe() { return 'Node-style project (checks declared as package.json scripts)'; },
   seal(plan, source, bindings) {
-    return sealPlanAuthority(plan, (source.scripts ?? {}) as Record<string, unknown>, bindings);
+    return sealPlanAuthority(plan, (source.scripts ?? {}) as Record<string, unknown>, bindings,
+      (source.canary as { paths?: unknown } | undefined)?.paths);
   },
   drift(root, cfg, source) { return planAuthorityDrift(root, cfg, source); },
   planProblems(root, plan) {
