@@ -71,6 +71,8 @@ export interface BoundaryMeasurement {
   brokerServiceAccount: string | null;
   /** The service runs as an account that is not the caller's: the separation. */
   separateBrokerIdentity: boolean;
+  /** What a restricted runner could actually be built on, observed per platform. */
+  sandbox: SandboxPrimitive;
   /** Every raw observation, so a human can re-check the reasoning. */
   observations: CommandObservation[];
   controls: Record<BoundaryControl, { available: boolean; why: string }>;
@@ -193,6 +195,7 @@ export function measureBoundary(store: TrustStore = storeFromEnv(), env: NodeJS.
   const dacl = observeStoreDacl(store.root);
   const svc = observeBrokerService();
   const workerUser = env[WORKER_USER_ENV]?.trim() || null;
+  const sandbox = observeSandboxPrimitive();
 
   // Can the worker write the store? Only answerable when a worker identity is
   // DECLARED — "the worker cannot write it" is not a testable statement about a
@@ -220,13 +223,15 @@ export function measureBoundary(store: TrustStore = storeFromEnv(), env: NodeJS.
       : control(false, workerUser === null
         ? 'no worker identity is declared, so no process runs under a restricted identity'
         : 'the declared worker identity can still write Canary\'s protected material'),
-    verificationSandbox: separateBrokerIdentity && workerUser !== null
-      ? control(true, `the broker service runs as ${svc.account}, which is not the caller, and ${workerUser} is enrolled as the restricted runner`)
+    verificationSandbox: separateBrokerIdentity && workerUser !== null && sandbox.fullJail
+      ? control(true, `the broker runs as ${svc.account} and candidate code can be jailed via ${sandbox.kind}`)
       : control(false, !svc.installed
         ? `no ${PROVIDER_SERVICE_NAME} service is installed, so nothing can launch candidate code under a third identity`
         : !separateBrokerIdentity
           ? `the service account (${svc.account ?? 'unknown'}) is the caller's own account, so candidate code would run with the broker's identity`
-          : 'no worker identity is enrolled'),
+          : workerUser === null
+            ? 'no worker identity is enrolled'
+            : `the broker identity is separated, but candidate code cannot be JAILED: ${sandbox.detail}`),
     authenticatedReview: separateBrokerIdentity
       ? control(false, 'the review operation is not yet served by the broker: an enrolled reviewer key exists in the store, but nothing can require it')
       : control(false, 'review is authenticated by terminal presence only; without a broker identity the same uid can mint it'),
@@ -252,6 +257,7 @@ export function measureBoundary(store: TrustStore = storeFromEnv(), env: NodeJS.
     brokerServiceRunning: svc.running,
     brokerServiceAccount: svc.account,
     separateBrokerIdentity,
+    sandbox,
     observations: [
       userObs, elevObs, ...svc.observations,
       ...(dacl.observation !== null ? [dacl.observation] : []),
@@ -281,25 +287,74 @@ export function providerConfigured(store: TrustStore = storeFromEnv(), env: Node
 }
 
 /**
- * The EXACT privileged steps required to activate the Windows provider, and the
- * exact rollback. Printed, never executed: creating an identity, installing a
- * service and rewriting a DACL are the owner's decisions.
+ * Is there a sandbox primitive a RESTRICTED runner could actually be built on?
+ *
+ * The answer is per platform and is OBSERVED, not assumed:
+ *  - Linux: `bwrap` (bubblewrap) or `unshare` give a real mount/pid/net namespace
+ *    to run candidate code in; `systemd-run --uid=` gives a transient unit under
+ *    another identity.
+ *  - Windows: the equivalent needs a job object / AppContainer / restricted token,
+ *    which a Node process cannot create without a native helper. A scheduled task
+ *    under the worker account gives the IDENTITY but not the filesystem/network
+ *    jail.
+ *
+ * Reported as what it is, so a control is never claimed on the strength of a
+ * binary existing somewhere.
+ */
+export interface SandboxPrimitive {
+  kind: string | null;
+  /** True when the primitive provides identity AND isolation, not just identity. */
+  fullJail: boolean;
+  detail: string;
+}
+export function observeSandboxPrimitive(): SandboxPrimitive {
+  if (process.platform === 'win32') {
+    const t = run(['where', 'schtasks.exe']);
+    return {
+      kind: null,
+      fullJail: false,
+      detail: t.exitCode === 0
+        ? 'a scheduled task can give the worker IDENTITY, but Windows needs a job object/AppContainer for the filesystem and network jail and Node cannot create one without a native helper'
+        : 'no identity-switching mechanism was found',
+    };
+  }
+  for (const [cmd, fullJail, why] of [
+    ['bwrap', true, 'bubblewrap gives namespaces plus an identity switch'],
+    ['unshare', true, 'util-linux unshare gives namespaces; the identity switch needs setpriv/sudo alongside'],
+    ['systemd-run', false, 'systemd-run --uid gives the identity but not the filesystem/network jail on its own'],
+  ] as const) {
+    const r = run(['sh', '-c', `command -v ${cmd}`]);
+    if (r.exitCode === 0 && r.stdout !== '') return { kind: cmd, fullJail, detail: `${cmd} present at ${r.stdout}: ${why}` };
+  }
+  return { kind: null, fullJail: false, detail: 'no bwrap/unshare/systemd-run found, so candidate code cannot be jailed here' };
+}
+
+/**
+ * The EXACT privileged steps required to activate the provider on THIS platform,
+ * and the exact rollback. Printed, never executed: creating an identity,
+ * installing a service and rewriting a DACL are the owner's decisions.
  */
 export interface InstallPlan {
   schema: 'canary-provider-install-plan/1';
   platform: string;
+  /** True when this platform's enforcement path has actually been EXECUTED on a
+   *  host. Windows is the one this repository has run; the Linux path is
+   *  implemented and unverified, and says so instead of implying parity. */
+  hostVerified: boolean;
   steps: Array<{ id: string; why: string; argv: string[]; needsElevation: boolean }>;
+  /** Files a step writes, with their content, so nothing is a black box. */
+  files?: Array<{ path: string; content: string; why: string }>;
   rollback: Array<{ id: string; argv: string[] }>;
   verify: string[];
   postState: string[];
 }
 
-export function installPlan(store: TrustStore = storeFromEnv(), workerUser = 'canary-worker', installDir = 'C:\\ProgramData\\Canary'): InstallPlan {
+function windowsInstallPlan(storeDir: string, workerUser: string, installDir: string): InstallPlan {
   const brokerAccount = 'CanaryBroker';
-  const storeDir = store.root;
   return {
     schema: 'canary-provider-install-plan/1',
-    platform: process.platform,
+    platform: 'win32',
+    hostVerified: true,
     steps: [
       {
         id: 'worker-identity',
@@ -362,4 +417,105 @@ export function installPlan(store: TrustStore = storeFromEnv(), workerUser = 'ca
       'canary provider status: hardenedAvailable = true (only then does HARDENED become reachable)',
     ],
   };
+}
+
+/**
+ * The LINUX provider path. IMPLEMENTED_BUT_HOST_UNVERIFIED: the commands, the
+ * unit file and the enforcement points are real, and none of them has been
+ * executed here because this host is Windows. Saying that plainly is the point —
+ * a Linux claim resting on "the code looks right" is exactly the overclaim this
+ * repository forbids, so `hostVerified: false` travels with the plan.
+ */
+function linuxInstallPlan(storeDir: string, workerUser: string, installDir: string): InstallPlan {
+  const brokerAccount = 'canary-broker';
+  const unit = [
+    '[Unit]', 'Description=Canary trusted broker (verification control plane)', 'After=network.target', '',
+    '[Service]', 'Type=simple', `User=${brokerAccount}`,
+    `ExecStart=${path.join(installDir, 'canary')} provider serve`,
+    // The broker holds the authority; it must never gain a writable home or the
+    // ability to execute candidate code as itself.
+    'NoNewPrivileges=true', 'ProtectSystem=strict', 'ProtectHome=true', 'PrivateTmp=true',
+    `ReadWritePaths=${storeDir}`, 'Restart=on-failure', '',
+    '[Install]', 'WantedBy=multi-user.target', '',
+  ].join('\n');
+  return {
+    schema: 'canary-provider-install-plan/1',
+    platform: 'linux',
+    hostVerified: false,
+    steps: [
+      {
+        id: 'worker-identity',
+        why: 'candidate code runs as this identity; it must not be able to write Canary\'s authority',
+        argv: ['useradd', '--system', '--no-create-home', '--shell', '/usr/sbin/nologin', workerUser],
+        needsElevation: true,
+      },
+      {
+        id: 'broker-identity',
+        why: 'the broker holds the key material; a distinct identity is what makes the boundary a boundary',
+        argv: ['useradd', '--system', '--no-create-home', '--shell', '/usr/sbin/nologin', brokerAccount],
+        needsElevation: true,
+      },
+      {
+        id: 'protected-store',
+        why: 'the store must be owned by the broker and unreadable/unwritable by the worker',
+        argv: ['sh', '-c', `install -d -m 0700 -o ${brokerAccount} -g ${brokerAccount} '${storeDir}' && setfacl -m u:${workerUser}:--- '${storeDir}'`],
+        needsElevation: true,
+      },
+      {
+        id: 'install-unit',
+        why: 'the unit runs the broker as the broker identity, with the filesystem hardened and only the store writable',
+        argv: ['install', '-m', '0644', '/dev/stdin', `/etc/systemd/system/${PROVIDER_SERVICE_NAME}.service`],
+        needsElevation: true,
+      },
+      {
+        id: 'enable-service',
+        why: 'the provider must be running before any command can rely on it',
+        argv: ['systemctl', 'enable', '--now', PROVIDER_SERVICE_NAME],
+        needsElevation: true,
+      },
+      {
+        id: 'egress-policy',
+        why: 'ONLY if HARDENED is to claim egress control: a per-uid deny with an explicit allowlist. If this is not installed, the control must stay UNAVAILABLE and HARDENED unreachable',
+        argv: ['nft', 'add', 'rule', 'inet', 'filter', 'output', 'meta', 'skuid', brokerAccount, 'tcp', 'dport', '{443}', 'accept'],
+        needsElevation: true,
+      },
+    ],
+    files: [{ path: `/etc/systemd/system/${PROVIDER_SERVICE_NAME}.service`, content: unit, why: 'the unit is the enforcement point: identity, ProtectSystem, and the single writable path' }],
+    rollback: [
+      { id: 'stop-service', argv: ['systemctl', 'disable', '--now', PROVIDER_SERVICE_NAME] },
+      { id: 'remove-unit', argv: ['rm', '-f', `/etc/systemd/system/${PROVIDER_SERVICE_NAME}.service`] },
+      { id: 'drop-egress', argv: ['nft', '-f', '/etc/canary-egress.nft'] },
+      { id: 'delete-worker', argv: ['userdel', workerUser] },
+      { id: 'delete-broker', argv: ['userdel', brokerAccount] },
+    ],
+    verify: [
+      'canary provider status --json   # every control must read available, and hardenedAvailable true',
+      'node tooling/probes/provider-boundary.mjs',
+      'npm test',
+    ],
+    postState: [
+      `a ${PROVIDER_SERVICE_NAME} systemd unit active as ${brokerAccount}`,
+      `${workerUser} exists and has no access to ${storeDir}`,
+      `${storeDir} owned by ${brokerAccount} with mode 0700`,
+      `${WORKER_USER_ENV}=${workerUser} declared`,
+      'canary provider status: hardenedAvailable = true — and ',
+      'WARNING: this list is IMPLEMENTED_BUT_HOST_UNVERIFIED; it has never been executed on a Linux host',
+    ],
+  };
+}
+
+/**
+ * The install plan for a NAMED platform. Exported so the Linux path can be
+ * CONTRACT-TESTED on a Windows host — the alternative is a Linux path whose only
+ * evidence is that it looks right, which is the thing this repository refuses.
+ * Execution still has to happen on the platform (`hostVerified` says which).
+ */
+export function installPlanFor(platform: string, storeDir: string, workerUser: string, installDir: string): InstallPlan {
+  return platform === 'win32'
+    ? windowsInstallPlan(storeDir, workerUser, installDir)
+    : linuxInstallPlan(storeDir, workerUser, process.platform === 'darwin' || platform === 'darwin' ? '/usr/local/lib/canary' : installDir);
+}
+
+export function installPlan(store: TrustStore = storeFromEnv(), workerUser = 'canary-worker', installDir = 'C:\\ProgramData\\Canary'): InstallPlan {
+  return installPlanFor(process.platform, store.root, workerUser, installDir);
 }

@@ -23,7 +23,7 @@ import { after, describe, it } from 'node:test';
 process.env.CANARY_TRUST_STORE = path.join(os.tmpdir(), `canary-provider-${process.pid}`);
 
 import { measuredCapabilities, requireAuthorizationLevel, requireMeasuredLevel, type BoundaryControl } from '../src/platform-boundary.js';
-import { measureBoundary, parseStoreWriters, providerConfigured, installPlan, storeDaclGrantsWrite } from '../src/provider/boundary.js';
+import { measureBoundary, parseStoreWriters, providerConfigured, installPlan, installPlanFor, observeSandboxPrimitive, storeDaclGrantsWrite } from '../src/provider/boundary.js';
 import { RestrictedRunner, providerStatus, providerUninstallPlan } from '../src/provider/service.js';
 import { callBroker, createBrokerServer, encodeFrame, ensureBrokerToken, tokenMatches, validateWireRequest } from '../src/provider/ipc.js';
 
@@ -155,6 +155,41 @@ describe('the install lifecycle is explicit, privileged and reversible', () => {
     assert.ok(u.steps.length >= 4);
     assert.match(u.keepsProtectedAuthority, /NOT deleted/);
     assert.match(u.keepsProtectedAuthority, /sealed authority/);
+  });
+
+  it('the LINUX provider path is real code with contract coverage, and says it is unverified', () => {
+    // Contract-tested on a Windows host on purpose: the alternative is a Linux
+    // path whose only evidence is that it looks right. Execution must still
+    // happen on Linux, and `hostVerified: false` travels with the plan so no
+    // reader can mistake coverage for proof.
+    const plan = installPlanFor('linux', '/var/lib/canary/trust', 'canary-worker', '/opt/canary');
+    assert.equal(plan.platform, 'linux');
+    assert.equal(plan.hostVerified, false, 'the Linux path has never been executed here and must not claim it');
+    const ids = plan.steps.map((s) => s.id);
+    for (const id of ['worker-identity', 'broker-identity', 'protected-store', 'install-unit', 'enable-service', 'egress-policy']) {
+      assert.ok(ids.includes(id), `Linux plan must contain ${id}`);
+    }
+    assert.ok(plan.steps.find((s) => s.id === 'worker-identity')!.argv.includes('useradd'));
+    assert.ok(plan.steps.find((s) => s.id === 'enable-service')!.argv.includes('systemctl'));
+    // The egress step exists but is the ONLY thing that could make the control
+    // true; if it is not run, networkEgress must stay unavailable.
+    assert.match(plan.steps.find((s) => s.id === 'egress-policy')!.why, /ONLY if HARDENED is to claim egress control/);
+    // The unit file is the enforcement point, so it is INSPECTABLE, not a black box.
+    const unit = plan.files?.find((f) => f.path.endsWith('.service'));
+    assert.ok(unit, 'the systemd unit must be part of the plan');
+    for (const line of ['User=canary-broker', 'NoNewPrivileges=true', 'ProtectSystem=strict', 'ProtectHome=true', `ReadWritePaths=/var/lib/canary/trust`]) {
+      assert.ok(unit!.content.includes(line), `the unit must set ${line}`);
+    }
+    assert.ok(plan.postState.some((p) => /IMPLEMENTED_BUT_HOST_UNVERIFIED/.test(p)),
+      'the plan must carry the warning, not just the docs');
+    assert.ok(plan.rollback.length >= 4);
+  });
+
+  it('the WINDOWS plan is the host-verified one', () => {
+    const plan = installPlanFor('win32', 'C:\\store', 'canary-worker', 'C:\\ProgramData\\Canary');
+    assert.equal(plan.hostVerified, true);
+    assert.ok(plan.steps.some((s) => s.argv[0] === 'icacls'));
+    assert.ok(plan.steps.some((s) => s.argv[0] === 'sc.exe' && s.argv[1] === 'create'));
   });
 });
 

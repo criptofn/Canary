@@ -40,8 +40,52 @@ const EXT = process.platform === 'win32' ? '.exe' : '';
 const OUT = path.join(OUTDIR, `canary-${TARGET}${EXT}`);
 const NODE_DIR = path.dirname(process.execPath);
 
+/**
+ * The distribution targets this repository builds for. Each one must be built
+ * AND EXECUTED on its own host: `--build-sea` embeds the RUNNING `node` binary,
+ * so there is no cross-build — a Linux artifact cannot be produced from Windows,
+ * and claiming one would be claiming an unexecuted binary.
+ *
+ * This list is the honest status board: it says which target this machine can
+ * produce, not which targets exist somewhere.
+ */
+export const DISTRIBUTION_TARGETS = ['win32-x64', 'linux-x64', 'darwin-arm64'];
+
+const argv = process.argv.slice(2);
+const wantTarget = argv.find((a) => a.startsWith('--target='))?.slice('--target='.length);
+const listTargets = argv.includes('--list-targets');
+
 function fail(msg) { console.error(`FAIL: ${msg}`); process.exit(1); }
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+
+if (listTargets) {
+  console.log(JSON.stringify({
+    schema: 'canary-distribution-targets/1',
+    host: TARGET,
+    hostBuildable: TARGET,
+    targets: DISTRIBUTION_TARGETS.map((t) => ({
+      target: t,
+      // Only the host can be built here; the others are IMPLEMENTED_BUT_REQUIRES_OTHER_OS.
+      status: t === TARGET ? 'BUILD_AND_EXECUTE_ON_THIS_HOST' : 'IMPLEMENTED_BUT_REQUIRES_OTHER_OS',
+      build: 'npm run standalone      # on a runner for this target',
+      verify: 'the builder EXECUTES the artifact with every Node directory removed from PATH before it reports success',
+    })),
+    alternate: {
+      id: 'npm-tgz',
+      build: 'node tooling/pack.mjs',
+      note: 'the self-contained bundle + tarball; needs Node 22+ on the target but no per-OS build',
+      proven: 'tooling/probes/cleanroom-packed-artifact.mjs (clean-room install + run, spaces in the path)',
+    },
+  }, null, 2));
+  process.exit(0);
+}
+
+if (wantTarget !== undefined && wantTarget !== TARGET) {
+  fail(`cannot build "${wantTarget}" on ${TARGET}: \`node --build-sea\` embeds the RUNNING node binary, so a `
+    + `single-executable artifact can only be produced ON its own host. Run \`npm run standalone\` on a `
+    + `${wantTarget} machine (the CI job "standalone" does exactly that for ${DISTRIBUTION_TARGETS.join(', ')}), `
+    + 'or distribute the npm tarball (node tooling/pack.mjs), which is platform-neutral but needs Node 22+.');
+}
 
 /** PATH with every Node directory removed — the "no Node installed" posture the
  *  standalone build exists to serve. */
@@ -138,10 +182,25 @@ try {
   fs.writeFileSync(sums, `${evidence.artifactSha256}  canary-${TARGET}${EXT}\n`);
   const evidencePath = path.join(OUTDIR, `canary-${TARGET}.evidence.json`);
   fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2) + '\n');
+  // A manifest of the whole distribution story, so the artifact cannot be read
+  // without also seeing the path that was NOT built here.
+  const manifestPath = path.join(OUTDIR, 'distribution.json');
+  const prior = (() => { try { return JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch { return {}; } })();
+  const built = { ...(prior.built ?? {}), [TARGET]: { sha256: evidence.artifactSha256, bytes: evidence.artifactBytes, node: process.version, at: new Date().toISOString() } };
+  fs.writeFileSync(manifestPath, JSON.stringify({
+    schema: 'canary-distribution/1',
+    host: TARGET,
+    built,
+    notBuiltHere: DISTRIBUTION_TARGETS.filter((t) => built[t] === undefined)
+      .map((t) => ({ target: t, status: 'IMPLEMENTED_BUT_REQUIRES_OTHER_OS', build: 'npm run standalone on that host' })),
+    alternate: { id: 'npm-tgz', build: 'node tooling/pack.mjs', needsNode: '>=22' },
+  }, null, 2) + '\n');
   console.log(`PASS: standalone ${TARGET} built and executed — ${path.relative(CANARY, sums)} , ${path.relative(CANARY, evidencePath)}`);
+  console.log(`      distribution manifest: ${path.relative(CANARY, manifestPath)}`);
   console.log('NOTE: this is the ONLY target built here. --build-sea embeds the running node binary, so');
-  console.log('      linux-x64 and darwin-arm64 artifacts must be built and executed on those hosts;');
-  console.log('      none is claimed from this machine.');
+  console.log(`      ${DISTRIBUTION_TARGETS.filter((t) => t !== TARGET).join(', ')} must be built and executed on those hosts;`);
+  console.log('      none is claimed from this machine. The npm tarball (node tooling/pack.mjs) is the alternate,');
+  console.log('      platform-neutral distribution and needs Node 22+ rather than a per-OS build.');
 } finally {
   try { fs.rmSync(STAGE, { recursive: true, force: true }); } catch { /* OS-temp scratch; leak is inert */ }
 }

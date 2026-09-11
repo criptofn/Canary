@@ -47,6 +47,40 @@ jobs:
       - if: runner.os == 'Linux'
         run: node tooling/probes/architecture-closure-mutations.mjs
 
+  standalone:
+    name: standalone single executable (build AND execute, per host)
+    # A single-executable build embeds the RUNNING node binary, so each target
+    # must be built and executed on its own host — there is no cross-build. This
+    # job is the real build path for linux-x64, darwin-arm64 and win32-x64, and
+    # the builder refuses to report success without EXECUTING the artifact with
+    # every Node directory removed from PATH.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: build + EXECUTE the standalone (refuses to claim an unexecuted artifact)
+        run: npm run standalone
+      - name: the target list is honest about what this host can produce
+        run: node tooling/standalone.mjs --list-targets
+      - name: upload the executable and its evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: standalone-${{ matrix.os }}
+          path: |
+            pack/standalone/**
+          if-no-files-found: warn
+
   golden-proof:
     name: golden regression proof (axios 0.27.2 -> 1.0.0) — DESIGNATED PROOF HOST
     # Deliberately INDEPENDENT of `core`. This job is the committed proof host and
