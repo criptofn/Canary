@@ -157,6 +157,26 @@ const goEcosystem: Ecosystem = {
   },
 };
 
+/** A program's DECLARED identity: its base name without a Windows shim
+ *  extension. Setup pins argv[0] to an absolute path, so a later re-discovery
+ *  (which sees the declared name again) must still recognize the same check —
+ *  comparing the raw strings would report every python/rust/go plan as
+ *  no-longer-declared the moment it was pinned. */
+const programIdentity = (p: string): string => path.basename(p).replace(/\.(exe|cmd|bat)$/i, '').toLowerCase();
+
+/** Is this discovered declaration the same check the plan sealed? The program
+ *  is compared by identity and everything AFTER it byte-for-byte: the sealed
+ *  authority is the command, and only the pin may legitimately differ. */
+function sameDeclaration(declared: EcoCheck, sealed: PlanStep): boolean {
+  if (sealed.argv === undefined) return false;
+  if (declared.kind !== sealed.kind || declared.script !== sealed.script) return false;
+  const a = declared.argv;
+  const b = sealed.argv;
+  return a.length === b.length
+    && programIdentity(a[0] as string) === programIdentity(b[0] as string)
+    && JSON.stringify(a.slice(1)) === JSON.stringify(b.slice(1));
+}
+
 /**
  * Build a ProjectAdapter from an ecosystem declaration.
  *
@@ -200,9 +220,9 @@ export function commandAdapter(eco: Ecosystem): ProjectAdapter {
       const declared = discoverStep(root);
       const problems: string[] = [];
       for (const s of plan) {
-        const ok = declared.some((c) => c.kind === s.kind && c.script === s.script
-          && JSON.stringify(c.argv) === JSON.stringify(s.argv ?? null));
-        if (!ok) problems.push(`plan references the ${eco.id} check "${s.script}" which this project no longer declares`);
+        if (!declared.some((c) => sameDeclaration(c, s))) {
+          problems.push(`plan references the ${eco.id} check "${s.script}" which this project no longer declares`);
+        }
       }
       return problems;
     },

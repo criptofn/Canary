@@ -470,10 +470,18 @@ export interface CompositePlan {
   empty: string[];
 }
 
-/** The whole repository's plan: every declaring ecosystem, in order, as one
+/** The whole repository's plan: every declaring ecosystem at the ROOT, as one
  *  sealed plan. An empty plan is a complete answer (setup turns it into NEEDS
- *  ATTENTION), never a reason to invent a check. */
-export function composePlan(root: string, maxDepth = 2): CompositePlan {
+ *  ATTENTION), never a reason to invent a check.
+ *
+ *  Depth defaults to ROOT ONLY, deliberately. A plan is SEALED AUTHORITY, so
+ *  walking into subdirectories would let a directory the user does not consider
+ *  part of the project add checks to it — this repository is itself the example:
+ *  `archive/python-golden-prototype/pyproject.toml` would silently contribute a
+ *  pytest step to Canary's own plan. Nested scopes need an explicit declaration
+ *  (the walk exists and is tested; wiring it to an opt-in is the next step), and
+ *  until then "no nested discovery" is the honest default. */
+export function composePlan(root: string, maxDepth = 0): CompositePlan {
   const scopes = discoverScopes(root, maxDepth);
   const plan: PlanStep[] = [];
   const notes: string[] = [];
@@ -489,4 +497,27 @@ export function composePlan(root: string, maxDepth = 2): CompositePlan {
     plan.push(...disc.plan);
   }
   return { scopes, plan, notes, empty };
+}
+
+/**
+ * The adapter that owns one plan step: the step's own `adapter` when it has one
+ * (every 1.1 step does), else the configured project, else Node — the exact
+ * 1.0 resolution. One function, so no caller can invent a different rule.
+ */
+export function adapterForStep(cfg: { project?: string }, step: PlanStep): ProjectAdapter {
+  return adapterFor(step.adapter !== undefined ? { project: step.adapter } : cfg);
+}
+
+/** The directory a step runs in: its scope under the repo root, or the root. */
+export function scopeDir(root: string, step: PlanStep): string {
+  return step.scope ? path.join(root, ...step.scope.split('/')) : root;
+}
+
+/** Plan problems across ecosystems: each step is judged by its OWN adapter in
+ *  its OWN scope, so a Python step is never checked against package.json. For a
+ *  1.0 config this is the same list the single Node adapter produced. */
+export function planProblemsForConfig(root: string, cfg: { project?: string }, plan: PlanStep[]): string[] {
+  const problems: string[] = [];
+  for (const step of plan) problems.push(...adapterForStep(cfg, step).planProblems(scopeDir(root, step), [step]));
+  return problems;
 }

@@ -264,6 +264,18 @@ describe('1.1 ecosystems declare checks, they never invent them', () => {
     assert.match(String(rust.planProblems(r, [{ kind: 'tests', script: 'pytest', adapter: 'rust', argv: ['python', '-m', 'pytest'] }])),
       /no longer declares/);
   });
+
+  it('a PINNED plan is still recognized as declared (setup pins, discovery declares)', () => {
+    // Setup rewrites argv[0] to an absolute sealed path; re-discovery sees the
+    // declared name again. Comparing the raw strings made every pinned python /
+    // rust / go plan report itself as no-longer-declared the moment it was set
+    // up — so the comparison is by program identity plus the exact arguments.
+    const root = dir('py-pinned', { 'pyproject.toml': '[project]\nname = "x"\n[tool.pytest.ini_options]\n' });
+    assert.deepEqual(python.planProblems(root, [{ kind: 'tests', script: 'pytest', adapter: 'python', argv: [path.join(root, 'toolchain', 'python.cmd'), '-m', 'pytest'] }]), []);
+    assert.deepEqual(python.planProblems(root, [{ kind: 'tests', script: 'pytest', adapter: 'python', argv: [path.join(root, 'toolchain', 'python.exe'), '-m', 'pytest'] }]), []);
+    assert.match(String(python.planProblems(root, [{ kind: 'tests', script: 'pytest', adapter: 'python', argv: [path.join(root, 'toolchain', 'python.cmd'), '-m', 'pytest', '-k', 'only'] }])),
+      /no longer declares/);
+  });
 });
 
 describe('1.1 polyglot composition is deterministic and scoped', () => {
@@ -281,7 +293,7 @@ describe('1.1 polyglot composition is deterministic and scoped', () => {
   });
 
   it('composes one plan whose steps name their scope and adapter', () => {
-    const composed = project.composePlan(repo);
+    const composed = project.composePlan(repo, 2);
     // no `cargo build` here: this fixture's Cargo.toml declares no src/, so the
     // adapter does not invent a build step (see the crate fixture above)
     assert.deepEqual(composed.plan.map((s) => `${s.scope ?? '.'}:${s.adapter ?? 'node'}:${s.kind}:${s.script}`),
@@ -289,11 +301,21 @@ describe('1.1 polyglot composition is deterministic and scoped', () => {
         'worker:rust:typecheck:cargo check', 'worker:rust:tests:cargo test']);
     // 1.0 byte-compatibility: the root Node step keeps its exact shape
     assert.deepEqual(composed.plan[0], { kind: 'tests', script: 'test' });
-    assert.deepEqual(project.composePlan(repo).plan, composed.plan); // same answer twice
+    assert.deepEqual(project.composePlan(repo, 2).plan, composed.plan); // same answer twice
+  });
+
+  it('the DEFAULT composition is root-only, so a sealed plan cannot gain checks from a subdirectory', () => {
+    // This repository is the example that motivated the rule: an archived
+    // prototype's pyproject.toml must never contribute a pytest step to the
+    // real project's sealed plan.
+    const nested = dir('poly-nested-only', { 'README.md': '# x\n', 'archive/old-prototype/pyproject.toml': '[project]\nname = "old"\n[tool.pytest.ini_options]\n' });
+    assert.deepEqual(project.composePlan(nested).plan, []);
+    assert.deepEqual(project.discoverScopes(nested).map((s) => `${s.scope}:${s.adapter.id}`), ['archive/old-prototype:python']);
+    assert.deepEqual(project.composePlan(nested, 2).plan.map((s) => `${s.scope}:${s.script}`), ['archive/old-prototype:pytest']);
   });
 
   it('a polyglot plan seals and drift-checks through the shared helpers', () => {
-    const composed = project.composePlan(repo);
+    const composed = project.composePlan(repo, 2);
     const scripts = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).scripts as Record<string, string>;
     const seal = project.sealPlanAuthority(composed.plan, scripts);
     assert.equal(project.planAuthorityDrift(repo, { plan: composed.plan, planAuthority: seal }), null);

@@ -417,6 +417,46 @@ describe('doctor + uninstall', () => {
     assert.equal(u.status, 2);
     assert.match(u.stdout, /UNSUPPORTED/);
   });
+
+  it('1.1: a project with NO package.json is set up from its own ecosystem and pinned', () => {
+    // A Python project, end to end, with no Node project in sight. The fake
+    // `python` on PATH stands in for the interpreter: setup is the one moment a
+    // real toolchain is resolved, and what it seals is the ABSOLUTE path.
+    const root = fs.mkdtempSync(path.join(TMP, 'pyproj-'));
+    fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'pyproject.toml'), '[project]\nname = "x"\n[tool.pytest.ini_options]\n');
+
+    const toolDir = fs.mkdtempSync(path.join(TMP, 'toolchain-'));
+    const py = path.join(toolDir, process.platform === 'win32' ? 'python.cmd' : 'python');
+    const pass = path.join(FIXTURES, 'f-pass.js');
+    fs.writeFileSync(py, process.platform === 'win32'
+      ? `@echo off\r\n"${process.execPath}" "${pass}" %*\r\n`
+      : `#!/bin/sh\nexec "${process.execPath}" "${pass}" "$@"\n`);
+    if (process.platform !== 'win32') fs.chmodSync(py, 0o755);
+
+    const before = process.env.PATH;
+    process.env.PATH = `${toolDir}${path.delimiter}${before ?? ''}`;
+    try {
+      const r = canary(['setup', '--yes', root]);
+      assert.equal(r.status, 0, r.output.join(''));
+      assert.match(r.stdout, /READY/);
+      const cfg = readCfg(root);
+      assert.equal(cfg.plan.length, 1);
+      const step = cfg.plan[0]!;
+      assert.equal(step.adapter, 'python');
+      assert.equal(step.script, 'pytest');
+      assert.deepEqual(step.argv!.slice(1), ['-m', 'pytest']);
+      assert.ok(path.isAbsolute(step.argv![0]!), `the toolchain must be sealed as an absolute path, got ${step.argv![0]}`);
+      // and the sealed authority is what status/doctor judge against
+      assert.equal(canary(['status', root]).status, 0);
+      const d = canary(['doctor', root]);
+      assert.equal(d.status, 0, d.output.join(''));
+      assert.match(d.stdout, /READY/);
+    } finally {
+      process.env.PATH = before;
+    }
+  });
   it('uninstall removes exactly Canary, preserves everything else; repeat is safe', () => {
     const root = makeProject('uninst', { settings: { $schema: 'https://x', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo user-hook' }] }] } } });
     assert.equal(canary(['setup', '--yes', root]).status, 0);

@@ -63,7 +63,7 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // 1.1 §1 — the project model lives in project.js. onboarding re-exports the
 // names it used to own so every existing importer (candidate.ts, the contract
 // tests) compiles and behaves unchanged while the seam gains a second owner.
-import { ADAPTERS, adapterFor, assertStepArgv, LOCKFILES, nodeAdapter, parseJsonOrNull, planDigest, sha256, stepArgv } from './project.js';
+import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, sealPlanAuthority, sha256, stepArgv } from './project.js';
 import type { PlanAuthority, PlanStep } from './project.js';
 // 1.1 P0 — the sealed authority store outside the repo. In this slice the
 // store is SEALED at setup and REPORTED at status/doctor; no v1.0 verdict
@@ -588,6 +588,62 @@ export function resolveProgram(program: string, adapterId?: string): ResolvedPm 
  *  step that cannot be validated is never run anyway. */
 export function stepCommand(pm: string, step: PlanStep): string[] {
   return step.argv !== undefined ? assertStepArgv(step.argv) : stepArgv(pm, step.script);
+}
+
+/** How a step is shown to a human: the argv for an explicit step, the 1.0
+ *  `<pm> run <script>` wording for a script step (unchanged output). */
+export function stepDisplay(pm: string, step: PlanStep): string {
+  const scoped = step.scope ? `${step.scope}: ` : '';
+  return step.argv !== undefined ? `${scoped}${assertStepArgv(step.argv).join(' ')}` : `${scoped}${pm} run ${step.script}`;
+}
+
+/**
+ * Pin every program an explicit-argv step names to an ABSOLUTE path, and seal
+ * that path.
+ *
+ * This is the ONLY place Canary consults PATH, and it is the one moment a human
+ * authorizes the plan: `setup`. What gets sealed is the absolute path; every
+ * later verification resolves that path and nothing else (resolveProgram), so a
+ * candidate cannot plant a program earlier on a search path and have Canary
+ * spawn it as sealed authority — the thing `resolvePm` has always refused for
+ * package managers, now extended to interpreters and toolchains.
+ *
+ * Returns the pinned plan and one problem per program that could not be pinned;
+ * a step whose program cannot be found is never silently dropped.
+ */
+export function pinPlanPrograms(plan: PlanStep[]): { plan: PlanStep[]; problems: string[] } {
+  const problems: string[] = [];
+  const pathDirs = (process.env.PATH ?? '').split(path.delimiter).filter((d) => d.length > 0);
+  const cache = new Map<string, string | null>();
+  const resolveOnPath = (program: string): string | null => {
+    if (cache.has(program)) return cache.get(program) ?? null;
+    const names = process.platform === 'win32'
+      ? [`${program}.exe`, `${program}.cmd`, `${program}.bat`, program]
+      : [program];
+    let found: string | null = null;
+    for (const d of pathDirs) {
+      for (const n of names) {
+        const abs = path.join(d, n);
+        if (fs.existsSync(abs)) { found = abs; break; }
+      }
+      if (found !== null) break;
+    }
+    cache.set(program, found);
+    return found;
+  };
+  const out: PlanStep[] = plan.map((step) => {
+    if (step.argv === undefined) return step; // script steps keep `<pm> run <script>`
+    const argv = assertStepArgv(step.argv);
+    const head = argv[0] as string;
+    if (path.isAbsolute(head)) return { ...step, argv };
+    const abs = resolveOnPath(head);
+    if (abs === null) {
+      problems.push(`"${head}" (needed by the ${step.kind} check "${step.script}") was not found on PATH at setup time`);
+      return { ...step, argv };
+    }
+    return { ...step, argv: [abs, ...argv.slice(1)] };
+  });
+  return { plan: out, problems };
 }
 
 /** Shared spawn for a resolved pm: the plan runner and doctor's liveness
@@ -1460,13 +1516,17 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose);
   const root = findRepoRoot(dirArg(rest) ?? process.cwd());
-  const pkgFile = root ? path.join(root, 'package.json') : null;
   if (!root) { o.verdict('UNSUPPORTED', 'this folder is not inside a git repository.', 'cd into your project and try again'); return 2; }
-  if (!pkgFile || !fs.existsSync(pkgFile)) {
-    o.verdict('UNSUPPORTED', `${root} is a git repo but has no package.json — Canary's zero-config path supports Node-style projects today.`, 'add a package.json (or tell us your stack) and re-run'); return 2;
+  // 1.1 §12–17: the project is whatever the registered adapters declare, not
+  // "a repo with a package.json". A present package.json is still validated
+  // exactly as before (1.0 message, 1.0 fail-closed), but its ABSENCE is no
+  // longer UNSUPPORTED by itself — the composite discovery below decides, and a
+  // repo that declares nothing is UNSUPPORTED there, never guessed at here.
+  const pkgFile = path.join(root, 'package.json');
+  const pkg = fs.existsSync(pkgFile) ? parseJsonOrNull(pkgFile) : null;
+  if (fs.existsSync(pkgFile) && !pkg) {
+    o.verdict('UNSUPPORTED', 'package.json is not valid JSON — Canary cannot read your project.', 'fix package.json, then run setup again'); return 2;
   }
-  const pkg = parseJsonOrNull(pkgFile);
-  if (!pkg) { o.verdict('UNSUPPORTED', 'package.json is not valid JSON — Canary cannot read your project.', 'fix package.json, then run setup again'); return 2; }
 
   // local-state integrity BEFORE any write: a tracked .canary config arrived
   // from someone else's clone (S1/S2), and a linked .canary/.claude would send
@@ -1491,26 +1551,46 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     } catch { /* absent: fine */ }
   }
 
-  // 1.1 §1 — discovery and sealing run through the project adapter (Node is
-  // the only one registered yet; detection joins this same seam when more
-  // ecosystems exist, so no second plan path is ever forked). `pkg` above is
-  // the read that earned the UNSUPPORTED/JSON gates; the adapter's own read
-  // is what gets sealed — "whatever is on disk when sealing" (unchanged M5
-  // semantics, now adapter-supplied).
-  const adapter = nodeAdapter;
-  const disc = adapter.discoverChecks(root);
-  const { pm, note, plan } = disc;
+  // 1.1 §12–17 — discovery and sealing run through the project adapters: EVERY
+  // ecosystem that declares checks at the repo root contributes to ONE plan.
+  // A Node-only repo produces byte-identical plan/pm/seal to before (the Node
+  // adapter is unchanged and its steps keep their exact 1.0 shape); the empty
+  // plan stays a complete answer that becomes NEEDS ATTENTION, never READY.
+  const composed = composePlan(root);
+  if (composed.scopes.length === 0) {
+    o.verdict('UNSUPPORTED', `${root} is a git repo, but Canary found no project it can model at its root (looked for package.json, pyproject.toml / setup.py / tox.ini, Cargo.toml, go.mod / go.work).`, 'add the manifest for your stack, then run setup again'); return 2;
+  }
+  const rootScope = composed.scopes.find((s) => s.scope === '');
+  const rootDisc = rootScope ? planForScope(root, rootScope) : null;
+  // pinning happens HERE, at the human-authorized moment, and what gets sealed
+  // is the absolute path — never a name that a later PATH could re-point
+  const pin = pinPlanPrograms(composed.plan);
+  if (pin.problems.length) {
+    o.verdict('NEEDS ATTENTION', `Canary could not pin a program these checks need: ${pin.problems.join('; ')}.`, 'install it (or declare its absolute path in the project), then run setup again'); return 2;
+  }
+  const plan = pin.plan;
+  const pm = rootDisc?.pm ?? composed.scopes[0]!.adapter.id;
+  const note = rootDisc?.note ?? composed.notes.join('; ');
   let seal: PlanAuthority;
-  try { seal = adapter.seal(plan, disc.source, (disc.source.canary as { proofs?: unknown } | undefined)?.proofs); }
-  catch (e) { o.say(`REFUSED — ${(e as Error).message}`); return 2; }
+  try {
+    // ONE seal over the whole composite plan. Each step is digested by what its
+    // own ecosystem declared: an argv step by its exact command, a Node script
+    // step by the package.json script text (unchanged M5 semantics).
+    seal = sealPlanAuthority(plan, (rootDisc?.source.scripts ?? {}) as Record<string, unknown>,
+      (rootDisc?.source.canary as { proofs?: unknown } | undefined)?.proofs);
+  } catch (e) { o.say(`REFUSED — ${(e as Error).message}`); return 2; }
 
   o.say(`repo: ${root}`);
   o.say(`package manager: ${pm} (${note})`);
   if (!plan.length) {
-    o.verdict('NEEDS ATTENTION', 'found no test/build/typecheck script Canary recognizes (looking for "test", "typecheck", "type-check", "build").', 'add one of those scripts to package.json, then run setup again'); return 2;
+    // The message names REAL accepted declarations per ecosystem; the old text
+    // claimed only test/typecheck/build, which the Node detector never actually
+    // honored (it also accepts bench and e2e).
+    o.verdict('NEEDS ATTENTION', 'this project declares no check Canary recognizes (Node: test / typecheck / type-check / build / bench / e2e scripts; Python: pytest, tox, unittest, or mypy / pyright / ruff; Rust: a Cargo.toml; Go: a go.mod or go.work).', 'declare a check for your stack, then run setup again'); return 2;
   }
-  o.say('verification plan (from your package.json scripts — Canary only runs scripts you already have; change them there):');
-  for (const s of plan) o.say(`  ✓ ${s.kind}: ${pm} run ${s.script}`);
+  o.say('verification plan (from what this project already declares — Canary runs only your own checks; change them in their own files):');
+  for (const s of plan) o.say(`  ✓ ${s.kind}: ${stepDisplay(pm, s)}`);
+  for (const e of composed.empty) o.say(`  · declared no checks — ${e}`);
 
   const { found, integrable } = detectHarnesses(root);
   for (const h of found) o.say(`harness: ${h.label} — ${h.action}`);
@@ -1584,7 +1664,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const store = storeFromEnv();
   const projectId = projectIdForRoot(root);
   try {
-    sealRecord(store, { projectId, kind: 'registration', canaryVersion: CANARY_VERSION, payload: { root: fs.realpathSync(root), pm, adapter: 'node' } });
+    sealRecord(store, { projectId, kind: 'registration', canaryVersion: CANARY_VERSION, payload: { root: fs.realpathSync(root), pm, adapter: composed.scopes.map((s) => s.adapter.id).join('+') } });
     sealRecord(store, { projectId, kind: 'plan-seal', canaryVersion: CANARY_VERSION, payload: cfg.planAuthority });
   } catch (e) {
     o.verdict('NEEDS ATTENTION', `authority could not be sealed in the trust store (${String((e as Error).message ?? e).slice(0, 140)}) — Canary will not finish wiring a project whose sealed copy it cannot mint. The .canary config was not written.`, `fix the store at ${store.root} (writable by this user, or point CANARY_TRUST_STORE at an empty directory), then run setup again`);
@@ -1677,25 +1757,49 @@ function writeCheckpoint(root: string, status: string, failed: string[], source:
 // PATH lookup the old inherited-env `--version` allowed to be a liar shim.
 function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean): string[] {
   const problems: string[] = [];
-  const adapter = adapterFor(cfg);
   if (!Array.isArray(cfg.plan) || cfg.plan.length === 0) problems.push('the verification plan is empty — Canary would have nothing to check (a pass here would be fake)');
-  const envProblem = adapter.validateEnvironment(cfg.pm);
-  if (envProblem) {
-    problems.push(envProblem);
-  } else if (livePmProbe) {
-    const resolved = resolvePm(cfg.pm);
-    const probe = resolved ? spawnHardened(resolved, ['--version'], root, 30_000) : null;
-    if (probe === null || probe.status !== 0) {
-      problems.push(`package manager "${cfg.pm}" is not runnable in Canary's trusted environment (running Node's install dir, corepack, or OS-managed dirs only — the calling PATH is deliberately ignored)`);
+  // 1.1 §12–17 — each step is answered for by its OWN adapter in its OWN scope,
+  // so a Python step is never judged against package.json. For a 1.0 config
+  // every step resolves to the Node adapter and this yields the same list.
+  const envSeen = new Set<string>();
+  for (const step of cfg.plan) {
+    const stepAdapter = adapterForStep(cfg, step);
+    const runner = step.argv !== undefined ? stepAdapter.id : cfg.pm;
+    const key = `${stepAdapter.id}:${runner}`;
+    if (envSeen.has(key)) continue;
+    envSeen.add(key);
+    const envProblem = stepAdapter.validateEnvironment(runner);
+    if (envProblem) problems.push(envProblem);
+  }
+  if (livePmProbe) {
+    // A script step is proved live exactly as the plan will run it (resolved
+    // package manager, one hardened spawn). An explicit step is proved live by
+    // its sealed ABSOLUTE program existing. Neither is a PATH lookup.
+    const legacyRunners = new Set(cfg.plan.filter((s) => s.argv === undefined).map(() => cfg.pm));
+    for (const runner of legacyRunners) {
+      const resolved = resolvePm(runner);
+      const probe = resolved ? spawnHardened(resolved, ['--version'], root, 30_000) : null;
+      if (probe === null || probe.status !== 0) {
+        problems.push(`package manager "${runner}" is not runnable in Canary's trusted environment (running Node's install dir, corepack, or OS-managed dirs only — the calling PATH is deliberately ignored)`);
+      }
+    }
+    for (const step of cfg.plan) {
+      if (step.argv === undefined) continue;
+      const program = step.argv[0] as string;
+      if (!path.isAbsolute(program)) {
+        problems.push(`the sealed check "${step.script}" names "${program}" instead of an absolute path — re-run setup so the toolchain is pinned (Canary never resolves a verification program through PATH)`);
+      } else if (!fs.existsSync(program)) {
+        problems.push(`the sealed program for "${step.script}" is missing here: ${program} — install it, or re-run setup`);
+      }
     }
   }
   // 1.1 §1 — the plan-existence and authority-drift questions are adapter
-  // questions now (same strings, live-disk reads; a swapped package.json
-  // between the two reads can only ever ADD problems, never certify).
-  problems.push(...adapter.planProblems(root, cfg.plan));
+  // questions (same strings, live-disk reads; a swapped manifest between the
+  // two reads can only ever ADD problems, never certify).
+  problems.push(...planProblemsForConfig(root, cfg, cfg.plan));
   // M5: a sealed authority that drifted is a problem REGARDLESS of whether the
   // current commands pass — doctor must not certify READY on proof it never sealed.
-  const drift = adapter.drift(root, cfg);
+  const drift = planAuthorityDrift(root, cfg);
   if (drift) problems.push(`verification authority changed since setup — ${drift}; restore the sealed checks, or re-run setup to re-seal deliberately`);
   if (!fs.existsSync(cfg.cliPath)) problems.push('the Canary command files moved or were removed — reinstall, then re-run setup');
   for (const t of cfg.touched) {
@@ -1780,10 +1884,23 @@ export function cmdDoctor(rawArgs: string[]): number {
   const o = new Out(opts.verbose);
   const root = findRepoRoot(dirArg(rest) ?? process.cwd());
   if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository.', 'cd into your project'); return 2; }
-  if (!fs.existsSync(path.join(root, 'package.json'))) { o.verdict('UNSUPPORTED', 'this project has no package.json — the zero-config path supports Node projects today.', ''); return 2; }
+  // 1.1: the "no package.json → UNSUPPORTED" gate is gone. Doctor's question is
+  // "is Canary actually protecting this repo?", and the config answers it for
+  // every ecosystem; a repo that was never set up says so below.
   const cfg = readConfig(root);
   if (cfg === 'corrupt') { o.verdict('NEEDS ATTENTION', "Canary's local config (.canary/canary.local.json) is unreadable.", 'run: canary setup (rewrites it; your other settings are untouched)'); return 2; }
-  if (!cfg) { o.verdict('NEEDS ATTENTION', 'Canary is NOT fully active yet — this repo was never set up.', 'run: canary setup --yes'); return 2; }
+  if (!cfg) {
+    // "Never set up" and "nothing here to set up" are different facts, and only
+    // the first one is about wiring. A directory with no recognizable project
+    // has nothing Canary could protect, so it is UNSUPPORTED — which also keeps
+    // the answer honest when findRepoRoot lands on an unrelated ancestor repo
+    // (a stray .git above a temp dir is a real thing to hit).
+    const composed = composePlan(root);
+    if (composed.scopes.length === 0) {
+      o.verdict('UNSUPPORTED', `${root} has no project Canary can model at its root (no package.json, pyproject.toml / setup.py / tox.ini, Cargo.toml, go.mod / go.work).`, 'cd into your project, then: canary setup --yes'); return 2;
+    }
+    o.verdict('NEEDS ATTENTION', 'Canary is NOT fully active yet — this repo was never set up.', 'run: canary setup --yes'); return 2;
+  }
   const distrust = untrustedConfigReason(root, cfg);
   if (distrust) { o.verdict('NEEDS ATTENTION', `Canary found a local config it does not trust (${distrust}) — it will not run plans from it.`, 'run: canary setup --yes (rewrites it as this machine\'s own)'); return 2; }
 
