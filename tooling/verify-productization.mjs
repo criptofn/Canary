@@ -256,6 +256,11 @@ const STEPS = [
   ['probe: pre-1.0 human-acceptance battery (real git + pty)', process.execPath, ['tooling/probes/pre10-acceptance.mjs'], {}],
   ['probe: master-pass mutation battery (built dist)', process.execPath, ['tooling/probes/master-pass-mutations.mjs'], {}],
   ['probe: 1.1 P0 trust-boundary mutations (scratch builds)', process.execPath, ['tooling/probes/p0-trust-boundary-mutations.mjs'], {}],
+  // E: HARDENED is unreachable until a provider with a real second OS identity
+  // exists. This step makes that a MEASUREMENT with a tripwire — it fails if the
+  // product would ever report HARDENED without one — and prints the exact
+  // privileged command a human must run to change the answer.
+  ['probe: HARDENED provider boundary (measured, not claimed)', process.execPath, ['tooling/probes/provider-boundary.mjs'], {}],
   ['probe: acceptance growth (real git + pty)', process.execPath, ['tooling/probes/f3-acceptance-growth.mjs'], {}],
   ['probe: architecture closure matrix', process.execPath, ['tooling/probes/architecture-closure.mjs'], {}],
   ['probe: architecture closure mutations (scratch builds)', process.execPath, ['tooling/probes/architecture-closure-mutations.mjs'], {}],
