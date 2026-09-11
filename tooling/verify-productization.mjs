@@ -223,6 +223,7 @@ const STEPS = [
   ['1.1 §18-21 agent capability + advisory integration tests', process.execPath, ['--test', 'apps/cli/dist/test/agents.test.js'], {}],
   ['1.1 §14 real-Python end-to-end (no package.json)', process.execPath, ['--test', 'apps/cli/dist/test/python-e2e.test.js'], {}],
   ['1.1 §35 metrics record (off by default, never changes a verdict)', process.execPath, ['--test', 'apps/cli/dist/test/metrics.test.js'], {}],
+  ['1.1 §22 workflow (work -> finish) tests', process.execPath, ['--test', 'apps/cli/dist/test/orchestrate.test.js'], {}],
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: M2 claims-not-evidence (real git)', process.execPath, ['tooling/probes/m2-claims-not-evidence.mjs'], {}],
   ['probe: M3 trust-classes (real git)', process.execPath, ['tooling/probes/m3-trust-classes.mjs'], {}],

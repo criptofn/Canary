@@ -168,6 +168,8 @@ canary doctor                # runs your checks NOW and reports READY/NEEDS ATTE
 canary status                # read-only state, runs nothing: CONNECTED / NEEDS ATTENTION / NOT CONNECTED
 canary result    [--json]    # the same state as ONE compact JSON object — free, for agents and scripts
 canary agents    [install|uninstall <id>]   # which agents work here, and at what capability
+canary work <name> "<intent>"  # the ORDINARY path: register the intent + open the candidate in one step
+canary finish <name>         # verify the candidate from outside it, then promote if the proof holds
 canary uninstall             # remove exactly Canary's own changes (recorded strings, never guesswork)
 canary checkpoint            # harness-internal: runs at the agent's completion boundary (Stop hook)
 ```

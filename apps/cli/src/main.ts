@@ -54,6 +54,7 @@ import { verifyTreeSnapshots } from './verify-tree.js';
 import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, cmdResult, cmdAgents } from './onboarding.js';
 import { cmdIsolate, cmdAccept } from './candidate.js';
 import { appendMetric, metricFor, metricsTarget, streamSnapshot } from './metrics.js';
+import { cmdWork, cmdFinish } from './orchestrate.js';
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -99,6 +100,13 @@ usage:
                             judge completion at all — none frozen = NOT PROVEN, never
                             PASS, and registering after the fact cannot mint it:
                             register, then re-isolate (there is no opt-out)
+  canary work <name> "<intent>" [--kind k] [--requirement "…"]…
+                            the ORDINARY path: register the intent and open the
+                            candidate in one step. The intent is frozen into the
+                            candidate at isolation, so it can only add duties
+  canary finish <name>      verify the candidate from outside it, then promote if
+                            every objective duty holds. A subjective duty is NOT
+                            closed here — that stays canary accept, in a terminal
   canary isolate <name>     open an UNTRUSTED candidate: a detached git worktree of the
                             trusted base (--base <ref>, --path <dir>) for a worker to
                             edit — the base itself is never the workspace
@@ -367,6 +375,8 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'claim') return cmdClaim(rest);
   if (cmd === 'task') return cmdTask(rest);
   if (cmd === 'isolate') return cmdIsolate(rest);
+  if (cmd === 'work') return cmdWork(rest); // 1.1 §22: register + open, in one step
+  if (cmd === 'finish') return cmdFinish(rest); // 1.1 §22: verify + promote, or hand to a human
   if (cmd === 'accept') return cmdAccept(rest);
   return usage();
 }

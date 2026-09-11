@@ -52,6 +52,7 @@ it could.
 |---|---|
 | `setup` / `doctor` / `status` / `result` / `agents` / `uninstall` | the everyday tier: detect, wire, run your own checks, report honestly |
 | `checkpoint` / `claim` / `task` | the agent-facing tier: completion boundary, untrusted hints, task intent |
+| `work` / `finish` | the ordinary path: register the intent and open the candidate in one step, then verify from outside it and promote only if every objective duty holds. A subjective duty is never closed here — that stays `accept`, in a terminal |
 | `isolate` / `accept` | the candidate tier: isolated worktree, obligations, human acceptance, guarded promotion |
 | `run` / `prove` / `check` / `report` | the attested pipeline: repeated baseline/candidate execution with a deterministic classification |
 
