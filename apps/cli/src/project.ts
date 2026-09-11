@@ -496,21 +496,151 @@ export interface CompositePlan {
   notes: string[];
   /** Scopes that declared nothing — reported, never silently dropped. */
   empty: string[];
+  /** How the scope set was decided: 'root-only' (no declaration) or 'declared'.
+   *  Recorded so the two are never confused in a report. */
+  scopeSource: 'root-only' | 'declared';
+  /** Anything wrong with the scope declaration. Non-empty ⇒ setup must REFUSE;
+   *  a declaration Canary cannot honour is never quietly ignored. */
+  problems: string[];
+}
+
+// ---------- 1.1 §B: explicit nested ecosystem scopes ----------
+
+/**
+ * The repo-root file a project uses to declare nested scopes.
+ *
+ * WHY A SEPARATE FILE AND NOT a key in a manifest: the layout this exists for
+ * (web/ Node, backend/ Python, service/ Go) usually has NO manifest at the
+ * repository root, so a declaration living inside "the root manifest" would have
+ * nowhere to live. It is deliberately NOT under `.canary/` either — that is the
+ * authority store (sealed, quarantined, never hand-edited), while this is a
+ * human-authored PROJECT INPUT that setup seals like any other declaration.
+ *
+ * WHY DECLARATIONS AT ALL: discovery walking into subdirectories would let a
+ * directory the user does not consider part of the project add checks to it —
+ * this repository is itself the example (`archive/python-golden-prototype/`
+ * would silently contribute a pytest step). A plan is SEALED AUTHORITY, so the
+ * scope set is stated by the human and nothing else is ever added.
+ */
+export const SCOPES_FILE = 'canary.scopes.json';
+export const SCOPES_SCHEMA = 'canary-scopes/1';
+const MAX_SCOPE_PATH = 120;
+
+export interface DeclaredScope { path: string; ecosystem: string }
+export interface ScopeDeclarationRead {
+  scopes: DeclaredScope[];
+  /** Everything wrong with the declaration, in full — never just the first. */
+  problems: string[];
+}
+
+/** A repo-relative scope directory, or the reason it may not be one. */
+function scopePathProblem(p: unknown): string | null {
+  if (typeof p !== 'string' || p.length === 0) return 'path must be a non-empty string';
+  if (p.length > MAX_SCOPE_PATH) return `path is longer than ${MAX_SCOPE_PATH} characters`;
+  if (/^[A-Za-z]:/.test(p)) return 'path must be repo-relative, not drive-qualified';
+  if (p.startsWith('/') || p.startsWith('\\')) return 'path must be repo-relative, not absolute';
+  if (p.includes('\\')) return 'path must use forward slashes';
+  if (p.endsWith('/')) return 'path must not end with a slash';
+  for (const seg of p.split('/')) {
+    if (seg === '') return 'path must not contain an empty segment';
+    if (seg === '.' || seg === '..') return 'path must not contain "." or ".." segments';
+    if (seg.startsWith('.')) return `path segment "${seg}" is hidden; a declared scope must be an ordinary project directory`;
+    if (DISCOVERY_SKIP.has(seg)) return `path segment "${seg}" is a dependency or build store, never a project scope`;
+  }
+  return null;
+}
+
+/**
+ * Read + validate the scope declaration. Absent file = no declaration (the 1.0
+ * root-only default), which is NOT a problem. Every other defect is reported:
+ * an unhonourable declaration must stop setup, not be ignored.
+ */
+export function readScopeDeclaration(root: string): ScopeDeclarationRead {
+  const file = path.join(root, SCOPES_FILE);
+  if (!fs.existsSync(file)) return { scopes: [], problems: [] };
+  const raw = parseJsonOrNull(file) as { schema?: unknown; scopes?: unknown } | null;
+  if (raw === null) return { scopes: [], problems: [`${SCOPES_FILE} is not valid JSON`] };
+  if (raw.schema !== SCOPES_SCHEMA) {
+    return { scopes: [], problems: [`${SCOPES_FILE} must declare "schema": "${SCOPES_SCHEMA}" (found ${JSON.stringify(raw.schema)})`] };
+  }
+  if (!Array.isArray(raw.scopes) || raw.scopes.length === 0) {
+    return { scopes: [], problems: [`${SCOPES_FILE} must declare a non-empty "scopes" array — an empty declaration is ambiguous, so delete the file instead`] };
+  }
+  const problems: string[] = [];
+  const out: DeclaredScope[] = [];
+  const seen = new Set<string>();
+  for (const [i, entry] of raw.scopes.entries()) {
+    const at = `${SCOPES_FILE} scopes[${i}]`;
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      problems.push(`${at} must be an object { path, ecosystem }`); continue;
+    }
+    const { path: p, ecosystem } = entry as { path?: unknown; ecosystem?: unknown };
+    if (typeof ecosystem !== 'string' || ADAPTERS[ecosystem] === undefined) {
+      problems.push(`${at}: ecosystem ${JSON.stringify(ecosystem)} is not one Canary can model (known: ${Object.keys(ADAPTERS).sort().join(', ')})`);
+      continue;
+    }
+    const bad = scopePathProblem(p);
+    if (bad !== null) { problems.push(`${at}: ${bad}`); continue; }
+    const relPath = p as string;
+    const key = `${relPath}::${ecosystem}`;
+    if (seen.has(key)) { problems.push(`${at}: "${relPath}" is declared twice for ecosystem "${ecosystem}"`); continue; }
+    seen.add(key);
+    const dir = path.join(root, ...relPath.split('/'));
+    let isDir = false;
+    try { isDir = fs.statSync(dir).isDirectory(); } catch { isDir = false; }
+    if (!isDir) { problems.push(`${at}: "${relPath}" is not a directory in this repository`); continue; }
+    // A declaration that detects nothing is a declaration Canary cannot honour.
+    // It is refused rather than recorded as an empty scope: the human asked for
+    // these checks, and silently shipping a plan without them is the failure
+    // mode this whole feature exists to prevent.
+    if (!ADAPTERS[ecosystem]!.detect(dir).detected) {
+      problems.push(`${at}: "${relPath}" is declared as ecosystem "${ecosystem}" but nothing there declares it — Canary will not invent a check`);
+      continue;
+    }
+    out.push({ path: relPath, ecosystem });
+  }
+  return { scopes: out, problems };
+}
+
+/**
+ * The scope set a declaration names: the repo root when it declares something
+ * (1.0 semantics, unchanged), plus each declared scope.
+ *
+ * Sorted by path, not by declaration order, so that merely reordering the
+ * declaration cannot change the sealed plan — a cosmetic edit must never
+ * invalidate a seal or, worse, silently re-order authority.
+ */
+export function scopesForDeclaration(root: string, declared: readonly DeclaredScope[]): ProjectScope[] {
+  const out: ProjectScope[] = [];
+  if (nodeAdapter.detect(root).detected) out.push({ adapter: nodeAdapter, scope: '' });
+  const sorted = [...declared].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1
+    : (a.ecosystem < b.ecosystem ? -1 : a.ecosystem > b.ecosystem ? 1 : 0)));
+  for (const d of sorted) out.push({ adapter: ADAPTERS[d.ecosystem]!, scope: d.path });
+  return out;
 }
 
 /** The whole repository's plan: every declaring ecosystem at the ROOT, as one
  *  sealed plan. An empty plan is a complete answer (setup turns it into NEEDS
  *  ATTENTION), never a reason to invent a check.
  *
- *  Depth defaults to ROOT ONLY, deliberately. A plan is SEALED AUTHORITY, so
- *  walking into subdirectories would let a directory the user does not consider
- *  part of the project add checks to it — this repository is itself the example:
- *  `archive/python-golden-prototype/pyproject.toml` would silently contribute a
- *  pytest step to Canary's own plan. Nested scopes need an explicit declaration
- *  (the walk exists and is tested; wiring it to an opt-in is the next step), and
- *  until then "no nested discovery" is the honest default. */
+ *  TWO MODES, and only two:
+ *   - NO declaration (`canary.scopes.json` absent): ROOT ONLY, depth 0. Walking
+ *     would let a directory the user does not consider part of the project add
+ *     checks to it — `archive/python-golden-prototype/pyproject.toml` would
+ *     silently contribute a pytest step to this very repository.
+ *   - DECLARATION present: EXACTLY the declared scopes (plus the root when it
+ *     declares something). Nothing is walked, so an undeclared `vendor/`,
+ *     `archive/` or `examples/` tree can never add authority.
+ *
+ *  A declaration Canary cannot honour is returned as `problems` and the caller
+ *  refuses; it is never partially applied. */
 export function composePlan(root: string, maxDepth = 0): CompositePlan {
-  const scopes = discoverScopes(root, maxDepth);
+  const decl = readScopeDeclaration(root);
+  if (decl.problems.length) {
+    return { scopes: [], plan: [], notes: [], empty: [], scopeSource: 'declared', problems: decl.problems };
+  }
+  const declared = decl.scopes.length > 0;
+  const scopes = declared ? scopesForDeclaration(root, decl.scopes) : discoverScopes(root, maxDepth);
   const plan: PlanStep[] = [];
   const notes: string[] = [];
   const empty: string[] = [];
@@ -524,7 +654,7 @@ export function composePlan(root: string, maxDepth = 0): CompositePlan {
     notes.push(`${where} (${s.adapter.id}): ${disc.note}`);
     plan.push(...disc.plan);
   }
-  return { scopes, plan, notes, empty };
+  return { scopes, plan, notes, empty, scopeSource: declared ? 'declared' : 'root-only', problems: [] };
 }
 
 /**

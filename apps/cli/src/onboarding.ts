@@ -63,7 +63,7 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // 1.1 §1 — the project model lives in project.js. onboarding re-exports the
 // names it used to own so every existing importer (candidate.ts, the contract
 // tests) compiles and behaves unchanged while the seam gains a second owner.
-import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, sealPlanAuthority, sha256, stepArgv } from './project.js';
+import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, SCOPES_FILE, SCOPES_SCHEMA, sealPlanAuthority, sha256, stepArgv } from './project.js';
 import { emitEnvelope, PROTOCOL_RESULT, PROTOCOL_STATUS, type ProtocolEnvelope, type ProtocolIntegration } from './protocol.js';
 import { decideFastPath } from './fastpath.js';
 import { AGENT_INTEGRATIONS, hasAdvisory, installAdvisory, removeAdvisory } from './agents.js';
@@ -1605,8 +1605,17 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // adapter is unchanged and its steps keep their exact 1.0 shape); the empty
   // plan stays a complete answer that becomes NEEDS ATTENTION, never READY.
   const composed = composePlan(root);
+  // §B: a scope declaration Canary cannot honour stops setup. It is never
+  // partially applied, and never quietly reduced to the scopes that happened to
+  // be fine — the human asked for these checks, so shipping a plan without them
+  // silently would be exactly the failure this feature exists to prevent.
+  if (composed.problems.length) {
+    o.verdict('NEEDS ATTENTION', `the nested-scope declaration (${SCOPES_FILE}) is not usable: ${composed.problems.join('; ')}.`, `fix ${SCOPES_FILE} (or delete it to go back to root-only discovery), then run setup again`);
+    return 2;
+  }
   if (composed.scopes.length === 0) {
-    o.verdict('UNSUPPORTED', `${root} is a git repo, but Canary found no project it can model at its root (looked for package.json, pyproject.toml / setup.py / tox.ini, Cargo.toml, go.mod / go.work).`, 'add the manifest for your stack, then run setup again'); return 2;
+    o.verdict('UNSUPPORTED', `${root} is a git repo, but Canary found no project it can model at its root (looked for package.json, pyproject.toml / setup.py / tox.ini, Cargo.toml, go.mod / go.work).`, `if your checks live in subdirectories, declare them in ${SCOPES_FILE} (e.g. { "schema": "${SCOPES_SCHEMA}", "scopes": [{ "path": "web", "ecosystem": "node" }] }), then run setup again`);
+    return 2;
   }
   const rootScope = composed.scopes.find((s) => s.scope === '');
   const rootDisc = rootScope ? planForScope(root, rootScope) : null;
@@ -1998,8 +2007,13 @@ export function cmdDoctor(rawArgs: string[]): number {
     // the answer honest when findRepoRoot lands on an unrelated ancestor repo
     // (a stray .git above a temp dir is a real thing to hit).
     const composed = composePlan(root);
+    if (composed.problems.length) {
+      o.verdict('NEEDS ATTENTION', `the nested-scope declaration (${SCOPES_FILE}) is not usable: ${composed.problems.join('; ')}.`, `fix ${SCOPES_FILE} (or delete it to go back to root-only discovery), then run: canary setup --yes`);
+      return 2;
+    }
     if (composed.scopes.length === 0) {
-      o.verdict('UNSUPPORTED', `${root} has no project Canary can model at its root (no package.json, pyproject.toml / setup.py / tox.ini, Cargo.toml, go.mod / go.work).`, 'cd into your project, then: canary setup --yes'); return 2;
+      o.verdict('UNSUPPORTED', `${root} has no project Canary can model at its root (no package.json, pyproject.toml / setup.py / tox.ini, Cargo.toml, go.mod / go.work).`, `if your checks live in subdirectories, declare them in ${SCOPES_FILE}, then: canary setup --yes`);
+      return 2;
     }
     o.verdict('NEEDS ATTENTION', 'Canary is NOT fully active yet — this repo was never set up.', 'run: canary setup --yes'); return 2;
   }
