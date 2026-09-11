@@ -114,8 +114,8 @@ describe('seal/drift stay byte-compatible', () => {
 
 describe('fail-closed: the seam cannot create READY or PASS', () => {
   it('an unregistered adapter throws rather than guess', () => {
-    assert.throws(() => project.adapterFor({ project: 'python' }),
-      /project adapter "python" is not registered in this Canary build/);
+    assert.throws(() => project.adapterFor({ project: 'cobol' }),
+      /project adapter "cobol" is not registered in this Canary build/);
   });
   it('a config naming an unregistered project is corrupt — status refuses it', () => {
     const root = dir('wired', { '.git/HEAD': 'ref: refs/heads/main\n', '.claude/keep.json': '{}', 'package.json': pkg({ test: fx('f-pass.js') }) });
@@ -129,7 +129,7 @@ describe('fail-closed: the seam cannot create READY or PASS', () => {
     assert.equal(cfg.planAuthority?.scriptDigests.test, sha256(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).scripts.test));
     // An unknown id is corrupt (fails to NOT CONNECTED, exit 2) — never a
     // silent Node fallback, never a READY the seam invented.
-    writeConfig(root, { ...cfg, project: 'python' });
+    writeConfig(root, { ...cfg, project: 'cobol' });
     assert.equal(readConfig(root), 'corrupt');
     assert.equal(cmdStatus([root]), 2);
   });
@@ -214,5 +214,96 @@ describe('1.1 plan-step foundation (byte-compatible with 1.0 seals)', () => {
   it('every registered adapter declares its trusted program directories', () => {
     assert.deepEqual([...project.nodeAdapter.trustedProgramDirs], []);
     for (const a of Object.values(project.ADAPTERS)) assert.ok(Array.isArray(a.trustedProgramDirs), a.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.1 §12–17 — the non-Node ecosystems, and deterministic polyglot composition.
+// The rule under test throughout: discovery DECLARES, it never invents. Python
+// files existing is not a reason to run pytest; an empty plan is a complete and
+// honest answer that setup already turns into NEEDS ATTENTION.
+// ---------------------------------------------------------------------------
+describe('1.1 ecosystems declare checks, they never invent them', () => {
+  const python = project.adapterFor({ project: 'python' });
+  const rust = project.adapterFor({ project: 'rust' });
+  const go = project.adapterFor({ project: 'go' });
+
+  it('python: a declared pytest becomes a check; python files alone do not', () => {
+    const declared = dir('py-pytest', { 'pyproject.toml': '[project]\nname="x"\n[dependency-groups]\ndev=["pytest"]\n' });
+    assert.deepEqual(python.discoverChecks(declared).plan,
+      [{ kind: 'tests', script: 'pytest', adapter: 'python', argv: ['python', '-m', 'pytest'] }]);
+    const silent = dir('py-silent', { 'setup.py': 'from setuptools import setup\nsetup(name="x")\n', 'app.py': 'print(1)\n' });
+    assert.equal(python.detect(silent).detected, true);
+    assert.deepEqual(python.discoverChecks(silent).plan, []);
+    assert.equal(python.detect(dir('py-none', { 'README.md': '# x\n' })).detected, false);
+  });
+
+  it('python: unittest only from a real test layout; ruff is the static-check step', () => {
+    const u = dir('py-unittest', { 'requirements.txt': 'requests\n', 'tests/test_app.py': 'def test_ok():\n    assert True\n' });
+    assert.deepEqual(python.discoverChecks(u).plan.map((s) => s.script), ['unittest']);
+    const r = dir('py-ruff', { 'pyproject.toml': '[project]\nname="x"\n[tool.ruff]\nline-length = 120\n' });
+    assert.deepEqual(python.discoverChecks(r).plan.map((s) => `${s.kind}:${s.script}`), ['typecheck:ruff']);
+  });
+
+  it('rust and go declare their own toolchain commands', () => {
+    const r = dir('rust-crate', { 'Cargo.toml': '[package]\nname = "x"\nversion = "0.1.0"\n', 'src/main.rs': 'fn main() {}\n' });
+    assert.deepEqual(rust.discoverChecks(r).plan.map((s) => `${s.kind}:${s.script}`),
+      ['tests:cargo test', 'typecheck:cargo check', 'build:cargo build']);
+    const g = dir('go-mod', { 'go.mod': 'module example.com/x\n\ngo 1.22\n' });
+    assert.deepEqual(go.discoverChecks(g).plan.map((s) => `${s.kind}:${s.script}`), ['tests:go test', 'typecheck:go vet']);
+    assert.deepEqual(go.discoverChecks(g).plan[0]!.argv, ['go', 'test', './...']);
+  });
+
+  it('an ecosystem step with no argv can never be synthesized', () => {
+    assert.throws(() => python.stepArgv('python', { kind: 'tests', script: 'pytest' }), /carries no argv/);
+  });
+
+  it('a plan step the project stopped declaring is a problem, not a silent pass', () => {
+    const r = dir('rust-gone', { 'Cargo.toml': '[package]\nname = "x"\nversion = "0.1.0"\n' });
+    assert.deepEqual(rust.planProblems(r, [{ kind: 'tests', script: 'cargo test', adapter: 'rust', argv: ['cargo', 'test'] }]), []);
+    assert.match(String(rust.planProblems(r, [{ kind: 'tests', script: 'pytest', adapter: 'rust', argv: ['python', '-m', 'pytest'] }])),
+      /no longer declares/);
+  });
+});
+
+describe('1.1 polyglot composition is deterministic and scoped', () => {
+  const repo = dir('poly', {
+    'package.json': pkg({ test: fx('f-pass.js') }),
+    'web/package.json': pkg({ test: fx('f-pass.js') }),
+    'backend/pyproject.toml': '[project]\nname = "x"\n[tool.pytest.ini_options]\n',
+    'worker/Cargo.toml': '[package]\nname = "x"\nversion = "0.1.0"\n',
+    'svc/go.mod': 'module example.com/svc\n',
+  });
+
+  it('finds each ecosystem once, shallowest first, Node at the root only', () => {
+    assert.deepEqual(project.discoverScopes(repo).map((s) => `${s.scope || '.'}:${s.adapter.id}`),
+      ['.:node', 'backend:python', 'svc:go', 'worker:rust']);
+  });
+
+  it('composes one plan whose steps name their scope and adapter', () => {
+    const composed = project.composePlan(repo);
+    // no `cargo build` here: this fixture's Cargo.toml declares no src/, so the
+    // adapter does not invent a build step (see the crate fixture above)
+    assert.deepEqual(composed.plan.map((s) => `${s.scope ?? '.'}:${s.adapter ?? 'node'}:${s.kind}:${s.script}`),
+      ['.:node:tests:test', 'backend:python:tests:pytest', 'svc:go:typecheck:go vet', 'svc:go:tests:go test',
+        'worker:rust:typecheck:cargo check', 'worker:rust:tests:cargo test']);
+    // 1.0 byte-compatibility: the root Node step keeps its exact shape
+    assert.deepEqual(composed.plan[0], { kind: 'tests', script: 'test' });
+    assert.deepEqual(project.composePlan(repo).plan, composed.plan); // same answer twice
+  });
+
+  it('a polyglot plan seals and drift-checks through the shared helpers', () => {
+    const composed = project.composePlan(repo);
+    const scripts = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).scripts as Record<string, string>;
+    const seal = project.sealPlanAuthority(composed.plan, scripts);
+    assert.equal(project.planAuthorityDrift(repo, { plan: composed.plan, planAuthority: seal }), null);
+    const moved = composed.plan.map((s) => (s.script === 'go test' ? { ...s, argv: ['go', 'test', './internal/...'] } : s));
+    assert.match(String(project.planAuthorityDrift(repo, { plan: moved, planAuthority: seal })), /changed since setup sealed it/);
+  });
+
+  it('an empty composite plan is a complete answer, not an error', () => {
+    const bare = dir('poly-empty', { 'README.md': '# nothing to check\n' });
+    assert.deepEqual(project.composePlan(bare).plan, []);
+    assert.deepEqual(project.composePlan(bare).scopes, []);
   });
 });

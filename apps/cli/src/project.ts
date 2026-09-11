@@ -11,6 +11,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+// The non-Node ecosystems are declarations that hang off this same interface.
+// The import is a cycle on purpose and is safe: ecosystems.ts uses this
+// module's helpers only at CALL time, never during module evaluation, while the
+// adapter objects it exports are plain constants this module needs at init.
+import { ECOSYSTEM_ADAPTERS } from './ecosystems.js';
+
 export const sha256 = (s: string): string => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
 
 /** null = parse failure (caller must refuse, never overwrite). */
@@ -368,8 +374,12 @@ export const nodeAdapter: ProjectAdapter = {
 /** Registered project adapters. A config may only name an id present HERE —
  *  validConfigShape rejects anything else as corrupt, so a repo Canary cannot
  *  model fails closed to NEEDS ATTENTION instead of silently running the Node
- *  pipeline against a foreign project. */
-export const ADAPTERS: Record<string, ProjectAdapter> = { node: nodeAdapter };
+ *  pipeline against a foreign project. Node stays FIRST and unchanged: 1.0
+ *  configs name no adapter at all and must keep resolving to it. */
+export const ADAPTERS: Record<string, ProjectAdapter> = {
+  node: nodeAdapter,
+  ...Object.fromEntries(ECOSYSTEM_ADAPTERS.map((a) => [a.id, a])),
+};
 
 /** The adapter a config names. Absent means 'node': every config written
  *  before 1.1 describes a Node project, and setup keeps omitting the field
@@ -379,4 +389,104 @@ export function adapterFor(cfg: { project?: string }): ProjectAdapter {
   const adapter = Object.hasOwn(ADAPTERS, id) ? ADAPTERS[id] : undefined;
   if (!adapter) throw new Error(`project adapter "${id}" is not registered in this Canary build`);
   return adapter;
+}
+
+// ---------- 1.1 §17: deterministic polyglot composition ----------
+
+/** One ecosystem rooted at one directory. `scope` is repo-root-relative with
+ *  forward slashes; '' means the repository root. */
+export interface ProjectScope {
+  adapter: ProjectAdapter;
+  scope: string;
+}
+
+/** Directories never worth descending into for discovery: dependency stores,
+ *  VCS metadata, virtualenvs and build outputs. Scanning them would be slow and
+ *  would discover checks that belong to a dependency, not to this project. */
+const DISCOVERY_SKIP = new Set([
+  'node_modules', '.git', '.hg', '.svn', '__pycache__', '.venv', 'venv', 'env',
+  'target', 'dist', 'build', 'out', 'vendor', 'coverage', '.tox', '.mypy_cache', '.pytest_cache',
+]);
+
+/**
+ * Find every ecosystem that declares checks, deterministically.
+ *
+ * Determinism is a requirement, not a nicety: the composite plan is SEALED, so
+ * a discovery order that depended on filesystem enumeration order would make a
+ * project's sealed authority depend on the machine. Sorted directory names,
+ * fixed adapter order (Node, then the registered ecosystems), and shallowest
+ * scope first give the same answer twice.
+ *
+ * Scope rules:
+ *   - Node is REPO-ROOT ONLY (unchanged 1.0 semantics — its checks are the root
+ *     package.json scripts).
+ *   - A non-Node ecosystem is discovered at the shallowest directory that
+ *     declares it, and the walk does not descend past that directory for the
+ *     same ecosystem (a Go workspace with several modules is one scope, which
+ *     is what `go test ./...` means; a nested duplicate is not a second check).
+ *   - Depth is bounded (default 2), so discovery cannot walk a monorepo forever.
+ */
+export function discoverScopes(root: string, maxDepth = 2): ProjectScope[] {
+  const scopes: ProjectScope[] = [];
+  if (nodeAdapter.detect(root).detected) scopes.push({ adapter: nodeAdapter, scope: '' });
+  const claimed = new Set<string>(); // `${adapterId}` already rooted somewhere
+  const walk = (dir: string, scope: string, depth: number): void => {
+    for (const adapter of ECOSYSTEM_ADAPTERS) {
+      if (claimed.has(adapter.id)) continue;
+      if (adapter.detect(dir).detected) {
+        claimed.add(adapter.id);
+        scopes.push({ adapter, scope });
+      }
+    }
+    if (depth >= maxDepth) return;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      if (!e.isDirectory() || DISCOVERY_SKIP.has(e.name) || e.name.startsWith('.')) continue;
+      walk(path.join(dir, e.name), scope ? `${scope}/${e.name}` : e.name, depth + 1);
+    }
+  };
+  walk(root, '', 0);
+  return scopes;
+}
+
+/** A scope's plan, discovered by its own adapter, with scope/adapter stamped on
+ *  every step that is not the Node root (1.0 steps keep their exact shape). */
+export function planForScope(root: string, s: ProjectScope): DiscoveredProject {
+  const dir = s.scope ? path.join(root, ...s.scope.split('/')) : root;
+  const disc = s.adapter.discoverChecks(dir);
+  const plan = disc.plan.map((step) => (s.adapter.id === 'node' && s.scope === ''
+    ? step
+    : { ...step, adapter: s.adapter.id, ...(s.scope ? { scope: s.scope } : {}) }));
+  return { ...disc, plan: plan.sort((a, b) => PLAN_ORDER[a.kind] - PLAN_ORDER[b.kind]) };
+}
+
+export interface CompositePlan {
+  scopes: ProjectScope[];
+  plan: PlanStep[];
+  /** One honest line per scope: what it is and what it declared. */
+  notes: string[];
+  /** Scopes that declared nothing — reported, never silently dropped. */
+  empty: string[];
+}
+
+/** The whole repository's plan: every declaring ecosystem, in order, as one
+ *  sealed plan. An empty plan is a complete answer (setup turns it into NEEDS
+ *  ATTENTION), never a reason to invent a check. */
+export function composePlan(root: string, maxDepth = 2): CompositePlan {
+  const scopes = discoverScopes(root, maxDepth);
+  const plan: PlanStep[] = [];
+  const notes: string[] = [];
+  const empty: string[] = [];
+  for (const s of scopes) {
+    const disc = planForScope(root, s);
+    const where = s.scope || '.';
+    if (disc.plan.length === 0) {
+      empty.push(`${where} (${s.adapter.id}): ${disc.note}`);
+      continue;
+    }
+    notes.push(`${where} (${s.adapter.id}): ${disc.note}`);
+    plan.push(...disc.plan);
+  }
+  return { scopes, plan, notes, empty };
 }
