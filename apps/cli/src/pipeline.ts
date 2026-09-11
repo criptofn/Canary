@@ -66,6 +66,19 @@ export interface PipelineDeps {
    * spec file can never reach this grant.
    */
   allowCanaryDoubleOrigin?: boolean;
+  /**
+   * IN-PROCESS AUTHORITY for a non-package runner's identity (v1.1 Phase 2).
+   *
+   * A Python interpreter is not an npm package, so it cannot be pinned by a
+   * repo-side tree hash the way mocha is. The authority is therefore an explicit
+   * statement from the CALLER: "this is the interpreter I have authorized", by
+   * version and by a digest of the interpreter's own bytes. It rides the same
+   * in-process channel as `allowCanaryDoubleOrigin` — the production CLI
+   * constructs no PipelineDeps, so a spec file, env or argv can never reach it,
+   * and a spec that ships its own interpreter earns ABSENT
+   * (`runner-identity-unpinned`) instead of a strong label.
+   */
+  runnerIdentities?: Record<string, { version: string; identitySha256: string }> | undefined;
 }
 
 /**
@@ -126,6 +139,7 @@ async function runExperimentInner(
   const rec = new Recorder({
     ws, nodeDir: NODE_DIR, npmCli: NPM_CLI, artifactsDir: ART, pipeline,
     allowCanaryDoubleOrigin: deps.allowCanaryDoubleOrigin === true,
+    ...(deps.runnerIdentities !== undefined ? { runnerIdentities: deps.runnerIdentities } : {}),
   });
   const subs = { dep: spec.dependency.package, baseline: spec.dependency.baseline, candidate: spec.dependency.candidate };
   const execArgv = (cmd: readonly string[]): string[] => rec.expandArgv(cmd, subs, resolveBin);

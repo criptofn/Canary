@@ -9,7 +9,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { diffTrees, extractFailingTestNames, parseSummaryCounts } from '@canary-rn/comparator';
+import { diffTrees, extractFailingTestNames, hasRunnerSummaryFor, parseSummaryCounts, parseSummaryCountsFor } from '@canary-rn/comparator';
+import { observerNonce } from '@canary-rn/executor';
 import {
   hasRunnerSummary, isInfraOutput, hasCrashSignature, Recorder,
   validateObservation, OBSERVER_PRELOAD_SOURCE, observerPreloadPath, type ExpansionPlan,
@@ -806,7 +807,7 @@ function fixtureResolveBin(fixtureDir: string): (pkg: string, key?: string) => s
  */
 export function deriveExpectedRoundArgv(
   spec: TrustedRunSpec, wsRoot: string,
-  opts: { allowCanaryDoubleOrigin?: boolean } = {},
+  opts: { allowCanaryDoubleOrigin?: boolean; runnerIdentities?: Record<string, { version: string; identitySha256: string }> } = {},
 ): { argv: string[]; plan: ExpansionPlan } {
   const fixture = path.join(wsRoot, 'fixture');
   const rec = new Recorder({
@@ -816,6 +817,7 @@ export function deriveExpectedRoundArgv(
     artifactsDir: wsRoot, // irrelevant to expansion
     pipeline: [],
     allowCanaryDoubleOrigin: opts.allowCanaryDoubleOrigin === true,
+    ...(opts.runnerIdentities !== undefined ? { runnerIdentities: opts.runnerIdentities } : {}),
   });
   return rec.expandArgvWithPlan(
     spec.commands.test,
@@ -847,6 +849,29 @@ function recordedClaimsCanaryDouble(bundle: EvidenceBundle): boolean {
     (KNOWN_RUNNER_RELEASES.mocha ?? []).filter((p) => p.origin === 'canary-double').map((p) => p.version),
   );
   return bundle.rounds.some((r) => doubleVersions.has(r.executionObservation.expectedMochaVersion ?? ''));
+}
+
+/**
+ * The NON-PACKAGE runner identities the retained evidence claims — the same
+ * no-authority-channel resolution `recordedClaimsCanaryDouble` uses, for the same
+ * reason: `check`/`prove` run as production processes that (by design) cannot
+ * grant a runner identity, yet re-derivation must reproduce capture's injection
+ * decision or parity would fail for every honestly captured round.
+ *
+ * Sound because prove EXECUTES NOTHING: re-derivation with the claim can only
+ * reproduce the decision. An attacker's own capture (no grant) is all-ABSENT ⇒ no
+ * claim ⇒ absent-posture re-derivation; and a RESEALED claim still has to survive
+ * the argv re-derivation and the replay diff of the identity fields.
+ */
+function recordedRunnerIdentities(bundle: EvidenceBundle): Record<string, { version: string; identitySha256: string }> {
+  const out: Record<string, { version: string; identitySha256: string }> = {};
+  for (const r of bundle.rounds) {
+    const o = r.executionObservation;
+    if (o.runner !== undefined && o.expectedRunnerVersion !== undefined && o.expectedRunnerIdentitySha256 !== undefined) {
+      out[o.runner] = { version: o.expectedRunnerVersion, identitySha256: o.expectedRunnerIdentitySha256 };
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -904,6 +929,11 @@ function extractHelloPid(raw: string): number | undefined {
 const OBSERVATION_REPLAY_FIELDS = [
   'status', 'frameCount', 'framesSha256', 'observedFailingIdentities', 'observedCounts',
   'expectedMochaVersion', 'observedMochaVersion', 'expectedRunnerTreeSha256', 'observedRunnerTreeSha256',
+  // Provider-neutral channel identity (v1.1 Phase 2): which runner was required,
+  // which version, and the digest of its own bytes. Compared exactly like the
+  // mocha fields, so a resealed or drifted runner identity fails loudly.
+  'runner', 'expectedRunnerVersion', 'observedRunnerVersion',
+  'expectedRunnerIdentitySha256', 'observedRunnerIdentitySha256',
   'absentKind', 'strayFd3Bytes', 'strayFd3Sha256',
 ] as const;
 
@@ -931,7 +961,7 @@ function replayObservations(
   let deriveWhy = '';
   if (evaluable) {
     try {
-      derived = deriveExpectedRoundArgv(ctx!.spec!, wsRoot, { allowCanaryDoubleOrigin: recordedClaimsCanaryDouble(bundle) });
+      derived = deriveExpectedRoundArgv(ctx!.spec!, wsRoot, { allowCanaryDoubleOrigin: recordedClaimsCanaryDouble(bundle), runnerIdentities: recordedRunnerIdentities(bundle) });
     } catch (e) {
       deriveWhy = String(e);
     }
@@ -961,9 +991,11 @@ function replayObservations(
       out.push({ label, replay: null, issues: [`${at}: cannot read retained ${attest === null ? 'observation' : 'stdout/stderr'} bytes for observation replay`] });
       continue;
     }
-    const combined = so + se;
-    const counts = parseSummaryCounts(combined);
     const plan = derived.plan;
+    const combined = so + se;
+    // Channel-aware: the SAME dispatcher capture used, so the executor and this
+    // replay can never read one stream as two different summaries.
+    const counts = parseSummaryCountsFor(plan.runner, combined);
     const replay = validateObservation({
       raw: attest,
       injected: plan.injected,
@@ -981,11 +1013,23 @@ function replayObservations(
       // sealed archive — a forger who already controls these bytes also
       // controls the recorded claim they are checked against.
       childPid: extractHelloPid(attest) ?? 0,
+      // Provider-neutral channel: the runner, version and identity digest come
+      // from the RE-DERIVED plan (which re-made the injection decision from the
+      // retained fixture), and the nonce is re-derived from the round's own
+      // identity — so this is a genuine re-validation, not a restatement.
+      ...(plan.runner !== undefined ? { runner: plan.runner } : {}),
+      ...(plan.runner !== undefined && plan.expectedRunnerVersion !== undefined && plan.expectedRunnerIdentitySha256 !== undefined
+        ? { expectedRunner: { id: plan.runner, version: plan.expectedRunnerVersion, identitySha256: plan.expectedRunnerIdentitySha256 } }
+        : {}),
+      ...(plan.runner !== undefined
+        ? { expectedNonce: observerNonce(plan.runner, path.join(wsRoot, 'fixture'), r.arm, r.round) }
+        : {}),
+      ...(plan.observedRunnerIdentitySha256 !== undefined ? { observedRunnerIdentitySha256: plan.observedRunnerIdentitySha256 } : {}),
       expectedMochaVersion: plan.expectedMochaVersion,
       expectedRunnerTreeSha256: plan.expectedRunnerTreeSha256,
       observedRunnerTreeSha256: plan.observedRunnerTreeSha256,
       textCounts: { passing: counts.passing, failing: counts.failing, pending: counts.pending },
-      hasSummary: hasRunnerSummary(combined),
+      hasSummary: hasRunnerSummaryFor(plan.runner, combined),
       textFailingNames: extractFailingTestNames(combined),
     });
     out.push({ label, replay, issues: [] });
@@ -1044,7 +1088,7 @@ export function hostBoundEvidenceChecks(
     let expected: string[] | undefined;
     let why = '';
     try {
-      expected = deriveExpectedRoundArgv(spec, wsRoot, { allowCanaryDoubleOrigin: recordedClaimsCanaryDouble(ev) }).argv;
+      expected = deriveExpectedRoundArgv(spec, wsRoot, { allowCanaryDoubleOrigin: recordedClaimsCanaryDouble(ev), runnerIdentities: recordedRunnerIdentities(ev) }).argv;
     } catch (e) {
       why = String(e);
     }

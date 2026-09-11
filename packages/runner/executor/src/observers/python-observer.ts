@@ -46,10 +46,67 @@
  * are identical on every machine: a byte-compare in `ensurePythonObserver` is
  * what makes "the loaded bytes are Canary's" checkable at all.
  */
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { OBSERVER_VERSION } from '../observation.js';
 
 /** Where the observer directory lives inside the workspace (outside artifacts). */
 export const PYTHON_OBSERVER_DIRNAME = 'canary-python-observer';
 export const PYTHON_OBSERVER_BASENAME = 'sitecustomize.py';
+
+/** The directory Canary puts on the child's PYTHONPATH. */
+export function pythonObserverDir(wsRoot: string): string {
+  return path.join(wsRoot, PYTHON_OBSERVER_DIRNAME);
+}
+
+/**
+ * Write Canary's observer bytes and prove the loaded bytes are Canary's.
+ *
+ * The SAME two-point pinning the mocha preload uses (`ensureObserverPreload`):
+ * here, before spawn, write-if-different plus a read-back byte comparison; inside
+ * the child, `hello.observerVersion` self-reports and the validator pins it. A
+ * subject that rewrites the file under the workspace gets it rewritten fresh
+ * immediately before the round, and a persistent mismatch throws (fail closed)
+ * rather than observing with bytes nobody reviewed.
+ */
+export function ensurePythonObserver(wsRoot: string): string {
+  const dir = pythonObserverDir(wsRoot);
+  const p = path.join(dir, PYTHON_OBSERVER_BASENAME);
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (fs.readFileSync(p, 'utf8') === PYTHON_OBSERVER_SOURCE) return dir;
+  } catch { /* absent: write below */ }
+  fs.writeFileSync(p, PYTHON_OBSERVER_SOURCE, 'utf8');
+  if (fs.readFileSync(p, 'utf8') !== PYTHON_OBSERVER_SOURCE) {
+    throw new Error(`python observer at ${p} does not match Canary's bytes even after rewrite (workspace is not writable-stable)`);
+  }
+  return dir;
+}
+
+/**
+ * The per-round binding token, re-derivable by `prove` from the same inputs.
+ *
+ * DETERMINISTIC ON PURPOSE: re-derivation parity is structural in this codebase
+ * (capture and prove call the SAME expansion and the same validator), and a random
+ * token would have to be recorded and excused from every comparison. This is NOT
+ * claimed to be a secret — a process that has the spec and fixture can compute it,
+ * exactly as it can compute anything else about its own run. What it binds is that
+ * these frames came from THIS round's spawn on THIS fixture: the live defences
+ * against foreign frames remain the private fd-3 pipe (handed only to the child)
+ * and the pid/ppid check, and the documented in-process emulation ceiling is
+ * unchanged.
+ */
+export function observerNonce(runnerId: string, fixturePath: string, arm: string, round: number): string {
+  const real = (() => { try { return fs.realpathSync(fixturePath); } catch { return path.resolve(fixturePath); } })();
+  return crypto.createHash('sha256')
+    .update(`${OBSERVER_PROTOCOL_VERSION}|${runnerId}|${real}|${arm}|${round}`, 'utf8')
+    .digest('hex').slice(0, 32);
+}
+
+/** Shared with the mocha channel so the two cannot drift apart. */
+export const OBSERVER_PROTOCOL_VERSION = OBSERVER_VERSION;
 
 /** `hello.runner` for this channel; the neutral validator binds it. */
 export const PYTHON_RUNNER_ID = 'python-unittest';

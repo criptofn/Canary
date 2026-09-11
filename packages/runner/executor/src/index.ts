@@ -9,16 +9,18 @@
  *    the isolation flags appended to every install command, unconditionally
  */
 
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import {
   runCommand, CanaryError, locateRunnerPackage, findRunnerPin,
-  type RunOptions, type RunOutcome, type WorkspaceLayout,
+  type RunOptions, type RunOutcome, type WorkspaceLayout, type ObserverInjection,
 } from '@canary-rn/support';
 import { normalize, type Normalizer } from '@canary-rn/normalizers';
 import { sha256hex } from '@canary-rn/hashing';
-import { extractFailingTestNames, parseSummaryCounts, runnerView } from '@canary-rn/comparator';
+import { ensurePythonObserver, observerNonce } from './observers/python-observer.js';
+import { extractFailingTestNames, hasRunnerSummaryFor, parseSummaryCounts, parseSummaryCountsFor, runnerView } from '@canary-rn/comparator';
 import type { AbsentKind, ExecutionObservation, RoundFact } from '@canary-rn/classification';
 import { validateObservation } from './observation.js';
 import {
@@ -26,6 +28,7 @@ import {
 } from './observer-preload.js';
 
 export { validateObservation, OBSERVER_VERSION, type ValidateInput } from './observation.js';
+export { ensurePythonObserver, pythonObserverDir, observerNonce, PYTHON_OBSERVER_BASENAME, PYTHON_RUNNER_ID } from './observers/python-observer.js';
 export {
   OBSERVER_PRELOAD_BASENAME, OBSERVER_PRELOAD_SOURCE, OBSERVER_MOCHA_ANCHOR_REL,
   observerPreloadPath, ensureObserverPreload,
@@ -59,6 +62,21 @@ export interface ExecutorDeps {
    * spec staging double bytes at the canonical anchor earns NO injection.
    */
   allowCanaryDoubleOrigin?: boolean;
+  /**
+   * IN-PROCESS AUTHORITY for a NON-PACKAGE runner's identity (v1.1 Phase 2).
+   *
+   * A package runner is trusted because its bytes match a pin in THIS repo. A
+   * system interpreter cannot be pinned that way — its bytes differ per host — so
+   * the authority is an explicit grant: the caller states which interpreter it has
+   * authorized, by version and by a digest of the interpreter's own bytes. Same
+   * trust channel as `allowCanaryDoubleOrigin` (in-process deps, constructed by
+   * the CLI or a test harness), NOT reachable from a spec file, env or argv.
+   *
+   * No grant ⇒ NO injection ⇒ the round is ABSENT with
+   * `runner-identity-unpinned`, so a subject that ships its own interpreter can
+   * never earn a strong label.
+   */
+  runnerIdentities?: Record<string, { version: string; identitySha256: string }> | undefined;
 }
 
 export interface ExecResult {
@@ -399,7 +417,15 @@ const basenameLower = (p: string): string => (p.split(/[\\/]/).pop() ?? '').toLo
  * test command actually use). EVERYTHING ELSE is rejected fail-closed: there
  * is no wrapper-name treadmill, because no wrapper is allowed.
  */
-export const SPEC_LITERAL_EXECUTABLES: ReadonlySet<string> = new Set(['node', 'node.exe']);
+export const SPEC_LITERAL_EXECUTABLES: ReadonlySet<string> = new Set([
+  'node', 'node.exe',
+  // v1.1 Phase 2: a Python interpreter may be named so a Python runner can be
+  // observed. It is RESOLVED TO AN ABSOLUTE PATH at expansion (the one authorized
+  // moment, exactly as setup pins a plan's programs) and rewritten in argv, so the
+  // sanitized spawn never has to find it on PATH — and the value that gets sealed
+  // and hashed is a concrete interpreter, never a name a PATH could re-point.
+  'python', 'python3', 'python.exe', 'python3.exe',
+]);
 
 /** Named here only for a diagnostic error message — the allowlist rejects
  *  them regardless; this is documentation that survives in the refusal text. */
@@ -623,6 +649,92 @@ export interface ExpansionPlan {
   expectedMochaVersion?: string | undefined;
   expectedRunnerTreeSha256?: string | undefined;
   observedRunnerTreeSha256?: string | undefined;
+  /**
+   * PROVIDER-NEUTRAL channel (v1.1 Phase 2). Present iff a non-package runner was
+   * recognized, so the plan says WHICH channel was attempted and what it required.
+   * The per-round nonce is deliberately NOT here: it is re-derived from
+   * (runner, fixture, arm, round) by `observerNonce`, so prove reproduces it
+   * without recording it.
+   */
+  runner?: string | undefined;
+  expectedRunnerVersion?: string | undefined;
+  expectedRunnerIdentitySha256?: string | undefined;
+  observedRunnerIdentitySha256?: string | undefined;
+}
+
+/** Program basenames that name a Python interpreter. */
+const PYTHON_PROGRAMS = new Set(['python', 'python3', 'python.exe', 'python3.exe']);
+
+/**
+ * Resolve a bare interpreter name from the caller's PATH.
+ *
+ * This is the SAME posture `pinPlanPrograms` takes for a plan's programs: PATH is
+ * consulted at the one authorized moment (here, expansion for a spec Canary is
+ * about to run), and what is kept is an ABSOLUTE path. Verification and spawning
+ * never consult PATH again.
+ */
+function resolveOnTrustedPath(program: string): string | null {
+  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter((d) => d.length > 0);
+  const names = process.platform === 'win32'
+    ? [`${program}.exe`, `${program}.cmd`, `${program}.bat`, program]
+    : [program];
+  for (const dir of dirs) {
+    for (const n of names) {
+      const abs = path.join(dir, n);
+      try { if (fs.statSync(abs).isFile()) return abs; } catch { /* keep looking */ }
+    }
+  }
+  return null;
+}
+
+/**
+ * A Python interpreter's DECLARED identity for observation purposes: the version
+ * it reports and a sha256 of the interpreter's OWN BYTES.
+ *
+ * Why the binary digest rather than a repo pin table: a Python release is not
+ * distributed as a byte-identical package tree the way an npm package is, so a
+ * static table in this repository could only ever be true for one machine. The
+ * honest binding is "the exact interpreter an operator authorized", which the
+ * caller states through `ExecutorDeps.runnerIdentities` — and a change to those
+ * bytes is then a refusal, not a silent re-trust.
+ *
+ * Returns null on any doubt (unreadable, unparsable version): fail closed.
+ */
+export function pythonRunnerIdentity(pythonExe: string): { version: string; identitySha256: string } | null {
+  try {
+    const st = fs.statSync(pythonExe);
+    if (!st.isFile()) return null;
+    const r = spawnSync(pythonExe, ['--version'], { encoding: 'utf8', timeout: 20_000, windowsHide: true });
+    // Python 3 prints to stdout, Python 2 to stderr; accept either and parse.
+    const text = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim();
+    const m = /^Python\s+(\d+\.\d+\.\d+)/.exec(text);
+    if (r.status !== 0 || m === null) return null;
+    return { version: m[1]!, identitySha256: sha256hex(fs.readFileSync(pythonExe)) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Recognize a Python test-runner invocation in an EXPANDED argv.
+ *
+ * Deliberately narrow: the interpreter must be the EXECUTED program (argv[0]) and
+ * the module must be a test runner Canary has a channel for. A python invocation
+ * that merely mentions unittest in an argument is not a runner, and a runner in a
+ * non-executed position earns nothing — the same refusal the mocha path makes for
+ * a token that is not in the runner position.
+ */
+export function detectPythonRunner(argv: readonly string[]): { runner: string; python: string } | null {
+  const head = argv[0];
+  if (head === undefined) return null;
+  if (!PYTHON_PROGRAMS.has(basenameLower(head))) return null;
+  for (let i = 1; i < argv.length; i++) {
+    if (argv[i] !== '-m') continue;
+    const mod = argv[i + 1] ?? '';
+    if (mod === 'unittest') return { runner: 'python-unittest', python: head };
+    if (mod === 'pytest') return { runner: 'pytest', python: head };
+  }
+  return null;
 }
 
 /**
@@ -827,6 +939,43 @@ export class Recorder {
         plan.absentKind = 'runner-identity-unpinned';
       }
     }
+
+    // ── Provider-neutral channel: a Python test runner (v1.1 Phase 2) ──────
+    // Same shape of decision as mocha, one trust difference: a package runner is
+    // trusted because its bytes match a pin in THIS repo, while a system
+    // interpreter cannot be pinned that way (its bytes differ per host), so the
+    // authority is an explicit in-process grant (`deps.runnerIdentities`). No
+    // grant ⇒ no injection ⇒ ABSENT, so a subject shipping its own interpreter
+    // can never earn a strong label.
+    if (mochaBin === undefined) {
+      const detected = detectPythonRunner(out);
+      if (detected !== null) {
+        // Resolve the interpreter to an ABSOLUTE path and rewrite argv, so the
+        // sanitized spawn (PATH = the Node dir + OS dirs) can execute it at all,
+        // and so both the identity digest and the sealed argv name real bytes.
+        const resolved = path.isAbsolute(detected.python) ? detected.python : resolveOnTrustedPath(detected.python);
+        if (resolved === null) {
+          plan.absentKind = 'runner-identity-unpinned';
+        } else {
+          out[0] = resolved;
+          const identity = pythonRunnerIdentity(resolved);
+          if (identity !== null) plan.observedRunnerIdentitySha256 = identity.identitySha256;
+          const granted = d.runnerIdentities?.[detected.runner];
+          if (identity !== null && granted !== undefined
+            && granted.version === identity.version
+            && granted.identitySha256 === identity.identitySha256) {
+            // The channel is loaded through PYTHONPATH, which the round sets.
+            plan.injected = true;
+            plan.absentKind = null;
+            plan.runner = detected.runner;
+            plan.expectedRunnerVersion = identity.version;
+            plan.expectedRunnerIdentitySha256 = identity.identitySha256;
+          } else {
+            plan.absentKind = 'runner-identity-unpinned';
+          }
+        }
+      }
+    }
     return { argv: out, plan };
   }
 
@@ -852,7 +1001,7 @@ export class Recorder {
    *  round. `observe` opens the fd-3 observation pipe (rounds only —
    *  panel A: every MEASUREMENT round gets it, injected or not; steps never
    *  do, so the tripwire semantics stay scoped to measurement). */
-  async step(label: string, argv: string[], timeoutSecs = 600, observe = false): Promise<ExecResult> {
+  async step(label: string, argv: string[], timeoutSecs = 600, observe = false, observer?: ObserverInjection): Promise<ExecResult> {
     const n = (this.counts.get(label) ?? 0) + 1;
     this.counts.set(label, n);
     const uniq = n === 1 ? label : `${label}-${n}`;
@@ -862,6 +1011,7 @@ export class Recorder {
       argv: argv as [string, ...string[]],
       timeoutSecs,
       ...(observe ? { observeChildFd3: true } : {}),
+      ...(observer !== undefined ? { observer } : {}),
     });
     const combined = run.stdout + run.stderr;
     const normOut = normalize(run.stdout, this.deps.pipeline);
@@ -885,8 +1035,19 @@ export class Recorder {
     plan?: ExpansionPlan,
   ): Promise<ExecResult & { fact: RoundFact }> {
     if (plan?.injected) ensureObserverPreload(this.deps.ws); // rewrite-on-tamper; throws CanaryError on persistent mismatch
-    const res = await this.step(`${arm}-${index}`, argv, timeoutSecs, true);
-    const counts = parseSummaryCounts(res.combined);
+    // A provider-neutral round needs its observer loaded through the environment
+    // (Python's `sitecustomize`) rather than through argv, so the channel the plan
+    // decided on is materialised here — same write-then-byte-verify discipline as
+    // the mocha preload.
+    const observer: ObserverInjection | undefined = (() => {
+      if (plan?.injected !== true || plan.runner === undefined) return undefined;
+      const dir = ensurePythonObserver(this.deps.ws.root);
+      return { kind: 'python', dir, nonce: observerNonce(plan.runner, this.deps.ws.fixture, arm, index) };
+    })();
+    const res = await this.step(`${arm}-${index}`, argv, timeoutSecs, true, observer);
+    // Text facts come from the SAME channel-aware parsers the validator uses, so
+    // the executor and the agreement check can never read one stream two ways.
+    const counts = parseSummaryCountsFor(plan?.runner, res.combined);
     const crashed = hasCrashSignature(res.combined);
     const sweepFailed = res.run.sweepFailed === true;
     const textFailingNames = extractFailingTestNames(res.combined).sort();
@@ -899,11 +1060,17 @@ export class Recorder {
       truncated: res.run.observationTruncated === true,
       exitCode: res.run.exitCode,
       childPid: res.run.childPid,
+      ...(plan?.runner !== undefined ? { runner: plan.runner } : {}),
+      ...(plan?.runner !== undefined && plan.expectedRunnerVersion !== undefined && plan.expectedRunnerIdentitySha256 !== undefined
+        ? { expectedRunner: { id: plan.runner, version: plan.expectedRunnerVersion, identitySha256: plan.expectedRunnerIdentitySha256 } }
+        : {}),
+      ...(observer !== undefined ? { expectedNonce: observer.nonce } : {}),
+      ...(plan?.observedRunnerIdentitySha256 !== undefined ? { observedRunnerIdentitySha256: plan.observedRunnerIdentitySha256 } : {}),
       ...(plan?.expectedMochaVersion !== undefined ? { expectedMochaVersion: plan.expectedMochaVersion } : {}),
       ...(plan?.expectedRunnerTreeSha256 !== undefined ? { expectedRunnerTreeSha256: plan.expectedRunnerTreeSha256 } : {}),
       ...(plan?.observedRunnerTreeSha256 !== undefined ? { observedRunnerTreeSha256: plan.observedRunnerTreeSha256 } : {}),
       textCounts: counts,
-      hasSummary: hasRunnerSummary(res.combined),
+      hasSummary: hasRunnerSummaryFor(plan?.runner, res.combined),
       textFailingNames,
     });
     const fact: RoundFact = {
@@ -911,7 +1078,7 @@ export class Recorder {
       arm,
       round: index,
       exitCode: res.run.exitCode,
-      hasRunnerSummary: hasRunnerSummary(res.combined),
+      hasRunnerSummary: hasRunnerSummaryFor(plan?.runner, res.combined),
       // Audit B2: infra signatures are recognized REGARDLESS of exit code —
       // a harness can swallow an ECONNREFUSED and still exit 0. The
       // two-tier matcher (see isInfraOutput) keeps benign prose from
