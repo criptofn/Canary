@@ -56,36 +56,80 @@ and only controller-held state authorizes.
 - The kernel executes nothing: no candidate code, no project checks, no Git, no
   plugins. That property is transitive by design.
 
-### 3. Platform contracts (declared, deliberately unimplemented)
+### 3. The provider (implemented; activation requires owner authorization)
 
 `apps/cli/src/platform-boundary.ts` declares what a real provider chain must
 satisfy and **refuses** rather than silently downgrading: `VerificationJob`,
 `VerificationSandbox`, `VerificationSupervisor`, `ProtectedPromoter`,
 `NetworkAuthority`, plus capability reporting.
 
-## What does NOT exist — and what that means
+`apps/cli/src/provider/` now IMPLEMENTS it. What exists in the tree:
 
-No installed provider implements any of the following, so none of it protects
-anything today:
+- **`boundary.ts`** — measures the boundary instead of asserting it: which account
+  this process is, whether it is elevated, which principals can write the store
+  (an `icacls` decision that requires the principal to be immediately followed by
+  its ACE permission group, because `icacls` puts the directory path on the same
+  line as the first ACE), whether a broker service exists and as which account,
+  and what a restricted runner could actually be jailed with
+  (`bwrap`/`unshare`/`systemd-run` — or, on Windows, that a scheduled task gives
+  identity but not the filesystem/network jail). Every raw observation is kept so
+  a human can re-check the reasoning.
+- **`ipc.ts`** — the narrow authenticated transport: a closed operation set, a
+  per-install token compared in constant time, generation binding (a request
+  naming a superseded authority generation is refused with a code naming both),
+  and refusal of any unknown FIELD, so a caller cannot smuggle in a command,
+  path, environment value, key or network policy. The module states plainly that
+  the token is not a boundary on its own.
+- **`service.ts`** — the broker service, which **refuses to start** unless the
+  measurement proves the separation, and which never executes candidate or
+  project code: `RestrictedRunner` is the only place a verification child would
+  be launched and it refuses (BLOCKED) without an enrolled identity rather than
+  falling back to running the code as the broker.
+- **`commands.ts`** — `canary provider status|install-plan|uninstall-plan|serve|call`.
+  `install-plan` prints what the privileged commands change, the exact commands,
+  the rollback, the post-install state and the verification command. It executes
+  none of it.
 
-- a broker **service** with authenticated local IPC and controller-only enrollment;
-- **immutable source import** and a verification supervisor holding approved
+**HARDENED is now DERIVED rather than unreachable-by-construction.**
+`measuredCapabilities` is the only producer of a `HARDENED` level and it requires
+EVERY boundary control observed available; one missing control keeps the level
+local, and `requireMeasuredLevel` refuses to let a caller upgrade by assertion.
+On this host the measurement reads six controls unavailable (not elevated, no
+provider store, no worker identity, no `CanaryBroker` service, no enforceable
+egress policy, no sandbox primitive), so the reported level is still `LOCAL` —
+but for a measured reason, and the exact privileged steps that would change it
+are printed by `canary provider install-plan`.
+
+The Linux path is implemented and contract-tested on this host (users, a systemd
+unit whose content is part of the plan, `setfacl`, `nft`), and carries
+`hostVerified: false` because it has never been executed on Linux.
+
+## What still does NOT exist — and what that means
+
+Nothing here protects anything until the provider is INSTALLED, which requires
+the owner's authorization (creating identities, installing a service and
+rewriting a store DACL are privileged):
+
+- no installed broker service with a controller-only enrollment;
+- no **immutable source import** and no verification supervisor holding approved
   plan/environment handles;
-- a real **filesystem/process/egress sandbox** with a separate runner identity;
-- **proof collection inside** that boundary (today's plan execution is the 1.0
-  hardened-env path, which is a process/environment boundary, not an OS jail);
-- an authenticated **review path** with reviewer credential custody;
-- a **protected promoter** with atomic ref CAS and crash reconciliation;
-- enforced **network policy**, OS identities/ACLs, key rotation, and
-  install/upgrade tooling.
+- no real filesystem/process sandbox with a separate runner identity, so proof
+  collection still runs on the 1.0 hardened-env path (a process/environment
+  boundary, not an OS jail);
+- no authenticated review path with reviewer credential custody;
+- no protected promoter wired into the CLI's promote path;
+- no enforced network policy, OS identity separation, key rotation or
+  install/upgrade tooling that has actually been run.
 
 Consequences, stated once and not softened:
 
 1. `canary setup`, `doctor`, `checkpoint`, `isolate`, `accept`, `promote`, `work`
-   and `finish` run on the **LOCAL** sealed store. They are unchanged by the
-   kernel's presence.
-2. `HARDENED` is unreachable. Requesting isolation that cannot be established
-   means *refusing the request*, never quietly reporting `LOCAL`.
+   and `finish` still run on the **LOCAL** sealed store. They are unchanged by the
+   provider's presence: the broker is not in their path yet.
+2. `HARDENED` is unreachable on this host because the measurement says so, not
+   because the code refuses to try. Requesting isolation that cannot be
+   established still means *refusing the request*, never quietly reporting
+   `LOCAL`.
 3. The same uid that runs the worker can replace the store, its keypair and its
    ledger together. Sealing detects; it does not prevent.
 4. On Windows, mode bits do not protect the private key and Node cannot fsync a

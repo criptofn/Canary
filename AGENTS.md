@@ -66,10 +66,15 @@ Probe conventions: fixtures only under the OS temp dir (`fs.mkdtempSync`); print
 
 - **Never weaken a gate to make a test pass.** Fail-closed behaviour
   (`INCONCLUSIVE`, `NOT PROVEN`, `BLOCKED`, `UNSUPPORTED`) is the product.
-- **Never overclaim protection.** `HARDENED` is unreachable until a provider with
-  a different OS identity exists; the broker/platform contracts are architecture,
-  not protection ([`docs/TRUST-ARCHITECTURE.md`](docs/TRUST-ARCHITECTURE.md)).
-  If you add a capability, update the report that measures it.
+- **Never overclaim protection.** `HARDENED` is produced by exactly one thing: a
+  boundary MEASUREMENT in which every control is observed available
+  (`measuredCapabilities`), and it stays unreachable on any host where the
+  provider is not installed. The provider is implemented
+  (`apps/cli/src/provider/`) and refuses to start without a proven separation;
+  what it still lacks is privileged activation — see
+  [`docs/TRUST-ARCHITECTURE.md`](docs/TRUST-ARCHITECTURE.md) and
+  `canary provider install-plan`. If you add a capability, update the report that
+  measures it.
 - **Discovery declares; it never invents.** A tool named in a comment or a
   description is prose, not a declaration.
 - The classifier (`packages/core/classification`) stays pure, total and
