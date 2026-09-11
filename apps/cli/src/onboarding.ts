@@ -462,9 +462,34 @@ export function uninstallHooks(root: string, cfg: CanaryConfig): { removed: numb
 const NODE_DIR = path.dirname(process.execPath);
 export const ENV_POLICY = 'canary-sanitized/1';
 
-const trustedDirs = (): string[] => process.platform === 'win32'
-  ? [NODE_DIR, 'C:\\Windows\\System32', 'C:\\Windows']
-  : [NODE_DIR, '/usr/local/bin', '/usr/bin', '/bin'];
+/** The literal absolute candidates Canary will execute git from. Never
+ *  PATH-derived: a PATH or %SystemRoot% shim must not be able to become git. */
+const gitCandidates = (): string[] => process.platform === 'win32'
+  ? ['C:\\Program Files\\Git\\cmd\\git.exe', 'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
+    'C:\\Windows\\System32\\git.exe', path.join(NODE_DIR, 'git.exe')]
+  : ['/usr/bin/git', '/usr/local/bin/git', '/bin/git'];
+
+/**
+ * The directories Canary is willing to execute from.
+ *
+ * EXPORTED because a probe asserts that every executed file lies inside this
+ * set, and until this function was exported that probe kept a hardcoded MIRROR
+ * of it — so the assertion that is supposed to police the trust set silently
+ * desynchronised whenever the set changed (which is exactly what happened on
+ * win32: `gitExe()` executes git from a literal Git install directory that this
+ * list did not contain, and the probe failed on the contradiction).
+ *
+ * The rule the list encodes: a directory Canary will EXECUTE from is trusted by
+ * construction, so the declared set must contain every candidate the product
+ * resolves to — see `gitCandidates` below. Adding these directories cannot widen
+ * what a PROJECT can make Canary run: they are fixed literals, not search paths.
+ */
+export function trustedDirs(): string[] {
+  const base = process.platform === 'win32'
+    ? [NODE_DIR, 'C:\\Windows\\System32', 'C:\\Windows']
+    : [NODE_DIR, '/usr/local/bin', '/usr/bin', '/bin'];
+  return [...new Set([...base, ...gitCandidates().map((c) => path.dirname(c))])];
+}
 
 // ws.root doubles as the child's isolated HOME/TMP base. It is os.tmpdir(),
 // which the caller can steer — but every dir a steered TEMP points at is
@@ -488,11 +513,7 @@ let gitExeCache: string | null | undefined;
 /** Fixed literal candidates — a PATH or %SystemRoot% shim cannot become git. */
 export function gitExe(): string | null {
   if (gitExeCache !== undefined) return gitExeCache;
-  const cands = process.platform === 'win32'
-    ? ['C:\\Program Files\\Git\\cmd\\git.exe', 'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
-      'C:\\Windows\\System32\\git.exe', path.join(NODE_DIR, 'git.exe')]
-    : ['/usr/bin/git', '/usr/local/bin/git', '/bin/git'];
-  gitExeCache = cands.find((c) => fs.existsSync(c)) ?? null;
+  gitExeCache = gitCandidates().find((c) => fs.existsSync(c)) ?? null;
   return gitExeCache;
 }
 

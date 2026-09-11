@@ -20,19 +20,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { trustedDirs } from '../../apps/cli/dist/src/onboarding.js';
+
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
 const FX = path.join(REPO, 'tooling', 'test-support', 'fixtures');
 const NODE_DIR = path.dirname(process.execPath);
-// The probe mirrors the product's own trust set (onboarding.ts trustedDirs +
-// the running node's bundled-package dirs from resolvePm) — npm-cli.js is
-// trusted BY BEING BUNDLED UNDER THE RUNNING NODE, not by any PATH.
+// The probe IMPORTS the product's declared trust set rather than paraphrasing
+// it: while this list was a hardcoded mirror, the assertion that polices the
+// trust set could silently drift away from the set itself (which is how win32
+// git ended up executing from a directory the mirror did not contain). The
+// running node's bundled-package dirs are still added, because resolvePm trusts
+// npm-cli.js BY BEING BUNDLED UNDER THE RUNNING NODE, not by any PATH.
 const NODE_PKGS = process.platform === 'win32'
   ? [path.join(NODE_DIR, 'node_modules')]
   : [path.join(NODE_DIR, 'node_modules'), path.join(path.dirname(NODE_DIR), 'lib', 'node_modules')];
-const TRUSTED = (process.platform === 'win32'
-  ? [NODE_DIR, 'C:\\Windows\\System32', 'C:\\Windows']
-  : [NODE_DIR, '/usr/local/bin', '/usr/bin', '/bin']).concat(NODE_PKGS);
+const TRUSTED = trustedDirs().concat(NODE_PKGS);
 const PASS = `node "${path.join(FX, 'f-pass.js')}"`;
 const BUILD = `node "${path.join(FX, 'f-build.js')}"`;
 
