@@ -10,6 +10,30 @@ changed*; the evidence ledgers record *what was observed*.
 
 ## [Unreleased] — v1.1 implementation candidate
 
+### Fixed — Rust and Go projects can actually be verified now
+
+Both ecosystems could be discovered, planned and sealed, and then never execute,
+because a sealed step runs in a **sanitized** environment that the toolchains did
+not survive. Found by measuring them inside Canary's own environment rather than
+on a developer shell — the same class as the earlier bare-`git`-inside-a-sealed-step
+defect.
+
+- **Go** aborted with `build cache is required, but could not be located: GOCACHE
+  is not defined and %LocalAppData% is not defined` (HOME is redirected). Fixed by
+  an adapter-declared, workspace-scoped `GOCACHE`/`GOPATH`, injected through a
+  narrow, allowlisted door whose path values must resolve inside Canary's
+  workspace (`ProjectAdapter.toolchainEnv`).
+- **Rust** sealed the rustup PATH PROXY, which cannot choose a toolchain under the
+  sanitized env, while the real toolchain binary needs no environment at all.
+  Fixed by letting an ecosystem DECLARE its literal toolchain directories
+  (`RUSTUP_HOME`/`CARGO_HOME` honored) and having setup prefer them over PATH.
+- Both paths now have an executed end-to-end proof, and both are oracle steps:
+  `tooling/probes/go-project-e2e.mjs` and `tooling/probes/rust-project-e2e.mjs`
+  run a real project through `setup` and `doctor` to READY under the sanitized
+  environment, then break a test and require the verdict to follow. The Rust probe
+  additionally asserts the SEALED program is the toolchain binary, so a regression
+  to PATH-first resolution fails loudly.
+
 ### Added — the HARDENED provider (implemented; activation is the owner's)
 
 - **`canary provider status|install-plan|uninstall-plan|serve|call`.** The

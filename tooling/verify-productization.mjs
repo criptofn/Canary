@@ -313,6 +313,13 @@ const SKIP_AWARE = new Set([
   // platform could not prove, and exit 3. SKIP is never counted as PASS.
   'probe: pre-1.0 human-acceptance battery (real git + pty)',
   'probe: acceptance growth (real git + pty)',
+  // The two ecosystem end-to-end probes SKIP (exit 3) on a host with no
+  // toolchain — which is an honest host bound, not a failure. Without this they
+  // would be reported as FAIL on a machine that simply has no Go or no rustup,
+  // which is exactly the "host limit read as a defect" error this oracle exists
+  // to avoid.
+  'probe: real Go project end-to-end (setup -> doctor)',
+  'probe: real Rust project end-to-end (setup -> doctor)',
 ]);
 const results = []; // [label, 'PASS'|'SKIP'|'FAIL', note]
 for (const [label, cmd, args] of STEPS) {

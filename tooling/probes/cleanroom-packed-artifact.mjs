@@ -40,7 +40,9 @@ console.log(`node ${process.version} ${process.platform}; packed-artifact clean-
 // ---- 1) pack ----
 const packed = sh(`"${process.execPath}" "tooling/pack.mjs"`, { cwd: CANARY });
 check(1, 'tooling/pack.mjs exits 0', packed.status === 0, (packed.stdout ?? '') + (packed.stderr ?? ''));
-const PACK_DIR = path.join(CANARY, 'pack');
+// The npm tarball lives in its OWN subdirectory: `pack/standalone/` holds the
+// single-executable distribution, and packing the tarball must not destroy it.
+const PACK_DIR = path.join(CANARY, 'pack', 'npm');
 const tgzs = fs.existsSync(PACK_DIR) ? fs.readdirSync(PACK_DIR).filter((f) => f.endsWith('.tgz')) : [];
 if (!check(1, 'exactly one tarball produced', tgzs.length === 1, JSON.stringify(tgzs))) finish();
 const TGZ = path.join(PACK_DIR, tgzs[0]);

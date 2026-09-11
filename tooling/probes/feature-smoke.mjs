@@ -71,6 +71,17 @@ const nodeRepo = (name, extraScripts = {}) => mk(name, {
   'package.json': JSON.stringify({ name, private: true, scripts: { test: PASS_JS, ...extraScripts } }, null, 2) + '\n',
 });
 
+/** Run an authoritative probe and require its verdict. Declared with the other
+ *  helpers (not next to its first use) because the ecosystem features above the
+ *  re-use section also call it. */
+const runProbe = (rel, label, expect) => {
+  const r = spawnSync(process.execPath, [path.join(REPO, rel)], { cwd: REPO, encoding: 'utf8', timeout: 1_800_000, maxBuffer: 64 * 1024 * 1024 });
+  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  assert(r.status === expect.status, `${label} exited ${r.status}, expected ${expect.status}:\n${out.split('\n').slice(-14).join('\n')}`);
+  assertMatch(out, expect.match, `${label} did not report its verdict`);
+  return out;
+};
+
 function feature(name, fn) {
   try {
     const r = fn();
@@ -160,7 +171,7 @@ feature('Go: go-compatible path', () => {
   // doctor executes `go test ./...` and `go vet ./...` under the sanitized env.
   const out = runProbe('tooling/probes/go-project-e2e.mjs', 'go-project-e2e', { status: 0, match: /go project e2e: ALL PASS/ });
   assertMatch(out, /READY/, 'doctor must reach READY on a green Go project');
-  assertMatch(out, /deliberate failure|failing Go test/, 'and a failing Go test must turn the verdict');
+  assertMatch(out, /a failing test would be reported/, 'the probe must have run its failing-test control');
   return { note: `${v}; setup + doctor executed the sealed Go plan under the sanitized env, and a deliberately broken test correctly failed the run` };
 });
 
@@ -311,13 +322,7 @@ feature('Runner observations: exactly one runner can reach a strong label', () =
 });
 
 // ───────────────────── re-used authoritative demonstrations ─────────────────────
-const runProbe = (rel, label, expect) => {
-  const r = spawnSync(process.execPath, [path.join(REPO, rel)], { cwd: REPO, encoding: 'utf8', timeout: 1_800_000, maxBuffer: 64 * 1024 * 1024 });
-  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
-  assert(r.status === expect.status, `${label} exited ${r.status}, expected ${expect.status}:\n${out.split('\n').slice(-14).join('\n')}`);
-  assertMatch(out, expect.match, `${label} did not report its verdict`);
-  return out;
-};
+// (`runProbe` is declared with the other helpers at the top of this file.)
 
 feature('Protected authority: candidate-modified Canary cannot judge its own mutation', () => {
   const out = runProbe('tooling/probes/m9-authority.mjs', 'm9-authority', { status: 0, match: /ALL PASS/ });

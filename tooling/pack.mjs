@@ -30,7 +30,12 @@ import { build } from 'esbuild';
 
 const CANARY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY = path.join(CANARY, 'apps', 'cli', 'dist', 'src', 'main.js');
-const OUT = path.join(CANARY, 'pack');
+// OWN SUBDIRECTORY, not the whole `pack/`: `tooling/standalone.mjs` writes
+// `pack/standalone/`, and wiping the parent (which this used to do) deleted the
+// single-executable artifact as a side effect of packing the tarball — a real
+// defect: two distribution paths must be able to coexist, and one build step must
+// never silently destroy another's deliverable.
+const OUT = path.join(CANARY, 'pack', 'npm');
 
 if (!fs.existsSync(ENTRY)) { console.error('FAIL: no compiled CLI — run `npm run build` first'); process.exit(1); }
 
