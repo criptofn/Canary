@@ -58,6 +58,34 @@ interface Ecosystem {
   discover(root: string): { checks: EcoCheck[]; note: string; reason: string; confidence: 'high' | 'medium' | 'low' } | null;
 }
 
+/** Comment and prose lines removed. A tool named in a sentence is not a
+ *  declaration, and getting this wrong fails in the worst direction: the
+ *  examples smoke probe caught a project whose pyproject.toml SAID "no pytest
+ *  declaration" in a comment, and Canary then ran pytest on it and failed the
+ *  project for not having pytest installed. */
+function declarationText(raw: string): string {
+  return raw
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*[#;]/.test(line))                 // whole-line comments
+    .map((line) => line.replace(/\s+[#;].*$/, ''))            // trailing comments
+    .filter((line) => !/^\s*(?:description|readme|long_description|keywords|classifiers|authors)\s*=/.test(line)) // prose values
+    .join('\n');
+}
+
+/** Is `tool` DECLARED here — a section, or a dependency entry — rather than
+ *  merely mentioned? Each shape below is a real declaration; nothing else is. */
+function declaresTool(text: string, tool: string): boolean {
+  const t = tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp([
+    `\\[tool\\.${t}`,                                // pyproject: [tool.ruff]
+    `\\[tool:${t}`,                                  // setup.cfg / tox.ini: [tool:pytest]
+    `^\\s*\\[${t}(?:\\]|\\.)`,                       // ini section: [pytest]
+    `(?:^|\\n)\\s*["']?${t}["']?\\s*(?:[<>=~!,\\[\\]]|$)`, // dependency line: pytest>=7 / pytest / "pytest"
+    `["']${t}["']`,                                  // quoted dependency entry: dev = ["pytest"]
+    `(?:^|\\n)\\s*${t}\\s*=`,                        // Pipfile / setup.cfg key: pytest = "*"
+  ].join('|'), 'im').test(text);
+}
+
 // ---------------------------------------------------------------- Python ----
 // Conservative on purpose. `pytest` must be DECLARED (a config section or a
 // dependency mention), and `unittest` is accepted only from a real test-layout
@@ -65,7 +93,13 @@ interface Ecosystem {
 // because that is the kind the obligation engine already understands as "a
 // static check ran"; the step label keeps naming the actual tool, so no display
 // ever claims ruff is a type checker.
-const PY_MANIFESTS = ['pyproject.toml', 'setup.py', 'setup.cfg', 'tox.ini', 'Pipfile', 'requirements.txt'] as const;
+// Tool-config files count as manifests too: a repository whose only Python
+// declaration is `pytest.ini` (or a ruff/mypy config) plus .py sources IS a
+// Python project, and refusing to see it would report UNSUPPORTED on a project
+// Canary can verify perfectly well. Note `declares()` below still requires a
+// real declaration — this list only decides whether the ecosystem is present.
+const PY_MANIFESTS = ['pyproject.toml', 'setup.py', 'setup.cfg', 'tox.ini', 'Pipfile', 'requirements.txt',
+  'pytest.ini', 'mypy.ini', 'ruff.toml', '.ruff.toml', 'pyrightconfig.json'] as const;
 const PY_DEPS = ['pyproject.toml', 'poetry.lock', 'uv.lock', 'Pipfile', 'Pipfile.lock', 'requirements.txt', 'setup.cfg', 'setup.py'] as const;
 
 const pythonEcosystem: Ecosystem = {
@@ -82,11 +116,11 @@ const pythonEcosystem: Ecosystem = {
     try {
       for (const f of fs.readdirSync(root)) if (/^requirements.*\.txt$/i.test(f)) sources.push(readText(path.join(root, f)) ?? '');
     } catch { /* unreadable root: the manifest gate above already answered */ }
-    const text = sources.join('\n');
-    const declares = (tool: string): boolean => new RegExp(`(^|[^a-z0-9_-])${tool}([^a-z0-9_-]|$)`, 'i').test(text);
+    const text = declarationText(sources.join('\n'));
+    const declares = (tool: string): boolean => declaresTool(text, tool);
 
     const checks: EcoCheck[] = [];
-    const pytestDeclared = declares('pytest') || has(root, 'pytest.ini') || /\[tool:pytest\]|\[tool\.pytest/i.test(text);
+    const pytestDeclared = declares('pytest') || has(root, 'pytest.ini');
     const testsDir = ['tests', 'test'].find((d) => dirHas(root, d, /^(test_.*|.*_test)\.py$/i));
     if (pytestDeclared) checks.push({ kind: 'tests', script: 'pytest', argv: ['python', '-m', 'pytest'] });
     else if (/\[testenv/i.test(text)) checks.push({ kind: 'tests', script: 'tox', argv: ['tox'] });

@@ -248,6 +248,7 @@ const STEPS = [
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
   ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],
+  ['probe: documented examples (Node + Python, real CLI)', process.execPath, ['tooling/probes/examples-smoke.mjs'], {}],
   ['probe: packed architecture matrix', process.execPath, ['tooling/probes/packed-architecture.mjs'], {}],
 ];
 
@@ -258,7 +259,7 @@ const STEPS = [
 // Exit code contract: 0 = zero failures (all PASS, or PASS + listed
 // host-bound SKIPs — the headline distinguishes); 1 = any FAIL or a step
 // aborted mid-chain so later steps judged stale bytes.
-const SKIP_AWARE = new Set(['probe: HTG inline-interpreter corpus']);
+const SKIP_AWARE = new Set(['probe: HTG inline-interpreter corpus', 'probe: documented examples (Node + Python, real CLI)']);
 const results = []; // [label, 'PASS'|'SKIP'|'FAIL', note]
 for (const [label, cmd, args] of STEPS) {
   console.log(`\n=== ${label} ===`);

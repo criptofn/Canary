@@ -1,0 +1,9 @@
+[project]
+name = "canary-example-python"
+version = "0.0.0"
+description = "The smallest Python project Canary can verify: a real test layout, no Node anywhere."
+requires-python = ">=3.8"
+
+# No pytest declaration: `unittest` is discovered from the tests/ layout below,
+# which is the project's own declaration that it has tests. Canary never invents
+# a check from the mere presence of .py files.

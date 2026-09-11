@@ -265,6 +265,35 @@ describe('1.1 ecosystems declare checks, they never invent them', () => {
       /no longer declares/);
   });
 
+  it('a tool named in PROSE is not a declaration (comments never add a check)', () => {
+    // The examples smoke probe found this the hard way: a pyproject.toml whose
+    // COMMENT said "no pytest declaration" made Canary run pytest, then fail the
+    // project for not having pytest installed. Discovery must declare, not read.
+    const commented = dir('py-prose', {
+      'pyproject.toml': '[project]\nname = "x"\ndescription = "no pytest here, and no ruff either"\n# we deliberately do not declare pytest\n[tool.black]\nline-length = 100\n',
+      'tests/__init__.py': '',
+      'tests/test_x.py': 'def test_ok():\n    assert True\n',
+    });
+    assert.deepEqual(python.discoverChecks(commented).plan.map((s) => s.script), ['unittest']);
+  });
+
+  it('every real declaration shape is still found (the fix hides nothing)', () => {
+    const shapes: Array<[string, string, string[]]> = [
+      ['requirements.txt', 'pytest>=7.0\n', ['pytest']],
+      ['requirements.txt', 'pytest\n', ['pytest']],
+      ['setup.cfg', '[tool:pytest]\naddopts = -q\n', ['pytest']],
+      ['pytest.ini', '[pytest]\naddopts = -q\n', ['pytest']],
+      ['pyproject.toml', '[dependency-groups]\ndev = ["pytest"]\n', ['pytest']],
+      ['Pipfile', '[dev-packages]\npytest = "*"\n', ['pytest']],
+    ];
+    for (const [file, body, expected] of shapes) {
+      const root = dir(`py-shape-${file}-${expected.join('-')}`, { [file]: body });
+      assert.deepEqual(python.discoverChecks(root).plan.map((s) => s.script), expected, `${file}: ${body.trim()}`);
+    }
+    const section = dir('py-section', { 'pyproject.toml': '[project]\nname = "x"\n[tool.mypy]\nstrict = true\n' });
+    assert.deepEqual(python.discoverChecks(section).plan.map((s) => `${s.kind}:${s.script}`), ['typecheck:mypy']);
+  });
+
   it('a PINNED plan is still recognized as declared (setup pins, discovery declares)', () => {
     // Setup rewrites argv[0] to an absolute sealed path; re-discovery sees the
     // declared name again. Comparing the raw strings made every pinned python /
