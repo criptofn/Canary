@@ -55,6 +55,7 @@ import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, 
 import { cmdIsolate, cmdAccept } from './candidate.js';
 import { appendMetric, metricFor, metricsTarget, streamSnapshot } from './metrics.js';
 import { cmdWork, cmdFinish } from './orchestrate.js';
+import { cmdMcp } from './mcp.js'; // 1.1 §D: MCP transport — no authority of its own
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
@@ -378,6 +379,10 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'work') return cmdWork(rest); // 1.1 §22: register + open, in one step
   if (cmd === 'finish') return cmdFinish(rest); // 1.1 §22: verify + promote, or hand to a human
   if (cmd === 'accept') return cmdAccept(rest);
+  // 1.1 §D — a provider-neutral MCP server. It is a TRANSPORT: every tool runs
+  // this same CLI and relays its verdict, so the machine channel gains no second
+  // authority model. `accept` is deliberately not exposed (human terminal act).
+  if (cmd === 'mcp') return cmdMcp(rest);
   return usage();
 }
 
