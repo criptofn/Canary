@@ -181,6 +181,15 @@
  *  18. packed-artifact clean room (tooling/pack.mjs -> npm pack -> install the
  *      exact .tgz into a spaces-path temp repo; full vibecoder journey through
  *      the installed bundle; tarball audited: no monorepo, no secrets)
+ *  19. 1.1 P0 trust-boundary (the Astra merge): the sealed authority store's
+ *      custody refusals (linked/hard-linked key material, mismatched keypair
+ *      halves, reserved device names, lost/corrupt ledgers, CAS conflicts, a
+ *      held lock that is never stolen), the LOCAL authorization kernel
+ *      (verifier+reviewer receipts bound to run/project/domain/duties, a
+ *      promotion window that cannot be cached) and the platform capability
+ *      contracts — plus a behavioral mutation battery over those compiled
+ *      modules: unsound control fails, every mutant dies on a node:test
+ *      assertion, and no mutant survives on a crash or module error.
  * Brief items 5-7 (setup twice, partial repair, uninstall/reinstall, harness
  * preservation, quoting) are asserted inside steps 2 and 16.
  *
@@ -218,12 +227,14 @@ const STEPS = [
   ['1.1 §1 project-adapter contract tests', process.execPath, ['--test', 'apps/cli/dist/test/project-adapter.test.js'], {}],
   ['1.1 P0 trust-store sealing contract tests', process.execPath, ['--test', 'apps/cli/dist/test/trust-store.test.js'], {}],
   ['1.1 P0 trust-store wiring tests', process.execPath, ['--test', 'apps/cli/dist/test/trust-wiring.test.js'], {}],
-  ['1.1 §12-17 ecosystems + polyglot composition (in project-adapter tests)', process.execPath, ['--test', 'apps/cli/dist/test/project-adapter.test.js'], {}],
   ['1.1 §21 machine-readable protocol tests', process.execPath, ['--test', 'apps/cli/dist/test/protocol.test.js'], {}],
   ['1.1 §18-21 agent capability + advisory integration tests', process.execPath, ['--test', 'apps/cli/dist/test/agents.test.js'], {}],
   ['1.1 §14 real-Python end-to-end (no package.json)', process.execPath, ['--test', 'apps/cli/dist/test/python-e2e.test.js'], {}],
   ['1.1 §35 metrics record (off by default, never changes a verdict)', process.execPath, ['--test', 'apps/cli/dist/test/metrics.test.js'], {}],
   ['1.1 §22 workflow (work -> finish) tests', process.execPath, ['--test', 'apps/cli/dist/test/orchestrate.test.js'], {}],
+  ['1.1 P0 trust-store attack contract tests', process.execPath, ['--test', 'apps/cli/dist/test/trust-store-attacks.test.js'], {}],
+  ['1.1 P0 broker authorization contract tests', process.execPath, ['--test', 'apps/cli/dist/test/broker.test.js'], {}],
+  ['1.1 P0 platform-boundary contract tests', process.execPath, ['--test', 'apps/cli/dist/test/platform-boundary.test.js'], {}],
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: M2 claims-not-evidence (real git)', process.execPath, ['tooling/probes/m2-claims-not-evidence.mjs'], {}],
   ['probe: M3 trust-classes (real git)', process.execPath, ['tooling/probes/m3-trust-classes.mjs'], {}],
@@ -242,6 +253,7 @@ const STEPS = [
   ['probe: pre-1.0 execution-environment authority battery (real git, poisoned env)', process.execPath, ['tooling/probes/pre10-env-authority.mjs'], {}],
   ['probe: pre-1.0 human-acceptance battery (real git + pty)', process.execPath, ['tooling/probes/pre10-acceptance.mjs'], {}],
   ['probe: master-pass mutation battery (built dist)', process.execPath, ['tooling/probes/master-pass-mutations.mjs'], {}],
+  ['probe: 1.1 P0 trust-boundary mutations (scratch builds)', process.execPath, ['tooling/probes/p0-trust-boundary-mutations.mjs'], {}],
   ['probe: acceptance growth (real git + pty)', process.execPath, ['tooling/probes/f3-acceptance-growth.mjs'], {}],
   ['probe: architecture closure matrix', process.execPath, ['tooling/probes/architecture-closure.mjs'], {}],
   ['probe: architecture closure mutations (scratch builds)', process.execPath, ['tooling/probes/architecture-closure-mutations.mjs'], {}],

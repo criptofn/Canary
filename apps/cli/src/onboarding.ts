@@ -70,7 +70,7 @@ import type { PlanAuthority, PlanStep } from './project.js';
 // 1.1 P0 — the sealed authority store outside the repo. In this slice the
 // store is SEALED at setup and REPORTED at status/doctor; no v1.0 verdict
 // reads it (yet), so a legacy project without records loses nothing.
-import { openSealed, probeTrustLevel, sealRecord, storeFromEnv, projectIdForRoot } from './trust-store.js';
+import { openSealed, probeTrustLevel, probeTrustLevelReadOnly, sealRecord, storeFromEnv, projectIdForRoot } from './trust-store.js';
 import { canonicalJson } from '@canary-rn/hashing';
 import { CANARY_VERSION } from './pipeline.js';
 export { detectPm, detectPlan, isSafeScriptName, sealPlanAuthority, planAuthorityDrift, stepArgv, planDigest, parseJsonOrNull } from './project.js';
@@ -1854,7 +1854,10 @@ function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean)
  */
 export function securityCapability(): { level: 'HARDENED' | 'LOCAL' | 'ADVISORY' | 'UNSUPPORTED'; reasons: string[] } {
   try {
-    return probeTrustLevel(storeFromEnv());
+    // READ-ONLY: this feeds `status`, `result` and `agents`, all of which promise
+    // to write nothing. The write-measuring probe belongs to setup/doctor, where
+    // writing is already part of the job.
+    return probeTrustLevelReadOnly(storeFromEnv());
   } catch (e) {
     return { level: 'UNSUPPORTED', reasons: [`the trust store could not be examined: ${String((e as Error).message ?? e)}`] };
   }
@@ -1888,7 +1891,7 @@ function sealedCopyReport(root: string, cfg: CanaryConfig): string {
   let projectId: string, tail: string, level: string;
   try {
     projectId = projectIdForRoot(root);
-    level = probeTrustLevel(store).level;
+    level = probeTrustLevelReadOnly(store).level;
     tail = ` (store ${store.root}, level ${level})`;
   } catch (e) {
     return `sealed copy: unreadable store — ${(e as Error).message}`;
