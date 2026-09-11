@@ -60,9 +60,29 @@ numeric proof bindings, input limits, and the remaining local trust boundaries.
   whitespace). If cleanup can't fully succeed it keeps its ownership record so
   the advertised retry actually works.
 
-**Supported today:** Node-style projects (npm / pnpm / yarn / bun lockfiles)
-and Claude Code. If you run OpenAI Codex you'll get an explicit message, not
-a half-integration that pretends to protect you.
+**Supported today.** Canary discovers the checks your project already declares —
+and it never invents one:
+
+| Project | Discovered from | Checks |
+|---|---|---|
+| Node / JS / TS | `package.json` (+ its lockfile) | `test`, `typecheck`, `build`, `bench`, `e2e` scripts |
+| Python | `pyproject.toml`, `setup.py`, `setup.cfg`, `tox.ini`, `requirements*.txt` | `pytest`, `tox`, `unittest`, plus `mypy` / `pyright` / `ruff` |
+| Rust | `Cargo.toml` | `cargo test`, `cargo check`, `cargo build` |
+| Go | `go.mod`, `go.work` | `go test ./...`, `go vet ./...` |
+
+Agents are reported by what they can actually do, not by what we wish they could:
+
+| Agent | Capability |
+|---|---|
+| Claude Code | **GATED** — `canary setup` installs a completion hook, so a failing check blocks the agent |
+| Codex, and any command-line agent | **ADVISORY** — `canary agents install codex` adds a marked, removable block to `AGENTS.md` telling the agent to consult `canary result --json`; it cannot block anything, and it says so |
+
+`canary agents` prints that table for the repository in front of you. Security
+capability is reported the same way: **`LOCAL`** is what this build can honestly
+claim today, and `HARDENED` is not available yet
+([why](docs/CAPABILITY-LEVELS.md)). Full matrix, including what is deliberately
+*not* supported: [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Upgrading an
+existing installation: [docs/MIGRATION-1.0-TO-1.1.md](docs/MIGRATION-1.0-TO-1.1.md).
 
 **What `READY` means — and what it does not.** READY is printed only when
 Canary's wiring was verified to exist *and* your detected checks were
@@ -143,11 +163,20 @@ The two tiers share one binary; `canary` below is the linked command, or
 Everyday automatic path (the quickstart above):
 
 ```bash
-canary setup     [--yes]     # detect project + harness, wire, smoke-run. READY/NEEDS ATTENTION
+canary setup     [--yes]     # detect the project + the agents, PIN the toolchain, wire, smoke-run
 canary doctor                # runs your checks NOW and reports READY/NEEDS ATTENTION/UNSUPPORTED
+canary status                # read-only state, runs nothing: CONNECTED / NEEDS ATTENTION / NOT CONNECTED
+canary result    [--json]    # the same state as ONE compact JSON object — free, for agents and scripts
+canary agents    [install|uninstall <id>]   # which agents work here, and at what capability
 canary uninstall             # remove exactly Canary's own changes (recorded strings, never guesswork)
 canary checkpoint            # harness-internal: runs at the agent's completion boundary (Stop hook)
 ```
+
+Every command accepts `--json`: the human prose moves to stderr and stdout
+carries exactly one versioned object (`{"schema":"canary-status/1", …}`). Exit
+codes and status words are identical with and without the flag — asking for JSON
+never changes a verdict, and the envelope names the files evidence lives in
+instead of pasting logs into an agent's context.
 
 `setup` / `doctor` never print READY without having executed the detected
 checks and seen them pass *in that same invocation* — `doctor` runs the plan
