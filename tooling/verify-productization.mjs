@@ -189,12 +189,19 @@
  * a skip is never counted into a 25/25-style pass claim); 1 on any FAIL or
  * an aborted chain. NO PROOF, NO DONE.
  */
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const CANARY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SH = process.platform === 'win32';
+// 1.1 P0 isolation: every step spawns the CLI (directly or through a probe),
+// and every such spawn inherits/spreads this process's env — pointing it at
+// ONE fresh temp trust store keeps all verification sealing out of the real
+// per-user store, which is exactly what it is NOT for.
+process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-oracle-'));
 const STEPS = [
   ['build (tsc -b)', 'npm', ['run', 'build'], {}],
   ['full unit suite', 'npm', ['test'], {}],
@@ -210,6 +217,7 @@ const STEPS = [
   ['M10 obligations contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m10-obligations.test.js'], {}],
   ['1.1 §1 project-adapter contract tests', process.execPath, ['--test', 'apps/cli/dist/test/project-adapter.test.js'], {}],
   ['1.1 P0 trust-store sealing contract tests', process.execPath, ['--test', 'apps/cli/dist/test/trust-store.test.js'], {}],
+  ['1.1 P0 trust-store wiring tests', process.execPath, ['--test', 'apps/cli/dist/test/trust-wiring.test.js'], {}],
   ['probe: empty-plan checkpoint', process.execPath, ['tooling/probes/checkpoint-empty-plan.mjs'], {}],
   ['probe: M2 claims-not-evidence (real git)', process.execPath, ['tooling/probes/m2-claims-not-evidence.mjs'], {}],
   ['probe: M3 trust-classes (real git)', process.execPath, ['tooling/probes/m3-trust-classes.mjs'], {}],

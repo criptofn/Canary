@@ -65,6 +65,12 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // tests) compiles and behaves unchanged while the seam gains a second owner.
 import { ADAPTERS, adapterFor, LOCKFILES, nodeAdapter, parseJsonOrNull, planDigest, sha256, stepArgv } from './project.js';
 import type { PlanAuthority, PlanStep } from './project.js';
+// 1.1 P0 — the sealed authority store outside the repo. In this slice the
+// store is SEALED at setup and REPORTED at status/doctor; no v1.0 verdict
+// reads it (yet), so a legacy project without records loses nothing.
+import { openSealed, probeTrustLevel, sealRecord, storeFromEnv, projectIdForRoot } from './trust-store.js';
+import { canonicalJson } from '@canary-rn/hashing';
+import { CANARY_VERSION } from './pipeline.js';
 export { detectPm, detectPlan, isSafeScriptName, sealPlanAuthority, planAuthorityDrift, stepArgv, planDigest, parseJsonOrNull } from './project.js';
 export type { PlanKind, PlanStep, PlanAuthority } from './project.js';
 
@@ -1493,6 +1499,21 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
     touched: [res.touched!],
   };
+  // 1.1 P0 — the authority gets a SEALED COPY outside the repo before any repo
+  // write of this run lands: a store that cannot mint means no config, so the
+  // project is never left with in-repo-only authority that silently looks
+  // sealed. Every setup re-seals (the store's seq ledger advances); the in-repo
+  // bytes stay byte-identical to v1.0 — the store is a mirror that DETECTS
+  // divergence, and probeTrustLevel says its level honestly below.
+  const store = storeFromEnv();
+  const projectId = projectIdForRoot(root);
+  try {
+    sealRecord(store, { projectId, kind: 'registration', canaryVersion: CANARY_VERSION, payload: { root: fs.realpathSync(root), pm, adapter: 'node' } });
+    sealRecord(store, { projectId, kind: 'plan-seal', canaryVersion: CANARY_VERSION, payload: cfg.planAuthority });
+  } catch (e) {
+    o.verdict('NEEDS ATTENTION', `authority could not be sealed in the trust store (${String((e as Error).message ?? e).slice(0, 140)}) — Canary will not finish wiring a project whose sealed copy it cannot mint. The .canary config was not written.`, `fix the store at ${store.root} (writable by this user, or point CANARY_TRUST_STORE at an empty directory), then run setup again`);
+    return 2;
+  }
   try {
     writeConfig(root, cfg);
   } catch (e) {
@@ -1509,6 +1530,8 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   try { fs.rmSync(path.join(root, CONFIG_DIR, QUARANTINE_FILE), { force: true }); } catch { /* absent is the common case */ }
   o.say(`Claude Code will run Canary automatically when the agent finishes a turn here.${prev && prev !== 'corrupt' ? ' (re-run: existing Canary hook refreshed, no duplicates)' : ''}`);
   o.detail('authority sealed: the plan and the exact text of every script it runs — candidate edits to the verification surface block completion until setup is deliberately re-run.');
+  const level = probeTrustLevel(store);
+  o.detail(`sealed authority copy: ${store.root} (project ${projectId}) — level ${level.level}: ${level.reasons.join(' ')}`);
 
   // smoke = run the plan for real (this is the proof the wiring works)
   const interactive = process.stdin.isTTY === true;
@@ -1611,6 +1634,32 @@ function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean)
 }
 
 /**
+ * 1.1 P0 — the sealed-copy report, for `status` and `doctor` (verbose detail
+ * lines). READ-ONLY and REPORT-ONLY by design: no verdict in this build
+ * consumes it, so v1.0 outcomes are unchanged (gate K) — but a human who asks
+ * "is what the repo claims also what the store sealed?" gets the measured
+ * truth, including "there is no sealed copy yet" for legacy projects.
+ */
+function sealedCopyReport(root: string, cfg: CanaryConfig): string {
+  const store = storeFromEnv();
+  let projectId: string, tail: string, level: string;
+  try {
+    projectId = projectIdForRoot(root);
+    level = probeTrustLevel(store).level;
+    tail = ` (store ${store.root}, level ${level})`;
+  } catch (e) {
+    return `sealed copy: unreadable store — ${(e as Error).message}`;
+  }
+  const open = openSealed(store, { projectId, kind: 'plan-seal' });
+  if (open.status === 'missing') return `sealed copy: none yet — this repo predates sealing or was set up elsewhere; run setup to seal it${tail}`;
+  if (open.status !== 'valid') return `sealed copy: ${open.status.toUpperCase()} — ${open.reason}${tail}`;
+  const same = !!cfg.planAuthority && canonicalJson(open.envelope!.payload) === canonicalJson(cfg.planAuthority);
+  return same
+    ? `sealed copy: store seq ${open.envelope!.seq} matches this config's sealed authority${tail}`
+    : `sealed copy: MISMATCH — the .canary config and the sealed record disagree; run setup to re-seal deliberately${tail}`;
+}
+
+/**
  * canary status — the Lazy-Connect read surface: "Canary already recognizes
  * this environment; what is its state?" Answers from config and wiring bytes
  * on disk only — ZERO project commands executed, ZERO writes: the only
@@ -1638,6 +1687,7 @@ export function cmdStatus(rawArgs: string[]): number {
   }
   o.say(`repo: ${root}`);
   o.say(`plan: ${cfg.plan.length} step(s): ${cfg.plan.map((s) => `${s.kind}:${s.script}`).join(', ')} — sealed authority intact`);
+  o.detail(sealedCopyReport(root, cfg));
   const task = readTaskRecord(root);
   o.say(`task: ${task ? `${task.kinds.join('+')} (${task.requirementCount} requirement(s))` : 'none registered — verify will demand a frozen task before any PASS'}`);
   let candidates: string[] = [];
@@ -1713,6 +1763,7 @@ export function cmdDoctor(rawArgs: string[]): number {
   // M3 (verbose-only — trust classes are evidence internals, not default UX):
   o.detail('trust: this READY is CANARY_OBSERVED — Canary executed the checks in this very invocation. Agent words are AGENT_REPORTED and never sufficient for a PASS; no class is promoted by copying bytes into a Canary-owned file (evidence is never read back for verdicts).');
   if (cfg.planAuthority) o.detail('authority: every command that just ran is one setup sealed — script-text drift is blocked before execution, not excused after it passes.');
+  o.detail(sealedCopyReport(root, cfg));
   return 0;
 }
 

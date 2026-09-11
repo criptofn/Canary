@@ -70,6 +70,27 @@ export function defaultStoreRoot(home: string = os.homedir()): string {
     : path.join(home, '.local', 'share', 'canary', 'trust');
 }
 
+/**
+ * The store this process uses: the OS-home default, or an explicit
+ * CANARY_TRUST_STORE pointer (test/dev steering — same legitimate need the
+ * one `USERPROFILE` fake-home test already serves, without touching git
+ * identity). The override changes WHERE Canary looks, never WHETHER it
+ * verifies: it can only ever aim at an empty or already-valid store. Aimed
+ * at an empty one, every read fails closed (missing/unavailable) — records
+ * are never trusted more because a pointer named them.
+ */
+export function storeFromEnv(env: NodeJS.ProcessEnv = process.env): TrustStore {
+  const v = env.CANARY_TRUST_STORE?.trim();
+  return { root: v ? path.resolve(v) : defaultStoreRoot() };
+}
+
+/** Stable, path-free project identity: a safe id derived from the resolved
+ *  repo root. Two checkouts of one folder share it; renames do not forge a
+ *  new record shelf out of an old one (reads still bind to the sealed bytes). */
+export function projectIdForRoot(root: string): string {
+  return 'p-' + crypto.createHash('sha256').update(fs.realpathSync(root)).digest('hex').slice(0, 32);
+}
+
 /** ids/kinds become path segments — only inert characters may appear. */
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const safeSegment = (value: string, what: string): string => {
