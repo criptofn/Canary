@@ -11,7 +11,8 @@ git clone https://github.com/criptofn/Canary.git
 cd Canary
 npm ci                                 # lockfile-exact; no lifecycle scripts needed
 npm run build                          # tsc -b over the workspace graph
-npm test                               # the full unit suite (776 tests / 4 platform skips today)
+npm test                               # the full unit suite — read the reporter summary
+                                       # (never trust a count copied into a document)
 npm run verify:productization          # build + contracts + every probe, one command
 ```
 
