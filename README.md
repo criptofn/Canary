@@ -80,9 +80,11 @@ Agents are reported by what they can actually do, not by what we wish they could
 `canary agents` prints that table for the repository in front of you. Security
 capability is reported the same way: **`LOCAL`** is what this build can honestly
 claim today, and `HARDENED` is not available yet
-([why](docs/CAPABILITY-LEVELS.md)). Full matrix, including what is deliberately
-*not* supported: [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Upgrading an
-existing installation: [docs/MIGRATION-1.0-TO-1.1.md](docs/MIGRATION-1.0-TO-1.1.md).
+([why](docs/CAPABILITY-LEVELS.md), and
+[what a real boundary would require](docs/TRUST-ARCHITECTURE.md)). Full matrix,
+including what is deliberately *not* supported:
+[docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Upgrading an existing
+installation: [docs/MIGRATION-1.0-TO-1.1.md](docs/MIGRATION-1.0-TO-1.1.md).
 
 **What `READY` means — and what it does not.** READY is printed only when
 Canary's wiring was verified to exist *and* your detected checks were
