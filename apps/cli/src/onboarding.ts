@@ -67,7 +67,7 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // 1.1 §1 — the project model lives in project.js. onboarding re-exports the
 // names it used to own so every existing importer (candidate.ts, the contract
 // tests) compiles and behaves unchanged while the seam gains a second owner.
-import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, SCOPES_FILE, SCOPES_SCHEMA, sealPlanAuthority, sha256, stepArgv } from './project.js';
+import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, scopeDir, SCOPES_FILE, SCOPES_SCHEMA, sealPlanAuthority, sha256, stepArgv } from './project.js';
 import { emitEnvelope, PROTOCOL_RESULT, PROTOCOL_STATUS, type ProtocolEnvelope, type ProtocolIntegration } from './protocol.js';
 import { decideFastPath } from './fastpath.js';
 import { AGENT_INTEGRATIONS, hasAdvisory, installAdvisory, removeAdvisory } from './agents.js';
@@ -630,14 +630,18 @@ export function resolveProgram(program: string, adapterId?: string): ResolvedPm 
  *  `<pm> run <script>` shape (Node). Throws on anything it cannot validate — a
  *  step that cannot be validated is never run anyway. */
 export function stepCommand(pm: string, step: PlanStep): string[] {
-  return step.argv !== undefined ? assertStepArgv(step.argv) : stepArgv(pm, step.script);
+  // A 1.1 scoped step names its own scope's package manager (sealed with the
+  // step); `pm` is the repository-level fallback for 1.0 steps.
+  return step.argv !== undefined ? assertStepArgv(step.argv) : stepArgv(step.pm ?? pm, step.script);
 }
 
 /** How a step is shown to a human: the argv for an explicit step, the 1.0
- *  `<pm> run <script>` wording for a script step (unchanged output). */
+ *  `<pm> run <script>` wording for a script step (unchanged output), and the
+ *  step's OWN scope's pm when it carries one — a nested `web/` step shown as
+ *  `python run test` would be a lie about what will execute. */
 export function stepDisplay(pm: string, step: PlanStep): string {
   const scoped = step.scope ? `${step.scope}: ` : '';
-  return step.argv !== undefined ? `${scoped}${assertStepArgv(step.argv).join(' ')}` : `${scoped}${pm} run ${step.script}`;
+  return step.argv !== undefined ? `${scoped}${assertStepArgv(step.argv).join(' ')}` : `${scoped}${step.pm ?? pm} run ${step.script}`;
 }
 
 /**
@@ -723,7 +727,7 @@ function unresolvedStep(root: string, pm: string, step: PlanStep, err: unknown):
   try { argv = stepCommand(pm, step); } catch { argv = [pm, 'run', step.script]; }
   return {
     kind: step.kind, display: argv.join(' '), ok: false, exitCode: null, secs: 0,
-    tail: msg, argv, cwd: root, stdout: '', stderr: msg,
+    tail: msg, argv, cwd: scopeDir(root, step), stdout: '', stderr: msg,
     execArgv: [], exec: { file: '', digest: null, via: 'unresolved', policy: ENV_POLICY },
     startedAt: at, endedAt: at,
   };
@@ -739,8 +743,15 @@ export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs 
       ? `package manager "${program}" is not resolvable in Canary's trusted execution environment (the running Node's install dir and OS-managed dirs only — the calling PATH is deliberately ignored). Install it with corepack or into the same Node prefix, then re-run.`
       : `program "${program}" is not resolvable in Canary's trusted execution environment (the running Node's install dir, the OS-managed dirs, and the directories the declaring project adapter names — the calling PATH is deliberately ignored). Install it in one of those locations, or seal its absolute path in the plan, then re-run.`);
   }
+  // A step runs in ITS OWN SCOPE's directory. In a nested polyglot repo the
+  // scoped check is declared by `<scope>/package.json` (or `<scope>/pyproject
+  // .toml`), so running it from the repository root is not merely untidy — the
+  // package manager cannot find the manifest and the check fails with
+  // `ENOENT ... package.json`, which the smoke caught. `scopeDir` is the same
+  // function the plan problems and the sealing use, so there is one answer.
+  const cwd = scopeDir(root, step);
   const startedAt = new Date().toISOString();
-  const r = spawnHardened(resolved, argv.slice(1), root, timeoutMs);
+  const r = spawnHardened(resolved, argv.slice(1), cwd, timeoutMs);
   const stdout = r.stdout ?? '';
   const stderr = r.stderr ?? '';
   const out = `${stdout}${stderr}`;
@@ -749,7 +760,7 @@ export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs 
     kind: step.kind, display, ok: !infra && r.status === 0,
     exitCode: infra ? null : r.status, secs: 0,
     tail: out.split(/\r?\n/).filter(Boolean).slice(-12).join('\n'),
-    argv, cwd: root, stdout, stderr,
+    argv, cwd, stdout, stderr,
     execArgv: [...resolved.spawnArgv, ...argv.slice(1)],
     exec: { file: resolved.file, digest: execDigest(resolved.file), via: resolved.via, policy: ENV_POLICY },
     startedAt, endedAt: new Date().toISOString(),
@@ -1843,7 +1854,7 @@ function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean)
   const envSeen = new Set<string>();
   for (const step of cfg.plan) {
     const stepAdapter = adapterForStep(cfg, step);
-    const runner = step.argv !== undefined ? stepAdapter.id : cfg.pm;
+    const runner = step.argv !== undefined ? stepAdapter.id : (step.pm ?? cfg.pm);
     const key = `${stepAdapter.id}:${runner}`;
     if (envSeen.has(key)) continue;
     envSeen.add(key);
@@ -1854,7 +1865,7 @@ function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean)
     // A script step is proved live exactly as the plan will run it (resolved
     // package manager, one hardened spawn). An explicit step is proved live by
     // its sealed ABSOLUTE program existing. Neither is a PATH lookup.
-    const legacyRunners = new Set(cfg.plan.filter((s) => s.argv === undefined).map(() => cfg.pm));
+    const legacyRunners = new Set(cfg.plan.filter((s) => s.argv === undefined).map((s) => s.pm ?? cfg.pm));
     for (const runner of legacyRunners) {
       const resolved = resolvePm(runner);
       const probe = resolved ? spawnHardened(resolved, ['--version'], root, 30_000) : null;
@@ -1936,7 +1947,7 @@ export function protocolChecks(cfg: CanaryConfig): Array<{ kind: string; script:
     script: s.script,
     adapter: s.adapter ?? cfg.project ?? 'node',
     scope: s.scope ?? '',
-    argv: s.argv ?? [cfg.pm, 'run', s.script],
+    argv: s.argv ?? [s.pm ?? cfg.pm, 'run', s.script],
   }));
 }
 

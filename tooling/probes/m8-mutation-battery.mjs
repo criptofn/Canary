@@ -31,6 +31,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+// In-place dist mutation must be RECOVERABLE: a killed battery leaves dist
+// mutated and `tsc -b` will not repair it (see the guard's header for the measured
+// incident this closes).
+import { beginDistMutation, endDistMutation } from '../test-support/dist-mutation-guard.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CAND = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'candidate.js');
@@ -42,6 +46,9 @@ let failures = 0;
 function report(verdict, msg) { console.log(`${verdict} ${msg}`); if (verdict === 'FAIL') failures++; }
 
 const original = new Map([[CAND, fs.readFileSync(CAND)], [ONB, fs.readFileSync(ONB)]]);
+// Custody: a sidecar copy of every file this battery is about to mutate, so an
+// interrupted run is discovered and repaired instead of silently trusted.
+const custody = beginDistMutation([...original.keys()]);
 for (const f of [M8TEST, PROBE]) {
   if (!fs.existsSync(f)) { console.log(`FAIL precheck — missing ${f} (run npm run build first)`); process.exit(1); }
 }
@@ -120,6 +127,10 @@ try {
   }
   for (const [f, bytes] of original) if (!fs.readFileSync(f).equals(bytes)) { report('FAIL', `dist bytes NOT restored: ${f}`); clean = false; }
   if (clean) console.log('restore verified: every mutated dist file is byte-identical to its pre-battery bytes');
+  // Release custody: verifies the bytes came back and clears the journal. If this
+  // process is KILLED before here, the journal survives and the next run repairs.
+  const unrecovered = endDistMutation(custody.entries);
+  if (unrecovered.length) report('FAIL', `the dist guard could not restore: ${unrecovered.join(', ')}`);
 }
 
 const total = (ONLY ? ONLY.size : MUTS.length);

@@ -203,6 +203,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+// In-place dist mutation must be self-healing. The mutation batteries edit the
+// built dist and restore it in `finally`; a battery KILLED mid-mutation (timeout,
+// CI cancel) leaves dist mutated, and `tsc -b` will NOT repair it because
+// .tsbuildinfo already records the source as compiled — so every later step here
+// would judge mutated product code. The guard's journal makes that recoverable,
+// and this is where the recovery happens: BEFORE any step is judged.
+import { recoverInterruptedMutation } from './test-support/dist-mutation-guard.mjs';
 
 const CANARY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SH = process.platform === 'win32';
@@ -211,6 +218,11 @@ const SH = process.platform === 'win32';
 // ONE fresh temp trust store keeps all verification sealing out of the real
 // per-user store, which is exactly what it is NOT for.
 process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-oracle-'));
+// Repair a dist left mutated by an interrupted battery BEFORE judging anything.
+{
+  const repaired = recoverInterruptedMutation();
+  if (repaired !== null) console.log(`WARNING: ${repaired}`);
+}
 const STEPS = [
   ['build (tsc -b)', 'npm', ['run', 'build'], {}],
   ['full unit suite', 'npm', ['test'], {}],
@@ -261,6 +273,10 @@ const STEPS = [
   // product would ever report HARDENED without one — and prints the exact
   // privileged command a human must run to change the answer.
   ['probe: HARDENED provider boundary (measured, not claimed)', process.execPath, ['tooling/probes/provider-boundary.mjs'], {}],
+  // Verification-integrity: prove that an interrupted in-place dist mutation is
+  // detected and repaired, because a stale dist silently produced three phantom
+  // mutation-battery failures in this repo before the guard existed.
+  ['probe: dist-mutation guard (interrupted-battery recovery)', process.execPath, ['tooling/probes/dist-mutation-guard.mjs'], {}],
   ['probe: acceptance growth (real git + pty)', process.execPath, ['tooling/probes/f3-acceptance-growth.mjs'], {}],
   ['probe: architecture closure matrix', process.execPath, ['tooling/probes/architecture-closure.mjs'], {}],
   ['probe: architecture closure mutations (scratch builds)', process.execPath, ['tooling/probes/architecture-closure-mutations.mjs'], {}],

@@ -41,6 +41,10 @@
  * (item 42) rather than performed as theater.
  */
 import { spawnSync } from 'node:child_process';
+// In-place dist mutation must be RECOVERABLE: a killed battery leaves dist mutated
+// and the build tool will not repair it (see the guard's header for the measured
+// incident this closes).
+import { beginDistMutation, endDistMutation } from '../test-support/dist-mutation-guard.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -111,6 +115,9 @@ function runOwner(owner) {
 let failures = 0;
 const originals = new Map();
 for (const [k, p] of Object.entries(CLI_FILES)) originals.set(k, fs.readFileSync(p));
+// Custody: a sidecar copy of every file this battery will mutate, so an interrupted
+// run is discovered and repaired instead of silently trusted.
+const custody = beginDistMutation([...CLI_FILES].map(([, p]) => p).filter((p, i, a) => a.indexOf(p) === i));
 
 console.log('=== master-pass-mutations: baseline owner runs ===');
 for (const owner of new Set(MUTATIONS.map((m) => m.owner))) {
@@ -140,6 +147,14 @@ for (const m of MUTATIONS) {
       if (c !== 1) { failures++; console.log(`FAIL ${m.id} anchor-sweep: ${q.id} anchor count ${c} after restore`); }
     }
   }
+}
+// Release custody: verifies every mutated file came back byte-identically and
+// clears the journal. If this process is KILLED before here, the journal
+// survives, and the next battery start (or the oracle) repairs the tree.
+const unrecovered = endDistMutation(custody.entries);
+if (unrecovered.length > 0) {
+  failures++;
+  console.log(`FAIL: the dist guard could not restore: ${unrecovered.join(', ')} — run \`npx tsc -b --force\``);
 }
 console.log(`\n=== master-pass-mutations: ${failures === 0 ? `ALL ${MUTATIONS.length} CAUGHT` : failures + ' PROBLEM(S)'} ===`);
 process.exit(failures === 0 ? 0 : 1);

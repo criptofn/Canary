@@ -78,6 +78,23 @@ export interface PlanStep {
   adapter?: string;
   scope?: string;
   argv?: string[];
+  /**
+   * The package manager THIS step's own scope resolved at setup.
+   *
+   * WHY IT IS PER STEP AND NOT PER REPO: `cfg.pm` is one flat runner for the
+   * whole repository, which is correct only while every step belongs to one
+   * ecosystem. In a nested polyglot repo — `web/` Node, `backend/` Python — the
+   * repo has no single pm, and taking one from "the first scope discovered"
+   * makes the Node scope's script step render as `python run test`, which is then
+   * correctly refused as an unsafe plan step. That is fail-closed, but it means a
+   * nested Node scope could never run at all. The pm is therefore carried by the
+   * step, detected in the step's own directory, and SEALED with it (canonicalStep)
+   * so it is authority rather than ambient state.
+   *
+   * Absent on 1.0 (root Node) steps on purpose: their bytes, and therefore every
+   * existing seal, stay exactly as they were.
+   */
+  pm?: string;
 }
 
 /** The sealed-identity key of a step. Legacy steps (no scope) key on the bare
@@ -97,6 +114,10 @@ function canonicalStep(step: PlanStep): Record<string, unknown> {
   if (step.adapter !== undefined) out.adapter = step.adapter;
   if (step.scope !== undefined) out.scope = step.scope;
   if (step.argv !== undefined) out.argv = [...step.argv];
+  // Sealed too: which package manager runs a script step decides WHICH command
+  // executes, so it is authority. Present only on 1.1 scoped steps, so a 1.0 plan
+  // still hashes exactly as before.
+  if (step.pm !== undefined) out.pm = step.pm;
   return out;
 }
 
@@ -479,13 +500,18 @@ export function discoverScopes(root: string, maxDepth = 2): ProjectScope[] {
 }
 
 /** A scope's plan, discovered by its own adapter, with scope/adapter stamped on
- *  every step that is not the Node root (1.0 steps keep their exact shape). */
+ *  every step that is not the Node root (1.0 steps keep their exact shape).
+ *
+ *  Every NON-root step also carries its OWN scope's package manager (`pm`). The
+ *  repository-level `cfg.pm` cannot serve a nested polyglot repo, where `web/` is
+ *  npm and `backend/` is none of npm's business; taking one flat runner made the
+ *  Node scope's step render as `<python> run test`. */
 export function planForScope(root: string, s: ProjectScope): DiscoveredProject {
   const dir = s.scope ? path.join(root, ...s.scope.split('/')) : root;
   const disc = s.adapter.discoverChecks(dir);
   const plan = disc.plan.map((step) => (s.adapter.id === 'node' && s.scope === ''
     ? step
-    : { ...step, adapter: s.adapter.id, ...(s.scope ? { scope: s.scope } : {}) }));
+    : { ...step, adapter: s.adapter.id, pm: disc.pm, ...(s.scope ? { scope: s.scope } : {}) }));
   return { ...disc, plan: plan.sort((a, b) => PLAN_ORDER[a.kind] - PLAN_ORDER[b.kind]) };
 }
 
