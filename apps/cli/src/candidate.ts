@@ -132,6 +132,11 @@ import {
   type AcceptanceRecord, type CanaryConfig, type GitResult, type PlanStep, type StepResult, type TaskKind,
 } from './onboarding.js';
 import { authorityDrift, quarantineInfo, QUARANTINE_FILE, shortState, snapshotAuthority, snapshotTree, stampQuarantine, treeDrift, type AuthorityChange } from './authority.js';
+import {
+  brokerRoutingRequired, expectedAuthorityGeneration, refusalText,
+  reservePromotionThroughBroker, submitAcceptanceThroughBroker,
+} from './provider/routing.js';
+import { projectIdForRoot, storeFromEnv } from './trust-store.js';
 
 const CANDIDATES_SUBDIR = 'candidates';
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/; // registry keys are filenames
@@ -747,7 +752,7 @@ function authorizationContext(root: string, name: string): {
  * bytes reopen consent; replacing frozen declarations requires re-isolation.
  * Objective shortfalls remain independent of the acceptance record.
  */
-export function cmdAccept(rawArgs: string[]): number {
+export async function cmdAccept(rawArgs: string[]): Promise<number> {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose);
   const name = rest[0] ?? '';
@@ -755,6 +760,12 @@ export function cmdAccept(rawArgs: string[]): number {
   if (!NAME_RE.test(name)) { o.say(`candidate name must match ${NAME_RE}`); return 3; }
   const root = findRepoRoot(process.cwd());
   if (!root) { o.say('not inside a git repository — there is no candidate registry here to accept from'); return 2; }
+  // PROVIDER-ONLY ROUTING (v1.1 item 4): when a provider is configured, the
+  // review statement is minted by the broker or it is not minted at all. This is
+  // checked BEFORE the interactive prompt, because a terminal confirmation that
+  // could not be honoured would be theatre.
+  const store = storeFromEnv();
+  const providerOnly = brokerRoutingRequired(store);
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     o.say('REFUSED — the supported acceptance flow requires an interactive terminal on both streams; this session has none, so the non-interactive path is refused. (No flag or env var escapes this. A terminal is friction, not cryptographic human identity — see SECURITY.md.) To accept, run canary accept <candidate> yourself from a real terminal.');
     return 2;
@@ -786,6 +797,22 @@ export function cmdAccept(rawArgs: string[]): number {
     schema: 'canary-acceptance/3', at: new Date().toISOString(), candidate: name,
     subject, subjectDigest: subjectDigest(subject), acceptedBy: 'tty-human',
   };
+  if (providerOnly) {
+    // A provider is installed, so the LOCAL writable path is closed: no
+    // acceptance file is written here under any circumstance. The broker — the
+    // process with the reviewer key and a different identity — decides.
+    const routed = await submitAcceptanceThroughBroker({ projectId: projectIdForRoot(root), candidate: name }, store);
+    if (routed.routed && routed.ok) {
+      o.say(`ACCEPTED by the broker: the review statement for "${name}" was minted through the provider boundary.`);
+      o.say(`next: canary isolate --verify ${name} — subjective duties read MET (accepted by the broker); objective proof still has to hold on its own.`);
+      return 0;
+    }
+    const detail = routed.routed ? refusalText(routed.code, routed.message) : 'the broker could not be consulted';
+    o.say(`REFUSED — a provider is configured here, so acceptance must be minted by the broker, and it was not: ${detail}`);
+    o.say('  NOTHING WAS WRITTEN. No acceptance record exists, and the local writable path is closed while a provider is installed.');
+    o.say('  this is not a fallback: if the broker is unavailable or refuses, the act does not happen. Run `canary provider status` to see the boundary.');
+    return 2;
+  }
   if (!writeAcceptance(root, acc)) { o.say('acceptance could not be written (.canary containment refused it) — nothing accepted'); return 2; }
   o.say(`ACCEPTED from this interactive terminal: ${path.join(CONFIG_DIR, ACCEPTANCE_SUBDIR, `${name}.json`)}`);
   o.say(`next: canary isolate --verify ${name} — subjective duties read MET (accepted, and bound to these exact bytes); objective proof still has to hold on its own.`);
@@ -813,7 +840,7 @@ export function cmdAccept(rawArgs: string[]): number {
  * Deliberately NOT claim-trusting: worker DONE lines, candidate-created PASS
  * files, and the ADVANCED registry status are all inert here.
  */
-function isolatePromote(root: string, cfg: CanaryConfig, o: Out, name: string): number {
+async function isolatePromote(root: string, cfg: CanaryConfig, o: Out, name: string): Promise<number> {
   const prov = { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null };
   const writeBundle = (results: StepResult[], status: 'accepted' | 'blocked', rec: CandidateRecord, promotion: Record<string, unknown>): string => {
     const dir = writeVerificationBundle(root, 'promotion', results, status, prov, {
@@ -870,6 +897,33 @@ function isolatePromote(root: string, cfg: CanaryConfig, o: Out, name: string): 
     o.say(`ALREADY APPLIED — "${name}"'s verified commit ${short(H)} is exactly where ${branchShort} already sits; the live re-verification passed.`);
     o.say('ACCEPTED — no second act was needed.');
     return 0;
+  }
+  // Gate 6½ — PROVIDER-ONLY ROUTING (v1.1 item 4). When a provider is configured,
+  // the fast-forward is authorized by the broker or it does not happen. This is the
+  // LAST gate before the only act in Canary that lets candidate bytes into the
+  // trusted base, and it is deliberately placed here rather than earlier: all the
+  // identity gates above must have passed for the broker to be asked about THIS
+  // exact {base, candidate} pair, and the broker's answer is compared against the
+  // live identities below — a broker that authorizes a different candidate, base or
+  // project authorizes nothing.
+  const store = storeFromEnv();
+  if (brokerRoutingRequired(store)) {
+    const routed = await reservePromotionThroughBroker({ projectId: projectIdForRoot(root), candidate: name }, store);
+    if (!routed.routed || !routed.ok) {
+      const detail = routed.routed ? refusalText(routed.code, routed.message) : 'the broker could not be consulted';
+      return refuse(rec, `a provider is configured here, so promotion must be authorized by the broker, and it was not: ${detail}`,
+        'run canary provider status — with a provider installed there is no local promotion path, by design',
+        { branch, from: idb.head, to: H, tree: treeT, providerOnly: true });
+    }
+    const window = (routed.result ?? {}) as { expectedHead?: unknown; candidateCommit?: unknown; targetId?: unknown };
+    if (window.candidateCommit !== H || window.expectedHead !== idb.head) {
+      return refuse(rec, 'the broker authorized a DIFFERENT promotion window than this act: '
+        + `broker {base ${short(String(window.expectedHead ?? '?'))}, candidate ${short(String(window.candidateCommit ?? '?'))}} `
+        + `vs local {base ${short(idb.head)}, candidate ${short(H)}} — a mismatch is a refusal, never a merge`,
+        'the broker is bound to another candidate or base; re-run canary setup on this repository',
+        { branch, from: idb.head, to: H, tree: treeT, providerOnly: true, brokerWindow: window });
+    }
+    o.say(`  provider: promotion window reserved by the broker (target ${String(window.targetId ?? 'unstated')}, generation ${expectedAuthorityGeneration(store) ?? 'unstated'})`);
   }
   // Gate 7 — the apply: fast-forward only. H passed HEX_RE, so it can never
   // parse as a flag; --end-of-options is deliberately NOT used (undocumented
@@ -978,7 +1032,7 @@ function isolateRemove(root: string, o: Out, name: string, discard: boolean): nu
 
 // ---------- entry ----------
 
-export function cmdIsolate(rawArgs: string[]): number {
+export async function cmdIsolate(rawArgs: string[]): Promise<number> {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose);
   const usage = 'usage: canary isolate <name> [--base <ref>] [--path <dir>] [repo-path] | --list | --verify <name> | --remove <name> [--discard] | --promote <name>';
@@ -1019,7 +1073,7 @@ export function cmdIsolate(rawArgs: string[]): number {
   const { root, cfg } = base;
   if (mode === 'create') return isolateCreate(root, cfg, o, arg, baseRef, customPath);
   if (mode === 'verify') return isolateVerify(root, cfg, o, arg);
-  if (mode === 'promote') return isolatePromote(root, cfg, o, arg);
+  if (mode === 'promote') return await isolatePromote(root, cfg, o, arg);
   if (mode === 'remove') return isolateRemove(root, o, arg, discard);
   return isolateList(root, o);
 }

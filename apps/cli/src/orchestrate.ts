@@ -39,7 +39,7 @@ const forwarded = (args: string[]): string[] => args.filter((a) => a !== '--json
  * the task at isolation, so the work is judged against the intent as it was
  * understood when the worker started. Registering later cannot mint authority —
  * it only adds duties. */
-export function cmdWork(rawArgs: string[]): number {
+export async function cmdWork(rawArgs: string[]): Promise<number> {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose, opts.json);
   o.context({ command: 'work' });
@@ -61,7 +61,7 @@ export function cmdWork(rawArgs: string[]): number {
   if (taskCode !== 0) { o.say('the intent could not be registered — nothing was opened.'); return taskCode; }
 
   // 2. the candidate, from the trusted base, with that intent frozen into it
-  const isolateCode = cmdIsolate([name]);
+  const isolateCode = await cmdIsolate([name]);
   if (isolateCode !== 0) { o.say('the candidate could not be opened — the base is untouched.'); return isolateCode; }
 
   o.verdict('CONNECTED',
@@ -75,7 +75,7 @@ export function cmdWork(rawArgs: string[]): number {
  * The objective path completes here: verify from outside the candidate, and — if
  * every objective duty holds — promote. A NOT PROVEN or BLOCKED result returns
  * exactly what the primitive said, with the base untouched. */
-export function cmdFinish(rawArgs: string[]): number {
+export async function cmdFinish(rawArgs: string[]): Promise<number> {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose, opts.json);
   o.context({ command: 'finish' });
@@ -86,7 +86,7 @@ export function cmdFinish(rawArgs: string[]): number {
   if (!name) { o.verdict('NEEDS ATTENTION', 'name the candidate to finish.', 'usage: canary finish <name>'); return 3; }
 
   // 1. verify the committed candidate against the base's sealed authority
-  const verified = cmdIsolate(['--verify', name]);
+  const verified = await cmdIsolate(['--verify', name]);
   if (verified !== 0) {
     o.verdict('NEEDS ATTENTION',
       'the candidate is NOT eligible: the sealed checks did not pass, or an objective duty is unmet or unproven. The base is untouched. Nothing was promoted.',
@@ -95,7 +95,7 @@ export function cmdFinish(rawArgs: string[]): number {
   }
 
   // 2. promotion re-verifies LIVE and fast-forwards only the exact verified commit
-  const promoted = cmdIsolate(['--promote', name]);
+  const promoted = await cmdIsolate(['--promote', name]);
   if (promoted !== 0) {
     o.verdict('NEEDS ATTENTION', 'verification passed, but promotion was refused. The base is untouched.', 'read the refusal above, then: canary finish ' + name);
     return promoted;
