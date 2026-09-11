@@ -144,15 +144,13 @@ feature('Python: a real project with NO package.json anywhere', () => {
 feature('Rust: cargo-compatible path', () => {
   const v = toolchainWithLocal('rust');
   if (v === null) return skip('no Rust toolchain (system or workspace-local) — run: node tooling/toolchains.mjs rust');
-  // The channel facts are established by the runner-channels probe below. What
-  // this row reports is the PROJECT-verification path, and it is honest about the
-  // measured blocker rather than saying "no toolchain" (which would now be false):
-  // a Canary step gets `sanitizedEnv`, and under it the rustup PROXY cannot find
-  // its toolchain (no RUSTUP_HOME/HOME), while the REAL toolchain binary works.
-  return skip(`toolchain present (${v}) and channel facts measured, but a Rust STEP cannot run yet: a Canary step `
-    + 'gets the sanitized env, where the rustup proxy cargo fails ("could not choose a version of cargo") because '
-    + 'RUSTUP_HOME/HOME are redirected; the real toolchain cargo works (measured: 2 passed). The fix is for the Rust '
-    + 'adapter to resolve the toolchain binary rather than the PATH proxy — recorded, not silently skipped');
+  // A REAL crate through the product. This is also the regression guard for the
+  // resolution fix: setup must seal the REAL toolchain binary, because the rustup
+  // PATH proxy cannot run under Canary's sanitized env.
+  const out = runProbe('tooling/probes/rust-project-e2e.mjs', 'rust-project-e2e', { status: 0, match: /rust project e2e: ALL PASS/ });
+  assertMatch(out, /toolchains[\\/]/, 'setup must seal the toolchain binary, not the proxy');
+  assertMatch(out, /READY/, 'doctor must reach READY on a green crate');
+  return { note: `${v}; setup sealed the real toolchain cargo and doctor ran cargo check/test/build under the sanitized env` };
 });
 
 feature('Go: go-compatible path', () => {

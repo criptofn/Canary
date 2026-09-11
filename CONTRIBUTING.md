@@ -42,6 +42,16 @@ you changed; do not "green" them by deletion. A host-bound `SKIP` is the honest
 outcome where the platform genuinely cannot do the thing, and a `SKIP` is never a
 pass.
 
+**Rust and Go can be validated on a Windows host without administrator rights.**
+`node tooling/toolchains.mjs all` provisions both **workspace-locally** (Go as a
+relocatable archive, Rust via rustup with `CARGO_HOME`/`RUSTUP_HOME` inside
+`_toolchains/` and `--no-modify-path`). Nothing touches Program Files, the
+registry, `PATH`, `~/.cargo` or `~/.rustup`. That is what makes the Rust and Go
+runner channels MEASURABLE rather than merely asserted, and it is why
+`tooling/probes/runner-channels-rust-go.mjs` and
+`tooling/probes/go-project-e2e.mjs` can run in the oracle at all. Re-provision
+after a clean checkout; the directory is gitignored.
+
 ## Rules that are not negotiable
 
 1. **No numbers without an executed command.** Read

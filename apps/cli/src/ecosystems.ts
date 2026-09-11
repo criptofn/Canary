@@ -23,6 +23,7 @@
  * human-authorized moment (never a PATH lookup at verification time).
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -56,6 +57,12 @@ interface Ecosystem {
   /** Programs the checks need; setup pins these to absolute paths. */
   programs: readonly string[];
   discover(root: string): { checks: EcoCheck[]; note: string; reason: string; confidence: 'high' | 'medium' | 'low' } | null;
+  /**
+   * Absolute directories this ecosystem's programs may be resolved from, in
+   * addition to the baseline trusted dirs. Computed (not static) for ecosystems
+   * whose toolchain location depends on rustup's own home variables.
+   */
+  trustedProgramDirs?: readonly string[];
   /**
    * Environment this ecosystem's programs need under Canary's SANITIZED env, or
    * undefined when they need none (see `ProjectAdapter.toolchainEnv`).
@@ -160,6 +167,33 @@ const rustEcosystem: Ecosystem = {
   manifests: ['Cargo.toml'],
   dependencyPaths: ['Cargo.toml', 'Cargo.lock'],
   programs: ['cargo'],
+  /**
+   * Rust's toolchain lives OUTSIDE the OS-managed dirs, and the PATH entry rustup
+   * installs is a PROXY that cannot run under Canary's sanitized environment
+   * (measured: "rustup could not choose a version of cargo to run" once
+   * RUSTUP_HOME/HOME are redirected), while the REAL toolchain binary needs no
+   * environment and runs fine. So the adapter declares the literal locations a
+   * rustup install keeps its toolchains in, and setup prefers them: sealing a
+   * proxy would seal a step that can never execute.
+   *
+   * `RUSTUP_HOME`/`CARGO_HOME` are honored when set, because that is rustup's own
+   * documented way to relocate them (and how this repository's workspace-local
+   * toolchain is declared).
+   */
+  get trustedProgramDirs(): readonly string[] {
+    const homes = [
+      process.env.RUSTUP_HOME?.trim() || path.join(os.homedir(), '.rustup'),
+      process.env.CARGO_HOME?.trim() || path.join(os.homedir(), '.cargo'),
+    ];
+    const dirs: string[] = [];
+    for (const home of homes) {
+      dirs.push(path.join(home, 'bin'));
+      try {
+        for (const tc of fs.readdirSync(path.join(home, 'toolchains'))) dirs.push(path.join(home, 'toolchains', tc, 'bin'));
+      } catch { /* no toolchains dir: PATH stays the fallback */ }
+    }
+    return dirs;
+  },
   discover(root) {
     const manifest = readText(path.join(root, 'Cargo.toml'));
     if (manifest === null) return null;
@@ -290,8 +324,10 @@ export function commandAdapter(eco: Ecosystem): ProjectAdapter {
     },
     dependencyPaths: eco.dependencyPaths,
     // Absolute sealed paths are the authority; setup pins them, so no
-    // conventional-directory guessing happens at verification time.
-    trustedProgramDirs: [],
+    // conventional-directory guessing happens at verification time. An ecosystem
+    // whose toolchain lives outside the OS-managed dirs still declares its
+    // literal locations HERE, for setup to prefer over a PATH proxy.
+    trustedProgramDirs: eco.trustedProgramDirs ?? [],
   };
 }
 

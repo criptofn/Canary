@@ -703,7 +703,15 @@ export function pinPlanPrograms(plan: PlanStep[]): { plan: PlanStep[]; problems:
     const argv = assertStepArgv(step.argv);
     const head = argv[0] as string;
     if (path.isAbsolute(head)) return { ...step, argv };
-    const abs = resolveOnPath(head);
+    // ADAPTER-DECLARED DIRECTORIES COME FIRST (v1.1). For most ecosystems they are
+    // empty and this is a no-op. For Rust they are the point: rustup installs a
+    // PATH PROXY at `~/.cargo/bin/cargo`, and the proxy cannot run under Canary's
+    // sanitized environment (RUSTUP_HOME/HOME are redirected), while the REAL
+    // toolchain binary at `<rustup>/toolchains/<tc>/bin/cargo` runs fine — measured
+    // in tooling/probes/runner-channels-rust-go.mjs. Sealing the proxy would seal a
+    // step that can never execute, so a reviewed, literal adapter directory is
+    // preferred over whatever PATH happens to resolve to.
+    const abs = resolveFromAdapterDirs(step, head) ?? resolveOnPath(head);
     if (abs === null) {
       problems.push(`"${head}" (needed by the ${step.kind} check "${step.script}") was not found on PATH at setup time`);
       return { ...step, argv };
@@ -711,6 +719,22 @@ export function pinPlanPrograms(plan: PlanStep[]): { plan: PlanStep[]; problems:
     return { ...step, argv: [abs, ...argv.slice(1)] };
   });
   return { plan: out, problems };
+}
+
+/** Try the step's own adapter's declared program directories, in order. */
+function resolveFromAdapterDirs(step: PlanStep, program: string): string | null {
+  let dirs: readonly string[] = [];
+  try { dirs = adapterForStep({}, step).trustedProgramDirs; } catch { return null; }
+  const names = process.platform === 'win32'
+    ? [`${program}.exe`, `${program}.cmd`, `${program}.bat`, program]
+    : [program];
+  for (const d of dirs) {
+    for (const n of names) {
+      const abs = path.join(d, n);
+      try { if (fs.statSync(abs).isFile()) return abs; } catch { /* keep looking */ }
+    }
+  }
+  return null;
 }
 
 /** Shared spawn for a resolved pm: the plan runner and doctor's liveness
