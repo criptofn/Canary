@@ -1234,6 +1234,214 @@ export function candidateDiffSignals(root: string, baseHead: string): DiffSignal
 
 export interface Obligation { id: string; mode: 'objective' | 'non-objective'; status: 'met' | 'unproven' | 'unmet'; note: string }
 
+/**
+ * Canary's OWN wiring is not the product under test.
+ *
+ * MEASURED: `setup` installs the Stop hook into `.claude/settings.json` and writes `.canary/`
+ * AFTER the baseline commit, so a repository with no code change at all still showed those paths as
+ * "the candidate's change" — and the regression-evidence question, correctly asked, then reported
+ * NOT PROVEN for a project nobody had touched (the probe's case D). Counting the verifier's own
+ * files as the change is a measurement error, not a strict rule.
+ */
+const isCanaryOwnArtifact = (p: string): boolean =>
+  p === '.claude' || p.startsWith('.claude/')
+  || p === CONFIG_DIR || p.startsWith(`${CONFIG_DIR}/`);
+
+/**
+ * Paths whose change cannot alter the product's BEHAVIOUR, so there is nothing for a regression check
+ * to discriminate: prose, licences, ignore files. Manifests are deliberately NOT here — a version or
+ * script change in `package.json` is behaviour a user sees, and it is exactly what a bump task must
+ * prove.
+ */
+const isNonBehaviourPath = (p: string): boolean =>
+  /\.(md|markdown|txt|rst)$/i.test(p)
+  || /(^|[\\/])(docs?|licen[cs]e|changelog|news|contributing|code_of_conduct)([\\/.]|$)/i.test(p)
+  || /(^|[\\/])\.gitignore$/i.test(p);
+
+/**
+ * Generated and cached files are not the candidate's change.
+ *
+ * MEASURED false positive: the documented Python journey runs `setup` then `doctor` with NO edit at
+ * all, and the second `doctor` reported NOT PROVEN — because running the sealed checks had created
+ * `__pycache__/*.pyc` inside the repository, which git reports as an untracked change. Anything the
+ * toolchain generates belongs to the run, not to the author, and asking for regression evidence
+ * about a byte-compiled cache file is an invented duty.
+ */
+const isGeneratedArtifact = (p: string): boolean =>
+  /(^|[\\/])__pycache__([\\/]|$)/.test(p)
+  || /(^|[\\/])(node_modules|\.venv|venv|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.cache|target|out|coverage|\.nyc_output|\.next|\.turbo|obj|bin)([\\/]|$)/.test(p)
+  || /\.(pyc|pyo|pyd|class|o|obj|log|tmp|temp|bak|swp)$/i.test(p)
+  || /(^|[\\/])\.coverage$/i.test(p)
+  || /\.egg-info([\\/]|$)/.test(p);
+
+/**
+ * THE REGRESSION-EVIDENCE OBLIGATION.
+ *
+ * The product invariant this implements, in the owner's words: *existing behaviour that must be
+ * preserved requires regression evidence, and missing or ambiguous proof must fail closed, never
+ * degrade to PASS.*
+ *
+ * `planDiscrimination` measures whether the sealed checks are SENSITIVE to this change. That
+ * measurement becomes an ordinary proof obligation here, so the checkpoint gate, `doctor` and the
+ * promotion path all read one thing — and an obligation that is `unproven` is NOT a pass.
+ *
+ * `null` means the question could not be asked (no change, no baseline, an environment-shaped base
+ * failure). That is deliberately NOT an obligation: an unestablished comparison must not be dressed
+ * up as either a duty or a discharge of one.
+ */
+export function discriminationObligation(root: string, cfg: CanaryConfig, timeoutMs = 600_000): Obligation | null {
+  const disc = planDiscrimination(root, cfg, timeoutMs);
+  if (!disc.applicable) return null;
+  const files = disc.changedPaths.slice(0, 4).map(safePath).join(', ');
+  const more = disc.changedPaths.length > 4 ? ` (+${disc.changedPaths.length - 4} more)` : '';
+  if (disc.basePassed === true) {
+    return {
+      id: 'regression-evidence', mode: 'objective', status: 'unproven',
+      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more}): existing behaviour that must be preserved needs a check that FAILS without the change and passes with it. Add or bind one (a sealed proof obligation), or a human accepts the risk from an interactive terminal — a green plan alone does not close this`,
+    };
+  }
+  return {
+    id: 'regression-evidence', mode: 'objective', status: 'met',
+    note: `the sealed checks fail without this change (${disc.baseFailures.join(', ') || 'a sealed step'}), so their pass is evidence about it${disc.overlaidChecks.length > 0 ? ` (candidate check files overlaid on the base: ${disc.overlaidChecks.slice(0, 3).map(safePath).join(', ')})` : ''}`,
+  };
+}
+
+
+function copyInto(fromRoot: string, toRoot: string, relPath: string): boolean {
+  try {
+    const src = path.join(fromRoot, relPath);
+    const dst = path.join(toRoot, relPath);
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.copyFileSync(src, dst);
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * A failure that says "the comparison could not run" rather than "the checks caught the change".
+ *
+ * MEASURED REASON this exists: the discrimination run compares a BASE tree (plus the candidate's
+ * check files) against the candidate. If a new check needs a new fixture file that lives outside
+ * the check directories, the base run fails with ENOENT — and reading that as "the checks
+ * discriminate" would mint a PASS out of a missing file. Anything that looks like a broken
+ * environment is therefore UNESTABLISHED, never evidence.
+ */
+function looksLikeInfraFailure(r: StepResult): boolean {
+  const text = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
+  return /ENOENT|Cannot find module|MODULE_NOT_FOUND|no such file or directory|package\.json not found|could not determine executable|command not found|is not recognized as an internal or external command/i.test(text);
+}
+
+export interface DiscriminationResult {
+  /** false = the question could not be asked here; the caller must NOT read that as either answer. */
+  applicable: boolean;
+  reason: string;
+  changedPaths: string[];
+  overlaidChecks: string[];
+  basePassed: boolean | null;
+  baseFailures: string[];
+}
+
+/**
+ * DOES THE SEALED PLAN ACTUALLY DISCRIMINATE THIS CHANGE?
+ *
+ * The completion gate's original question is "do the operator's checks pass?". The stronger
+ * question this answers — and the one the owner's reliability target needs — is "do they pass
+ * BECAUSE of this change, or would they have passed anyway?".
+ *
+ * MEASURED reason it matters (`bench-r5-refactor-preserve-invisible-2`): an agent rewrote
+ * `formatMoney`'s string handling, ran nothing, and finished while `formatMoney("0.5")` returned
+ * `$0.05`. The project's checks passed before AND after the change, so Canary reported READY — a
+ * false green that no amount of care in the runner can catch, because the checks simply do not
+ * discriminate that change.
+ *
+ * The experiment is the classic one: run the sealed plan against the BASE commit with the
+ * candidate's CHECK files overlaid, which asks "do the checks fail without the source change?".
+ *   - they FAIL  -> the plan discriminates this change, and its pass is evidence about it;
+ *   - they PASS  -> whatever the plan proves, it does not prove THIS change;
+ *   - they cannot run (missing module/fixture/manifest) -> UNESTABLISHED, which is neither answer.
+ *
+ * It never writes a verdict by itself: it returns the measurement, and the caller decides what an
+ * unproven change means. It also never mutates the working tree — the comparison happens in a
+ * throwaway `git worktree` at the sealed baseline, removed in a `finally`.
+ */
+export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 600_000): DiscriminationResult {
+  const none = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
+    ({ applicable: false, reason, changedPaths, overlaidChecks: [], basePassed: null, baseFailures: [] });
+
+  const signals = collectDiffSignals(root, cfg);
+  if (!signals.resolved) return none('the change cannot be attributed to the sealed baseline, so the comparison premise does not hold');
+  /**
+   * A baseline stamped DIRTY cannot attribute worktree changes to this session — the very same
+   * doctrine the obligation engine uses for deletions. MEASURED case that forced this: `canary
+   * setup` re-run after a script swap (the operator deliberately re-sealing) stamps a dirty baseline,
+   * and the uncommitted `package.json` that caused the re-seal was then asked for regression
+   * evidence about itself. The operator's own re-seal is not the worker's change.
+   */
+  if (signals.setupDirtProven) return none('the repo was already dirty at setup, so this change cannot be attributed to the worker');
+  /**
+   * Dependency manifests and lockfiles are excluded from the DISCRIMINATION question, for two
+   * measured reasons. (1) Running the sealed checks can REWRITE them: the Rust journey's
+   * `cargo check/test/build` updates `Cargo.lock`, and the gate then demanded regression evidence
+   * for a file the toolchain had just touched. (2) When the agent really does move a dependency,
+   * that is already its own obligation (`dependency-change`), not a behaviour change a regression
+   * check should discriminate.
+   */
+  const changed = signals.changes.filter((p) =>
+    fs.existsSync(path.join(root, p)) && !isCanaryOwnArtifact(p) && !isGeneratedArtifact(p) && !isDepPath(p));
+  if (changed.length === 0) return none('the working tree has no change to discriminate');
+  /**
+   * A change that touches ONLY check/definition files has no product behaviour to discriminate:
+   * adding a test, editing docs, or re-sealing a manifest cannot make the project's behaviour
+   * different from the base, so demanding "a check that fails without your change" there would be
+   * friction without a question behind it. The duty applies to changes to the product.
+   */
+  if (!changed.some((p) => !isTestPath(p) && !isNonBehaviourPath(p))) {
+    return none('only check/documentation files changed — there is no product behaviour to discriminate', changed);
+  }
+
+  const head = cfg.baseline?.head ?? null;
+  if (head === null || !/^[0-9a-f]{40,64}$/i.test(head)) return none('the sealed baseline has no commit to compare against', changed);
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-discriminate-'));
+  const tree = path.join(tmp, 'tree');
+  try {
+    if (gitWithinRoot(root, ['worktree', 'add', '--detach', '--force', tree, head]) === null) {
+      return none('git could not materialize the sealed baseline for a comparison run', changed);
+    }
+    const overlaid: string[] = [];
+    for (const p of changed) {
+      if (!isTestPath(p)) continue;
+      if (copyInto(root, tree, p)) overlaid.push(p);
+    }
+    const ran: StepResult[] = [];
+    for (const s of cfg.plan) {
+      let r: StepResult;
+      try { r = runPlanStep(tree, cfg.pm, s, timeoutMs); } catch (e) {
+        return none(`the sealed checks could not run against the baseline (${String(e).slice(0, 120)})`, changed);
+      }
+      ran.push(r);
+      if (r.exitCode === null) return none('the sealed checks could not run against the baseline (the program produced no exit code)', changed);
+    }
+    const failures = ran.filter((r) => !r.ok);
+    if (failures.length > 0 && failures.some(looksLikeInfraFailure)) {
+      return none('the baseline run failed in an environment-shaped way (a missing module or file), so it proves nothing either way', changed);
+    }
+    return {
+      applicable: true,
+      reason: failures.length === 0
+        ? 'the sealed checks pass on the base commit too, so they do not demonstrate this change'
+        : 'the sealed checks fail without this change, so their pass is evidence about it',
+      changedPaths: changed,
+      overlaidChecks: overlaid,
+      basePassed: failures.length === 0,
+      baseFailures: failures.map((f) => f.kind),
+    };
+  } finally {
+    try { gitWithinRoot(root, ['worktree', 'remove', '--force', tree]); } catch { /* fall through to the rm */ }
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort: never fail a verdict on cleanup */ }
+  }
+}
+
 /** The obligation engine: pure over (kinds, signals, sealed-plan kinds, requirement count).
  *  `planKinds` comes from the SEALED plan — an obligation is only satisfiable
  *  by a command actually sealed at setup; Canary never executes an unsealed
@@ -1613,7 +1821,7 @@ export class Out {
   context(partial: Partial<ProtocolEnvelope>): void { this.ctx = { ...this.ctx, ...partial }; }
   // CONNECTED / NOT CONNECTED are the canary status (read-only) family: state
   // facts, deliberately NOT READY (only a completed plan run earns READY).
-  verdict(v: 'READY' | 'CONNECTED' | 'NOT CONNECTED' | 'NEEDS ATTENTION' | 'UNSUPPORTED', why: string, next?: string) {
+  verdict(v: 'READY' | 'NOT PROVEN' | 'CONNECTED' | 'NOT CONNECTED' | 'NEEDS ATTENTION' | 'UNSUPPORTED', why: string, next?: string) {
     this.line('');
     this.line(v === 'READY' ? `READY — ${why}` : `${v} — ${why}`);
     if (next) this.line(`next: ${next}`);
@@ -2179,16 +2387,60 @@ export function cmdDoctor(rawArgs: string[]): number {
   // say UNPROVEN rather than pretending to a verdict).
   const task = readTaskRecord(root);
   const obligations = obligationsFor(task?.kinds ?? [], collectDiffSignals(root, cfg), new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'setup', task, cfg);
+  // Measured, not inferred: is the sealed plan SENSITIVE to this change at all? When the
+  // measurement exists it supersedes the declared-kind heuristic (see cmdCheckpoint).
+  const regression = discriminationObligation(root, cfg);
+  if (regression !== null) {
+    for (let i = obligations.length - 1; i >= 0; i -= 1) {
+      if (obligations[i]!.id === regression.id) obligations.splice(i, 1);
+    }
+    obligations.push(regression);
+  }
   const unmet = obligations.filter((x) => x.status === 'unmet');
   const unproven = obligations.filter((x) => x.status === 'unproven');
+  const objectiveOpen = unproven.filter((x) => x.mode === 'objective');
+  const subjectiveOpen = unproven.filter((x) => x.mode !== 'objective');
   if (unmet.length > 0) {
     o.context({ problems: unmet.map((x) => x.note) });
     o.verdict('NEEDS ATTENTION', `the sealed checks pass, but a proof obligation is objectively violated — ${unmet.map((x) => x.note).join('; ')}`, 'restore the deleted verification files (git checkout -- <path>) — or a human reviews this deletion; then: canary doctor');
     return 2;
   }
-  if (unproven.length > 0) o.context({ problems: unproven.map((x) => `UNPROVEN: ${x.note}`) });
-  o.verdict('READY', 'wiring verified; the checks just ran and passed.', 'nothing to do — the agent finishes, Canary checks');
-  if (unproven.length > 0) o.say(`proof obligations open: ${unproven.length} UNPROVEN — the plan passing does not make the task proven (NO PROOF, NO DONE).`);
+  /**
+   * FAIL CLOSED, scoped to what was AUTHORIZED. The product invariant: Canary must never issue
+   * PASS/READY merely because the configured tests are green while authorized requirements are not
+   * independently covered, and missing or ambiguous proof must never degrade to PASS.
+   *
+   * Two classes, deliberately treated differently:
+   *   - OBJECTIVE obligations (regression evidence, lost coverage, an unbound sealed target) always
+   *     refuse READY;
+   *   - NON-OBJECTIVE ones refuse READY only when a TASK was registered, because then a human
+   *     authorized a requirement that needs their acceptance. Without a task record they are
+   *     Canary's own inference from the diff (e.g. "a lockfile changed"), and refusing READY for
+   *     that would fail the documented journeys: a green Rust crate whose first `cargo check`
+   *     created `Cargo.lock` would be reported NOT PROVEN (measured — that is exactly what the
+   *     rust/go end-to-end probes caught).
+   */
+  const authorized = task !== null;
+  const refuse = objectiveOpen.length > 0 || (authorized && subjectiveOpen.length > 0);
+  if (refuse) {
+    o.context({ problems: unproven.map((x) => `UNPROVEN: ${x.note}`) });
+    const because = objectiveOpen.length > 0
+      ? `${objectiveOpen.length} objective obligation(s) have no adequate proof`
+      : `${subjectiveOpen.length} authorized requirement(s) need a human's explicit acceptance`;
+    o.verdict('NOT PROVEN',
+      `the checks passed, but the task is not proven: ${because} — a green plan is not a proven deliverable (NO PROOF, NO DONE).`,
+      objectiveOpen.length > 0
+        ? 'close them with a sealed check (bind it in package.json canary.proofs and re-run: canary setup), or have a human accept the risk from an interactive terminal'
+        : 'from an interactive terminal: canary accept <name>');
+    for (const ob of unproven) o.say(`  - UNPROVEN [${ob.id}] (${ob.mode}): ${ob.note}`);
+    return 2;
+  }
+  o.verdict('READY', 'wiring verified; the checks just ran and passed, and no proof obligation is open.', 'nothing to do — the agent finishes, Canary checks');
+  if (unproven.length > 0) {
+    // Nothing was authorized, so these are Canary's own observations about the diff. They are said
+    // plainly — READY here means "your checks passed", never "your change is proven".
+    o.say(`note: ${unproven.length} observation(s) about this diff are UNPROVEN and are not covered by any authorized requirement — the plan passing does not prove them (NO PROOF, NO DONE).`);
+  }
   for (const ob of obligations) o.detail(`obligation [${ob.id}] ${ob.status.toUpperCase()} (${ob.mode}): ${ob.note}`);
   // M3 (verbose-only — trust classes are evidence internals, not default UX):
   o.detail('trust: this READY is CANARY_OBSERVED — Canary executed the checks in this very invocation. Agent words are AGENT_REPORTED and never sufficient for a PASS; no class is promoted by copying bytes into a Canary-owned file (evidence is never read back for verdicts).');
@@ -2325,8 +2577,23 @@ export async function cmdCheckpoint(): Promise<number> {
       ? task.kinds
       : (typeof input.task === 'string' && input.task.trim() ? inferTaskKinds(input.task.trim().slice(0, 4000)) : []);
     const obligations = obligationsFor(kinds, collectDiffSignals(root, cfg), new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'setup', task, cfg);
+    /**
+     * MEASUREMENT SUPERSEDES INFERENCE. `obligationsFor` decides regression evidence from the
+     * DECLARED kind and the diff ("a bugfix with no test file touched is unproven"); the
+     * discrimination run decides it from execution. When the measurement exists it wins — otherwise
+     * a bugfix that turns an existing red check green (real regression evidence, no test file
+     * touched) would be called unproven, and a test file touched for show would be called met.
+     */
+    const regression = discriminationObligation(root, cfg);
+    if (regression !== null) {
+      for (let i = obligations.length - 1; i >= 0; i -= 1) {
+        if (obligations[i]!.id === regression.id) obligations.splice(i, 1);
+      }
+      obligations.push(regression);
+    }
     const unmet = obligations.filter((x) => x.status === 'unmet');
     const unproven = obligations.filter((x) => x.status === 'unproven');
+    const objectiveOpen = unproven.filter((x) => x.mode === 'objective');
     if (unmet.length > 0) {
       writeCheckpoint(root, 'fail', ['obligation'], 'checkpoint'); // state, like the authority gate: the plan DID pass — the obligation did not
       const why = unmet.map((x) => x.note).join('; ');
@@ -2339,8 +2606,28 @@ export async function cmdCheckpoint(): Promise<number> {
       return emit({ decision: 'block', reason: `Canary blocked completion: ${why}. A green plan cannot certify checks that no longer exist. Restore them (git restore --source=HEAD --staged --worktree <path>) or have a HUMAN review this deletion — an agent claim cannot authorize it (claims are not evidence).` });
     }
     if (unproven.length > 0) {
+      // FAIL CLOSED on an OBJECTIVE obligation, as the product invariant requires: an objective
+      // requirement with no adequate proof must stay NOT PROVEN, and "the plan is green" is not a
+      // discharge of it. The instruction is actionable, and an agent CAN act on it: make the proof
+      // discriminate (the regression case), or tell the human that acceptance is what is missing.
+      if (objectiveOpen.length > 0) {
+        writeCheckpoint(root, 'unproven', objectiveOpen.map((x) => x.id), 'checkpoint');
+        const why = objectiveOpen.map((x) => x.note).join(' | ');
+        if (input.stop_hook_active === true) {
+          return emit({ systemMessage: `Canary: NOT PROVEN (${why.slice(0, 1200)}) — after one repair attempt. Stopping anyway; a human should look, or accept it with: canary accept`.slice(0, 2000) });
+        }
+        return emit({ decision: 'block', reason: `Canary blocked completion: NOT PROVEN — ${why.slice(0, 1200)}`.slice(0, 1400) });
+      }
+      // Subjective only: an agent cannot accept a duty for a human, so this does not loop — it is
+      // said plainly instead, and promotion stays locked until a terminal acceptance.
       return emit({ systemMessage: `Canary: the sealed checks passed — but not every proof obligation for this task is closed: ${unproven.map((x) => x.note).join(' ')}`.slice(0, 2000) });
     }
+    /**
+     * Nothing is open: the plan passed, every objective obligation is met, and the
+     * regression-evidence obligation (when it could be measured at all) is met because the checks
+     * demonstrably fail without the change. That is the strongest thing this gate can say, and it is
+     * the only path to a silent allow.
+     */
     return 0; // silent even if an agent claim contradicts — claims never BLOCK, and never CREATE a pass
   }
   // The full runner output is written NEXT TO the evidence bundle and referred to by path, so

@@ -271,22 +271,26 @@ describe('checkpoint/doctor integration — the sealed plan passes, obligations 
     assert.equal(checkpoint(root), null);
     assert.equal(readState(root).status, 'pass');
   });
-  it('registered bugfix with no test change: the pass rides an honest UNPROVEN systemMessage, never silence', () => {
+  it('registered bugfix with no test change: an open OBJECTIVE obligation now FAILS CLOSED (block), not a note', () => {
     const root = makeProject('ck-bugfix');
     assert.equal(canary(['setup', '--yes', root]).status, 0);
     assert.equal(canary(['task', 'fix the broken parser'], root).status, 0);
     const out = checkpoint(root);
-    assert.ok(out?.systemMessage, 'an open obligation must never pass silently');
-    assert.ok(!out.decision, 'unproven allows — it is not an objective violation');
-    assert.match(out.systemMessage, /regression evidence UNPROVEN/);
-    assert.equal(readState(root).status, 'pass'); // the plan DID pass; the obligation is open
+    // THE INVARIANT THIS PINS: "every objective requirement must have a frozen proof obligation or
+    // remain NOT PROVEN. Missing or ambiguous proof must fail closed, never degrade to PASS." Before
+    // the reliability work this rode an informational systemMessage and the agent finished anyway.
+    assert.equal(out?.decision, 'block', 'an open objective obligation must block, not merely inform');
+    assert.match(String(out?.reason), /NOT PROVEN/);
+    assert.match(String(out?.reason), /regression evidence|FAILS without|no test file was added|does not discriminate/i);
+    assert.equal(readState(root).status, 'unproven'); // state, not a bundle: the plan DID pass
   });
   it('hook-stdin task prose infers kinds even without a registration', () => {
     const root = makeProject('ck-stdin');
     assert.equal(canary(['setup', '--yes', root]).status, 0);
     const out = checkpoint(root, { task: 'refactor the module and add e2e coverage' });
-    assert.match(out.systemMessage, /UNPROVEN/);
-    assert.match(out.systemMessage, /no tests step|diff unresolvable|behavior preservation|coverage/);
+    const text = `${String(out?.reason ?? '')} ${String(out?.systemMessage ?? '')}`;
+    assert.match(text, /UNPROVEN|NOT PROVEN/);
+    assert.match(text, /no tests step|diff unresolvable|behavior preservation|coverage|FAILS without/i);
   });
   it('a malformed/hand-planted record degrades to the no-record posture, hostile kinds filtered', () => {
     const root = makeProject('ck-malformed');
@@ -301,7 +305,7 @@ describe('checkpoint/doctor integration — the sealed plan passes, obligations 
     const out = checkpoint(root);
     assert.equal(out, null, 'oversized identity is rejected entirely, never clamped into authority');
   });
-  it('fake git makes diff signals unresolvable: a registered refactor is UNPROVEN, never a silent met', () => {
+  it('fake git makes diff signals unresolvable: a registered refactor is NOT PROVEN and fails closed', () => {
     const root = makeProject('ck-refactor');
     assert.equal(canary(['setup', '--yes', root]).status, 0);
     assert.equal(canary(['task', 'refactor the auth module'], root).status, 0);
@@ -309,20 +313,25 @@ describe('checkpoint/doctor integration — the sealed plan passes, obligations 
     const cfg = readConfig(root) as CanaryConfig;
     assert.equal(cfg.baseline?.resolved, false, 'fake git must not resolve an identity');
     const out = checkpoint(root);
-    assert.match(out.systemMessage, /coverage cannot be ruled out|diff unresolvable/);
+    const text = `${String(out?.reason ?? '')} ${String(out?.systemMessage ?? '')}`;
+    assert.match(text, /coverage cannot be ruled out|diff unresolvable/);
+    // An objective obligation whose premise cannot be established is NOT a pass: it blocks, and the
+    // loop guard turns the second attempt into an honest "a human should look".
+    assert.equal(out?.decision, 'block');
+    assert.match(String(out?.reason), /NOT PROVEN/);
   });
-  it('doctor lists open obligations instead of a bare READY', () => {
+  it('doctor refuses READY while an obligation is open (NOT PROVEN), and names it in verbose mode', () => {
     const root = makeProject('doctor-obligations');
     assert.equal(canary(['setup', '--yes', root]).status, 0);
     assert.equal(canary(['task', 'fix the crash'], root).status, 0);
     const r = canary(['doctor', root]);
-    assert.equal(r.status, 0);
-    assert.match(r.stdout, /READY/);
-    assert.match(r.stdout, /proof obligations open: \d+ UNPROVEN/);
+    // FAIL CLOSED: this used to print READY and merely note the open obligations — the READY that
+    // the benchmark then recorded as a false green.
+    assert.equal(r.status, 2, 'an open obligation must not be a zero-exit READY');
+    assert.match(r.stdout, /NOT PROVEN/);
+    assert.doesNotMatch(r.stdout, /^READY —/m);
     assert.match(r.stdout, /NO PROOF, NO DONE/);
-    // the per-obligation listing is detail (verbose) — same idiom as trust classes
-    assert.ok(!r.stdout.includes('regression evidence UNPROVEN'), 'default UX stays lazy-vibecoder tone');
-    assert.match(canary(['doctor', '--verbose', root]).stdout, /obligation \[regression-evidence\] UNPROVEN \(objective\): no test file was added or changed since setup — regression evidence UNPROVEN/);
+    assert.match(r.stdout, /UNPROVEN \[regression-evidence\]/);
   });
   it('config rewrite keeps the seal: obligations never execute anything unsealed', () => {
     const root = makeProject('no-exec');

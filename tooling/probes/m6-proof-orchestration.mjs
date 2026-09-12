@@ -33,7 +33,12 @@ const FX = (f) => path.join(REPO, 'tooling', 'test-support', 'fixtures', f);
 let failures = 0;
 const check = (name, fn) => {
   try { fn(); console.log(`PASS ${name}`); }
-  catch (e) { failures++; console.log(`FAIL ${name}: ${String(e.message ?? e).split('\n')[0]}`); }
+  catch (e) {
+    failures++;
+    // The full message, not just its first line: a failure whose evidence is the CLI's own output is
+    // undiagnosable when that output is cut off, and this probe has already cost one diagnosis.
+    console.log(`FAIL ${name}:\n${String(e.message ?? e).split('\n').slice(0, 24).map((l) => `     ${l}`).join('\n')}`);
+  }
 };
 
 const git = (dir, ...args) => {
@@ -179,7 +184,11 @@ try {
     assert.ok(!out.decision, 'unproven rides a note — it is not an objective violation');
     assert.match(out.systemMessage, /dependency change observed/i);
     const d = canary(['doctor', root]);
-    assert.match(d.stdout, /proof obligations open: \d+ UNPROVEN/);
+    // A task WAS registered earlier in this flow, so this is an authorized requirement's ambiguous
+    // proof, and it FAILS CLOSED: NOT PROVEN, exit 2 (it used to print READY and merely note it).
+    assert.equal(d.status, 2, d.stdout);
+    assert.match(d.stdout, /NOT PROVEN/);
+    assert.match(d.stdout, /dependency change observed|dependency-change/);
     assert.match(d.stdout, /NO PROOF, NO DONE/);
   });
 
@@ -229,19 +238,22 @@ try {
     assert.equal(r.status, 0, r.stdout);
     assert.equal(readCfg(dirtyRoot).baseline.dirty, true, 'real pre-existing dirt must still stamp the baseline dirty');
     const out = cp(dirtyRoot);
-    assert.ok(out?.systemMessage);
-    assert.ok(!out.decision, 'the index is never snapshotted — pre-existing staged residue cannot be pinned on the agent');
-    assert.match(out.systemMessage, /cannot be attributed to this session/i);
-    assert.match(out.systemMessage, /already dirty at setup/, 'the stamp PROVED dirt here, so the premise may say so');
+    // FAIL CLOSED: an unattributable coverage loss is an OBJECTIVE obligation, so the gate BLOCKS
+    // (it used to ride an informational systemMessage and let the agent finish).
+    assert.equal(out?.decision, 'block', 'unattributable coverage loss must block, not merely inform');
+    assert.match(String(out?.reason), /cannot be attributed to this session/i);
+    assert.match(String(out?.reason), /already dirty at setup/, 'the stamp PROVED dirt here, so the premise may say so');
     const d = canary(['doctor', dirtyRoot]);
-    assert.equal(d.status, 0, 'unproven never holds doctor at bay — READY with the note stands');
-    assert.match(d.stdout, /proof obligations open/);
+    assert.equal(d.status, 2, 'an objective obligation that cannot be discharged must hold doctor at bay');
+    assert.match(d.stdout, /NOT PROVEN/);
+    assert.match(d.stdout, /cannot be attributed to this session|coverage-loss-unattributable/);
+    assert.match(d.stdout, /NO PROOF, NO DONE/);
     git(dirtyRoot, 'restore', '--source=HEAD', '--staged', '--worktree', 'tests/unit.test.js');
     assert.equal(cp(dirtyRoot), null, 'restored and explained: silence returns');
     fs.rmSync(path.join(dirtyRoot, 'tests', 'unit.test.js')); // second phase: worktree-only residue
     const out2 = cp(dirtyRoot);
-    assert.ok(out2?.systemMessage && !out2.decision);
-    assert.match(out2.systemMessage, /cannot be attributed/i);
+    assert.equal(out2?.decision, 'block');
+    assert.match(String(out2?.reason), /cannot be attributed/i);
     git(dirtyRoot, 'checkout', '--', 'tests/unit.test.js');
     assert.equal(cp(dirtyRoot), null);
   });

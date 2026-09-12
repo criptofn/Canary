@@ -85,6 +85,9 @@ describe('1.1 fast path: sealed declaration, opt-in skipping', () => {
     const r = canary(['doctor', '--json', '--fast', root], root);
     assert.equal(r.status, 0, r.stderr);
     const env = JSON.parse(r.stdout) as { status: string; skipped?: Array<{ step: string; reason: string }> };
+    // A docs-only change carries no product behaviour, so there is nothing for a regression check to
+    // discriminate and the verdict stays READY — while the SKIPS are still carried, so a machine can
+    // never read a partial run as a full one (which is what this test is about).
     assert.equal(env.status, 'READY');
     assert.ok(Array.isArray(env.skipped) && env.skipped.length === 1, JSON.stringify(env));
     assert.equal(env.skipped![0]!.step, 'typecheck');
@@ -104,16 +107,19 @@ describe('1.1 fast path: sealed declaration, opt-in skipping', () => {
     assert.ok(!/FAST PATH/.test(normal.stdout));
   });
 
-  it('a change INSIDE the declaration runs the check as usual', () => {
+  it('a change INSIDE the declaration runs the check as usual (and gets no READY without regression evidence)', () => {
     const root = fixture('src-change');
     assert.equal(canary(['setup', '--yes'], root).status, 0);
     fs.appendFileSync(path.join(root, 'src', 'app.js'), '// touched\n');
     commit(root, 'feat: touch src');
 
     const fast = canary(['doctor', '--fast', root], root);
-    assert.equal(fast.status, 0, fast.stdout + fast.stderr);
     assert.match(fast.stdout, /✓ typecheck/, 'a declared path changed, so the check must run');
     assert.ok(!/FAST PATH/.test(fast.stdout), 'nothing may be skipped');
+    // A product change whose plan passes before AND after carries no regression evidence, so the
+    // verdict is NOT PROVEN (the fast path is about which checks RUN, not about what is proven).
+    assert.equal(fast.status, 2, fast.stdout);
+    assert.match(fast.stdout, /NOT PROVEN/);
   });
 
   it('editing canary.paths after setup is reported as drift — the sealed copy still governs', () => {

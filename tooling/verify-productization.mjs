@@ -311,6 +311,13 @@ const STEPS = [
   // The completion gate's failure payload is a TOKEN-COST control: the model must get the
   // smallest actionable message, with the full runner output on disk instead of in its context.
   ['1.1 failure payload is compact and points at the full log (real hook run)', process.execPath, ['tooling/probes/checkpoint-payload.mjs'], {}],
+  // The product invariant behind this step: Canary must never issue READY merely because the
+  // configured tests are green while authorized requirements lack adequate proof, and existing
+  // behaviour that must be preserved requires regression evidence. The probe drives six real
+  // repositories: a silent change behind a green suite must be NOT PROVEN and must BLOCK, a
+  // discriminating check must earn READY, and an unestablished comparison must not be read as
+  // either answer.
+  ['1.1 regression-evidence gate (a green plan that cannot discriminate a change is NOT PROVEN)', process.execPath, ['tooling/probes/regression-evidence-gate.mjs'], {}],
   // The benchmark harness validates ITSELF before any of its numbers are believed: known-good and
   // known-bad solutions per fixture, the verdict rules, secret redaction, and the instrument
   // fingerprint.

@@ -179,7 +179,7 @@ const suiteBefore = run(process.execPath, ['run-tests.js'], { cwd: projectDir, t
 const record = {
   schema: 'canary-benchmark-trial/2',
   label, task, arm, variant,
-  instrument: { version: instrument.version, hash: instrument.hash, files: instrument.files },
+  instrument: { version: instrument.version, hash: instrument.hash, files: instrument.files, product: instrument.product },
   fixture: fixtureMeta,
   startedAt: new Date().toISOString(),
   runRoot,

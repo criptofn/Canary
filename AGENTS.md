@@ -111,6 +111,17 @@ An agent may not close a subjective duty — that stays `canary accept`, in a
 terminal. If a check fails, fix exactly what was reported and re-run; do not
 restate your own test output as proof.
 
+**Make the proof discriminate your change.** Canary now runs the sealed plan
+against the sealed BASE commit and asks whether the checks FAIL without your
+change. If they pass on both sides, the verdict is `NOT PROVEN` and the completion
+is blocked — not because your code is wrong, but because a green suite that cannot
+tell your change from the base proves nothing about it. The repair is cheap and it
+is yours to make: add or point a check at the behaviour you changed, so it fails
+without your change and passes with it. A pure refactor needs a check that pins the
+behaviour you preserved. Only a human can waive this (`canary accept`), and the
+gate never asks this of a change that touches only checks, prose, licences or
+generated files.
+
 ## Where things are
 
 | Question | File |

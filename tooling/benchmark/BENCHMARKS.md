@@ -110,8 +110,27 @@ block that the benchmark did not write.
 - **cost per working result** = tokens ÷ hidden-oracle passes. A cheap run that leaves
   the repo broken is not cheap.
 
-### The release KPI, and the rule that outranks it
+## What the gate itself must do (measured, not assumed)
 
+A benchmark that only counts outcomes cannot say WHY a protected arm stopped; the reliability
+invariant is about the proof, so the proof gate has its own end-to-end probe:
+`tooling/probes/regression-evidence-gate.mjs` drives six real repositories through the real CLI and
+asserts, in order:
+
+| Case | Required behaviour |
+|---|---|
+| a silent behaviour change behind a green suite | `doctor` **NOT PROVEN** (exit 2) and the Stop hook **BLOCKS** with an actionable instruction |
+| the same change plus a check that fails without it | **READY** — the plan discriminates the change |
+| a failing check fixed | **READY** — the plan fails on the base, so its pass is evidence |
+| nothing changed | **READY** — there is no question to ask |
+| only check files changed | **READY** — no product behaviour to discriminate |
+| the base comparison cannot run | not read as evidence: unestablished, and it says so |
+
+The benchmark's arms inherit this: an arm that "finishes" while this gate refuses is measured as
+`blocked`, which is why `blocked` appears in the per-arm numbers and why a token saving that comes
+with blocked completions is not a saving at all.
+
+### The release KPI, and the rule that outranks it
 A raw token delta on its own cannot be read as a win. The owner's rule is explicit and
 the report now ENCODES it rather than leaving it to the reader:
 
