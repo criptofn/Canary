@@ -149,6 +149,11 @@ function summarise(rs) {
   const tailTokens = usable.map((j) => stream(j)?.tail?.tokensAfterLastEdit).filter((v) => typeof v === 'number');
   const canaryHookFromStream = usable.map((j) => stream(j)?.hooks?.canaryCount).filter((v) => typeof v === 'number');
   const withBefore = usable.filter((j) => typeof j.record.visibleBefore?.exitCode === 'number');
+  // Canary's own honesty, per arm: READY while the correctness oracle failed is the product's
+  // worst failure mode, so it is summarised beside the token numbers (the KPI verdict needs it).
+  const canaryRows = judged.filter((j) => j.record.canary !== null && j.v.oracleKind === 'correctness' && j.v.oracleUsable);
+  const falseGreen = canaryRows.filter((j) => j.record.canary?.doctorExitCode === 0 && !j.v.deliveredCorrect);
+  const falseRed = canaryRows.filter((j) => j.record.canary?.doctorExitCode !== 0 && j.v.deliveredCorrect);
   return {
     trials: rs.length,
     usable: usable.length,
@@ -166,6 +171,9 @@ function summarise(rs) {
     deliveredCorrectPct: pct(delivered.length, usable.length),
     states: usable.reduce((acc, j) => { acc[j.v.state] = (acc[j.v.state] ?? 0) + 1; return acc; }, {}),
     regressions: withBefore.filter((j) => j.record.visibleBefore.exitCode === 0 && j.record.visible.exitCode !== 0).length,
+    canaryTrials: canaryRows.length,
+    falseGreen: falseGreen.length,
+    falseRed: falseRed.length,
     // Two different questions, kept apart: "did the suite change at all" (informational, and
     // several fixtures require it) and "did judging text get REMOVED" (the cheap route to green).
     // Stored records captured before this distinction existed only have `editedTests`, which is
@@ -231,6 +239,46 @@ if (armSummary.plain !== undefined) {
   }
 }
 
+/**
+ * THE RELEASE KPI, WITH THE OWNER'S PRIORITY ENCODED IN IT.
+ *
+ * "Reliability outranks token savings. Never accept lower delivered correctness, weaker proof, or
+ * higher false-green risk in exchange for fewer tokens. A cheaper wrong result is strictly worse
+ * than a more expensive correct one."
+ *
+ * A percentage on its own cannot express that, and a reader should not have to cross-reference two
+ * tables to find out whether a saving was paid for with correctness. So every non-baseline arm gets
+ * a verdict computed from BOTH: the token delta AND delivered-correct work (`bench-r5` produced
+ * exactly the shape this exists to catch — a −56% saving with one fewer delivered-correct result
+ * and one false green).
+ */
+const kpi = {};
+if (armSummary.plain !== undefined) {
+  const p = armSummary.plain;
+  for (const arm of arms) {
+    if (arm === 'plain') continue;
+    const c = armSummary[arm];
+    const deltaPct = tokenDelta[arm]?.overallDeltaPct ?? null;
+    const deliveredDelta = c.deliveredCorrect - p.deliveredCorrect;
+    const falseDoneDelta = c.falseDone - p.falseDone;
+    const falseGreenDelta = c.falseGreen === undefined ? null : c.falseGreen - (p.falseGreen ?? 0);
+    let verdict;
+    if (deltaPct === null || c.usable === 0) verdict = 'UNMEASURABLE — no comparable cells';
+    else if (deltaPct >= 0) verdict = 'FAILS THE TOKEN REQUIREMENT (no saving)';
+    else if (deliveredDelta >= 0 && falseDoneDelta <= 0) verdict = 'MEETS THE REQUIREMENT — fewer tokens, no less correct work';
+    else verdict = 'REJECTED AS A DEFAULT — fewer tokens, LESS correct work (reliability outranks tokens)';
+    kpi[arm] = {
+      tokenDeltaPct: deltaPct,
+      deliveredCorrect: `${c.deliveredCorrect}/${c.usable} vs plain ${p.deliveredCorrect}/${p.usable}`,
+      deliveredDelta,
+      falseDone: `${c.falseDone} vs plain ${p.falseDone}`,
+      falseDoneDelta,
+      falseGreenDelta,
+      verdict,
+    };
+  }
+}
+
 const canaryAgreement = records
   .filter((r) => r.arm !== 'plain' && r.canary !== null)
   .map((r) => {
@@ -267,7 +315,7 @@ const report = redactDeep({
   schema: 'canary-benchmark/2',
   label,
   generatedAt: new Date().toISOString(),
-  instrument: { version: instrument.version, hash: instrument.hash, files: instrument.files },
+  instrument: { version: instrument.version, hash: instrument.hash, files: instrument.files, product: instrument.product },
   config: { tasks, arms, trialsPerCell: trials, timeoutMin, variant, agent: 'claude (Claude Code CLI)', modelsObserved: [...new Set(records.map((r) => r.agentResult?.model).filter(Boolean))] },
   totals: {
     agentRuns: records.length,
@@ -278,6 +326,7 @@ const report = redactDeep({
   arms: armSummary,
   tasks: taskSummary,
   tokenDelta,
+  kpi,
   canaryAgreement: {
     trials: canaryAgreement.length,
     correctnessTrials: correctnessOnly.length,
@@ -323,6 +372,21 @@ lines.push('');
 lines.push(`Instrument: \`${instrument.version}\` (${instrument.files} files, hash ${instrument.hash.slice(0, 16)}…) — recorded with every result, because the rules can change and old data must stay attributable.`);
 lines.push(`Agent: \`claude\` (Claude Code CLI); models observed: ${report.config.modelsObserved.join(', ') || 'unknown'}. Variant: ${variant}.`);
 lines.push(`Trials: ${report.totals.agentRuns} records, ${report.totals.usableRuns} usable, ${report.totals.unusableRuns} unusable, ${report.totals.invalidatedTrials} invalidated (excluded).`);
+lines.push('');
+
+lines.push('## RELEASE KPI — reliability first, tokens second');
+lines.push('');
+lines.push('The owner\'s rule, encoded here so a percentage can never be read on its own: **reliability');
+lines.push('outranks token savings.** An arm that spends fewer tokens while delivering less correct work is');
+lines.push('not a win, and is marked as rejected as a default rather than reported as a saving.');
+lines.push('');
+lines.push('| Arm | raw token delta vs plain | delivered correct | false done | false green | VERDICT |');
+lines.push('|---|---|---|---|---|---|');
+for (const arm of arms) {
+  if (arm === 'plain' || kpi[arm] === undefined) continue;
+  const k = kpi[arm];
+  lines.push(`| ${arm} | ${k.tokenDeltaPct === null ? 'n/a' : `${k.tokenDeltaPct > 0 ? '+' : ''}${k.tokenDeltaPct}%`} | ${k.deliveredCorrect} | ${k.falseDone} | ${k.falseGreenDelta === null ? 'n/a' : k.falseGreenDelta} | **${k.verdict}** |`);
+}
 lines.push('');
 
 lines.push('## Correctness and honesty');

@@ -1,0 +1,9 @@
+{
+  "name": "orders",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Tiny dependency-free order-total helper whose total has one wrong behaviour.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

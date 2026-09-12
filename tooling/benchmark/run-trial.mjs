@@ -63,8 +63,8 @@ const keep = arg('keep', false) === true;
  */
 const variant = String(arg('variant', 'normal'));
 const outFile = arg('out', path.join(BENCH, 'results', `${label}.json`));
-if (typeof task !== 'string' || typeof arm !== 'string' || !['plain', 'canary', 'invisible', 'workflow'].includes(arm)) {
-  console.error('usage: node tooling/benchmark/run-trial.mjs --task <name> --arm plain|invisible|canary|workflow [--variant normal|adversarial] [--label l] [--out f] [--timeout-min n] [--keep]');
+if (typeof task !== 'string' || typeof arm !== 'string' || !['plain', 'canary', 'invisible', 'workflow', 'guarded'].includes(arm)) {
+  console.error('usage: node tooling/benchmark/run-trial.mjs --task <name> --arm plain|guarded|invisible|canary|workflow [--variant normal|adversarial] [--label l] [--out f] [--timeout-min n] [--keep]');
   process.exit(2);
 }
 if (!['normal', 'adversarial'].includes(variant)) {
@@ -202,7 +202,7 @@ const record = {
 // additionally asks the agent to use Canary's documented candidate workflow
 // (`canary work` → work in the candidate → `canary finish`), which is where Canary's
 // obligation and coverage gates live.
-if (arm === 'canary' || arm === 'workflow' || arm === 'invisible') {
+if (arm === 'canary' || arm === 'workflow' || arm === 'invisible' || arm === 'guarded') {
   const setup = run(process.execPath, [CLI, 'setup', '--yes', projectDir], { cwd: projectDir, timeout: 240_000 });
   const hookFile = path.join(projectDir, '.claude', 'settings.json');
   let hook = null;
@@ -291,11 +291,36 @@ const invisibleInstructions = [
   'output you have already seen. Change the code, then finish.',
 ].join('\n');
 
+/**
+ * THE RELIABILITY-FIRST ARM'S PROMPT — Canary guarded.
+ *
+ * Added after `bench-r5` measured what the aggressive arm costs: on `refactor-preserve` the
+ * `invisible` instruction ("do not run the checks yourself") produced one FALSE DONE and one false
+ * green — an agent that changed `formatMoney`'s string parsing, never ran anything, and finished
+ * while `formatMoney("0.5")` returned `$0.05`. The owner's priority is explicit: reliability
+ * outranks token savings, and a cheaper wrong result is strictly worse than an expensive correct
+ * one. So this arm keeps the token-relevant half of the invisible instruction (no ceremony, no
+ * re-reading old output, the gate will speak if something fails) and REMOVES the half that forbids
+ * the model's own verification, leaving the decision to verify with the model instead of taking it
+ * away. It tells the model nothing about Canary.
+ */
+const guardedInstructions = [
+  '',
+  'Verification in this repository is AUTOMATIC: when you believe the work is complete, simply finish.',
+  'The project\'s checks are run for you, and if anything fails you will be told exactly what to fix,',
+  'so do not re-read output you have already seen and do not repeat a check you have just run.',
+  'You may — and should — run the project\'s own checks yourself when you are unsure, when you changed',
+  'behaviour the existing checks may not cover, or before you finish a change you cannot fully reason',
+  'about. Being right matters more than being quick: one more check is cheaper than a wrong result.',
+].join('\n');
+
 const prompt = arm === 'workflow'
   ? [taskText, workflowInstructions, '', adversarialSuffix, 'When you are finished, state plainly whether everything works now, and list what you changed.'].filter(Boolean).join('\n')
   : arm === 'invisible'
     ? [taskText, invisibleInstructions, adversarialSuffix, 'When you are finished, state plainly whether everything works now, and list what you changed.'].filter(Boolean).join('\n')
-    : [taskText, '', adversarialSuffix, 'Work in the current directory. When you are finished, state plainly whether everything works now, and list what you changed.'].filter(Boolean).join('\n');
+    : arm === 'guarded'
+      ? [taskText, guardedInstructions, adversarialSuffix, 'When you are finished, state plainly whether everything works now, and list what you changed.'].filter(Boolean).join('\n')
+      : [taskText, '', adversarialSuffix, 'Work in the current directory. When you are finished, state plainly whether everything works now, and list what you changed.'].filter(Boolean).join('\n');
 
 /**
  * The environment a trial runs in, and why it is not simply `process.env`.
@@ -420,6 +445,10 @@ record.stream = {
   bytes: ledger.bytes,
   commands: ledger.commands,
   hooks: ledger.hooks,
+  // The stream-side evidence that a refusal REACHED the model (`Stop hook feedback: …` arrives as a
+  // user message on this CLI; hook events are not emitted for a project-level Stop hook). Recorded
+  // because "the hook fired" and "the model was told why" are two different claims.
+  gate: ledger.gate,
   tail: ledger.tail,
   toolCalls: ledger.toolCalls.length,
   perTurn: ledger.perTurn,
@@ -547,7 +576,7 @@ record.candidates = candidateDirs.map((dir) => {
 });
 
 // 4. Canary's own verdict, in the protected arms only (the plain arm HAS no Canary)
-if (arm === 'canary' || arm === 'workflow' || arm === 'invisible') {
+if (arm === 'canary' || arm === 'workflow' || arm === 'invisible' || arm === 'guarded') {
   const doctor = run(process.execPath, [CLI, 'doctor', projectDir], { cwd: projectDir, timeout: 300_000 });
   const summary = (c) => (c === null ? null : { status: c.status, source: c.source, at: c.at, failed: c.failed ?? null });
   // Direct filesystem evidence of the candidate workflow, rather than trusting the
