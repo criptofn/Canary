@@ -5,14 +5,47 @@ listed as proven when a command actually ran; implemented-but-unproven is a
 different, honestly-labelled state. Capability vocabulary:
 [`CAPABILITY-LEVELS.md`](CAPABILITY-LEVELS.md).
 
+## The support model: what "supported" means, in four levels
+
+Canary is **language-agnostic at the project contract level**. It does not need to
+know a programming language to verify a repository — it needs a plan of commands, an
+identity per command, and an honest statement of how much of the run it actually
+observed. Those are four different claims, and they are reported separately:
+
+| Level | Question it answers | What holds | Where it lives |
+|---|---|---|---|
+| **UNIVERSAL** | Can Canary verify a repository of ANY command-driven language? | The project contract itself: argv-based checks (never a shell line), each program PINNED to an absolute path at setup, an explicit and sealed working directory (a scope), the plan sealed and drift-checked, candidate identity bound, and every step's executable identity recorded. Exit status, argv and identity are PROVEN; the runner's INTERNALS are not observed. | `apps/cli/src/universal.ts` — discovery from the repository's own evidence, plus the `canary.project.json` escape hatch |
+| **NATIVE** | Does Canary have ecosystem-specific discovery and defaults? | Everything above, plus knowing how an ecosystem declares its checks and what its toolchain needs under the sanitized environment. | **node**, **python**, **rust**, **go** |
+| **OBSERVED** | Does Canary watch the runner's own lifecycle instead of reading its text? | A Canary-owned observer loaded INSIDE the runner process, writing frames on a dedicated fd, re-counted by Canary. Printed text becomes refutable rather than authoritative. | **mocha**, **`node --test`**, **pytest**, **`unittest`** |
+| **STRONG** | May a strong verdict (PASS / CONFIRMED_REGRESSION / FLAKY / PRE_EXISTING_FAILURE) rest on this run? | An OBSERVED channel AND an authority binding the observed runner to bytes or to an install the operator authorized. | the same four runners — `mocha` (repo pin), `node --test` (the verifying runtime itself), `pytest` and `unittest` (an operator-sealed identity) |
+
+The levels are cumulative in what they PROVE, and deliberately NOT in what they are
+allowed to claim: a UNIVERSAL check proves that a command ran, that it was the
+authorized program at the authorized path in the authorized directory, and what it
+exited with — and it may **never** mint a strong label, because nobody independently
+watched the tests. `ctest` is a real tool Canary has no adapter for, so a `ctest`
+step is executed, sealed and reported, and its verdict stays `INCONCLUSIVE`.
+
+**What Canary does NOT claim:** that it understands every language, or that a
+universal repository is as well observed as a native one. "Unknown ecosystem" means
+*generic discovery plus an honest evidence level*, never *unsupported*, and never
+*strong*.
+
 ## Project ecosystems
 
 | Ecosystem | Detected by | Checks discovered | Toolchain | Status on the authoring host |
 |---|---|---|---|---|
 | **Node / JS / TS** | `package.json` (+ `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`) | `test`, `typecheck`, `type-check`, `build`, `bench`, `benchmark`, `e2e`, `test:e2e` scripts | npm / pnpm / yarn resolved from the running Node install (never PATH) | **Proven**: this repository's own full unit suite runs through it. No count is quoted here on purpose — a number copied into a document is stale the moment the suite grows; read the reporter summary from the command you ran ([`TEST-COUNTING.md`](TEST-COUNTING.md)) |
-| **Python** | `pyproject.toml`, `setup.py`, `setup.cfg`, `tox.ini`, `Pipfile`, `requirements*.txt` | `pytest` (declared in a config or a dependency), `tox` (`[testenv]` section), `unittest` (a real `tests/`+`test_*.py` layout), and `mypy` / `pyright` / `ruff` as the static-check step | `python` pinned to an absolute path at setup | **Proven end-to-end with a real interpreter**: `apps/cli/test/python-e2e.test.ts` builds a Node-free project, discovers `unittest`, seals the interpreter path, and reaches `READY` via `setup` and `doctor` |
-| **Rust** | `Cargo.toml` (workspace-aware note) | `cargo test`, `cargo check`, and `cargo build` when `src/` exists; `clippy` only when configured (and never twice under one kind) | the **real toolchain binary** pinned to an absolute path at setup | **Proven end-to-end with a real toolchain**: `tooling/probes/rust-project-e2e.mjs` takes a real crate through `setup` and `doctor` (`cargo check`, `cargo test`, `cargo build` all executed under the sanitized environment to READY), then breaks a test and requires the verdict to follow — and it asserts the sealed program is `…/toolchains/<tc>/bin/cargo`, NOT the rustup PATH proxy. That distinction is the fix: the proxy cannot run under the sanitized env (`RUSTUP_HOME`/`HOME` are redirected), so sealing it would seal a step that can never execute. The adapter declares the literal toolchain locations (honoring `RUSTUP_HOME`/`CARGO_HOME`) and setup prefers them |
-| **Go** | `go.mod`, `go.work` | `go test ./...`, `go vet ./...` | `go` pinned to an absolute path at setup, plus a **workspace-scoped `GOCACHE`/`GOPATH`** the Go adapter declares | **Proven end-to-end with a real toolchain**: `tooling/probes/go-project-e2e.mjs` takes a real Go module through `setup` (sealing an absolute `go` path) and `doctor` (executing `go test ./...` and `go vet ./...` under the sanitized environment and reaching READY), and then breaks a test and requires the verdict to follow. The declaration exists because Go aborted with "build cache is required, but could not be located: GOCACHE is not defined and %LocalAppData% is not defined" once `HOME` was redirected |
+| **Python** | `pyproject.toml`, `setup.py`, `setup.cfg`, `tox.ini`, `Pipfile`, `requirements*.txt` | `pytest` (declared in a config or a dependency), `tox` (`[testenv]` section), `unittest` (a real `tests/`+`test_*.py` layout), and `mypy` / `pyright` / `ruff` as the static-check step | `python` pinned to an absolute path at setup | **Proven end-to-end with a real interpreter**: `apps/cli/test/python-e2e.test.ts` builds a Node-free project, discovers `unittest`, seals the interpreter path, and reaches `READY` via `setup` and `doctor`. Its RUNNER is OBSERVED and STRONG too: `python-wiring.test.ts` (9/9) and `pytest-wiring.test.ts` (8/8) drive real runs through the product's own round path (pytest 9.1.1 from a workspace-local venv, so no global Python state is touched), and the identity comes from the operator's sealed setup plan (`runner-authority.test.ts`, 4/4) |
+| **Rust** | `Cargo.toml` (workspace-aware note) | `cargo test`, `cargo check`, and `cargo build` when `src/` exists; `clippy` only when configured (and never twice under one kind) | the **real toolchain binary** pinned to an absolute path at setup | **Proven end-to-end with a real toolchain**: `tooling/probes/rust-project-e2e.mjs` takes a real crate through `setup` and `doctor` (`cargo check`, `cargo test`, `cargo build` all executed under the sanitized environment to READY), then breaks a test and requires the verdict to follow — and it asserts the sealed program is `…/toolchains/<tc>/bin/cargo`, NOT the rustup PATH proxy. That distinction is the fix: the proxy cannot run under the sanitized env (`RUSTUP_HOME`/`HOME` are redirected), so sealing it would seal a step that can never execute. The adapter declares the literal toolchain locations (honoring `RUSTUP_HOME`/`CARGO_HOME`) and setup prefers them. Its runner is NOT observed — stable libtest refuses `--format json`, so there is no per-test event stream — and its verdict therefore stays `INCONCLUSIVE` |
+| **Go** | `go.mod`, `go.work` | `go test ./...`, `go vet ./...` | `go` pinned to an absolute path at setup, plus a **workspace-scoped `GOCACHE`/`GOPATH`** the Go adapter declares | **Proven end-to-end with a real toolchain**: `tooling/probes/go-project-e2e.mjs` takes a real Go module through `setup` (sealing an absolute `go` path) and `doctor` (executing `go test ./...` and `go vet ./...` under the sanitized environment and reaching READY), and then breaks a test and requires the verdict to follow. The declaration exists because Go aborted with "build cache is required, but could not be located: GOCACHE is not defined and %LocalAppData% is not defined" once `HOME` was redirected. `go test -json` does emit per-test events, but they are derived from the test binary's own output, so subject code can mint them — a Go verdict therefore stays `INCONCLUSIVE` too |
+| **Everything else** (C/C++, C#/.NET, Java/Kotlin, Swift, Zig, PHP, Ruby, Elixir, Crystal, …) | **UNIVERSAL**: the repository's own evidence — CI workflow commands, Makefile / Taskfile / justfile targets, a CONFIGURED CMake+CTest or Meson tree, shipped Gradle/Maven wrappers, `pom.xml`, `build.gradle*`, `*.sln`/`*.csproj`, `Package.swift`, `build.zig`, `phpunit.xml`, `composer.json`, `Rakefile`, `mix.exs`, `shard.yml` | whatever the repository itself states, each check carrying the artifact that anchors it; or exactly what `canary.project.json` declares | every program pinned to an absolute path at setup, exactly like a native plan | **Proven with a real unknown tool**: `apps/cli/test/universal-project.test.ts` (19/19) discovers CMake+CTest checks in a synthetic repository, pins a real tool built with the workspace-local Go toolchain, runs it through `doctor`, fails it, and shows that printed text cannot upgrade the verdict. The feature smoke walks the same path end to end |
+
+The escape hatch, `canary.project.json`, takes **argv arrays and nothing else** — no
+shell command strings, no environment (the allowlisted toolchain door belongs to
+reviewed adapter code, and a project-supplied `env` is REFUSED rather than merged),
+no per-check `cwd` (a working directory is a declared, validated, sealed SCOPE), and
+no shell wrappers. Each of those refusals has a test.
 
 **No check is ever invented.** A directory of `.py` files is not a reason to run
 pytest; an ecosystem that declares nothing produces an empty plan, and setup

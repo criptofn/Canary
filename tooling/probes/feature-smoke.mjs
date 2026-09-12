@@ -310,15 +310,113 @@ feature('Adaptive fast path: opt-in, sealed, and it says what it left out', () =
   return { note: 'declaration sealed at setup; skips named in the output' };
 });
 
-feature('Runner observations: exactly one runner can reach a strong label', () => {
+feature('Runner observations: four runners can reach a strong label, and only those', () => {
   assert(runners !== null, `missing built registry: ${RUNNERS_MODULE}`);
-  const { observationCapabilityFor, runnerRegistryProblems } = runners;
+  const { observationCapabilityFor, runnerRegistryProblems, RUNNER_ADAPTERS } = runners;
   assert(runnerRegistryProblems().length === 0, `the registry is inconsistent: ${runnerRegistryProblems().join('; ')}`);
-  assert(observationCapabilityFor({ program: 'mocha' }).capability === 'STRONG', 'mocha is the one observed channel');
-  for (const ref of [{ program: 'jest' }, { program: 'pytest' }, { script: 'go test ./...' }, { program: 'who-knows' }]) {
+  const strong = RUNNER_ADAPTERS.filter((a) => a.capability === 'STRONG').map((a) => a.id).sort();
+  assert(JSON.stringify(strong) === JSON.stringify(['mocha', 'node-test', 'pytest', 'unittest']),
+    `the observed set must be exactly the four implemented channels: ${JSON.stringify(strong)}`);
+  // Each authority is a different KIND of binding, and each is named.
+  const byId = new Map(RUNNER_ADAPTERS.map((a) => [a.id, a]));
+  assert(byId.get('mocha').observation.authority === 'package-pin', 'mocha is bound by a repo pin');
+  assert(byId.get('node-test').observation.authority === 'runtime-identity', 'node:test IS the verifying runtime');
+  assert(byId.get('pytest').observation.authority === 'operator-identity', 'pytest is bound by a sealed identity');
+  assert(byId.get('unittest').observation.authority === 'operator-identity', 'unittest is bound by a sealed identity');
+  for (const ref of [{ program: 'jest' }, { script: 'cargo test' }, { script: 'ctest --test-dir build' }, { program: 'who-knows' }]) {
     assert(observationCapabilityFor(ref).capability === 'INCONCLUSIVE_ONLY', `an unobserved runner must be INCONCLUSIVE: ${JSON.stringify(ref)}`);
   }
-  return { note: 'STRONG = {mocha}; every other or unknown runner is INCONCLUSIVE by construction' };
+  return { note: 'STRONG = {mocha, node-test, pytest, unittest}; every other or unknown runner is INCONCLUSIVE by construction' };
+});
+
+feature('Universal project: an ecosystem Canary has no adapter for is DISCOVERED, not refused', () => {
+  // The discovery path needs a tool to BE there. `make`/`cmake`/`ctest` are not on
+  // this host, so two deterministic fixture tools are built with the workspace-local
+  // Go toolchain and put on PATH — which is exactly the substitution the owner's
+  // brief allows: real executable behaviour, no language-specific Canary logic.
+  const GO = path.join(REPO, '_toolchains', 'go', 'bin', 'go.exe');
+  if (!fs.existsSync(GO)) return skip('no workspace-local Go toolchain to build the fixture tools');
+  const toolDir = path.join(TMP, 'universal-tools');
+  fs.mkdirSync(toolDir, { recursive: true });
+  const build = (name, behaviour) => {
+    const src = path.join(TMP, `fx-${name}.go`);
+    fs.writeFileSync(path.join(TMP, 'fx-go.mod'), 'module fx\n\ngo 1.21\n');
+    fs.writeFileSync(src, behaviour);
+    const r = spawnSync(GO, ['build', '-o', path.join(toolDir, `${name}.exe`), src], {
+      cwd: TMP, encoding: 'utf8', timeout: 300_000,
+      env: { ...process.env, GOCACHE: path.join(TMP, 'fx-cache'), GOPATH: path.join(TMP, 'fx-path'), GOTOOLCHAIN: 'local' },
+    });
+    assert(r.status === 0, `building the ${name} fixture failed: ${r.stdout}${r.stderr}`);
+  };
+  // A ctest-shaped tool that can be made to fail, and a cmake-shaped one that passes.
+  build('ctest', 'package main\n\nimport (\n\t"fmt"\n\t"os"\n\t"strings"\n)\n\nfunc main() {\n\traw, _ := os.ReadFile("ctest.marker")\n\tif strings.Contains(string(raw), "FAIL") {\n\t\tfmt.Println("100% tests passed, 0 tests failed out of 3")\n\t\tfmt.Println("Failed: 1")\n\t\tos.Exit(8)\n\t}\n\tfmt.Println("100% tests passed, 0 tests failed out of 3")\n}\n');
+  build('cmake', 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println("-- build complete") }\n');
+
+  const root = mk('universal-discovery', {
+    'CMakeLists.txt': 'project(demo C)\nadd_executable(demo main.c)\nenable_testing()\nadd_test(NAME smoke COMMAND demo)\n',
+    'build/CMakeCache.txt': '# configured by a previous run\n',
+    'main.c': 'int main(void){return 0;}\n',
+  });
+  // `mk` already git-initialised and committed. Put the fixture tools on PATH for
+  // setup — the ONE moment PATH is consulted, after which the sealed plan holds
+  // absolute paths.
+  const setupEnv = { ...process.env, PATH: `${toolDir}${path.delimiter}${process.env.PATH ?? ''}` };
+  const setup = spawnSync(process.execPath, [CLI, 'setup', '--yes', root], { cwd: root, encoding: 'utf8', timeout: 600_000, env: setupEnv });
+  assert(setup.status === 0, `setup must onboard a discovered universal project:\n${setup.stdout}${setup.stderr}`);
+  assertMatch(setup.stdout, /package manager: universal/, 'the contract is named');
+  assertMatch(setup.stdout, /ctest/, 'the CTest check was DISCOVERED from the CMake configuration');
+
+  const config = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'canary.local.json'), 'utf8'));
+  const argvSteps = config.plan.filter((s) => Array.isArray(s.argv));
+  assert(argvSteps.length >= 2, `expected discovered argv checks: ${JSON.stringify(config.plan)}`);
+  assert(argvSteps.every((s) => s.adapter === 'universal'), 'every discovered step names its contract');
+  assert(argvSteps.every((s) => path.isAbsolute(s.argv[0])), `setup must PIN the programs absolutely: ${JSON.stringify(argvSteps.map((s) => s.argv))}`);
+  assert(argvSteps.some((s) => s.kind === 'tests'), 'the test check was discovered');
+
+  // Run with NO fixture tools on PATH: the pinned absolute paths are the authority.
+  const doctor = canary(['doctor', root], root);
+  assert(doctor.status === 0, `the discovered checks must run and pass:\n${doctor.stdout}${doctor.stderr}`);
+  assertMatch(doctor.stdout, /tests: .*ctest\.exe --test-dir build --output-on-failure \(exit 0\)/, 'the discovered test check really ran');
+
+  // And a failing check fails the run.
+  fs.writeFileSync(path.join(root, 'ctest.marker'), 'FAIL\n');
+  const failed = canary(['doctor', root], root);
+  assert(failed.status !== 0, `a failing discovered check must fail:\n${failed.stdout}`);
+
+  // Ambiguity is asked about, never resolved by preference.
+  const ambiguous = mk('universal-ambiguous', { 'Taskfile.yml': 'tasks:\n  test:\n    cmds: [true]\n', Justfile: 'test:\n  true\n' });
+  const amb = canary(['setup', '--yes', ambiguous], ambiguous);
+  assert(amb.status !== 0, 'an ambiguous repository must NOT be onboarded by guessing');
+  assertMatch(amb.stdout, /ambiguous/, 'and it must say why');
+
+  // Nothing is invented when nothing anchors a command.
+  const empty = mk('universal-empty', { 'README.md': '# nothing to discover\n', 'main.c': 'int main(void){return 0;}\n' });
+  const none = canary(['setup', '--yes', empty], empty);
+  assert(none.status !== 0, 'a repository with no anchored check must not be given an invented plan');
+  return { note: `${argvSteps.length} checks DISCOVERED from CMake/CTest evidence, pinned absolutely, executed; ambiguity asked about; nothing invented` };
+});
+
+feature('Provider-only routing: a configured provider closes the local accept/promote path', async () => {
+  const mod = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'provider', 'routing.js');
+  assert(fs.existsSync(mod), `missing built routing module: ${mod}`);
+  const routing = await import(`file://${mod.replace(/\\/g, '/')}`);
+  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-smoke-store-'));
+  try {
+    // No token and no enrolled identity: NOT a provider, so the local path stays
+    // (asserted, because "closing" the local path must not change a machine that
+    // never installed one).
+    assert(routing.brokerRoutingRequired({ root: store }) === false, 'a bare store is not a configured provider');
+    const bare = await routing.reservePromotionThroughBroker({ projectId: 'p', candidate: 'c' }, { root: store });
+    assert(bare.routed === false, 'with no provider the act is not routed at all');
+    // A broker token IS a configured provider, and then the act must be routed and
+    // must FAIL CLOSED when no broker answers.
+    fs.writeFileSync(path.join(store, 'provider-token'), 'x'.repeat(64) + '\n');
+    assert(routing.brokerRoutingRequired({ root: store }) === true, 'a token IS a configured provider');
+    const routed = await routing.reservePromotionThroughBroker({ projectId: 'p', candidate: 'c' }, { root: store });
+    assert(routed.routed === true && routed.ok === false, `an unreachable broker must be a refusal: ${JSON.stringify(routed)}`);
+    assert(routed.code === 'connect-failed', `the refusal must name the cause: ${JSON.stringify(routed)}`);
+    return { note: 'no provider => local path unchanged; provider => routed, and an unreachable broker fails closed' };
+  } finally { fs.rmSync(store, { recursive: true, force: true }); }
 });
 
 // ───────────────────── re-used authoritative demonstrations ─────────────────────

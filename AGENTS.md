@@ -102,6 +102,7 @@ restate your own test output as proof.
 |---|---|
 | What is Canary, and how do I run it? | [`README.md`](README.md) |
 | What is supported, and how was it established? | [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) |
+| What do UNIVERSAL / NATIVE / OBSERVED / STRONG mean? | [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) — Canary is language-agnostic at the PROJECT CONTRACT level; selected ecosystems get native discovery and stronger runner-specific observation |
 | What can Canary honestly protect? | [`docs/CAPABILITY-LEVELS.md`](docs/CAPABILITY-LEVELS.md), [`docs/TRUST-ARCHITECTURE.md`](docs/TRUST-ARCHITECTURE.md) |
 | Security contract, tiers and ceilings | [`docs/SECURITY.md`](docs/SECURITY.md), [`SECURITY.md`](SECURITY.md) |
 | What 1.0/1.1 does and does not claim | [`docs/EXECUTION-AUTHORITY.md`](docs/EXECUTION-AUTHORITY.md), [`docs/AUTHORIZATION-1.0.md`](docs/AUTHORIZATION-1.0.md) |

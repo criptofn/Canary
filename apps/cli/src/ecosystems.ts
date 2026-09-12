@@ -31,6 +31,7 @@ import {
   type PlanKind, type PlanStep, type PlanAuthority, type ProjectAdapter,
   type ProjectDetection, type DiscoveredProject, type AuthorityCarrier,
 } from './project.js';
+import { universalAdapter } from './universal.js';
 
 const readText = (file: string): string | null => {
   try { return fs.readFileSync(file, 'utf8'); } catch { return null; }
@@ -335,5 +336,16 @@ export const pythonAdapter = commandAdapter(pythonEcosystem);
 export const rustAdapter = commandAdapter(rustEcosystem);
 export const goAdapter = commandAdapter(goEcosystem);
 
-/** Registered in this order when several ecosystems share a repository root. */
-export const ECOSYSTEM_ADAPTERS: readonly ProjectAdapter[] = [pythonAdapter, rustAdapter, goAdapter];
+/** The NATIVE ecosystems: the ones Canary has ecosystem-specific discovery for. */
+export const NATIVE_ADAPTERS: readonly ProjectAdapter[] = [pythonAdapter, rustAdapter, goAdapter];
+
+/**
+ * Registered in this order when several ecosystems share a repository root.
+ *
+ * `universal` is appended LAST and claims only a directory no native adapter
+ * claimed, so a project Canary has native discovery for always keeps its native
+ * path. It is what makes an unknown ecosystem a SUPPORTED project rather than an
+ * unsupported one — with an honest observation ceiling (an unknown runner can
+ * never earn a strong label; see the runner registry).
+ */
+export const ECOSYSTEM_ADAPTERS: readonly ProjectAdapter[] = [...NATIVE_ADAPTERS, universalAdapter];

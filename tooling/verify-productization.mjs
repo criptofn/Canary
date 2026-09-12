@@ -294,6 +294,20 @@ const STEPS = [
   ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],
   ['probe: documented examples (Node + Python, real CLI)', process.execPath, ['tooling/probes/examples-smoke.mjs'], {}],
   ['probe: packed architecture matrix', process.execPath, ['tooling/probes/packed-architecture.mjs'], {}],
+  // ── v1.1 Phase 2/3: the observation channels, the runner-identity authority, the
+  // provider-only routing, and the universal project contract. Each of these is a
+  // REAL execution, not a restatement: the channel probes load the SHIPPED observer
+  // bytes into a real runner, and the wiring tests drive the product's own
+  // Recorder round path.
+  ['1.1 Phase 2 Python channel WIRING (real recorder round path)', process.execPath, ['--test', 'packages/runner/executor/dist/test/python-wiring.test.js'], {}],
+  ['probe: node:test observation channel (shipped reporter bytes, real run)', process.execPath, ['tooling/probes/runner-observation-node-test.mjs'], {}],
+  ['1.1 Phase 2 node:test channel WIRING (real recorder round path)', process.execPath, ['--test', 'packages/runner/executor/dist/test/node-test-wiring.test.js'], {}],
+  ['probe: pytest observation channel (shipped plugin bytes, real run)', process.execPath, ['tooling/probes/runner-observation-pytest.mjs'], {}],
+  ['1.1 Phase 2 pytest channel WIRING (real recorder round path)', process.execPath, ['--test', 'packages/runner/executor/dist/test/pytest-wiring.test.js'], {}],
+  ['1.1 Phase 2 sealed-plan runner-identity authority (real canary setup)', process.execPath, ['--test', 'apps/cli/dist/test/runner-authority.test.js'], {}],
+  ['probe: broker cross-process serving (the provider transport premise)', process.execPath, ['tooling/probes/broker-cross-process.mjs'], {}],
+  ['1.1 Phase 3 provider-only accept/promote routing (real broker + real git)', process.execPath, ['--test', 'apps/cli/dist/test/provider-routing.test.js'], {}],
+  ['1.1 universal project contract (real unknown tool, discovered + declared)', process.execPath, ['--test', 'apps/cli/dist/test/universal-project.test.js'], {}],
 ];
 
 // R4 honest evidence: three per-step states, never collapsed. A probe may
@@ -320,6 +334,12 @@ const SKIP_AWARE = new Set([
   // to avoid.
   'probe: real Go project end-to-end (setup -> doctor)',
   'probe: real Rust project end-to-end (setup -> doctor)',
+  // The pytest channel needs a pytest INSTALLATION. It lives in a workspace-local
+  // venv (`_toolchains/py`, gitignored) precisely so no global Python state is
+  // touched; on a host without it the probe says so and exits 3, and the channel's
+  // text-grammar half is still covered by the comparator unit tests.
+  'probe: pytest observation channel (shipped plugin bytes, real run)',
+  '1.1 Phase 2 pytest channel WIRING (real recorder round path)',
 ]);
 const results = []; // [label, 'PASS'|'SKIP'|'FAIL', note]
 for (const [label, cmd, args] of STEPS) {

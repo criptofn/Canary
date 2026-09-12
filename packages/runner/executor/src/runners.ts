@@ -137,7 +137,12 @@ export const RUNNER_ADAPTERS: readonly RunnerAdapter[] = [
     id: 'node-test',
     family: 'node',
     programs: ['node'],
-    scriptMarkers: [/--test\b/, /\bnode:test\b/],
+    // `--test` must be a TOKEN of its own. MEASURED as a real overclaim while
+    // writing the universal contract's smoke: the loose pattern `/--test\b/` also
+    // matched `ctest --test-dir build`, so a CMake project running CTest was
+    // reported as the Node test runner — a registry that says STRONG for a runner
+    // it cannot observe is exactly the overclaim this file exists to prevent.
+    scriptMarkers: [/(?:^|\s)--test(?:-only)?(?=\s|$)/, /\bnode:test\b/],
     capability: 'STRONG',
     // `--test-reporter=<file URL>` adds Canary's reporter as a SECOND reporter:
     // the ordinary TAP summary stays on stdout (output Canary did not produce) and

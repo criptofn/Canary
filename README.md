@@ -212,6 +212,57 @@ is declared is what counts: nothing is discovered by walking, so an undeclared
 `vendor/`, `archive/` or `examples/` tree can never add a check to your plan. A
 declaration Canary cannot honour stops setup instead of shipping a partial plan.
 
+### Any language — the universal project contract
+
+Canary is **language-agnostic at the project contract level**. It does not need to
+know your build system to verify your repository, and you do not need to know
+Canary's adapter model to use it:
+
+```sh
+cd your-repo && canary setup
+```
+
+`setup` reads the project's **existing, executable truth** — the commands in your CI
+workflows, your `Makefile` / `Taskfile` / `justfile` targets, a configured
+CMake+CTest or Meson build tree, a shipped `gradlew`/`mvnw` wrapper, `pom.xml`,
+`build.gradle*`, `*.sln`/`*.csproj`, `Package.swift`, `build.zig`, `phpunit.xml`,
+`composer.json`, `Rakefile`, `mix.exs`, `shard.yml` — and proposes the plan those
+artifacts anchor. Every proposed check says which artifact anchors it. Nothing is
+guessed: a command with no anchor is not proposed (setup reports `NEEDS ATTENTION`
+instead of inventing one), and if two equally-anchored interpretations exist, Canary
+asks **one** concise question rather than picking for you. The plan is then pinned
+(every program sealed to an absolute path), sealed and drift-checked exactly like a
+native one.
+
+If discovery cannot see your commands, state them yourself — argv arrays, never a
+shell line:
+
+```json
+{ "schema": "canary-project/1",
+  "scopes": [ { "path": ".",
+                "checks": [ { "name": "build", "kind": "build", "argv": ["cmake", "--build", "build"] },
+                            { "name": "tests", "kind": "tests", "argv": ["ctest", "--test-dir", "build"] } ] } ] }
+```
+
+`canary.project.json` refuses a project-supplied environment and a per-check `cwd`
+(a working directory is a declared scope, which is validated and sealed), refuses
+shell wrappers, and can never name Canary's own `$` tokens.
+
+**What that buys, stated exactly.** Four levels, reported separately:
+
+| Level | Meaning |
+|---|---|
+| **UNIVERSAL** | Any command-driven project: the command really ran, at the authorized absolute path, in the authorized sealed directory, with that exit status, bound to the candidate's bytes — **and the runner's internals were not observed**. |
+| **NATIVE** | Canary has ecosystem-specific discovery and toolchain handling: **node**, **python**, **rust**, **go**. |
+| **OBSERVED** | Canary watched the runner's own lifecycle from inside the process: **mocha**, **`node --test`**, **pytest**, **`unittest`**. Printed text becomes refutable. |
+| **STRONG** | A strong verdict may rest on it: the observed runners above, each bound by an authority (a repo pin, the verifying runtime itself, or an operator-sealed identity). |
+
+An unknown runner is `INCONCLUSIVE_ONLY`, by construction — so a universal check can
+verify a build, a lint or a test command honestly and can **never** turn printed
+output into a strong verdict. Canary does not claim to understand every language; it
+claims to verify any command-driven project honestly about what it proved. See
+[`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md).
+
 Every command accepts `--json`: the human prose moves to stderr and stdout
 carries exactly one versioned object (`{"schema":"canary-status/1", …}`). Exit
 codes and status words are identical with and without the flag — asking for JSON

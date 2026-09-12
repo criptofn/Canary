@@ -10,6 +10,71 @@ changed*; the evidence ledgers record *what was observed*.
 
 ## [Unreleased] — v1.1 implementation candidate
 
+### Added — Canary is language-agnostic at the project contract level
+
+One generic adapter, `universal`, reaches any command-driven repository through two
+doors, and it is bounded on purpose: no per-language adapters, no shell mode, no new
+environment door.
+
+- **Discovery (the normal path).** `canary setup` proposes a plan from the repository's
+  existing, executable truth: CI workflow commands, Makefile / Taskfile / justfile
+  targets, a CONFIGURED CMake+CTest or Meson tree, shipped Gradle/Maven wrappers,
+  `pom.xml`, `build.gradle*`, `*.sln`/`*.csproj`, `Package.swift`, `build.zig`,
+  `phpunit.xml`, `composer.json`, `Rakefile`, `mix.exs`, `shard.yml`. Every proposed
+  check carries the artifact that anchors it, and the anchor's strength is recorded
+  (`declared` / `configured` / `observed` / `convention`) rather than flattened.
+- **The escape hatch.** `canary.project.json` states the commands exactly, as argv
+  arrays. It REFUSES a project-supplied `env`, a per-check `cwd` (a working directory
+  is a sealed SCOPE instead), shell wrappers, Canary's own `$` spec tokens, escaping
+  scope paths and unknown check kinds — each with a test.
+- **Nothing is invented.** An unanchored repository produces an EMPTY plan, which setup
+  reports as `NEEDS ATTENTION`; two equally-anchored interpretations produce ONE
+  concise clarification (naming the `canary.project.json` resolution) instead of a
+  preference.
+- **Sealed and pinned exactly like a native plan**: argv digested per step, programs
+  resolved to absolute paths at setup, scopes validated and sealed, drift detected, and
+  candidate identity bound.
+- **Capped below STRONG, deliberately.** An unknown runner resolves to
+  `INCONCLUSIVE_ONLY`, so a universal check can never mint PASS /
+  CONFIRMED_REGRESSION / FLAKY / PRE_EXISTING_FAILURE. Printed text is recorded as the
+  CLAIM it is and cannot upgrade a verdict — asserted through a real executor round.
+- Docs now state the four levels separately: **UNIVERSAL** (any command-driven project),
+  **NATIVE** (node, python, rust, go), **OBSERVED** and **STRONG** (mocha,
+  `node --test`, pytest, `unittest`). Canary does not claim to understand every
+  language.
+
+### Added — three more observation channels, and the authority that binds them
+
+`STRONG` used to mean one thing: mocha's bytes match a pin in this repository. It now
+means "a Canary-owned channel AND an authority", and the authority is one of three
+kinds — a repo pin (`mocha`), the verifying runtime itself (`node --test`, so a
+foreign Node is refused), or an operator-sealed identity (`pytest`, `unittest`).
+
+- **`node --test`**: Canary's reporter is injected as a SECOND `--test-reporter`, so the
+  ordinary TAP summary stays on stdout while the frames go to fd 3. Measured, not
+  assumed: `data.testName` does not exist, a skip arrives as `test:pass` with `skip:`,
+  no file-level events exist, and Node stops reading its own options at the first
+  positional (a suffix injection silently loaded no reporter and failed closed).
+- **pytest**: a plugin loaded through `PYTHONPATH` + `PYTEST_PLUGINS`, deciding each
+  item once at `teardown` from all three phase reports; the pin is the installed
+  distribution's own source tree, with bytecode caches excluded because they embed
+  mtimes. Executed against real pytest 9.1.1 in a workspace-local venv — no global
+  Python state touched.
+- **The authority source** for a non-package runner is the operator's own sealed setup
+  plan, verified against its seal and refused for a foreign, corrupt, edited or
+  non-runner plan.
+
+### Added — a configured provider closes the local accept/promote path
+
+With a provider installed, `accept` and promote are minted by the broker or they do not
+happen: accept writes no local record, and promote refuses on an unreachable broker, a
+token mismatch, a stale authority generation, a mismatched promotion window or a
+refusing handler — with the base byte-identical after every refusal, and with a broker
+that authorizes exactly this `{base, candidate}` pair allowed to apply. With no
+provider configured the local path is unchanged. `HARDENED` and `protectedPromotion`
+remain UNAVAILABLE: routing to a broker is not the same as having a broker of a
+different OS identity installed.
+
 ### Fixed — Rust and Go projects can actually be verified now
 
 Both ecosystems could be discovered, planned and sealed, and then never execute,
