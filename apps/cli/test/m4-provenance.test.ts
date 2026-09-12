@@ -127,7 +127,23 @@ describe('the task label is a digest with zero verdict authority', () => {
     const plain = checkpoint(plainRoot);
     const labeled = checkpoint(labeledRoot, { task: 'fix the failing tests please' });
     assert.equal(plain.decision, 'block');
-    assert.deepEqual(labeled, plain, 'the task label must not alter the verdict or its reason');
+    /**
+     * "Byte-identical" now means identical once the RUN-SPECIFIC parts are normalised, and the
+     * reason is why: the compact failure payload (failure-payload.ts) names the file holding the
+     * full runner output, so two different projects — and two different runs — necessarily produce
+     * two different paths (`…/evidence/<timestamp>-checkpoint/tests.log`). The property this test
+     * exists for is unaffected: the task label must change NOTHING about the verdict or its
+     * instruction. That is asserted on the normalised payload below, and the label's absence from
+     * the wire is checked separately.
+     */
+    const normalise = (s: string, root: string) => s
+      .split(root).join('<root>')
+      .replace(/\.canary[\\/]evidence[\\/][^\\/]+[\\/]/g, '.canary/evidence/<run>/');
+    assert.deepEqual(
+      { ...labeled, reason: normalise(labeled.reason, labeledRoot) },
+      { ...plain, reason: normalise(plain.reason, plainRoot) },
+      'the task label must not alter the verdict or its reason',
+    );
     assert.ok(!JSON.stringify(labeled).includes('fix the failing'), 'task prose never rides the wire out');
     assert.equal(readLatestBundle(plainRoot, 'checkpoint').provenance.taskDigest, null);
     assert.equal(readLatestBundle(labeledRoot, 'checkpoint').provenance.taskDigest, sha256('fix the failing tests please'));

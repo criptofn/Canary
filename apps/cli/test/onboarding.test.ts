@@ -227,8 +227,18 @@ describe('checkpoint (harness entry)', () => {
     assert.equal(r.status, 0);
     const out = JSON.parse(r.stdout) as { decision: string; reason: string };
     assert.equal(out.decision, 'block');
+    // The reason is the MODEL-VISIBLE repair instruction, and it is bounded on purpose
+    // (`failure-payload.ts`): 4000 characters of raw runner output became a compact payload.
+    // The assertion therefore pins what the payload PROMISES the model — the failing check,
+    // the command and exit code, a repair instruction, and where the full log is — rather
+    // than the old prose wording it used to carry.
     assert.match(out.reason, /Canary verification failed/);
-    assert.match(out.reason, /needs work/);
+    assert.match(out.reason, /tests/);
+    assert.match(out.reason, /npm run test/);
+    assert.match(out.reason, /exit 1/);
+    assert.match(out.reason, /Fix this before finishing/);
+    assert.match(out.reason, /full output: .+\.log/);
+    assert.ok(out.reason.length <= 1200, `the model-visible payload must stay bounded, got ${out.reason.length} chars`);
   });
   it('loop guard: stop_hook_active allows with an honest systemMessage, never re-blocks', () => {
     const root = makeProject('cp-loop', { testScript: fx('f-fail.js') });

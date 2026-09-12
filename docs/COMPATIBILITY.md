@@ -96,6 +96,28 @@ refused at setup with a message naming it; it is never silently skipped.
 was actually detected. An integration that cannot gate is never reported as if
 it could.
 
+### The GATED row, measured rather than assumed
+
+Wiring is not enforcement, so the row above was MEASURED end to end on this host with
+`tooling/probes/hook-block-contract.mjs` (Claude Code 2.1.268): a throwaway project gets one `Stop`
+hook, the probe sends the same stop input the CLI sends, and it records what the CLI did with each
+candidate output shape.
+
+| Output shape | Repair turn? | Reason delivered? | Channel | CLI hook-error notice |
+|---|---|---|---|---|
+| `{"decision":"block","reason":…}` + exit 0 (**Canary's shape**) | yes | **yes** | user message prefixed `Stop hook feedback:` | 1 (cosmetic) |
+| exit 2 with the reason on stderr | yes | yes | user message (stderr text, prefixed with the `[node …]` wrapper) | 1 (cosmetic) |
+| exit 2 **and** the JSON block | yes | yes | user message | 1 (cosmetic) |
+| `{"continue":false,"stopReason":…}` | **no** | **no** | none | 0 |
+| `{"systemMessage":…}` (Canary's loop-guard shape) | no | yes | `system/informational` notice | 0 |
+| silent exit 0 (Canary's passing shape) | no | n/a | none | 0 |
+
+Two facts a reader should not have to rediscover: the reason reaches the model, and the CLI logs a
+`Stop hook error occurred` notification for EVERY blocking shape — it is a property of blocking on
+this version, not of Canary's payload. `continue:false` looks like the documented alternative and is
+not one here: it neither repairs nor explains. The probe prints the whole table and asserts the
+properties, so it can be re-run when the harness changes rather than trusted from this text.
+
 ## Commands
 
 | Command | Promise |
