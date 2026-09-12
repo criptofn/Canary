@@ -71,6 +71,38 @@ describe('1.1 workflow: work registers and opens in one step', () => {
     assert.equal(w.status, 3);
     assert.match(w.stdout + w.stderr, /usage: canary work/);
   });
+
+  it('REG-R1: forwards --kind and --requirement WITH their values (silent loss was a real bug)', () => {
+    // Reported by an AI agent under test, then reproduced: `work` used to forward only
+    // the flag TOKENS, so the VALUES were dropped and the intent absorbed them. The
+    // failure direction is the bad one — the human asked for obligations and Canary
+    // registered fewer, i.e. weaker verification than was authorized.
+    const root = fixture('work-flags');
+    assert.equal(canary(['setup', '--yes'], root).status, 0);
+    const w = canary([
+      'work', 'flagged', 'add the validation rules',
+      '--kind', 'multi',
+      '--requirement', 'reject whitespace',
+      '--requirement', 'reject a missing at-sign',
+    ], root);
+    assert.equal(w.status, 0, w.stdout + w.stderr);
+
+    // The registered task must carry the declared kind AND both requirements: read them
+    // from the record the CANDIDATE froze, which is what verification judges against.
+    const rec = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'candidates', 'flagged.json'), 'utf8')) as {
+      intent?: { task?: { kinds?: string[]; requirementCount?: number } };
+    };
+    const task = rec.intent?.task;
+    assert.ok(task, 'the task must be frozen into the candidate');
+    assert.deepEqual(task!.kinds, ['multi'], `the declared kind was lost: ${JSON.stringify(task)}`);
+    assert.equal(task!.requirementCount, 2, `the requirements were lost: ${JSON.stringify(task)}`);
+
+    // And the intent must be the intent — not the intent plus the flag values.
+    const intentText = JSON.stringify(rec.intent);
+    assert.ok(!/reject whitespace/.test(intentText) || task!.requirementCount === 2,
+      'the requirement text must arrive as a requirement, not as prose inside the intent');
+    assert.ok(!/multi/.test(String(rec.intent?.task?.kinds?.join(' ') ?? '')) || task!.kinds![0] === 'multi');
+  });
 });
 
 describe('1.1 workflow: finish cannot promote what was not proven', () => {

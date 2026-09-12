@@ -47,16 +47,29 @@ export async function cmdWork(rawArgs: string[]): Promise<number> {
   if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository — there is nothing here to attach work to.', 'cd into your project, then: canary work <name> "<what to do>"'); return 2; }
   o.context({ root });
 
-  const positionals = rest.filter((a) => !a.startsWith('--'));
-  const name = positionals[0];
-  const intent = positionals.slice(1).join(' ').trim();
+  // The name is the first positional; the intent is everything up to the FIRST flag.
+  //
+  // MEASURED BUG, reported by an AI agent under test and reproduced here: the previous
+  // version collected `rest.filter(a => !a.startsWith('--'))` as the intent and
+  // forwarded only the flag TOKENS (`--kind`, `--requirement`), so
+  //   canary work c1 "add the rules" --kind multi --requirement "must X"
+  // registered an intent of "add the rules multi must X" AND lost both values. The
+  // consequence is the bad direction: the user explicitly asked for obligations and
+  // Canary silently registered FEWER, i.e. weaker verification than the human
+  // authorized. Flags and their values are now forwarded verbatim.
+  const flagStart = rest.findIndex((a) => a.startsWith('--'));
+  const head = flagStart === -1 ? rest : rest.slice(0, flagStart);
+  const flags = flagStart === -1 ? [] : rest.slice(flagStart);
+  const name = head[0];
+  const intent = head.slice(1).join(' ').trim();
   if (!name || !intent) {
     o.verdict('NEEDS ATTENTION', 'the workflow needs a candidate name and the intent, in that order.', 'usage: canary work <name> "<what to do>" [--kind bugfix|refactor|dependency|performance|ui|multi] [--requirement "<part>"]…');
     return 3;
   }
 
-  // 1. the intent (a hint with zero authority — it can only ADD obligations)
-  const taskArgs = [intent, ...forwarded(rest.filter((a) => a.startsWith('--')))];
+  // 1. the intent (a hint with zero authority — it can only ADD obligations), with
+  // every flag AND its value passed through untouched.
+  const taskArgs = [intent, ...forwarded(flags)];
   const taskCode = cmdTask(taskArgs);
   if (taskCode !== 0) { o.say('the intent could not be registered — nothing was opened.'); return taskCode; }
 
