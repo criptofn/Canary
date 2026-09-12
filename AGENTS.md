@@ -86,11 +86,26 @@ Probe conventions: fixtures only under the OS temp dir (`fs.mkdtempSync`); print
 
 ```sh
 canary result --json                      # what Canary knows here (free; writes nothing)
-canary work <name> "<intent>"             # register the intent AND open the candidate
+canary work <name> "<intent>" \
+  --requirement "<each stated requirement>"  # ONE PER REQUIREMENT the task states
 #   work only in the candidate directory printed above, then commit there
 canary finish <name>                      # verify from outside; promote only if the proof holds
 canary doctor --json                      # the completion gate: run the sealed checks now
 ```
+
+**Declare the task's requirements, one `--requirement` each.** This is not
+bookkeeping: a requirement Canary knows about becomes a DUTY that `finish` must
+discharge, and a requirement it does not know about is prose nobody checks. Measured
+with an agent under test (`tooling/benchmark/RESULTS.md`): an agent implemented a
+stated rule wrongly, wrote its own test that missed the case, and Canary correctly
+reported `READY` — because the rule was never a duty. With the requirement declared,
+that outcome needs either a machine check or a human acceptance.
+
+Consequence to expect, not to work around: a declared requirement that no machine
+check covers becomes `USER JUDGMENT REQUIRED`, and `finish` will refuse until a human
+runs `canary accept` in a terminal. Say so plainly in your report — an honest
+"verified, but promotion needs your acceptance" is the correct ending, and it is a
+different thing from "done".
 
 An agent may not close a subjective duty — that stays `canary accept`, in a
 terminal. If a check fails, fix exactly what was reported and re-run; do not

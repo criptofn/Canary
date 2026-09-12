@@ -56,6 +56,7 @@ import { fileURLToPath } from 'node:url';
 // C). `node:sea` exists in every supported Node and `isSea()` is simply false
 // outside a SEA build, so this import costs nothing in the ordinary case.
 import sea from 'node:sea';
+import { buildFailurePayload } from './failure-payload.js';
 import { resolveNpmCli, sanitizedEnv } from '@canary-rn/support';
 
 // M9 §9.5 — the quarantine marker filename. authority.ts imports only node
@@ -2342,7 +2343,11 @@ export async function cmdCheckpoint(): Promise<number> {
     }
     return 0; // silent even if an agent claim contradicts — claims never BLOCK, and never CREATE a pass
   }
-  writeVerificationBundle(root, 'checkpoint', ran, 'fail', prov);
+  // The full runner output is written NEXT TO the evidence bundle and referred to by path, so
+  // the model is not forced to pay for bytes it usually does not need — and does not have to
+  // re-run the suite to see more. Measured before this: the block carried up to 4000 characters
+  // of raw output, which is roughly a thousand tokens per failed attempt, on every attempt.
+  const bundleDir = writeVerificationBundle(root, 'checkpoint', ran, 'fail', prov);
   writeCheckpoint(root, 'fail', failed.map((f) => f.kind), 'checkpoint');
   if (input.stop_hook_active === true) {
     // already one repair attempt this turn — never loop the agent; surface honestly instead
@@ -2362,7 +2367,17 @@ export async function cmdCheckpoint(): Promise<number> {
         `Repair the observed failures.\n`;
     }
   }
-  const reason = `${claimNote}Canary verification failed: ${failed.map((f) => `${f.kind} (${f.display}${f.exitCode === null ? ', could not run' : `, exit ${f.exitCode}`})`).join('; ')}. Fix this before finishing. Last output:\n${failed.map((f) => f.tail).join('\n---\n').slice(0, 4000)}`;
+  const reason = `${claimNote}${buildFailurePayload({
+    steps: failed.map((f) => ({
+      kind: f.kind, display: f.display, exitCode: f.exitCode,
+      stdout: f.stdout ?? '', stderr: f.stderr ?? '',
+    })),
+    writeLog: (kind, text) => {
+      if (typeof bundleDir !== 'string' || bundleDir === '') return null;
+      const p = path.join(bundleDir, `${kind.replace(/[^A-Za-z0-9-]/g, '-')}.log`);
+      try { fs.writeFileSync(p, text); return p; } catch { return null; }
+    },
+  })}`;
   return emit({ decision: 'block', reason });
 }
 

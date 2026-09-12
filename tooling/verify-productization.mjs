@@ -308,6 +308,18 @@ const STEPS = [
   ['probe: broker cross-process serving (the provider transport premise)', process.execPath, ['tooling/probes/broker-cross-process.mjs'], {}],
   ['1.1 Phase 3 provider-only accept/promote routing (real broker + real git)', process.execPath, ['--test', 'apps/cli/dist/test/provider-routing.test.js'], {}],
   ['1.1 universal project contract (real unknown tool, discovered + declared)', process.execPath, ['--test', 'apps/cli/dist/test/universal-project.test.js'], {}],
+  // The completion gate's failure payload is a TOKEN-COST control: the model must get the
+  // smallest actionable message, with the full runner output on disk instead of in its context.
+  ['1.1 failure payload is compact and points at the full log (real hook run)', process.execPath, ['tooling/probes/checkpoint-payload.mjs'], {}],
+  // The benchmark harness validates ITSELF before any of its numbers are believed: known-good and
+  // known-bad solutions per fixture, the verdict rules, secret redaction, and the instrument
+  // fingerprint.
+  ['benchmark: harness self-tests (verdict rules, redaction, fingerprint, stream ledger)', process.execPath, ['--test',
+    'tooling/benchmark/verdict.test.mjs', 'tooling/benchmark/classify-claim.test.mjs',
+    'tooling/benchmark/redact.test.mjs', 'tooling/benchmark/secret-scan.test.mjs',
+    'tooling/benchmark/fingerprint.test.mjs', 'tooling/benchmark/stream.test.mjs'], {}],
+  ['benchmark: every fixture separates a correct from an incorrect solution', process.execPath, ['--test', 'tooling/benchmark/fixtures.test.mjs'], {}],
+  ['benchmark: agent-driven token ledger (stream-json parsed for phase cost + visible bytes)', process.execPath, ['tooling/probes/agent-token-ledger.mjs'], {}],
 ];
 
 // R4 honest evidence: three per-step states, never collapsed. A probe may
