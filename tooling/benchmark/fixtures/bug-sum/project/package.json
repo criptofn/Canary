@@ -1,0 +1,9 @@
+{
+  "name": "bug-sum",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Tiny dependency-free project whose number helpers have one wrong behaviour.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

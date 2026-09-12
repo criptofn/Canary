@@ -1,0 +1,9 @@
+{
+  "name": "refactor-preserve",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Money formatting with documented edge behaviour that must survive a change.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

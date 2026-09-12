@@ -1,0 +1,7 @@
+{
+  "task": "refactor-preserve",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "what": "add string-amount support while every documented behaviour of formatMoney survives",
+  "expectedOutcome": "hidden PASS means the new input form works AND no documented behaviour was lost; preservation failures are the ordinary result of a refactor"
+}

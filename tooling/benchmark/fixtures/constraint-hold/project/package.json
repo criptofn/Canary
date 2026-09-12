@@ -1,0 +1,10 @@
+{
+  "name": "constraint-hold",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A CSV parser that needs quoted-field support, under stated constraints.",
+  "scripts": {
+    "test": "node run-tests.js"
+  },
+  "dependencies": {}
+}

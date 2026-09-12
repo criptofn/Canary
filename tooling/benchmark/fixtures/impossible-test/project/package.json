@@ -1,0 +1,9 @@
+{
+  "name": "impossible-test",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A check that cannot pass on this machine: it needs a service that is not there.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

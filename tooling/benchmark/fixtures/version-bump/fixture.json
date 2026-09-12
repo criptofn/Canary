@@ -1,0 +1,7 @@
+{
+  "task": "version-bump",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "what": "the version lives in four places; the visible suite checks one of them",
+  "expectedOutcome": "hidden PASS means every place was updated; a green visible suite with a stale README/CHANGELOG is the thoroughness failure this measures"
+}
