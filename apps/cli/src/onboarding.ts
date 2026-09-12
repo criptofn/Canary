@@ -62,7 +62,7 @@ import { resolveNpmCli, sanitizedEnv } from '@canary-rn/support';
 // M9 §9.5 — the quarantine marker filename. authority.ts imports only node
 // builtins, so this direction adds no cycle (candidate.ts already imports it).
 import { QUARANTINE_FILE } from './authority.js';
-import { canonicalTask, declaredTask, taskWeakening, TASK_KINDS, MAX_REQUIREMENTS, type TaskKind, type TaskIdentity, type AuthorizationSubject, subjectDigest } from './authorization.js';
+import { canonicalTask, declaredTask, taskWeakening, materialDigest, canonicalText, TASK_KINDS, MAX_REQUIREMENTS, type TaskKind, type TaskIdentity, type AuthorizationSubject, subjectDigest } from './authorization.js';
 export { canonicalTask, declaredTask, taskWeakening, TASK_KINDS, MAX_REQUIREMENTS, subjectDigest };
 export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // 1.1 §1 — the project model lives in project.js. onboarding re-exports the
@@ -1529,10 +1529,32 @@ export function obligationsFor(
       note: bound ? `sealed ${script} checks target ${target.digest}; its successful exit is required independently`
         : `objective target ${target.digest} has no sealed ${target.kind} proof binding. Bind this digest to the matching script in package.json canary.proofs and run setup; acceptance cannot replace measurement.` });
   }
-  if ((kinds.includes('multi') || requirementCount > 0) && (!task || requirementCount === 0
-    || task.requirementDigests.some(d => !task.objectiveTargets.some(t => t.digest === d)))) {
+  /**
+   * PER-REQUIREMENT COVERAGE, and the binding path that makes it attainable.
+   *
+   * The invariant: every objective requirement must have a FROZEN proof obligation or remain NOT
+   * PROVEN. A requirement is covered when it is either a frozen objective target (a numeric
+   * bench/e2e target, bound above) or directly bound in `package.json` `canary.proofs` to a script
+   * the sealed plan actually runs — that script's exit code is then the measurement.
+   *
+   * MEASURED gap this closes: the binding map accepted any requirement digest, but only plans whose
+   * requirements happened to LOOK numeric could be covered, and nothing ever printed the digest an
+   * operator would need — so the only reachable end state was human acceptance, and "bind it to a
+   * sealed check" was advice with no way to follow it.
+   */
+  const boundScriptFor = (d: string): string | null => {
+    const script = authority?.planAuthority?.proofBindings?.[d];
+    return script !== undefined && authority!.plan.some(s => s.script === script) ? script : null;
+  };
+  const digests = task?.requirementDigests ?? [];
+  const uncovered = digests.filter(d => !task!.objectiveTargets.some(t => t.digest === d) && boundScriptFor(d) === null);
+  if (digests.length > 0 && uncovered.length === 0) {
+    const bound = digests.map(d => boundScriptFor(d)).filter((s): s is string => s !== null);
+    add({ id: 'per-requirement', mode: 'objective', status: 'met',
+      note: `every one of the ${digests.length} registered requirement(s) is covered: ${bound.length > 0 ? `sealed proof script(s) ${[...new Set(bound)].join(', ')}` : 'frozen objective targets'} whose exit codes the sealed plan produces` });
+  } else if ((kinds.includes('multi') || requirementCount > 0) && (!task || requirementCount === 0 || uncovered.length > 0)) {
     add({ id: 'per-requirement', mode: 'non-objective', status: 'unproven', note: requirementCount > 0
-      ? `multi-part task: ${requirementCount} registered requirement(s) — a green plan proves the plan, NOT each part; requirements without their own check end OBJECTIVELY PROVEN or SUBJECTIVELY ACCEPTED from an interactive terminal (canary accept <candidate>) — until then UNPROVEN, never permanently dead`
+      ? `multi-part task: ${requirementCount} registered requirement(s), ${uncovered.length} with NO sealed proof — a green plan proves the plan, NOT each part. Bind each uncovered digest in package.json canary.proofs to a script your plan runs and re-run canary setup (acceptance cannot replace measurement for an objective requirement), or accept the candidate from an interactive terminal (canary accept <candidate>) — until then UNPROVEN, never permanently dead`
       : 'multi-part task detected but requirements were never enumerated — ask the human ONCE which parts must be proven separately, or register them: canary task "..." --requirement "..." per part (BEFORE isolation), or accept the candidate as-is from an interactive terminal: canary accept <candidate>' });
   }
   return out;
@@ -1670,6 +1692,20 @@ export function cmdTask(rawArgs: string[]): number {
   }
   o.say(`task registered: ${kinds.length ? kinds.join(' + ') : 'no kind inferred'}${requirementCount ? ` (${requirementCount} requirement(s))` : ''}.`);
   for (const target of task.objectiveTargets) o.say(`objective ${target.kind} target: ${target.digest} — matching proof must be sealed via package.json canary.proofs`);
+  /**
+   * Print every requirement's digest so the operator can actually BIND it.
+   *
+   * MEASURED gap this closes: `canary.proofs` accepts any requirement digest, but nothing ever told
+   * the operator what the digest was — so "bind this requirement to a sealed check" was advice with
+   * no way to follow it, and the only reachable end state was human acceptance. Coverage has to be
+   * attainable, or "every objective requirement has a frozen proof obligation" is not a promise.
+   */
+  for (const r of requirements) {
+    const d = materialDigest(r);
+    const covered = task.objectiveTargets.some((t) => t.digest === d);
+    o.say(`requirement ${covered ? '[frozen target]' : '[needs proof or acceptance]'}: ${d} — "${canonicalText(r).slice(0, 90)}"`);
+    if (!covered) o.say(`  bind it: package.json "canary": { "proofs": { "${d}": "<script name from your plan>" } }, then: canary setup`);
+  }
   o.say('this is an AGENT_REPORTED hint with zero authority — the next checkpoint proves the sealed plan PLUS this task\'s obligations; nothing here weakens either.');
   if (text !== '' && inferred.length === 0) {
     // blocker 3: the intent was understood by NO pattern. The honest move is
@@ -2430,8 +2466,10 @@ export function cmdDoctor(rawArgs: string[]): number {
     o.verdict('NOT PROVEN',
       `the checks passed, but the task is not proven: ${because} — a green plan is not a proven deliverable (NO PROOF, NO DONE).`,
       objectiveOpen.length > 0
-        ? 'close them with a sealed check (bind it in package.json canary.proofs and re-run: canary setup), or have a human accept the risk from an interactive terminal'
-        : 'from an interactive terminal: canary accept <name>');
+        ? 'close it with a sealed check: bind the requirement to a matching script in package.json canary.proofs and re-run canary setup — or take the work through a candidate (canary work <name> … → canary finish <name>) and have a human accept it there'
+        // MEASURED dead end this replaces: the base-repo path has NO candidate, so "canary accept
+        // <candidate>" alone was a command that could only fail. Both real paths are named instead.
+        : 'bind each requirement to a sealed check (package.json canary.proofs + canary setup), or take the work through a candidate and have a human accept it there: canary work <name> "<intent>" → canary finish <name> → canary accept <candidate> in a terminal');
     for (const ob of unproven) o.say(`  - UNPROVEN [${ob.id}] (${ob.mode}): ${ob.note}`);
     return 2;
   }

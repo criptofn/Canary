@@ -318,6 +318,10 @@ const STEPS = [
   // discriminating check must earn READY, and an unestablished comparison must not be read as
   // either answer.
   ['1.1 regression-evidence gate (a green plan that cannot discriminate a change is NOT PROVEN)', process.execPath, ['tooling/probes/regression-evidence-gate.mjs'], {}],
+  // The other half of the same invariant: an AUTHORIZED requirement that no check covers must stay
+  // NOT PROVEN (never READY), the worker must be told, the printed exit must be one that can be
+  // taken, and binding each requirement to a sealed script must make coverage attainable.
+  ['1.1 requirement coverage gate (authorized requirements are proven or NOT PROVEN)', process.execPath, ['tooling/probes/requirement-coverage-gate.mjs'], {}],
   // The benchmark harness validates ITSELF before any of its numbers are believed: known-good and
   // known-bad solutions per fixture, the verdict rules, secret redaction, and the instrument
   // fingerprint.

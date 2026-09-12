@@ -52,6 +52,14 @@ const label = arg('label', `${task}-${arm}`);
 const timeoutMin = Number(arg('timeout-min', 12));
 const keep = arg('keep', false) === true;
 /**
+ * `--register-requirements` models the OPERATOR who declared what the task must satisfy: the
+ * fixture's own `requirements` are registered with `canary task` before the agent starts. This is the
+ * configuration in which the invariant actually binds — "every objective requirement must have a
+ * frozen proof obligation or remain NOT PROVEN" — because without a registration there is nothing
+ * authorized for Canary to hold the work to.
+ */
+const registerRequirements = arg('register-requirements', false) === true;
+/**
  * `--variant normal` (default) or `adversarial`.
  *
  * The adversarial variant exists to test CANARY'S core promise rather than the agent's
@@ -227,6 +235,26 @@ if (arm === 'canary' || arm === 'workflow' || arm === 'invisible' || arm === 'gu
     fs.writeFileSync(outFile, `${JSON.stringify(record, null, 2)}\n`);
     console.error(`no Stop hook was installed in the fixture (setup exit ${record.setup.exitCode}); the canary arm would measure nothing: ${outFile}`);
     process.exit(3);
+  }
+}
+
+/**
+ * THE OPERATOR'S DECLARATION, when the configuration asks for it.
+ *
+ * A fixture's `requirements` are what the task states; registering them models an operator who
+ * wrote them down BEFORE the work (the documented `canary work --requirement` / `canary task`
+ * path). Only then does Canary have authorized requirements to hold the work to — the invariant is
+ * about authorized requirements, and a benchmark that never authorizes any cannot measure it.
+ */
+if (arm !== 'plain' && registerRequirements) {
+  const reqs = Array.isArray(fixtureMeta.requirements) ? fixtureMeta.requirements : [];
+  if (reqs.length > 0) {
+    const firstProseLine = taskText.split('\n').map((l) => l.trim()).find((l) => l !== '' && !l.startsWith('#'));
+    const intent = typeof fixtureMeta.intent === 'string' && fixtureMeta.intent !== '' ? fixtureMeta.intent : (firstProseLine ?? 'the stated task');
+    const reg = run(process.execPath, [CLI, 'task', intent, ...reqs.flatMap((r) => ['--requirement', r])], { cwd: projectDir, timeout: 120_000 });
+    record.taskRegistration = { requirements: reqs.length, exit: reg.status, stdoutTail: reg.stdout.split('\n').slice(-8).join('\n') };
+  } else {
+    record.taskRegistration = { requirements: 0, exit: null, note: 'the fixture declares no requirements to register' };
   }
 }
 

@@ -289,7 +289,9 @@ check('H requirement task: per-requirement duty closes via acceptance, never a d
   const v1 = canary(['isolate', '--verify', 'h', root], root);
   assertEq(v1.status, 2, 'H: duties open before proof/acceptance');
   assert(/\[per-requirement\] UNPROVEN \(non-objective\)/.test(v1.stdout), `H: requirement duty named:\n${v1.stdout}`);
-  assert(/OBJECTIVELY PROVEN or SUBJECTIVELY ACCEPTED/.test(v1.stdout), `H: the duty must print its REAL completion path:\n${v1.stdout}`);
+  // The duty must print the paths that actually close it. STRONGER than the phrase it replaced:
+  // the measurement path (bind the digest to a sealed script) AND the human-acceptance path.
+  assert(/canary\.proofs/.test(v1.stdout) && /canary accept/.test(v1.stdout), `H: the duty must print its REAL completion paths (sealed proof and acceptance):\n${v1.stdout}`);
   assert(/\[regression-evidence\] UNPROVEN \(objective\)/.test(v1.stdout), `H: objective half present beside it:\n${v1.stdout}`);
   const a = acceptPty(root, ['accept', 'h'], 'h\n');
   assert(/ACCEPTED from this interactive terminal/.test(a.stdout), `H: accept closes the per-requirement duty:\n${a.stdout}`);
