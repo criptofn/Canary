@@ -2656,9 +2656,12 @@ export async function cmdCheckpoint(): Promise<number> {
         }
         return emit({ decision: 'block', reason: `Canary blocked completion: NOT PROVEN — ${why.slice(0, 1200)}`.slice(0, 1400) });
       }
-      // Subjective only: an agent cannot accept a duty for a human, so this does not loop — it is
-      // said plainly instead, and promotion stays locked until a terminal acceptance.
-      return emit({ systemMessage: `Canary: the sealed checks passed — but not every proof obligation for this task is closed: ${unproven.map((x) => x.note).join(' ')}`.slice(0, 2000) });
+      // Subjective / operator-only duties: an agent cannot accept a duty for a human, and — MEASURED
+      // (`bench-r9`) — an agent TOLD to close one spends enormous effort trying: two trials with five
+      // registered requirements burned 1.5M and 1.7M tokens over 41 and 45 turns for work that was
+      // already green, because the message read as an instruction it could satisfy. So this says
+      // plainly that the duty is not the worker's, and that finishing and reporting IS the correct end.
+      return emit({ systemMessage: `Canary: the sealed checks passed. ${unproven.length} duty(ies) remain OPEN, and NONE of them is yours to close — each needs an operator or a human. This is not a failure of your change: do NOT keep trying to satisfy them, do NOT edit checks to make them disappear, and do NOT report them as done. Finish now and report exactly what is still open. Details: ${unproven.map((x) => x.note).join(' ')}`.slice(0, 2000) });
     }
     /**
      * Nothing is open: the plan passed, every objective obligation is met, and the
@@ -2713,6 +2716,74 @@ export async function cmdCheckpoint(): Promise<number> {
  * from checks it executed itself. (Tests passing != task proven complete;
  * agent-reported != canary-observed.)
  */
+/**
+ * THE OPERATOR'S BINDING ACT — `canary bind <script> --requirement "<stated requirement>"`.
+ *
+ * WHY IT EXISTS (MEASURED, `bench-r9`/`r9b`): a task registered with five requirements and no sealed
+ * proof cost the worker 1.5M and 1.7M tokens over 41–48 turns — the work was green, but the open
+ * per-requirement duty invited the agent to keep trying to discharge something only an operator can
+ * close. The invariant says every objective requirement must have a FROZEN PROOF OBLIGATION or remain
+ * NOT PROVEN; the second half was reachable, the first was not, because binding meant hand-editing
+ * `package.json` `canary.proofs` with a 64-hex digest nobody had printed.
+ *
+ * This command is that act, and it is deliberately narrow: it only writes the DECLARATION. It does
+ * not seal anything (that stays `canary setup`, the one human-authorized moment), it refuses a script
+ * the sealed plan does not run, and it names the next step. It is an operator command, not an
+ * agent-facing one — a worker cannot bind its own duties away.
+ */
+export function cmdBind(rawArgs: string[]): number {
+  const { opts, rest } = parseGlobals(rawArgs);
+  const o = new Out(opts.verbose, opts.json);
+  const positional = rest.filter((a) => !a.startsWith('--'));
+  const script = positional[0];
+  const requirements: string[] = [];
+  for (let i = 0; i < rawArgs.length; i += 1) {
+    if (rawArgs[i] === '--requirement' && typeof rawArgs[i + 1] === 'string') requirements.push(rawArgs[i + 1] as string);
+  }
+  if (script === undefined || requirements.length === 0) {
+    o.say('usage: canary bind <script> --requirement "<the exact stated requirement>" [--requirement …]');
+    o.say('  the script must be one your SEALED plan runs; bind, then run: canary setup');
+    return 3;
+  }
+  const root = findRepoRoot(dirArg(rest) ?? process.cwd());
+  if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository — there is no project to bind a requirement to.', 'cd into your project and try again'); return 2; }
+  const cfg = readConfig(root);
+  if (cfg === 'corrupt' || !cfg) { o.verdict('NEEDS ATTENTION', 'Canary is not set up here, so there is no sealed plan to bind to.', 'run: canary setup --yes'); return 2; }
+  const distrust = untrustedConfigReason(root, cfg);
+  if (distrust) { o.verdict('NEEDS ATTENTION', `Canary will not write a binding into a config it does not trust (${distrust}).`, 'run: canary setup --yes'); return 2; }
+  if (!cfg.plan.some((s) => s.script === script)) {
+    // Fail closed with the real recovery: the plan is what proves, so a script it does not run cannot
+    // be a proof. (This is the same rule setup enforces when it validates canary.proofs.)
+    o.verdict('NEEDS ATTENTION', `the sealed plan does not run a script named "${safePath(script)}" — a binding to it would prove nothing.`, `add that check to your package.json scripts and run: canary setup, then bind again. Plan scripts: ${cfg.plan.map((s) => s.script).map(safePath).join(', ')}`);
+    return 2;
+  }
+  const pkgPath = path.join(root, 'package.json');
+  let pkg: Record<string, unknown>;
+  try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as Record<string, unknown>; }
+  catch (e) { o.verdict('NEEDS ATTENTION', `cannot read package.json to record the binding (${String(e).slice(0, 120)}).`, 'fix the file, then re-run'); return 2; }
+  const canarySection = isRecord(pkg.canary) ? { ...pkg.canary } : {};
+  const proofs = isRecord(canarySection.proofs) ? { ...canarySection.proofs } : {};
+  const written: Array<{ digest: string; text: string }> = [];
+  for (const r of requirements) {
+    const d = materialDigest(r);
+    proofs[d] = script;
+    written.push({ digest: d, text: canonicalText(r).slice(0, 90) });
+  }
+  pkg.canary = { ...canarySection, proofs: Object.fromEntries(Object.entries(proofs).sort(([a], [b]) => a.localeCompare(b))) };
+  try { writeFileAtomic(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`); }
+  catch (e) { o.verdict('NEEDS ATTENTION', `could not write the binding into package.json (${String(e).slice(0, 120)}).`, 'close whatever holds the file, then re-run'); return 2; }
+  o.say(`bound ${written.length} requirement(s) to the sealed script "${safePath(script)}":`);
+  for (const w of written) o.say(`  ${w.digest}  "${w.text}"`);
+  o.say('this is a DECLARATION, not a seal: run `canary setup` to seal it into the plan authority.');
+  o.say('until then the requirement stays UNPROVEN — a green plan does not cover an unsealed binding.');
+  return 0;
+}
+
+/** Minimal record guard, local to cmdBind: a hand-edited non-object here must never crash the write. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
 export function cmdClaim(rawArgs: string[]): number {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose, opts.json);

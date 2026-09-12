@@ -170,17 +170,38 @@ const tasked = makeRepo('tasked', true);
     assert(/canary": \{ "proofs"/.test(String(taskOut.stdout ?? '')), 'the binding recipe must be printed next to the digest');
   });
   if (digests.length === 2) {
-    const pkgPath = path.join(tasked, 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-    pkg.canary = { proofs: Object.fromEntries(digests.map((d) => [d, 'test'])) };
-    fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+    /**
+     * THE OPERATOR ACT, not a hand-edit: `canary bind <script> --requirement "<text>"` writes the
+     * declaration into package.json, and `canary setup` seals it. MEASURED reason this command exists:
+     * declaring requirements without a binding cost a worker 1.5–1.7M tokens over 41–48 turns trying
+     * to discharge a duty only an operator can close (`bench-r9`).
+     */
+    const bind = spawnSync(process.execPath, [CLI, 'bind', 'test',
+      '--requirement', 'the greeting trims leading and trailing whitespace',
+      '--requirement', 'an empty name still produces the word hello',
+    ], { cwd: tasked, encoding: 'utf8', timeout: 120_000, windowsHide: true });
+    console.log(`   canary bind: exit ${bind.status}`);
+    check('6. `canary bind` writes the declaration and names the sealing step', () => {
+      assert(bind.status === 0, `bind must accept a script the plan runs:\n${bind.stdout}${bind.stderr}`);
+      assert(/canary setup/.test(String(bind.stdout ?? '')), 'bind must name the step that seals it');
+      const pkg = JSON.parse(fs.readFileSync(path.join(tasked, 'package.json'), 'utf8'));
+      const proofs = pkg.canary?.proofs ?? {};
+      assert(Object.keys(proofs).length === 2, `both digests must be recorded: ${JSON.stringify(proofs)}`);
+      assert(Object.values(proofs).every((v) => v === 'test'), 'each digest maps to the named script');
+    });
+    const bad = spawnSync(process.execPath, [CLI, 'bind', 'lint-everything', '--requirement', 'anything at all'],
+      { cwd: tasked, encoding: 'utf8', timeout: 60_000, windowsHide: true });
+    check('7. a binding to a script the sealed plan does NOT run is refused (fail closed)', () => {
+      assert(bad.status !== 0, `an unsealed script cannot be a proof:\n${bad.stdout}`);
+      assert(/does not run a script named/.test(String(bad.stdout ?? '')), `the refusal must say why:\n${bad.stdout}`);
+    });
     const re = spawnSync(process.execPath, [CLI, 'setup', '--yes', tasked], { cwd: tasked, encoding: 'utf8', timeout: 240_000, windowsHide: true });
     console.log(`   re-setup after binding: exit ${re.status}`);
     const bound = doctor(tasked);
     console.log(`   doctor after binding: status=${bound.status}`);
     const lines = bound.out.split('\n').filter((l) => /NOT PROVEN|READY|per-requirement|UNPROVEN/.test(l)).slice(0, 4);
     for (const l of lines) console.log(`     ${l.trim().slice(0, 180)}`);
-    check('6. every requirement bound to a sealed script earns READY (coverage is attainable)', () => {
+    check('8. every requirement bound to a sealed script earns READY (coverage is attainable)', () => {
       assert(re.status === 0 || re.status === 2, `setup must accept the binding: ${re.stdout}${re.stderr}`);
       assert(bound.status === 0, `expected READY once every requirement is bound to a sealed script, got exit ${bound.status}:\n${bound.out.slice(0, 700)}`);
       assert(/READY/.test(bound.out), 'the verdict word must be READY');

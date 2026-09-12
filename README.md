@@ -166,10 +166,12 @@ Everyday automatic path (the quickstart above):
 
 ```bash
 canary setup     [--yes]     # detect the project + the agents, PIN the toolchain, wire, smoke-run
-canary doctor                # runs your checks NOW and reports READY/NEEDS ATTENTION/UNSUPPORTED
+canary doctor                # runs your checks NOW: READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED
 canary status                # read-only state, runs nothing: CONNECTED / NEEDS ATTENTION / NOT CONNECTED
 canary result    [--json]    # the same state as ONE compact JSON object — free, for agents and scripts
 canary agents    [install|uninstall <id>]   # which agents work here, and at what capability
+canary task "<intent>" [--requirement "…"]  # OPTIONAL: declare the parts that must be proven separately
+canary bind <script> --requirement "…"       # the OPERATOR's act: attach a stated requirement to a sealed check
 canary work <name> "<intent>"  # the ORDINARY path: register the intent + open the candidate in one step
 canary finish <name>         # verify the candidate from outside it, then promote if the proof holds
 canary mcp                   # MCP server on stdio: the same operations as tools, for any MCP client
@@ -275,6 +277,16 @@ every time it is called, so a stored or hand-edited record can never produce a
 green answer; re-running `setup` heals its own wiring idempotently; nothing
 about this tier claims the attested-proof strength of the commands below — it
 is a transparent plan runner over *your* scripts.
+
+**A green plan is not a proven task.** `doctor` answers `NOT PROVEN` (exit 2)
+and the Stop hook blocks the completion in two cases the old READY hid: when a
+stated requirement is registered but no sealed check covers it (bind it in
+`package.json` `canary.proofs`, or a human accepts it in a terminal), and when
+the sealed checks pass on the base commit too — i.e. they cannot tell your
+change from no change, so they carry no regression evidence for it. The repair
+is to make the proof discriminate: a check that fails without the change and
+passes with it. Only a human can waive either duty, and `canary accept` does
+that, in a terminal.
 
 Release-grade proof pipeline:
 

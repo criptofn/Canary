@@ -24,6 +24,11 @@
  *                                          freezes at ITS isolation: registering
  *                                          afterwards adds duties but never mints
  *                                          it — that path is RE-ISOLATION
+ *   canary bind <script> --requirement "…"   the OPERATOR's act: declare that a stated
+ *                                          requirement is proven by that sealed script.
+ *                                          Writes package.json canary.proofs; `setup`
+ *                                          seals it. Without a binding, a registered
+ *                                          requirement stays NOT PROVEN (fail closed).
  *
  * Exit codes: 0 proof holds fully on the proof host / CONFIRMED_REGRESSION as expected
  *             1 proof failed / PASS
@@ -51,7 +56,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
-import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, cmdResult, cmdAgents } from './onboarding.js';
+import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, cmdBind, cmdResult, cmdAgents } from './onboarding.js';
 import { cmdIsolate, cmdAccept } from './candidate.js';
 import { appendMetric, metricFor, metricsTarget, streamSnapshot } from './metrics.js';
 import { cmdWork, cmdFinish } from './orchestrate.js';
@@ -89,7 +94,11 @@ usage:
                             adds a marked, removable AGENTS.md instruction block; no
                             command ever pretends a hook exists where none does
   canary doctor             is Canary actually protecting this repo? Runs the checks now;
-                            READY / NEEDS ATTENTION / UNSUPPORTED (--run accepted, always on)
+                            READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED (--run accepted,
+                            always on). NOT PROVEN = the plan passed but an authorized
+                            requirement has no sealed proof, or the checks cannot
+                            discriminate this change from the base — a green plan is not
+                            a proven task
   canary uninstall          remove Canary's own changes, keep everything else
   canary claim "<text>"     the agent's account, stored as an UNTRUSTED hint — claims
                             are not evidence; only Canary's own runs decide verdicts
@@ -102,6 +111,14 @@ usage:
                             judge completion at all — none frozen = NOT PROVEN, never
                             PASS, and registering after the fact cannot mint it:
                             register, then re-isolate (there is no opt-out)
+  canary bind <script> --requirement "<exact stated requirement>" [--requirement …]
+                            the OPERATOR's binding act: declare that a stated requirement
+                            is proven by a script the SEALED PLAN runs. Writes
+                            package.json canary.proofs and names the step that seals it
+                            ('canary setup'). Without a sealed binding a registered
+                            requirement stays NOT PROVEN — acceptance cannot replace
+                            measurement for an objective requirement, and an agent cannot
+                            bind its own duties away
   canary work <name> "<intent>" [--kind k] [--requirement "…"]…
                             the ORDINARY path: register the intent and open the
                             candidate in one step. The intent is frozen into the
@@ -376,6 +393,10 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'checkpoint') return cmdCheckpoint();
   if (cmd === 'claim') return cmdClaim(rest);
   if (cmd === 'task') return cmdTask(rest);
+  // 1.1 Update 5 — the OPERATOR's binding act: attach a stated requirement to a sealed check, so
+  // "every objective requirement has a frozen proof obligation" is reachable without hand-editing
+  // package.json. It writes the declaration; `canary setup` seals it.
+  if (cmd === 'bind') return cmdBind(rest);
   if (cmd === 'isolate') return cmdIsolate(rest);
   if (cmd === 'work') return cmdWork(rest); // 1.1 §22: register + open, in one step
   if (cmd === 'finish') return cmdFinish(rest); // 1.1 §22: verify + promote, or hand to a human
