@@ -12,7 +12,11 @@ module.exports = {
   'formats zero': () => {
     assert.strictEqual(formatMoney(0), '$0.00');
   },
-  'rejects a non-number': () => {
-    assert.throws(() => formatMoney('12'), TypeError);
+  'rejects a value that is not an amount': () => {
+    // NOTE: `'12'` must NOT be here. The task makes decimal STRINGS valid input, so a test
+    // that demanded a throw for a numeric string would contradict the task and fail a CORRECT
+    // solution — and in the canary arm it would have let the gate block correct work.
+    assert.throws(() => formatMoney('abc'), TypeError);
+    assert.throws(() => formatMoney(null), TypeError);
   },
 };

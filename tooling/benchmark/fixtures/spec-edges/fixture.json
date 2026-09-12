@@ -1,0 +1,18 @@
+{
+  "task": "spec-edges",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "what": "a documented parser with ~20 spec rules and three visible tests",
+  "expectedOutcome": "hidden PASS means every stated rule is implemented, not just the three the visible suite covers — the ordinary 'spec in prose, partial tests' situation",
+  "requirements": [
+    "compound parts are accepted in descending unit order (d, h, m, s)",
+    "whitespace between parts and around the whole string is allowed",
+    "unit letters are case-insensitive",
+    "0s is valid and equals zero",
+    "missing or unknown units are rejected with TypeError",
+    "out-of-order and repeated units are rejected",
+    "signed and fractional numbers are rejected",
+    "trailing garbage and interior garbage between parts are rejected",
+    "whitespace inside a part (between number and unit) is rejected"
+  ]
+}

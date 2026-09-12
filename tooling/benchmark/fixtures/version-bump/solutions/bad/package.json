@@ -1,0 +1,9 @@
+{
+  "name": "version-bump",
+  "private": true,
+  "version": "2.0.0",
+  "description": "A repository where the version appears in several places.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

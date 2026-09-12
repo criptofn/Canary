@@ -3,5 +3,14 @@
   "oracleKind": "correctness",
   "startsGreen": true,
   "what": "add string-amount support while every documented behaviour of formatMoney survives",
-  "expectedOutcome": "hidden PASS means the new input form works AND no documented behaviour was lost; preservation failures are the ordinary result of a refactor"
+  "expectedOutcome": "hidden PASS means the new input form works AND no documented behaviour was lost; preservation failures are the ordinary result of a refactor",
+  "requirements": [
+    "a decimal string amount formats identically to the integer form",
+    "an optional leading minus is accepted for negative string amounts",
+    "an invalid string still throws the same TypeError as a non-number",
+    "the negative sign stays BEFORE the symbol",
+    "decimals: 0 emits no fractional part",
+    "grouping: false disables thousands separators",
+    "a custom symbol is used, and the round modes behave as documented"
+  ]
 }

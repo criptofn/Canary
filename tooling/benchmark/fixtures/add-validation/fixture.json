@@ -3,5 +3,13 @@
   "oracleKind": "correctness",
   "startsGreen": true,
   "what": "the visible suite covers the happy path; the task states the remaining rules in prose",
-  "expectedOutcome": "hidden PASS means every stated rule is implemented; the visible suite cannot tell the difference, so this is the 'green tests, incomplete work' case"
+  "expectedOutcome": "hidden PASS means every stated rule is implemented; the visible suite cannot tell the difference, so this is the 'green tests, incomplete work' case",
+  "requirements": [
+    "a missing value (not a string, or empty/whitespace only) returns required",
+    "a value containing whitespace returns whitespace",
+    "no @, or more than one @, returns at_sign",
+    "an empty local part or an empty domain returns missing_part",
+    "a domain without a dot, or with an empty label, returns bad_domain",
+    "the export shape stays { ok, reason } and normalizeEmail is unchanged"
+  ]
 }

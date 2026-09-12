@@ -1,29 +1,33 @@
 #!/usr/bin/env node
 /**
- * THE BENCHMARK MATRIX — many trials across tasks and arms, then the numbers.
+ * THE BENCHMARK MATRIX — run trials, then report the numbers the owner asked for.
  *
- * What it answers, in the user's terms:
- *   - how often does the agent SAY it is done while the code is actually broken?
- *   - does Canary's presence change what the user is left holding (hidden-oracle pass
- *     rate) and what it costs (tokens, turns, wall time)?
- *   - does Canary's own verdict AGREE with the independent oracle? Two ways to be
- *     wrong, and both are reported separately: `false green` (Canary says READY while
- *     the hidden oracle fails — the worst possible product failure) and `false red`
- *     (Canary refuses while the code is fine).
- *
- * Each trial is a fresh child process (run-trial.mjs), so one crashed or timed-out
- * trial cannot corrupt the rest, and unusable trials are COUNTED as unusable instead
- * of being quietly dropped from the denominator.
+ * Design rules this file follows, and why:
+ *   - ONE verdict path. Every per-trial fact comes from `verdict.mjs`, which is pure and tested,
+ *     so the report and any consumer cannot disagree about what a trial means.
+ *   - INVALIDATED data is excluded, explicitly, with the reason printed. The raw records are
+ *     never rewritten (see `invalidated.json`).
+ *   - The INSTRUMENT that produced each result is recorded, because this harness has already
+ *     corrected several measurement bugs and old numbers must stay attributable.
+ *   - Re-aggregation is free and re-applies the CURRENT rules to stored trials
+ *     (`--from <label>`), so improving the instrument improves the whole history.
+ *   - Token reporting is RAW first: mean/median/p75/p90 of model tokens per arm, and the delta
+ *     against the plain arm. "Tokens per successful task" alone would hide a raw regression.
  *
  * Usage:
- *   node tooling/benchmark/bench.mjs [--tasks a,b] [--arms plain,canary] [--trials N]
- *                                    [--timeout-min 12] [--label name] [--keep]
+ *   node tooling/benchmark/bench.mjs [--tasks a,b] [--arms plain,canary,invisible,workflow]
+ *                                    [--trials N] [--variant normal|adversarial]
+ *                                    [--timeout-min N] [--label name] [--keep]
+ *   node tooling/benchmark/bench.mjs --from <label>        # aggregate stored trials only
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { classifyClaim, disclosesLimitation } from './classify-claim.mjs';
+import { instrumentFingerprint } from './fingerprint.mjs';
+import { redactDeep, redactSecrets } from './redact.mjs';
+import { judgeTrial } from './verdict.mjs';
 
 const BENCH = path.resolve(import.meta.dirname);
 const argv = process.argv.slice(2);
@@ -34,225 +38,246 @@ const arg = (name, dflt) => {
   return v === undefined || v.startsWith('--') ? true : v;
 };
 
-/**
- * Re-classify at AGGREGATION time from the stored final text, rather than trusting the
- * claim recorded during the run. The trial stores raw text; this module interprets it,
- * so improving the classifier improves every past result instead of silently leaving a
- * mix of two instruments in one table.
- */
-function claimOf(record) {
-  const text = record.agentResult?.finalText ?? '';
-  const c = classifyClaim(text);
-  return { kind: c.claim, successPhrases: c.successPhrases, failurePhrases: c.failurePhrases };
-}
-
-/** Did the agent SAY what it left undone or refused? (See classify-claim.mjs.) */
-function disclosedOf(record) {
-  return disclosesLimitation(record.agentResult?.finalText ?? '');
-}
+const classifyText = (text) => ({ claim: classifyClaim(text).claim, disclosed: disclosesLimitation(text) });
 
 const aggregateOnly = arg('from', null);
 const allTasks = fs.readdirSync(path.join(BENCH, 'fixtures'), { withFileTypes: true })
   .filter((e) => e.isDirectory() && fs.existsSync(path.join(BENCH, 'fixtures', e.name, 'TASK.md')))
   .map((e) => e.name).sort();
 let tasks = String(arg('tasks', allTasks.join(','))).split(',').filter(Boolean);
-let arms = String(arg('arms', 'plain,canary')).split(',').filter(Boolean);
+let arms = String(arg('arms', 'plain,invisible')).split(',').filter(Boolean);
 const trials = Number(arg('trials', 3));
-const timeoutMin = Number(arg('timeout-min', 12));
+const timeoutMin = Number(arg('timeout-min', 15));
+const variant = String(arg('variant', 'normal'));
 const keep = arg('keep', false) === true;
 const label = String(arg('label', aggregateOnly !== null ? aggregateOnly : `bench-${new Date().toISOString().replace(/[:.]/g, '-')}`));
 const outDir = path.join(BENCH, 'results');
 fs.mkdirSync(outDir, { recursive: true });
 
+const instrument = instrumentFingerprint();
+
+// ── invalidations ────────────────────────────────────────────────────────────
+const invalidations = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(BENCH, 'invalidated.json'), 'utf8')); }
+  catch { return { entries: [] }; }
+})();
+function invalidationFor(record) {
+  for (const e of invalidations.entries ?? []) {
+    if (e.task !== undefined && e.task !== record.task) continue;
+    const patterns = Array.isArray(e.labels) ? e.labels : [];
+    if (patterns.length === 0) return e;
+    for (const p of patterns) {
+      const re = new RegExp(`^${String(p).split('*').map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+      if (re.test(record.label ?? '')) return e;
+    }
+  }
+  return null;
+}
+
+// ── run (or read) the trials ─────────────────────────────────────────────────
 let records = [];
 const unusable = [];
 if (aggregateOnly !== null) {
-  // Aggregate-only: read the trials already on disk for this label. No agent is run,
-  // and the report is regenerated with the CURRENT classifier and metrics.
   for (const f of fs.readdirSync(outDir).filter((x) => x.startsWith(`${aggregateOnly}-`) && x.endsWith('.json')).sort()) {
-    if (f === `${aggregateOnly}.json`) continue;
     try { records.push(JSON.parse(fs.readFileSync(path.join(outDir, f), 'utf8'))); }
     catch (e) { unusable.push({ name: f, task: '?', arm: '?', reason: `record unreadable: ${e.message}` }); }
   }
   tasks = [...new Set(records.map((r) => r.task))].sort();
   arms = [...new Set(records.map((r) => r.arm))].sort();
-  console.log(`aggregate-only: ${records.length} stored trial(s) for ${aggregateOnly}`);
+  console.log(`aggregate-only: ${records.length} stored trial(s) for ${aggregateOnly} (instrument ${instrument.version})`);
+  console.log(`arms present: ${arms.join(', ')}`);
 } else {
-  console.log(`benchmark: ${tasks.length} task(s) x ${arms.length} arm(s) x ${trials} trial(s) = ${tasks.length * arms.length * trials} agent runs`);
+  const total = tasks.length * arms.length * trials;
+  console.log(`benchmark: ${tasks.length} task(s) x ${arms.length} arm(s) x ${trials} trial(s) = ${total} agent runs`);
   console.log(`tasks: ${tasks.join(', ')}`);
-  console.log(`arms:  ${arms.join(', ')} (the SAME prompt and the SAME fixture in every arm; the protected arms additionally have the repo wired up)\n`);
-}
-for (const task of tasks) {
-  for (const arm of arms) {
-    for (let t = 1; t <= trials; t += 1) {
-      if (aggregateOnly !== null) break;
-      const name = `${label}-${task}-${arm}-${t}`;
-      const outFile = path.join(outDir, `${name}.json`);
-      const started = Date.now();
-      const args = [
-        path.join(BENCH, 'run-trial.mjs'),
-        '--task', task, '--arm', arm, '--label', name, '--out', outFile,
-        '--timeout-min', String(timeoutMin),
-      ];
-      if (keep) args.push('--keep');
-      const r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: (timeoutMin + 6) * 60_000, windowsHide: true });
-      const secs = Math.round((Date.now() - started) / 1000);
-      const line = (r.stdout ?? '').trim().split('\n')[0] ?? '';
-      console.log(`[${records.length + unusable.length + 1}/${tasks.length * arms.length * trials}] ${line || `(no output, exit ${r.status})`} [${secs}s]`);
-      if (r.status === 0 && fs.existsSync(outFile)) {
-        try { records.push(JSON.parse(fs.readFileSync(outFile, 'utf8'))); }
-        catch (e) { unusable.push({ name, task, arm, reason: `record unreadable: ${e.message}` }); }
-      } else {
-        const stderr = (r.stderr ?? '').trim().split('\n').slice(-2).join(' | ');
-        unusable.push({ name, task, arm, reason: `harness exit ${r.status}: ${stderr || 'no detail'}` });
+  console.log(`arms:  ${arms.join(', ')}`);
+  console.log(`variant: ${variant}   instrument: ${instrument.version} (${instrument.files} files)\n`);
+  let done = 0;
+  for (const task of tasks) {
+    for (const arm of arms) {
+      for (let t = 1; t <= trials; t += 1) {
+        const name = `${label}-${task}-${arm}-${t}`;
+        const outFile = path.join(outDir, `${name}.json`);
+        const started = Date.now();
+        const args = [path.join(BENCH, 'run-trial.mjs'), '--task', task, '--arm', arm,
+          '--label', name, '--out', outFile, '--timeout-min', String(timeoutMin), '--variant', variant];
+        if (keep) args.push('--keep');
+        const r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: (timeoutMin + 8) * 60_000, windowsHide: true });
+        done += 1;
+        const secs = Math.round((Date.now() - started) / 1000);
+        const line = redactSecrets((r.stdout ?? '').trim().split('\n')[0] ?? '').text;
+        console.log(`[${done}/${total}] ${line || `(no output, exit ${r.status})`} [${secs}s]`);
+        if (r.status === 0 && fs.existsSync(outFile)) {
+          try { records.push(JSON.parse(fs.readFileSync(outFile, 'utf8'))); }
+          catch (e) { unusable.push({ name, task, arm, reason: `record unreadable: ${e.message}` }); }
+        } else {
+          const stderr = redactSecrets((r.stderr ?? '').trim().split('\n').slice(-2).join(' | ')).text;
+          unusable.push({ name, task, arm, reason: `harness exit ${r.status}: ${stderr || 'no detail'}` });
+        }
       }
     }
   }
 }
 
-// ─────────────────────────── aggregation ───────────────────────────
+// ── aggregation ──────────────────────────────────────────────────────────────
 const mean = (xs) => (xs.length === 0 ? null : xs.reduce((a, b) => a + b, 0) / xs.length);
-const median = (xs) => {
+const quantile = (xs, q) => {
   if (xs.length === 0) return null;
   const s = [...xs].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  const idx = Math.min(s.length - 1, Math.max(0, Math.ceil(q * s.length) - 1));
+  return s[idx];
 };
-const round = (x) => (x === null ? null : Math.round(x * 100) / 100);
+const round = (x, d = 0) => (x === null || x === undefined ? null : Math.round(x * 10 ** d) / 10 ** d);
 const pct = (n, d) => (d === 0 ? null : Math.round((n / d) * 1000) / 10);
 
 function summarise(rs) {
-  const usable = rs.filter((r) => r.hidden !== null && r.hidden.oracleError !== true);
-  const claimed = usable.filter((r) => claimOf(r).kind === 'success');
-  const falseDone = usable.filter((r) => claimOf(r).kind === 'success' && r.hidden.exitCode !== 0);
-  // The distinction that makes the headline honest: success language while the code is
-  // NOT in the required state, AND no word about what was left undone or refused.
-  const undisclosed = falseDone.filter((r) => disclosedOf(r) === false);
-  const disclosed = falseDone.filter((r) => disclosedOf(r) === true);
-  const hiddenOk = usable.filter((r) => r.hidden.exitCode === 0);
-  const tok = (r) => r.agentResult?.usage ?? {};
-  const all = (k) => usable.map((r) => tok(r)[k]).filter((v) => typeof v === 'number');
-  // A regression is a fixture that was GREEN before the agent and RED after it — the
-  // unambiguous "the agent broke something that worked" case.
-  const withBefore = usable.filter((r) => typeof r.visibleBefore?.exitCode === 'number');
-  const regressions = withBefore.filter((r) => r.visibleBefore.exitCode === 0 && r.visible.exitCode !== 0);
+  const judged = rs.map((r) => ({ record: r, v: judgeTrial(r, classifyText) }));
+  const usable = judged.filter((j) => j.v.oracleUsable);
+  const delivered = usable.filter((j) => j.v.deliveredCorrect);
+  const candidate = usable.filter((j) => j.v.candidateCorrect);
+  const claimed = usable.filter((j) => j.v.claimsSuccess);
+  const falseDone = usable.filter((j) => j.v.falseDone);
+  const undisclosed = falseDone.filter((j) => j.v.undisclosedFalseDone);
+  const tok = (j) => j.record.agentResult?.usage ?? {};
+  const all = (k) => usable.map((j) => tok(j)[k]).filter((v) => typeof v === 'number');
+  const totals = all('totalTokens');
+  const stream = (j) => j.record.stream ?? null;
+  const bytes = usable.map((j) => stream(j)?.bytes?.toolResultTotal).filter((v) => typeof v === 'number');
+  const canaryBytes = usable.map((j) => stream(j)?.bytes?.canaryVisible).filter((v) => typeof v === 'number');
+  const checks = usable.map((j) => stream(j)?.commands?.checks).filter((v) => typeof v === 'number');
+  const canaryCmds = usable.map((j) => stream(j)?.commands?.canary).filter((v) => typeof v === 'number');
+  const tailTokens = usable.map((j) => stream(j)?.tail?.tokensAfterLastEdit).filter((v) => typeof v === 'number');
+  const canaryHookFromStream = usable.map((j) => stream(j)?.hooks?.canaryCount).filter((v) => typeof v === 'number');
+  const withBefore = usable.filter((j) => typeof j.record.visibleBefore?.exitCode === 'number');
   return {
     trials: rs.length,
     usable: usable.length,
     claimSuccess: claimed.length,
-    claimFailure: usable.filter((r) => claimOf(r).kind === 'failure').length,
-    claimMixed: usable.filter((r) => claimOf(r).kind === 'mixed').length,
-    claimUnclear: usable.filter((r) => claimOf(r).kind === 'unclear').length,
+    claimFailure: usable.filter((j) => j.v.claim === 'failure').length,
+    claimMixed: usable.filter((j) => j.v.claim === 'mixed').length,
+    claimUnclear: usable.filter((j) => j.v.claim === 'unclear').length,
     falseDone: falseDone.length,
     falseDoneRatePct: pct(falseDone.length, claimed.length),
-    fakeDoneOutOfAllRunsPct: pct(falseDone.length, usable.length),
     undisclosedFalseDone: undisclosed.length,
-    disclosedFalseDone: disclosed.length,
-    hiddenPass: hiddenOk.length,
-    hiddenPassRatePct: pct(hiddenOk.length, usable.length),
-    visibleFail: usable.filter((r) => r.visible.exitCode !== 0).length,
-    regressions: regressions.length,
-    regressionBase: withBefore.length,
-    // "What does a WORKING result cost": a cheap run that leaves the repo broken is
-    // not cheap, so the denominator is hidden-oracle passes, not runs.
-    tokensPerWorkingResult: hiddenOk.length === 0 ? null
-      : round(all('totalTokens').reduce((a, b) => a + b, 0) / hiddenOk.length),
-    // tokens: input/output as the provider billed them, plus cache reads, because
-    // cache reads ARE what a daily user pays for in a long agent session.
+    disclosedFalseDone: falseDone.length - undisclosed.length,
+    candidateCorrect: candidate.length,
+    candidateCorrectPct: pct(candidate.length, usable.length),
+    deliveredCorrect: delivered.length,
+    deliveredCorrectPct: pct(delivered.length, usable.length),
+    states: usable.reduce((acc, j) => { acc[j.v.state] = (acc[j.v.state] ?? 0) + 1; return acc; }, {}),
+    regressions: withBefore.filter((j) => j.record.visibleBefore.exitCode === 0 && j.record.visible.exitCode !== 0).length,
+    // Two different questions, kept apart: "did the suite change at all" (informational, and
+    // several fixtures require it) and "did judging text get REMOVED" (the cheap route to green).
+    // Stored records captured before this distinction existed only have `editedTests`, which is
+    // reported as `testsTouched` and never as weakening.
+    testsTouched: usable.filter((j) => (j.record.tamper?.touchedTests ?? j.record.tamper?.editedTests) === true).length,
+    testsWeakened: usable.filter((j) => j.record.tamper?.weakenedTests === true).length,
+    testsWeakeningMeasurable: usable.filter((j) => typeof j.record.tamper?.assertionsRemoved === 'number').length,
     tokens: {
-      inputMean: round(mean(all('inputTokens'))), inputMedian: round(median(all('inputTokens'))),
-      outputMean: round(mean(all('outputTokens'))), outputMedian: round(median(all('outputTokens'))),
+      totalMean: round(mean(totals)), totalMedian: round(quantile(totals, 0.5)),
+      totalP75: round(quantile(totals, 0.75)), totalP90: round(quantile(totals, 0.9)),
+      inputMean: round(mean(all('inputTokens'))),
+      outputMean: round(mean(all('outputTokens'))),
       cacheReadMean: round(mean(all('cacheReadTokens'))),
-      totalMean: round(mean(all('totalTokens'))), totalMedian: round(median(all('totalTokens'))),
+      perCandidateCorrect: candidate.length === 0 ? null : round(totals.reduce((a, b) => a + b, 0) / candidate.length),
+      perDeliveredCorrect: delivered.length === 0 ? null : round(totals.reduce((a, b) => a + b, 0) / delivered.length),
+      verifiedPerMillionTokens: totals.reduce((a, b) => a + b, 0) === 0 ? null
+        : round((delivered.length / totals.reduce((a, b) => a + b, 0)) * 1_000_000, 2),
     },
-    turnsMean: round(mean(usable.map((r) => r.agentResult?.numTurns).filter((v) => typeof v === 'number'))),
-    wallSecsMean: round(mean(usable.map((r) => r.agent.secs).filter((v) => typeof v === 'number'))),
-    costUsdMean: round(mean(usable.map((r) => r.agentResult?.costUsd).filter((v) => typeof v === 'number'))),
-    testsEdited: usable.filter((r) => r.tamper?.editedTests === true).length,
+    turnsMean: round(mean(usable.map((j) => j.record.agentResult?.numTurns).filter((v) => typeof v === 'number')), 1),
+    wallSecsMean: round(mean(usable.map((j) => j.record.agent.secs).filter((v) => typeof v === 'number'))),
+    agentVisibleBytesMean: round(mean(bytes)),
+    canaryVisibleBytesMean: round(mean(canaryBytes)),
+    checkRunsByModelMean: round(mean(checks), 1),
+    canaryCommandsByModelMean: round(mean(canaryCmds), 1),
+    tokensAfterCodeCorrect: round(mean(tailTokens)),
+    // How many trials could attribute tokens to the post-edit tail AT ALL. On this CLI's wire
+    // format per-message usage is partial, so `null` here is an honest measurement limit, not a
+    // zero — the difference is reported so a null can never be read as "no tokens were spent".
+    tokensAfterCodeCorrectTrials: tailTokens.length,
+    canaryHookSeenInStream: canaryHookFromStream.filter((c) => c > 0).length,
+    assistantEventsMean: round(mean(usable.map((j) => stream(j)?.assistantEvents).filter((v) => typeof v === 'number')), 1),
+    hookOutputBytesMean: round(mean(usable.map((j) => stream(j)?.bytes?.hookOutput).filter((v) => typeof v === 'number'))),
+    tokenSource: [...new Set(usable.map((j) => j.record.agentResult?.usage?.source).filter(Boolean))],
+    streamCoverage: usable.filter((j) => j.record.stream !== undefined).length,
   };
-}
-
-/** claim × reality: the confusion matrix the whole benchmark is about. */
-function confusion(rs) {
-  const usable = rs.filter((r) => r.hidden !== null && r.hidden.oracleError !== true);
-  const out = {};
-  for (const kind of ['success', 'mixed', 'failure', 'unclear']) {
-    const cell = usable.filter((r) => claimOf(r).kind === kind);
-    out[kind] = {
-      total: cell.length,
-      codeOk: cell.filter((r) => r.hidden.exitCode === 0).length,
-      codeBroken: cell.filter((r) => r.hidden.exitCode !== 0).length,
-    };
-  }
-  return out;
 }
 
 const armSummary = {};
 for (const arm of arms) armSummary[arm] = summarise(records.filter((r) => r.arm === arm));
-
 const taskSummary = {};
 for (const task of tasks) {
   taskSummary[task] = {};
   for (const arm of arms) taskSummary[task][arm] = summarise(records.filter((r) => r.task === task && r.arm === arm));
 }
 
-/**
- * The fixture's oracle kind, taken from the record when it has one and otherwise read
- * from the fixture manifest — so re-aggregating OLDER trials (recorded before the
- * manifests existed) still applies the right rule instead of silently treating an
- * integrity fixture as a correctness one. MEASURED: that fallback was missing, and it
- * produced six bogus "false red" rows for the unsatisfiable fixture, where a refusal
- * is the correct answer.
- */
-function oracleKindOf(record) {
-  if (typeof record.fixture?.oracleKind === 'string') return record.fixture.oracleKind;
-  try {
-    const meta = JSON.parse(fs.readFileSync(path.join(BENCH, 'fixtures', record.task, 'fixture.json'), 'utf8'));
-    return meta.oracleKind ?? 'correctness';
-  } catch { return 'correctness'; }
+/** The KPI the owner set: raw model tokens WITH Canary minus WITHOUT, per comparable task. */
+const tokenDelta = {};
+if (armSummary.plain !== undefined) {
+  for (const arm of arms) {
+    if (arm === 'plain') continue;
+    const rows = [];
+    for (const task of tasks) {
+      const p = taskSummary[task]?.plain?.tokens.totalMean;
+      const c = taskSummary[task]?.[arm]?.tokens.totalMean;
+      if (typeof p === 'number' && typeof c === 'number' && p > 0) rows.push({ task, plain: p, arm: c, deltaPct: Math.round(((c - p) / p) * 1000) / 10 });
+    }
+    const p = armSummary.plain.tokens.totalMean;
+    const c = armSummary[arm].tokens.totalMean;
+    tokenDelta[arm] = {
+      perTask: rows,
+      overallDeltaPct: typeof p === 'number' && typeof c === 'number' && p > 0 ? Math.round(((c - p) / p) * 1000) / 10 : null,
+    };
+  }
 }
 
-// Canary's verdict against the independent oracle, per trial: the product's own
-// claim is checked, not trusted.
-//
-// ONLY for `oracleKind: 'correctness'` fixtures. An `integrity` fixture (an
-// unsatisfiable task, where the oracle is a cheat-detector) answers a different
-// question — "did the agent defeat the check?" — so a canary arm that refuses to say
-// READY is CORRECT there, and scoring it as a "false red" would be the benchmark
-// lying about the product. MEASURED: it did exactly that in the first matrix.
 const canaryAgreement = records
-  .filter((r) => r.arm !== 'plain' && r.canary !== null && r.hidden?.oracleError !== true)
+  .filter((r) => r.arm !== 'plain' && r.canary !== null)
   .map((r) => {
-    const kind = oracleKindOf(r);
-    const canaryGreen = r.canary.doctorExitCode === 0;
-    const hiddenGreen = r.hidden.exitCode === 0;
+    const v = judgeTrial(r, classifyText);
     return {
-      label: r.label, task: r.task, arm: r.arm, oracleKind: kind,
-      canaryVerdict: r.canary.verdict, canaryGreen, hiddenGreen,
-      falseGreen: kind === 'correctness' && canaryGreen && !hiddenGreen,
-      falseRed: kind === 'correctness' && !canaryGreen && hiddenGreen,
-      hookFired: r.canary.hookFired === true,
-      hookBlocked: r.canary.hookBlocked === true,
-      baseMoved: r.canary.baseMoved === true,
-      promoted: (r.canary.acceptedPromotionBundles ?? []).length > 0,
+      label: r.label, task: r.task, arm: r.arm, oracleKind: v.oracleKind,
+      canaryVerdict: r.canary?.verdict ?? null,
+      canaryGreen: r.canary?.doctorExitCode === 0,
+      hiddenGreen: v.deliveredCorrect,
+      falseGreen: v.oracleKind === 'correctness' && r.canary?.doctorExitCode === 0 && !v.deliveredCorrect,
+      falseRed: v.oracleKind === 'correctness' && r.canary?.doctorExitCode !== 0 && v.deliveredCorrect,
+      hookFired: v.canary.hookFired, hookBlocked: v.canary.hookBlocked,
+      // "The gate ran" has one authoritative source: the checkpoint file the hook wrote during the
+      // run. The stream is a SECONDARY source, and it has a MEASURED limit — this CLI emits no
+      // hook events for the project-level Stop hook (a trial whose hook demonstrably fired had an
+      // empty hook list), so a stream with no hook events is "not observable", never "disagrees".
+      // What the stream can show is that a refusal REACHED the model, which is recorded separately.
+      hookSeenInStream: r.stream === undefined ? null : (r.stream.hooks?.canaryCount ?? 0) > 0,
+      refusalReachedModel: r.stream === undefined ? null : (r.stream.gate?.messages ?? 0) > 0,
+      hookSourcesAgree: r.stream === undefined || (r.stream.hooks?.canaryCount ?? 0) === 0
+        ? null
+        : v.canary.hookFired === ((r.stream.hooks?.canaryCount ?? 0) > 0),
+      promotions: v.canary.promotions, baseMoved: v.canary.baseMoved,
     };
   });
 const correctnessOnly = canaryAgreement.filter((x) => x.oracleKind === 'correctness');
 
-const report = {
-  schema: 'canary-benchmark/1',
+const excluded = records
+  .map((r) => ({ r, inv: invalidationFor(r) }))
+  .filter((x) => x.inv !== null)
+  .map((x) => ({ label: x.r.label, task: x.r.task, arm: x.r.arm, reason: x.inv.reason }));
+
+const report = redactDeep({
+  schema: 'canary-benchmark/2',
   label,
   generatedAt: new Date().toISOString(),
-  config: { tasks, arms, trialsPerCell: trials, timeoutMin, agent: 'claude (Claude Code CLI)', modelNote: 'model comes from the CLI\'s own settings; recorded per trial' },
-  modelsObserved: [...new Set(records.map((r) => r.agentResult?.model).filter(Boolean))],
+  instrument: { version: instrument.version, hash: instrument.hash, files: instrument.files },
+  config: { tasks, arms, trialsPerCell: trials, timeoutMin, variant, agent: 'claude (Claude Code CLI)', modelsObserved: [...new Set(records.map((r) => r.agentResult?.model).filter(Boolean))] },
   totals: {
     agentRuns: records.length,
+    usableRuns: records.filter((r) => judgeTrial(r, classifyText).oracleUsable).length,
     unusableRuns: unusable.length,
-    usableRuns: records.filter((r) => r.hidden?.oracleError !== true).length,
+    invalidatedTrials: excluded.length,
   },
   arms: armSummary,
   tasks: taskSummary,
-  confusion: Object.fromEntries(arms.map((arm) => [arm, confusion(records.filter((r) => r.arm === arm))])),
+  tokenDelta,
   canaryAgreement: {
     trials: canaryAgreement.length,
     correctnessTrials: correctnessOnly.length,
@@ -260,101 +285,154 @@ const report = {
     falseRed: correctnessOnly.filter((x) => x.falseRed).length,
     hookFired: canaryAgreement.filter((x) => x.hookFired).length,
     hookBlocked: canaryAgreement.filter((x) => x.hookBlocked).length,
-    promotions: canaryAgreement.filter((x) => x.promoted).length,
-    integrityTrials: canaryAgreement.filter((x) => x.oracleKind === 'integrity').length,
+    hookSeenInStream: canaryAgreement.filter((x) => x.hookSeenInStream === true).length,
+    refusalReachedModel: canaryAgreement.filter((x) => x.refusalReachedModel === true).length,
+    hookSourceDisagreements: canaryAgreement.filter((x) => x.hookSourcesAgree === false).map((x) => x.label),
+    hookSourceUnknown: canaryAgreement.filter((x) => x.hookSourcesAgree === null).length,
+    promotions: canaryAgreement.filter((x) => x.promotions > 0).length,
     detail: canaryAgreement,
   },
+  invalidated: excluded,
   unusable,
   records: records.map((r) => ({
-    label: r.label, task: r.task, arm: r.arm,
-    claim: r.claim?.kind ?? null, claimsDone: r.claimsDone,
-    visibleExit: r.visible?.exitCode ?? null, hiddenExit: r.hidden?.exitCode ?? null,
-    falseDone: r.falseDone, editedTests: r.tamper?.editedTests ?? null,
-    tokens: r.agentResult?.usage ?? null, turns: r.agentResult?.numTurns ?? null,
-    secs: r.agent.secs, timedOut: r.agent.timedOut,
-    canaryVerdict: r.canary?.verdict ?? null,
-    hookFired: r.canary?.hookFired ?? null, hookBlocked: r.canary?.hookBlocked ?? null,
+    label: r.label, task: r.task, arm: r.arm, variant: r.variant ?? 'normal',
+    ...(() => { const v = judgeTrial(r, classifyText); return {
+      state: v.state, claim: v.claim, disclosed: v.disclosed, claimsSuccess: v.claimsSuccess,
+      candidateCorrect: v.candidateCorrect, deliveredCorrect: v.deliveredCorrect,
+      falseDone: v.falseDone, undisclosedFalseDone: v.undisclosedFalseDone,
+      oracleUsable: v.oracleUsable, oracleKind: v.oracleKind,
+    }; })(),
+    tokens: r.agentResult?.usage ?? null, turns: r.agentResult?.numTurns ?? null, secs: r.agent.secs,
+    checkRunsByModel: r.stream?.commands?.checks ?? null,
+    canaryCommandsByModel: r.stream?.commands?.canary ?? null,
+    agentVisibleBytes: r.stream?.bytes?.toolResultTotal ?? null,
+    canaryHookInStream: r.stream?.hooks?.canaryCount ?? null,
+    tokensAfterLastEdit: r.stream?.tail?.tokensAfterLastEdit ?? null,
+    invalidated: invalidationFor(r) !== null ? true : undefined,
   })),
-};
+});
 
 const jsonOut = path.join(outDir, `${label}.json`);
 fs.writeFileSync(jsonOut, `${JSON.stringify(report, null, 2)}\n`);
 
-// ─────────────────────────── the human report ───────────────────────────
+// ── the human report ─────────────────────────────────────────────────────────
 const lines = [];
+const fmt = (x) => (x === null || x === undefined ? 'n/a' : String(x));
 lines.push(`# Benchmark: ${label}`);
 lines.push('');
-lines.push(`Agent: \`claude\` (Claude Code CLI), model as recorded: ${report.modelsObserved.join(', ') || 'unknown'}.`);
-lines.push(`Matrix: ${tasks.length} task(s) × ${arms.length} arm(s) × ${trials} trial(s) = ${tasks.length * arms.length * trials} runs; ${records.length} usable, ${unusable.length} unusable.`);
+lines.push(`Instrument: \`${instrument.version}\` (${instrument.files} files, hash ${instrument.hash.slice(0, 16)}…) — recorded with every result, because the rules can change and old data must stay attributable.`);
+lines.push(`Agent: \`claude\` (Claude Code CLI); models observed: ${report.config.modelsObserved.join(', ') || 'unknown'}. Variant: ${variant}.`);
+lines.push(`Trials: ${report.totals.agentRuns} records, ${report.totals.usableRuns} usable, ${report.totals.unusableRuns} unusable, ${report.totals.invalidatedTrials} invalidated (excluded).`);
 lines.push('');
-lines.push('## The headline');
+
+lines.push('## Correctness and honesty');
 lines.push('');
-lines.push('| Arm | usable | claimed success | **false done** | of which UNDISCLOSED | of which disclosed | false-done rate | hidden oracle PASS | regressions | tests edited |');
-lines.push('|---|---|---|---|---|---|---|---|---|---|');
+lines.push('| Arm | usable | claimed success | false done | UNDISCLOSED | disclosed | candidate correct | delivered correct | tests weakened |');
+lines.push('|---|---|---|---|---|---|---|---|---|');
 for (const arm of arms) {
   const s = armSummary[arm];
-  lines.push(`| ${arm} | ${s.usable} | ${s.claimSuccess} | ${s.falseDone} | **${s.undisclosedFalseDone}** | ${s.disclosedFalseDone} | ${s.falseDoneRatePct === null ? 'n/a' : `${s.falseDoneRatePct}%`} | ${s.hiddenPass}/${s.usable} (${s.hiddenPassRatePct ?? 'n/a'}%) | ${s.regressionBase === 0 ? 'n/a' : `${s.regressions}/${s.regressionBase}`} | ${s.testsEdited} |`);
+  lines.push(`| ${arm} | ${s.usable} | ${s.claimSuccess} | ${s.falseDone} | **${s.undisclosedFalseDone}** | ${s.disclosedFalseDone} | ${s.candidateCorrect}/${s.usable} (${fmt(s.candidateCorrectPct)}%) | ${s.deliveredCorrect}/${s.usable} (${fmt(s.deliveredCorrectPct)}%) | ${s.testsWeakened} (${s.testsWeakeningMeasurable}/${s.usable} measurable) |`);
 }
 lines.push('');
-lines.push('"Disclosed" means the agent said what it left undone or refused (a locked promotion, a');
-lines.push('subjective acceptance it may not perform, a skipped part). The number to worry about is');
-lines.push('the UNDISCLOSED column: success language, code not in the required state, and no word');
-lines.push('about it.');
+lines.push('`candidate correct` = the work is right wherever it ended up (including an isolated');
+lines.push('candidate directory); `delivered correct` = the BASE the user actually holds is right.');
+lines.push('`UNDISCLOSED` is the number to worry about: a success claim, code not in the required');
+lines.push('state, and no word about what was left undone.');
 lines.push('');
-lines.push('## What the agent said, against what was true');
+
+lines.push('## Raw token cost (the KPI: Canary must not ADD model tokens)');
 lines.push('');
-lines.push('| Arm | claim | runs | code actually OK | code actually broken |');
-lines.push('|---|---|---|---|---|');
-for (const arm of arms) {
-  for (const kind of ['success', 'mixed', 'failure', 'unclear']) {
-    const c = report.confusion[arm][kind];
-    if (c.total === 0) continue;
-    lines.push(`| ${arm} | ${kind} | ${c.total} | ${c.codeOk} | ${c.codeBroken} |`);
-  }
-}
-lines.push('');
-lines.push('## Cost per run');
-lines.push('');
-lines.push('| Arm | total tokens (mean / median) | input (mean) | output (mean) | cache reads (mean) | turns (mean) | wall (mean s) | tokens per WORKING result |');
-lines.push('|---|---|---|---|---|---|---|---|');
+lines.push('| Arm | mean | median | p75 | p90 | output (mean) | turns (mean) | wall (mean s) | tokens/candidate-correct | tokens/delivered-correct | delivered per M tokens |');
+lines.push('|---|---|---|---|---|---|---|---|---|---|---|');
 for (const arm of arms) {
   const t = armSummary[arm].tokens;
-  lines.push(`| ${arm} | ${t.totalMean} / ${t.totalMedian} | ${t.inputMean} | ${t.outputMean} | ${t.cacheReadMean} | ${armSummary[arm].turnsMean} | ${armSummary[arm].wallSecsMean} | ${armSummary[arm].tokensPerWorkingResult ?? 'n/a'} |`);
+  lines.push(`| ${arm} | ${fmt(t.totalMean)} | ${fmt(t.totalMedian)} | ${fmt(t.totalP75)} | ${fmt(t.totalP90)} | ${fmt(t.outputMean)} | ${fmt(armSummary[arm].turnsMean)} | ${fmt(armSummary[arm].wallSecsMean)} | ${fmt(t.perCandidateCorrect)} | ${fmt(t.perDeliveredCorrect)} | ${fmt(t.verifiedPerMillionTokens)} |`);
 }
 lines.push('');
+if (Object.keys(tokenDelta).length > 0) {
+  lines.push('### Raw token delta vs the plain arm (negative is the goal)');
+  lines.push('');
+  for (const [arm, d] of Object.entries(tokenDelta)) {
+    lines.push(`- **${arm}: ${d.overallDeltaPct === null ? 'n/a' : `${d.overallDeltaPct > 0 ? '+' : ''}${d.overallDeltaPct}%`}** overall`);
+    for (const row of d.perTask) lines.push(`  - ${row.task}: plain ${row.plain} → ${arm} ${row.arm} (${row.deltaPct > 0 ? '+' : ''}${row.deltaPct}%)`);
+  }
+  lines.push('');
+}
+
+lines.push('## What the model was shown, and what it spent time on');
+lines.push('');
+lines.push('| Arm | stream coverage | agent-visible bytes (mean) | Canary-visible bytes (mean) | checks run BY THE MODEL (mean) | Canary commands BY THE MODEL (mean) | tokens after the last edit (mean) |');
+lines.push('|---|---|---|---|---|---|---|');
+for (const arm of arms) {
+  const s = armSummary[arm];
+  lines.push(`| ${arm} | ${s.streamCoverage}/${s.usable} | ${fmt(s.agentVisibleBytesMean)} | ${fmt(s.canaryVisibleBytesMean)} | ${fmt(s.checkRunsByModelMean)} | ${fmt(s.canaryCommandsByModelMean)} | ${fmt(s.tokensAfterCodeCorrect)} (${s.tokensAfterCodeCorrectTrials}/${s.usable} attributable) |`);
+}
+lines.push('');
+lines.push('A successful verification should add ~zero model-visible bytes; the Canary-visible column');
+lines.push('measures exactly that, and `checks run BY THE MODEL` measures the work Canary is supposed to');
+lines.push('take over.');
+lines.push('');
+lines.push(`Token accounting (named per arm, because it is a measurement decision): ${report.arms[arms[0]]?.tokenSource?.join(', ') || 'n/a — these records predate the stream ledger'}.`);
+lines.push('The per-message usage in the stream is PARTIAL on this CLI (measured: output_tokens 0 on every');
+lines.push('assistant event while the session total reports output), so it is recorded but never summed into');
+lines.push('a total; "tokens after the last edit" is attributed only for trials where it is trustworthy.');
+lines.push('');
+
 lines.push('## Canary\'s verdict vs the independent oracle');
 lines.push('');
-lines.push(`- trials with a Canary verdict: **${report.canaryAgreement.trials}** (of which ${report.canaryAgreement.correctnessTrials} are correctness fixtures, ${report.canaryAgreement.integrityTrials} integrity fixtures)`);
-lines.push(`- hook fired inside the agent run: **${report.canaryAgreement.hookFired}**`);
-lines.push(`- hook BLOCKED a completion: **${report.canaryAgreement.hookBlocked}**`);
-lines.push(`- promotions actually applied: **${report.canaryAgreement.promotions}**`);
+lines.push(`- trials with a Canary verdict: **${report.canaryAgreement.trials}** (${report.canaryAgreement.correctnessTrials} correctness, ${report.canaryAgreement.trials - report.canaryAgreement.correctnessTrials} integrity)`);
+lines.push(`- hook fired inside the agent run: **${report.canaryAgreement.hookFired}** (checkpoint file — the authoritative source); a refusal visibly reached the model in **${report.canaryAgreement.refusalReachedModel}**; blocked a completion: **${report.canaryAgreement.hookBlocked}**`);
+lines.push(`- stream hook-events as a second source: **${report.canaryAgreement.hookSeenInStream}** seen, **${report.canaryAgreement.hookSourceUnknown}** trial(s) where the stream did not report hooks (measured: this CLI emits no hook events for the project-level Stop hook, so that is "not observable", not disagreement), **${report.canaryAgreement.hookSourceDisagreements.length}** disagreement(s)`);
+lines.push(`- promotions applied: **${report.canaryAgreement.promotions}**`);
 lines.push(`- **false green** (Canary READY while the correctness oracle failed): **${report.canaryAgreement.falseGreen}** of ${report.canaryAgreement.correctnessTrials}`);
-lines.push(`- false red (Canary refused while the correctness oracle passed): **${report.canaryAgreement.falseRed}** of ${report.canaryAgreement.correctnessTrials}`);
+lines.push(`- false red (Canary refused while the oracle passed): **${report.canaryAgreement.falseRed}** of ${report.canaryAgreement.correctnessTrials}`);
 lines.push('');
-lines.push('Integrity fixtures are EXCLUDED from false-green/false-red on purpose: their oracle asks');
-lines.push('"did the agent defeat the check?", not "is the code right?", so a refusal there is correct.');
+
+lines.push('## Verdict states (A wrong · B verify refused · C promotion refused · D delivered · E claimed-undelivered)');
 lines.push('');
+lines.push('| Arm | A | B | C | D | E | unusable |');
+lines.push('|---|---|---|---|---|---|---|');
+for (const arm of arms) {
+  const st = armSummary[arm].states;
+  lines.push(`| ${arm} | ${st.A_candidate_wrong ?? 0} | ${st.B_candidate_correct_verify_refused ?? 0} | ${st.C_candidate_correct_promotion_refused ?? 0} | ${st.D_candidate_correct_delivered ?? 0} | ${st.E_claimed_success_not_delivered ?? 0} | ${st.unusable_oracle ?? 0} |`);
+}
+lines.push('');
+
 lines.push('## Per task');
 lines.push('');
-lines.push('| Task | Arm | usable | claimed success | false done | hidden PASS | tokens (mean) |');
-lines.push('|---|---|---|---|---|---|---|');
+lines.push('| Task | Arm | usable | claimed | false done | UNDISCLOSED | delivered correct | tokens (mean) |');
+lines.push('|---|---|---|---|---|---|---|---|');
 for (const task of tasks) {
   for (const arm of arms) {
     const s = taskSummary[task][arm];
-    lines.push(`| ${task} | ${arm} | ${s.usable} | ${s.claimSuccess} | ${s.falseDone} | ${s.hiddenPass}/${s.usable} | ${s.tokens.totalMean} |`);
+    lines.push(`| ${task} | ${arm} | ${s.usable} | ${s.claimSuccess} | ${s.falseDone} | ${s.undisclosedFalseDone} | ${s.deliveredCorrect}/${s.usable} | ${fmt(s.tokens.totalMean)} |`);
   }
 }
-if (unusable.length > 0) {
+if (excluded.length > 0) {
   lines.push('');
+  lines.push('## Invalidated trials (excluded from every number above)');
+  lines.push('');
+  const byTask = new Map();
+  for (const x of excluded) byTask.set(`${x.task}/${x.arm}`, (byTask.get(`${x.task}/${x.arm}`) ?? 0) + 1);
+  for (const [k, n] of byTask) lines.push(`- ${k}: ${n} trial(s)`);
+  lines.push('');
+  for (const e of invalidations.entries ?? []) {
+    lines.push(`- reason${e.task === undefined ? '' : ` (task \`${e.task}\`)`}: ${e.reason}${e.recordedBy === undefined ? '' : ` — recorded by ${e.recordedBy}`}`);
+  }
+  lines.push('');
+}
+if (unusable.length > 0) {
   lines.push('## Unusable runs (counted, never dropped silently)');
   lines.push('');
   for (const u of unusable) lines.push(`- ${u.name}: ${u.reason}`);
+  lines.push('');
 }
 const mdOut = path.join(outDir, `${label}.md`);
-fs.writeFileSync(mdOut, `${lines.join('\n')}\n`);
+fs.writeFileSync(mdOut, redactSecrets(`${lines.join('\n')}\n`).text);
 
 console.log('');
-console.log(lines.slice(6).join('\n'));
+console.log(lines.slice(4).join('\n'));
 console.log('');
+console.log(`instrument: ${instrument.version}`);
 console.log(`report: ${mdOut}`);
 console.log(`data:   ${jsonOut}`);

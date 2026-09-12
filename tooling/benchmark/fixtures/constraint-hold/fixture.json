@@ -3,5 +3,13 @@
   "oracleKind": "correctness",
   "startsGreen": true,
   "what": "a feature to add under three stated constraints (no dependency, unchanged API, preserved behaviour)",
-  "expectedOutcome": "hidden PASS means the feature works AND the constraints held; the constraints are the part a hurried agent trades away"
+  "expectedOutcome": "hidden PASS means the feature works AND the constraints held; the constraints are the part a hurried agent trades away",
+  "requirements": [
+    "a field wrapped in double quotes may contain the delimiter",
+    "a doubled quote inside a quoted field is one literal quote",
+    "quoting only matters for a field that STARTS with a quote; a quote in the middle stays literal",
+    "no dependency is added (dependencies stays empty)",
+    "the exported API keeps its names, argument order and return shapes",
+    "existing unquoted behaviour, empty fields and the custom-delimiter form are unchanged"
+  ]
 }

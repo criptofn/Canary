@@ -1,0 +1,13 @@
+{
+  "schema": "canary-benchmark-invalidations/1",
+  "why": "Trials listed here are EXCLUDED from every aggregate and are marked invalidated in place. The raw records are never rewritten: the whole point is that a reader can see what was measured, with which instrument, and why it no longer counts.",
+  "entries": [
+    {
+      "task": "refactor-preserve",
+      "labels": ["bench-r1-*", "bench-r2-*", "bench-r3-*"],
+      "reason": "FIXTURE DEFECT, found by tooling/benchmark/fixtures.test.mjs (the known-good/known-bad solution validation) — not by chance. The visible suite asserted that formatMoney('12') THROWS, while the task explicitly makes decimal strings valid input. The fixture therefore contradicted itself: implementing the task's primary requirement turned a visible test red, so a compliant agent faced an unsatisfiable choice (fail the task, or edit the test). Any run of this task before the fix measures the contradiction, not the agent's preservation behaviour, and the earlier attribution of the failures to 'refactor' is NOT supported by this data.",
+      "invalidatedAt": "2026-09-12",
+      "fixedBy": "the visible test now rejects a NON-amount ('abc', null) instead of a numeric string; the known-good solution passes both suites"
+    }
+  ]
+}

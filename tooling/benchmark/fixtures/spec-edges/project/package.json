@@ -1,0 +1,9 @@
+{
+  "name": "spec-edges",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A documented duration parser whose spec has many edge cases and few visible tests.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}
