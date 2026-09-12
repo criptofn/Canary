@@ -47,6 +47,23 @@ reviewed adapter code, and a project-supplied `env` is REFUSED rather than merge
 no per-check `cwd` (a working directory is a declared, validated, sealed SCOPE), and
 no shell wrappers. Each of those refusals has a test.
 
+**Two ceilings stated rather than implied**, in the same spirit as everything else
+here:
+
+- **Executable identity is recorded, not re-verified against a setup-time digest.** The
+  authoritative binding is the PINNED ABSOLUTE PATH: setup resolves each program once
+  and every later run spawns exactly that path, so nothing a candidate controls can
+  re-point which executable runs. Each step result additionally records the resolved
+  file's sha256 (`exec.digest`), so REPLACING that file is visible evidence in every
+  run — measured: rebuilding the fixture tool with different bytes changes the digest.
+  Canary does not, however, refuse a run because the program at the pinned path
+  changed; that would be a stronger claim than the code makes, and it is listed here
+  rather than assumed away.
+- **Runner internals are not observed for a universal check.** The command, its argv,
+  its working directory, its exit status and its identity are PROVEN; whether the
+  tests inside it really ran is not, which is exactly why the verdict stays
+  `INCONCLUSIVE` and no printed summary can change that.
+
 **No check is ever invented.** A directory of `.py` files is not a reason to run
 pytest; an ecosystem that declares nothing produces an empty plan, and setup
 converts that into `NEEDS ATTENTION`, never `READY`.

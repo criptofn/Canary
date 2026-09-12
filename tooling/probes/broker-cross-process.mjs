@@ -7,11 +7,15 @@
  * and every accept/promotion is a separate CLI invocation. In-process tests cannot
  * see the difference, and while writing the provider-only routing tests this looked
  * broken (a client connected, its frame never arrived, and it timed out) — so it is
- * measured here rather than assumed either way.
+ * MEASURED here rather than assumed either way.
  *
- * Spawns a real broker on a unique pipe and runs a real client child THREE times
- * against it, printing each reply. Also checks whether the server can serve two
- * clients that overlap in time.
+ * THE ANSWER, and the reason this probe exits 0: a client in another process IS
+ * served — but only when it does not BLOCK ITS OWN EVENT LOOP. `spawnSync` does,
+ * and in this probe the broker lives in the process that would block, so those three
+ * calls time out while the broker's handler records every request it eventually
+ * receives. The product has no such problem (its broker is a service in its own
+ * process), which is why the ASYNC path is the one that must hold, and why the
+ * synchronous result is reported as an explained measurement instead of a failure.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -58,24 +62,47 @@ const runChild = (op) => {
 };
 
 let ok = 0;
-for (let i = 1; i <= 3; i++) if (runChild(`broker.hello`)) ok += 1;
-console.log(`\nsequential cross-process calls: ${ok}/3 succeeded`);
+for (let i = 1; i <= 3; i++) if (runChild('broker.hello')) ok += 1;
+console.log(`\nsynchronous (spawnSync) cross-process calls: ${ok}/3 succeeded`);
+console.log('  explained: spawnSync BLOCKS this process — which is where the broker lives — so the');
+console.log('  broker cannot answer while the child waits. The handler below still records them.');
 
-// Two clients at once: a service must not serialize them into a queue it forgets.
-const both = await Promise.all([1, 2].map((n) => new Promise((resolve) => {
-  const c = spawn(process.execPath, [CLIENT, pipe, token, 'broker.status'], { stdio: ['ignore', 'pipe', 'pipe'] });
+// The premise that has to HOLD: a client that does not block its own event loop is
+// served, repeatedly and concurrently, from another process.
+async function asyncChild(op) {
+  return new Promise((resolve) => {
+    const c = spawn(process.execPath, [CLIENT, pipe, token, op], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    c.stdout.on('data', (b) => { out += String(b); });
+    c.on('close', (code) => resolve({ code, reply: out.trim().split('\n').pop() ?? '' }));
+  });
+}
+const sequential = [];
+for (let i = 0; i < 3; i += 1) sequential.push(await asyncChild('broker.hello'));
+for (const [i, r] of sequential.entries()) console.log(`  async call ${i + 1}: exit ${r.code} — ${r.reply}`);
+const asyncOk = sequential.filter((r) => r.code === 0 && r.reply.startsWith('REPLY')).length;
+
+const overlapping = await Promise.all([1, 2].map(() => asyncChild('broker.status')));
+for (const r of overlapping) console.log(`  overlapping call: exit ${r.code} — ${r.reply}`);
+const overlapOk = overlapping.filter((r) => r.code === 0 && r.reply.startsWith('REPLY')).length;
+
+console.log(`server handler invocations: ${served} (3 from the blocked sync children, ${asyncOk + overlapOk} answered)`);
+
+// A client in another process presenting the WRONG token must be refused — checked
+// on the async path, because that is the one the product uses.
+const wrongToken = await new Promise((resolve) => {
+  const c = spawn(process.execPath, [CLIENT, pipe, crypto.randomBytes(32).toString('hex'), 'broker.hello'], { stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   c.stdout.on('data', (b) => { out += String(b); });
-  c.on('close', (code) => resolve(`${n}:exit ${code} ${out.trim().split('\n').pop() ?? ''}`));
-})));
-console.log(`overlapping cross-process calls: ${both.join(' | ')}`);
-console.log(`server handler invocations: ${served}`);
-
-const wrongToken = spawnSync(process.execPath, [CLIENT, pipe, crypto.randomBytes(32).toString('hex'), 'broker.hello'], { encoding: 'utf8', timeout: 30_000 });
-console.log(`wrong token: exit ${wrongToken.status} — ${(`${wrongToken.stdout ?? ''}${wrongToken.stderr ?? ''}`).trim().split('\n').pop()}`);
+  c.on('close', (code) => resolve({ code, reply: out.trim().split('\n').pop() ?? '' }));
+});
+console.log(`wrong token (async): exit ${wrongToken.code} — ${wrongToken.reply}`);
+const wrongRefused = wrongToken.code !== 0 && /REFUSED unauthorized/.test(wrongToken.reply);
 
 await server.close();
-console.log(`\n=== cross-process broker: ${ok === 3 ? 'WORKS' : 'BROKEN'} ===`);
+const pass = asyncOk === 3 && overlapOk === 2 && wrongRefused;
+console.log(`\n=== cross-process broker: ${pass ? 'SERVES ASYNC CLIENTS AND REFUSES A WRONG TOKEN' : 'BROKEN'} ===`);
+console.log(`  sequential async: ${asyncOk}/3 answered; overlapping async: ${overlapOk}/2 answered; wrong token refused: ${wrongRefused}`);
 console.log(`scratch: ${TMP}`);
 if (process.env.CANARY_KEEP_SCRATCH !== '1') fs.rmSync(TMP, { recursive: true, force: true });
-process.exit(ok === 3 ? 0 : 1);
+process.exit(pass ? 0 : 1);

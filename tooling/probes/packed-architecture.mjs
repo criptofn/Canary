@@ -10,7 +10,15 @@ import {spawnSync} from 'node:child_process';
 import {resolveNpmCli} from '@canary-rn/support';
 const repo=path.resolve(import.meta.dirname,'../..'),temp=fs.mkdtempSync(path.join(os.tmpdir(),'canary-packed-architecture-'));
 try {
- const tar=path.join(repo,'pack',fs.readdirSync(path.join(repo,'pack')).find(f=>f.endsWith('.tgz')));
+ // The tarball lives where tooling/pack.mjs WRITES it. That moved to pack/npm/
+ // when the standalone build stopped sharing a directory with the npm pack (the
+ // pack wiped the standalone executable as a side effect); this probe still looked
+ // in pack/ and died on `path.join(undefined)` instead of saying so. Both locations
+ // are searched, and a missing tarball is a named failure rather than a TypeError.
+ const dirs=[path.join(repo,'pack','npm'),path.join(repo,'pack')];
+ const found=dirs.flatMap(d=>{try{return fs.readdirSync(d).map(f=>({dir:d,f}))}catch{return[]}}).find(x=>x.f.endsWith('.tgz'));
+ assert.ok(found,`no packed tarball found in ${dirs.join(' or ')} — run npm run pack first`);
+ const tar=path.join(found.dir,found.f);
  const npm=resolveNpmCli();assert.ok(npm,'npm CLI must resolve');
  const install=spawnSync(process.execPath,[npm,'install','--prefix',temp,'--ignore-scripts','--no-audit','--no-fund',tar],{cwd:temp,encoding:'utf8',timeout:120000,windowsHide:true});
  assert.equal(install.status,0,install.stdout+install.stderr);

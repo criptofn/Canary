@@ -91,6 +91,29 @@ function asPlanKind(v: unknown): PlanKind | null {
   return typeof v === 'string' && (PLAN_KINDS as readonly string[]).includes(v) ? v as PlanKind : null;
 }
 
+/**
+ * Programs a NATIVE adapter already owns.
+ *
+ * The universal contract must never duplicate a native adapter's own discovery. A
+ * Rust repository whose CI workflow runs `cargo test` has ONE check, not two: the
+ * Rust adapter discovers it from `Cargo.toml`, and a universal scope claiming the
+ * same command at the same path would produce two steps with the SAME sealed key
+ * (`stepKey` is the script name at the repository root) — a colliding seal and a
+ * duplicated execution. MEASURED as a real hole while wiring the contract: the
+ * discovery walk registers each unpicked adapter separately, so nothing else
+ * prevents it.
+ *
+ * This is a DEFERENCE list, not a capability limit: if the native adapter is not
+ * present (no `Cargo.toml`, no `go.mod`, no `package.json`), the same command still
+ * arrives through the universal door — it is only skipped when a native adapter is
+ * there to own it properly.
+ */
+const NATIVE_OWNED_PROGRAMS = new Set([
+  'cargo', 'rustc',
+  'go', 'gofmt',
+  'node', 'npm', 'npx', 'pnpm', 'yarn', 'bun', 'bunx', 'mocha', 'jest', 'vitest', 'ava',
+  'python', 'python3', 'py', 'pytest', 'tox', 'mypy', 'pyright', 'ruff',
+]);
 /** Programs a check may NOT be: they make argv a shell in disguise. Kept in sync
  *  with the executor's own wrapper refusal by reusing the same idea, not the same
  *  list — the executor denies what a SPEC may execute; this denies what a PROJECT
@@ -217,6 +240,22 @@ export interface UniversalDiscovery {
   notes: string[];
   /** Set when two equally-anchored interpretations claim the same kind. */
   ambiguity?: string;
+}
+
+/** Does a NATIVE adapter discover checks in this directory? Used to DEFER: the
+ *  universal door yields to a native adapter that is actually present. */
+function nativeAdapterOwns(root: string, program: string): boolean {
+  try {
+    if (['cargo', 'rustc'].includes(program)) return has(root, 'Cargo.toml');
+    if (['go', 'gofmt'].includes(program)) return has(root, 'go.mod') || has(root, 'go.work');
+    if (['node', 'npm', 'npx', 'pnpm', 'yarn', 'bun', 'bunx', 'mocha', 'jest', 'vitest', 'ava'].includes(program)) {
+      return has(root, 'package.json');
+    }
+    if (['python', 'python3', 'py', 'pytest', 'tox', 'mypy', 'pyright', 'ruff'].includes(program)) {
+      return ['pyproject.toml', 'setup.py', 'setup.cfg', 'tox.ini', 'Pipfile', 'requirements.txt', 'pytest.ini'].some((f) => has(root, f));
+    }
+  } catch { /* an unreadable root defers to nothing */ }
+  return false;
 }
 
 function readIfPresent(root: string, rel: string): string | null {
@@ -453,9 +492,11 @@ export function discoverUniversalChecks(root: string): UniversalDiscovery {
     const kind = kindOfCommand(argv);
     if (kind === null) continue;
     const prog = path.basename(argv[0]!).replace(/\.(exe|cmd|bat)$/i, '').toLowerCase();
-    // A CI line that runs a package-manager script belongs to the native Node
-    // adapter, and a `make test` line is already covered above.
-    if (['npm', 'pnpm', 'yarn', 'bun', 'node', 'python', 'python3'].includes(prog)) continue;
+    // A package-manager script or a native ecosystem's own tool belongs to that
+    // ecosystem's adapter; proposing it here would DUPLICATE the check (and collide
+    // its sealed key) for every native repository whose CI names its own runner.
+    if (['node', 'python', 'python3'].includes(prog)) continue;
+    if (NATIVE_OWNED_PROGRAMS.has(prog) && nativeAdapterOwns(root, prog)) continue;
     add({ kind, script: argv.join(' '), argv, evidence: `${file} runs \`${command}\``, anchor: 'observed' });
   }
 

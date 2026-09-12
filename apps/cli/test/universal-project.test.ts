@@ -281,6 +281,36 @@ describe('the universal contract — nested and polyglot composition', () => {
     const composed = composePlan(root);
     assert.match(composed.problems.join(' '), /declared as ecosystem "universal" but nothing there declares it/);
   });
+
+  it('DEFERS to a native adapter that is present, so a command is never discovered twice', () => {
+    // A Rust repository whose CI runs its own runner. The RUST adapter owns that
+    // check (from Cargo.toml); a universal scope claiming the same command at the
+    // same path would produce two steps with the SAME sealed key — a colliding seal
+    // and a duplicated execution. Both halves are asserted, because "no duplicate"
+    // and "the check still exists" are different facts.
+    const rust = project('native-priority', {
+      'Cargo.toml': '[package]\nname = "x"\nversion = "0.1.0"\n',
+      '.github/workflows/ci.yml': 'jobs:\n  t:\n    steps:\n      - run: cargo test --all\n',
+    });
+    assert.deepEqual(discoverUniversalChecks(rust).checks, [],
+      'a native-owned command is not re-proposed by the universal door');
+    assert.equal(ADAPTERS['universal']!.detect(rust).detected, false);
+
+    const composed = composePlan(rust);
+    assert.deepEqual(composed.problems, []);
+    assert.deepEqual(composed.scopes.map((s) => s.adapter.id), ['rust'], 'only the native adapter claims it');
+    const keys = composed.plan.map((s) => (s.scope ? `${s.scope}::${s.script}` : s.script));
+    assert.equal(new Set(keys).size, keys.length, `step keys must be unique: ${JSON.stringify(keys)}`);
+    assert.ok(composed.plan.some((s) => s.script === 'cargo test'), 'and the check itself is not lost');
+
+    // The same command in a repository with NO native adapter still arrives through
+    // the universal door: deference is not a capability limit.
+    const cmdOnly = project('defer-not-limit', {
+      '.github/workflows/ci.yml': 'jobs:\n  t:\n    steps:\n      - run: cargo test --all\n',
+    });
+    assert.ok(discoverUniversalChecks(cmdOnly).checks.some((c) => c.argv.join(' ') === 'cargo test --all'),
+      'with no Cargo.toml there is no native adapter to defer to, so the CI line IS the evidence');
+  });
 });
 
 // ---------------------------------------------------------------------------
