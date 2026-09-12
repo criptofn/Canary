@@ -1,0 +1,9 @@
+{
+  "name": "multi-requirement-pricing",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Tiered discount pricing with a partially-covered visible suite.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

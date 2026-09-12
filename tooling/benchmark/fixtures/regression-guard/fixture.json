@@ -1,0 +1,19 @@
+{
+  "task": "regression-guard",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "what": "a working fixed-capacity LRU cache with recency invariants; the task adds stats() and a non-mutating peek() and demands every existing invariant survive",
+  "expectedOutcome": "hidden PASS means both additions are correct AND no existing invariant regressed; the visible suite only exercises get/set/eviction, so it stays green even when peek() is written as a second get() — the regression this fixture measures",
+  "requirements": [
+    "stats() returns { hits, misses, size, capacity, evictions }: hits/misses/evictions are counters since construction and size/capacity are the current values",
+    "get of a present key counts exactly one hit; get of an absent key counts exactly one miss",
+    "peek(key) returns the stored value or undefined for an absent key",
+    "peek does not count as a hit or as a miss",
+    "peek does not change recency: keys() reports the same order before and after",
+    "peek does not evict and does not change size",
+    "set of an existing key updates the value and refreshes its recency without evicting",
+    "an eviction removes the least-recently-used entry and is counted in evictions",
+    "capacity is never exceeded and size never grows past it",
+    "keys() keeps reporting the most-recently-used entry first after every operation"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "task": "cross-file-refactor",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "what": "a currency-aware formatter must be introduced across src/currency.js, src/money.js, src/cart.js and src/index.js while the old formatMoney contract is preserved; the visible suite only exercises numbers and USD",
+  "expectedOutcome": "hidden PASS means the currency table, the preserved formatMoney alias, the currency-aware cart and the unknown-currency error all hold; the visible suite is green for the untouched project and for a plausible refactor that drops formatMoney or stops accepting numeric strings, so this is the 'green tests, broken compatibility' case",
+  "requirements": [
+    "src/currency.js exports format(amountCents, currency) with an explicit table of USD ($), EUR (€) and GBP (£)",
+    "format renders the amount in the currency's minor units: two decimals, symbol prefixed, no thousands separator",
+    "format accepts the amount as a number or as a numeric string",
+    "an unknown currency code throws an Error whose message contains the offending code",
+    "formatMoney(amount) keeps working exactly as before, for numbers and numeric strings, as a deprecated alias for format(amount, 'USD')",
+    "Cart.total(currency = 'USD') formats the summed line items in the requested currency and still defaults to USD",
+    "src/index.js keeps exporting formatMoney, format and Cart"
+  ]
+}

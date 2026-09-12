@@ -1,0 +1,16 @@
+{
+  "task": "perf-constraint",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "what": "the visible suite uses small inputs, so the quadratic grouping scan in src/aggregate.js passes it; the task states the scaling constraint and the no-mutation constraint in prose",
+  "expectedOutcome": "hidden PASS means the output semantics and order are unchanged AND the cost per row no longer grows with the number of keys already seen (measured by counting input property accesses through Proxies); the visible suite cannot tell the difference, so this is the 'green suite, quadratic implementation' case",
+  "requirements": [
+    "aggregate(rows, field) returns [{ key, count, sum }] in first-appearance order of the field value",
+    "count counts every row whose field value is a non-empty string",
+    "sum adds row.value only when it is a finite number; rows with a missing or non-numeric value still count and contribute 0",
+    "a row whose field value is not a non-empty string is skipped entirely",
+    "grouping 50,000 distinct keys must not take quadratic time: the work per row must not grow with the number of keys already seen",
+    "the caller's rows array and its row objects are not mutated",
+    "the export aggregate(rows, field) in src/aggregate.js is unchanged and no dependency is added"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "cross-file-refactor",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Money formatting and a cart, part-way through a currency refactor.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

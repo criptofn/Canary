@@ -1,0 +1,9 @@
+{
+  "name": "perf-constraint",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Row aggregation that is correct but quadratic.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

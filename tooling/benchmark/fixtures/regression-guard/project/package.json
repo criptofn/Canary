@@ -1,0 +1,11 @@
+{
+  "name": "regression-guard",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A fixed-capacity LRU cache whose recency invariants are easy to regress.",
+  "main": "src/lru.js",
+  "scripts": {
+    "test": "node run-tests.js"
+  },
+  "dependencies": {}
+}

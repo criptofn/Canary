@@ -37,6 +37,15 @@ const EXPECTATIONS = {
   'constraint-hold': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
   'refactor-preserve': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
   'spec-edges': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
+  // The harder, more realistic shapes. Each one is a task a daily agentic user really
+  // hands over: an internal refactor with a compatibility contract, several stated
+  // requirements where one is about the docs matching the config, a feature added to a
+  // green project whose existing invariants are easy to break, and a performance
+  // requirement measured by ACCESS COUNT rather than wall-clock time.
+  'cross-file-refactor': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
+  'multi-requirement-pricing': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
+  'regression-guard': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
+  'perf-constraint': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
 };
 
 function copyDir(from, to) {

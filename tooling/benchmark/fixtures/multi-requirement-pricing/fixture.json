@@ -1,0 +1,14 @@
+{
+  "task": "multi-requirement-pricing",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "what": "the visible suite covers only the no-discount happy path and the money formatter; the task states five further requirements in prose (highest-min tier lookup, half-up rounding to whole cents, fail-closed handling of an unusable config, a README rate table that must agree with config/pricing.json, and unchanged formatCents plus unchanged sub-tier behaviour), and the README table starts stale",
+  "expectedOutcome": "untouched and a plausible fail-open solution both keep the visible suite green while the hidden oracle goes red; only a solution that implements the tiers, rounds half-up, throws on every unusable config and refreshes the README table passes every hidden check",
+  "requirements": [
+    "the applicable rate is the one from the tier with the highest min that is less than or equal to the subtotal in cents, and config/pricing.json keeps its given tiers (0/0, 10000/0.1, 50000/0.2)",
+    "the discounted result is rounded half-up to whole cents (10% off 10005 cents is 9004.5, which rounds up to 9005, never to even)",
+    "a missing, malformed or non-monotonic config fails closed by throwing an Error whose message names the problem, instead of silently returning the undiscounted subtotal",
+    "the Discount rates table in README.md matches config/pricing.json exactly: the same boundaries in cents and the same rates, with no stale or missing row",
+    "formatCents keeps its current behaviour (1234 -> $12.34) and subtotals below the first paid tier, including 0, are still returned unchanged"
+  ]
+}
