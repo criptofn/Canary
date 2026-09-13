@@ -763,7 +763,19 @@ function authorizationContext(root: string, name: string): {
   const subject: AuthorizationSubject = {
     candidate: name, candidateCommit: cid.head, candidateTree: cid.tree,
     baseHead: rec.baseHead, baseTree, baseAuthorityIdentity: digest(JSON.stringify(authority)),
-    frozenTask: frozen, liveTask: task, subjectiveDuties: obligations.filter(o => o.mode === 'non-objective').map(o => o.id).sort(),
+    frozenTask: frozen, liveTask: task,
+    /**
+     * WHAT THE SIGNATURE COVERS, AND WHY THE STATUS FILTER MATTERS (v1.2 fix).
+     *
+     * This used to be every `non-objective` duty REGARDLESS OF STATUS, so a set that was already
+     * `met` still entered the subject — and `dependency-change` is non-objective by construction,
+     * which is how a candidate with no subjective duty open still produced a non-empty set.
+     * MEASURED consequence: `accept` printed "duties this signature covers: none currently open"
+     * and then wrote a record whose subjectDigest bound a coverage set that corresponded to no open
+     * duty at all. A human signature is the one act Canary cannot verify, so it must authorise
+     * exactly the duties that are genuinely open and nothing else.
+     */
+    subjectiveDuties: obligations.filter(o => o.mode === 'non-objective' && o.status === 'unproven').map(o => o.id).sort(),
   };
   return { rec, subject, task, obligations };
 }
