@@ -343,6 +343,7 @@ check('H2 requirement task: with NO binding the duty stays open, and acceptance 
   // sign an acceptance whose covered duty set was EMPTY, which is a standing authorisation over
   // nothing. It now refuses, and the refusal must not write a record.
   const a = acceptPty(root, ['accept', 'h'], 'h\n');
+  assertEq(a.status, 2, `H2: accept must refuse: ${a.stdout}`);
   assert(!/ACCEPTED from this interactive terminal/.test(a.stdout),
     `H2: acceptance must not be able to close an objective requirement:\n${a.stdout}`);
   assert(!fs.existsSync(path.join(root, '.canary', 'acceptance', 'h.json')),

@@ -838,8 +838,7 @@ export async function cmdAccept(rawArgs: string[]): Promise<number> {
    * closes the open duties instead.
    */
   if (subjective.length === 0) {
-    o.say(`REFUSED — candidate "${name}" has NO subjective duty open, so there is nothing for a human to accept. An acceptance that covers nothing is not a signature over the work.`);
-    o.say('  If the work looks unfinished, the open duties are OBJECTIVE and only a measurement closes them: run `canary isolate --verify ' + name + '` to see exactly which ones, then make the proof hold (or have the OPERATOR bind the requirement to a check the sealed plan runs).');
+    o.say(`REFUSED — candidate "${name}" has NO subjective duty open, so there is nothing for a human to accept. An acceptance that covers nothing is not a signature over the work.`);    o.say('  If the work looks unfinished, the open duties are OBJECTIVE and only a measurement closes them: run `canary isolate --verify ' + name + '` to see exactly which ones, then make the proof hold (or have the OPERATOR bind the requirement to a check the sealed plan runs).');
     return 2;
   }
   const baseToken = headToken(root);
