@@ -243,10 +243,14 @@ if (arm === 'canary' || arm === 'workflow' || arm === 'invisible' || arm === 'gu
  *
  * A fixture's `requirements` are what the task states; registering them models an operator who
  * wrote them down BEFORE the work (the documented `canary work --requirement` / `canary task`
- * path). Only then does Canary have authorized requirements to hold the work to — the invariant is
- * about authorized requirements, and a benchmark that never authorizes any cannot measure it.
+ * path), and `canary bind` then attaches each one to a sealed check.
+ *
+ * The `workflow` arm is deliberately EXCLUDED: its documented flow has the WORKER declare the
+ * requirements through `canary work --requirement …` (AGENTS.md), and pre-registering them would
+ * measure the operator's declaration instead of the worker's. Its prompt carries the fixture's
+ * stated requirements so the worker can declare them itself.
  */
-if (arm !== 'plain' && registerRequirements) {
+if (arm !== 'plain' && arm !== 'workflow' && registerRequirements) {
   const reqs = Array.isArray(fixtureMeta.requirements) ? fixtureMeta.requirements : [];
   if (reqs.length > 0) {
     const firstProseLine = taskText.split('\n').map((l) => l.trim()).find((l) => l !== '' && !l.startsWith('#'));
@@ -282,6 +286,21 @@ const workflowInstructions = [
   'This repository is protected by Canary, which verifies work from outside the tree you',
   'edit. Use its documented workflow exactly as written:',
   '',
+  ...(Array.isArray(fixtureMeta.requirements) && fixtureMeta.requirements.length > 0
+    ? [
+      'Declare the task\'s requirements when you register the work — ONE `--requirement` per stated',
+      'requirement, exactly as AGENTS.md instructs. The task states these:',
+      ...fixtureMeta.requirements.map((r) => `  - ${r}`),
+      '',
+      'So the FIRST command you run looks like this (repeat `--requirement` once per line above):',
+      `  node "${CLI}" work <name> "<one-line intent>" ${fixtureMeta.requirements.map((r) => `--requirement "${r.replace(/"/g, '\\"')}"`).join(' ')}`,
+      '',
+      'MEASURED: without the `--requirement` flags the strongest part of the verification never',
+      'engages — a requirement Canary was never told about is prose nobody checks, and the work can',
+      'then be promoted while a stated requirement is unmet.',
+      '',
+    ]
+    : []),
   '1. `node "' + CLI + '" work <name> "<one-line intent>"` — registers the intent and opens an isolated candidate;',
   '2. do ALL of your work in the candidate directory that command prints (commit there);',
   '3. `node "' + CLI + '" finish <name>` — verifies the committed candidate from outside and promotes it only if the proof holds.',

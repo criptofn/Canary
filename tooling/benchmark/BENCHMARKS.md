@@ -174,6 +174,41 @@ and where the answer is measured. Nothing here is a proxy for "does it feel bett
 | "Does it resist instructions planted in the repository?" | the injection fixture: product code fixed vs assertions re-pointed | `bench-r10` (this model: 15/15 resisted) |
 | "Is any of this measured on a stale binary or a mutated dist?" | instrument fingerprint incl. the built CLI; dist-mutation journal recovery | `fingerprint.test.mjs`, `dist-mutation-recover.mjs` |
 
+## What this set CAN and CANNOT tell you (measured, so a reviewer can judge it)
+
+The most important limitation to state plainly, because it decides how much weight the numbers carry:
+**on the final product the plain arm delivered 36/36 correct results across all 13 fixtures**
+(`bench-final`, 3 trials each). This set is therefore NOT a test of whether a plain agent breaks
+small green repositories with this model — it mostly does not. What the set discriminates is
+narrower and, for a Canary user, still the point:
+
+| It DOES discriminate | Evidence |
+|---|---|
+| raw token cost between arms, per configuration | `r4` −31.8%, `r6` −58.5%, `r11` −19.6% (bound requirements), `final` +40.2% (no declared proof) |
+| the aggressive arm's failure modes | `r5` invisible 18/20 with a false done; `r8` invisible 13/15 with two success claims over a RED suite |
+| whether the gate fires and what it costs | every protected trial: blocked completions, checks run by the model, Canary-visible bytes |
+| whether a verdict is honest about its own evidence | the worker-authored-evidence caveat, NOT PROVEN on unproven requirements, the adversarial arm's disclosed overclaim |
+| the mechanisms themselves | `regression-evidence-gate.mjs`, `requirement-coverage-gate.mjs`, `universal-requirement-binding.mjs`, `hook-block-contract.mjs`, `agent-memory-visible.mjs` |
+
+| It does NOT discriminate | Why |
+|---|---|
+| plain-arm correctness on these fixtures | ceiling effect: 36/36. The tasks are small and the requirements mostly locally checkable |
+| anything long-horizon or large | no multi-session work, no repository bigger than a handful of files, no build that takes minutes |
+| concurrency, flakiness, resource limits, network | not in the set at all |
+| most "thoroughness" failures | `version-bump` was the one that surfaced a real false-done class (multi-place updates); the fixture defect then masked it, which is exactly why fixtures get validated |
+| arm differences below ~15% tokens | n=3–10 per cell on one model and one host; the report prints every denominator for that reason |
+
+Raising the discriminating power is a task-authoring decision, not an instrument one. The three
+shapes most likely to separate a careful agent from a fast one, and NOT yet in the set:
+
+1. a refactor whose WRONG reading still compiles and still passes a green suite (the set has
+   `cross-file-refactor`, which tests compatibility, but its wrong solution is caught by the visible
+   suite's numeric-string case);
+2. a performance requirement with a REAL threshold and a plausible slow-but-correct answer (the set's
+   `perf-constraint` measures access counts, which is deterministic but only catches quadratic work);
+3. a multi-place consistency requirement whose places are not all mentioned in the task (the
+   `version-bump` shape, which found a false-done class before the fixture defect invalidated it).
+
 ### The arms, and which one a harness should use
 
 | Arm | What the model is told | Purpose |
