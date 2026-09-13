@@ -1,0 +1,1 @@
+Canary GitHub Bridge E2E smoke test.
