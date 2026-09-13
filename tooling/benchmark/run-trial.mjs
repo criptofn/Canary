@@ -109,13 +109,46 @@ function treeHashes(dir, rel = '') {
   }
   return out;
 }
+/**
+ * Run a command and capture its exit code, stdout and stderr.
+ *
+ * OUTPUT IS CAPTURED THROUGH FILES, NOT PIPES (MEASURED, 2026-09: `run-trial.mjs` could not
+ * execute a SINGLE trial on a confined host — `git init failed:` with an empty stderr — because
+ * `spawnSync(..., {encoding:'utf8'})` uses piped stdio, and a sandboxed environment refuses
+ * piped stdio with EPERM for every command. The file-descriptor shape succeeds there.
+ *
+ * This is a PORTABILITY fix, not a measurement change: the harness never consumed these pipes
+ * incrementally, only `status`/`stdout`/`stderr` after the process closed, which is exactly
+ * what a temp file gives back. `tooling/probes/v12-host-capabilities.mjs` measures the
+ * difference on the host in front of you.
+ */
 function run(cmd, args, opts = {}) {
   const started = Date.now();
-  const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 180_000, windowsHide: true, ...opts });
-  return {
-    status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '',
+  const captureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-run-'));
+  const outPath = path.join(captureDir, 'stdout.txt');
+  const errPath = path.join(captureDir, 'stderr.txt');
+  const outFd = fs.openSync(outPath, 'w');
+  const errFd = fs.openSync(errPath, 'w');
+  let r;
+  try {
+    // `encoding` is dropped on purpose: output is read from the files below, as utf8.
+    const { encoding: _encoding, ...rest } = opts;
+    r = spawnSync(cmd, args, { timeout: 180_000, windowsHide: true, ...rest, stdio: ['ignore', outFd, errFd] });
+  } catch (e) {
+    r = { status: null, error: e };
+  } finally {
+    fs.closeSync(outFd);
+    fs.closeSync(errFd);
+  }
+  const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
+  const result = {
+    status: r.status ?? null,
+    stdout: read(outPath),
+    stderr: read(errPath) + (r.error ? `\nspawn error: ${r.error.code ?? String(r.error)}` : ''),
     secs: Math.round((Date.now() - started) / 100) / 10,
   };
+  fs.rmSync(captureDir, { recursive: true, force: true });
+  return result;
 }
 /**
  * Assertion-like tokens in every file under `tests/`, so "did the agent WEAKEN the thing that
@@ -415,19 +448,43 @@ function runAgent() {
       '--setting-sources', 'project,local',
       '--allowedTools', 'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
     ];
+    /*
+     * THE AGENT'S OUTPUT IS CAPTURED TO FILES, NOT PIPES — and the measurement is identical.
+     *
+     * WHY (MEASURED on this host, 2026-09: `tooling/probes/v12-host-capabilities.mjs`): a
+     * sandboxed environment refuses piped stdio with EPERM — `spawnSync(node, […], {stdio:'pipe'})`
+     * fails for ANY command, while the file-descriptor shape succeeds. With `['ignore','pipe','pipe']`
+     * every trial here died as `spawnError` before the agent ever started, so the harness could not
+     * produce a single measurement on a confined host.
+     *
+     * The semantics are unchanged because the stdout pipe was never consumed incrementally: it was
+     * accumulated into a string and only parsed AFTER the process closed (see below). A file is the
+     * same bytes in the same order, available at the same moment — the stream parser does not care
+     * where the text came from, and `agent.stdout.txt` is written from it exactly as before.
+     */
+    const stdoutPath = path.join(runRoot, 'agent.stream.raw.txt');
+    const stderrPath = path.join(runRoot, 'agent.stderr.raw.txt');
+    const stdoutFd = fs.openSync(stdoutPath, 'w');
+    const stderrFd = fs.openSync(stderrPath, 'w');
+    const readCaptured = () => {
+      const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
+      return { stdout: read(stdoutPath), stderr: read(stderrPath) };
+    };
+    const closeFds = () => {
+      for (const fd of [stdoutFd, stderrFd]) { try { fs.closeSync(fd); } catch { /* already closed */ } }
+    };
     const child = spawn('claude', args, {
       cwd: projectDir, windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', stdoutFd, stderrFd],
       env: agentEnv(),
     });
-    let stdout = ''; let stderr = '';
     let timer = null;
-    child.stdout.on('data', (b) => { stdout += String(b); });
-    child.stderr.on('data', (b) => { stderr += String(b); });
     // A spawn that never starts (measured: EPERM on this host, once) must be a
     // RECORDED unusable trial, not an uncaught exception that loses the run.
     child.on('error', (e) => {
       if (timer !== null) clearTimeout(timer);
+      const { stdout, stderr } = readCaptured();
+      closeFds();
       resolve({ code: null, stdout, stderr: `${stderr}\nspawn error: ${e && e.message ? e.message : e}`, secs: 0, spawnError: true });
     });
     timer = setTimeout(() => {
@@ -437,6 +494,8 @@ function runAgent() {
     const started = Date.now();
     child.on('close', (code) => {
       if (timer !== null) clearTimeout(timer);
+      const { stdout, stderr } = readCaptured();
+      closeFds();
       resolve({ code, stdout, stderr, secs: Math.round((Date.now() - started) / 100) / 10 });
     });
   });

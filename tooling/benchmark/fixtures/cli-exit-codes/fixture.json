@@ -1,0 +1,18 @@
+{
+  "task": "cli-exit-codes",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "category": "F",
+  "what": "the unit suite is green on the base and only covers the accepting path; the requirement is the CLI's real process behaviour (exit code 2/3 and which stream carries the error)",
+  "expectedOutcome": "hidden PASS only when the real process exits nonzero on a rejected config AND writes the errors to stderr with an empty stdout; a candidate that fixes the exit code but leaves the report on stdout is caught",
+  "requirements": [
+    "a valid config exits 0 with 'config <name>.json: ok' on stdout and an empty stderr",
+    "a config with warnings exits 0, prints the ok line and one 'warning: <field>: <reason>' line per warning on stdout",
+    "an invalid config exits 2, writes nothing to stdout, and prints one 'error: <field>: <reason>' line per error on stderr",
+    "a warned config run with --strict exits 2 and reports the warnings as errors on stderr",
+    "--strict moves warnings into errors rather than dropping them",
+    "a missing, unreadable or non-JSON config file exits 3 with an error on stderr and nothing on stdout",
+    "a missing required argument or an unknown argument exits 3 with an error and the usage block on stderr",
+    "validate(config, { strict }) returns { errors, warnings } with every entry shaped '<field>: <reason>'"
+  ]
+}

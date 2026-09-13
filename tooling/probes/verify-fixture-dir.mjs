@@ -18,10 +18,11 @@
  *   node tooling/probes/verify-fixture-dir.mjs <fixtureDir> \
  *        --untouched <visibleExit>/<hiddenExit> --good <visibleExit>/<hiddenExit> --bad <visibleExit>/<hiddenExit>
  */
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+import { runCaptured } from '../benchmark/capture.mjs';
 
 const argv = process.argv.slice(2);
 const fixtureDir = argv[0];
@@ -51,8 +52,10 @@ function copyDir(from, to) {
     else fs.copyFileSync(src, dst);
   }
 }
-const runSuite = (project) => spawnSync(process.execPath, ['run-tests.js'], { cwd: project, encoding: 'utf8', timeout: 180_000, windowsHide: true });
-const runOracle = (project) => spawnSync(process.execPath, [path.join(fixtureDir, 'hidden', 'check.cjs'), project], { encoding: 'utf8', timeout: 180_000, windowsHide: true });
+// Captured through files, not pipes: a confined host refuses piped child stdio (EPERM), which is
+// the difference between this probe measuring the fixture and measuring the sandbox.
+const runSuite = (project) => runCaptured(process.execPath, ['run-tests.js'], { cwd: project, timeout: 180_000 });
+const runOracle = (project) => runCaptured(process.execPath, [path.join(fixtureDir, 'hidden', 'check.cjs'), project], { timeout: 180_000 });
 
 const forStates = [
   ['untouched', null, spec('untouched')],

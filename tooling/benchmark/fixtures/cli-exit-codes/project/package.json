@@ -1,0 +1,9 @@
+{
+  "name": "configcheck",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A small config validator with a CLI whose process behaviour is the requirement.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

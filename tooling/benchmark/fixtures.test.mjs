@@ -21,8 +21,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
+
+import { runCaptured } from './capture.mjs';
 
 const BENCH = path.resolve(import.meta.dirname);
 const FIXTURES = path.join(BENCH, 'fixtures');
@@ -56,6 +57,10 @@ const EXPECTATIONS = {
   // and after (it only exercises the identity case), so only the bound per-requirement checks can
   // tell an implemented requirement from an unimplemented one.
   'bound-requirements': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
+  // Category F — CLI / EXTERNAL BEHAVIOUR. The visible suite is green on the base and only covers
+  // the accepting path; the requirement is the real process contract (exit 2 on a rejected config,
+  // errors on stderr, nothing on stdout). Nothing in the base's unit tests can see any of that.
+  'cli-exit-codes': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
 };
 
 function copyDir(from, to) {
@@ -80,8 +85,10 @@ function prepare(task, solution) {
   }
   return { root, project };
 }
-const runSuite = (project) => spawnSync(process.execPath, ['run-tests.js'], { cwd: project, encoding: 'utf8', timeout: 120_000, windowsHide: true });
-const runOracle = (task, project) => spawnSync(process.execPath, [path.join(FIXTURES, task, 'hidden', 'check.cjs'), project], { encoding: 'utf8', timeout: 120_000, windowsHide: true });
+// Captured through files rather than pipes: a confined host refuses piped child stdio (EPERM),
+// which made every state read as `status null` / empty output here. See capture.mjs.
+const runSuite = (project) => runCaptured(process.execPath, ['run-tests.js'], { cwd: project, timeout: 120_000 });
+const runOracle = (task, project) => runCaptured(process.execPath, [path.join(FIXTURES, task, 'hidden', 'check.cjs'), project], { timeout: 120_000 });
 
 describe('every fixture separates a correct solution from an incorrect one', () => {
   for (const [task, [raw, good, bad]] of Object.entries(EXPECTATIONS)) {
@@ -136,7 +143,7 @@ describe('an oracle that cannot run is reported as such, not as a verdict', () =
     const broken = path.join(root, 'check.cjs');
     fs.writeFileSync(broken, "require('node:fs').readFileSync('/definitely/not/here');\n");
     try {
-      const r = spawnSync(process.execPath, [broken, root], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+      const r = runCaptured(process.execPath, [broken, root], { timeout: 60_000 });
       const summary = /hidden oracle: (\d+)\/(\d+) behaviour checks passed/.exec(r.stdout ?? '');
       assert.equal(summary, null, 'a crashed oracle must not print a verdict');
       assert.notEqual(r.status, 0);
