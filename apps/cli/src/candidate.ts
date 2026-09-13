@@ -671,7 +671,30 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     for (const x of unproven) o.say(`  obligation [${x.id}] UNPROVEN (${x.mode}): ${x.note}`);
     if (acceptanceStale) o.say(`  note: an acceptance for "${name}" EXISTS but is STALE — the candidate commit, its base, the frozen task, or the acceptance-eligible duty set changed since it was signed (a terminal acceptance authorizes ONLY the subjective duties that existed at signing), so the duties reopened. Re-run from an interactive terminal: canary accept ${echoable(name)}`);
     if (met.length) o.say(`  obligations: ${met.length}/${obligations.length} MET — full list in the evidence bundle.`);
-    o.say(`next: close each UNPROVEN obligation with its actual proof (objective ones), or accept the subjective ones from an interactive terminal: canary accept ${echoable(name)} — mixed tasks need BOTH proof AND acceptance. A clarified criterion can also be frozen with: canary task --requirement "<part>" per part, BEFORE isolation. Then re-verify. The trusted base was not touched; promotion stays locked — no PASS was earned.`);
+    /**
+     * WHO can close what — stated instead of implied.
+     *
+     * MEASURED (`bench-r12b`, workflow arm, 2 trials): the previous single `next:` line said "close
+     * each UNPROVEN obligation with its actual proof (objective ones), or accept the subjective ones
+     * …", which reads as an instruction a worker can carry out. It cannot: binding a requirement to a
+     * sealed check is an operator act (`canary bind` + `canary setup`, re-sealing authority) and an
+     * acceptance needs a terminal. The worker therefore spent 53 turns / 23 minutes / 1.85M tokens
+     * re-reading Canary's own help and re-trying, while the outcome was fixed from the start.
+     *
+     * So the two classes are now separated in the output, and the second one says plainly that no
+     * further work in this session can change it.
+     */
+    const WORKER_CLOSABLE = new Set(['regression-evidence', 'tests-green', 'coverage-loss']);
+    const byWorker = unproven.filter((x) => WORKER_CLOSABLE.has(x.id) || (x.mode === 'objective' && !x.id.startsWith('target-')));
+    const byOperator = unproven.filter((x) => !byWorker.includes(x));
+    if (byWorker.length > 0) {
+      o.say(`next: YOU can close ${byWorker.length} of these, with evidence in the candidate: ${byWorker.map((x) => x.id).join(', ')} — make it real (a check that fails without your change), commit in the candidate, then run finish again.`);
+    }
+    if (byOperator.length > 0) {
+      o.say(`NOT CLOSABLE FROM THIS SESSION (no amount of further work changes it): ${byOperator.map((x) => x.id).join(', ')}.`);
+      o.say(`  an OPERATOR closes these by binding each requirement to a check the sealed plan runs (canary bind <script> --requirement "…", then canary setup), or a HUMAN accepts them in a terminal: canary accept ${echoable(name)}.`);
+      o.say('  Do not keep working on them and do not edit checks to make them disappear. Report exactly this state and stop — the trusted base was not touched and promotion stays locked.');
+    }
     return { code: 2, startHead: null, rec };
   }
   const postIdentity = candidateIdentity(rec.root);

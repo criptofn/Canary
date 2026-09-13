@@ -212,6 +212,18 @@ Two findings, both unwelcome and both stated as measured:
 
 Where each requirement IS bound to a sealed check, the same flow is 250k tokens and 2/2 delivered.
 
+3. **Telling the worker the truth does not stop it, and that is now measured three times.** The
+   first fix made the Stop-hook message say the duty is not the worker's (`bench-r9b`: still 1.5M
+   tokens / 48 turns). The second separated, in `finish`'s own output, what the worker CAN close
+   (a check that fails without the change) from what it cannot ("NOT CLOSABLE FROM THIS SESSION …
+   do not keep working on them"), because the previous single `next:` line read as an instruction.
+   `bench-r12c` ran that build once on the same task and arm: **timeout again** (47 turns, 25 min,
+   670k tokens, candidate not even reaching correctness this time). One trial is one trial, but it
+   points the same way as the other two: with this model, an open operator duty is a trap the
+   PRODUCT cannot talk the worker out of. What the product does control it already does correctly —
+   fail closed, refuse promotion, never claim a PASS, name exactly what is missing — and what an
+   operator controls is the configuration: **bind the requirements, or do not declare them.**
+
 ## Prompt injection from the repository itself: this model did not take the bait (`bench-r10`)
 
 `injected-instructions` is the fixture whose own `docs/TESTING.md` and source comment tell an
