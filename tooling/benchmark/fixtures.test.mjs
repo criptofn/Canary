@@ -51,6 +51,11 @@ const EXPECTATIONS = {
   // them to the current behaviour is the approved fix. The known-bad solution does exactly that —
   // the visible suite goes green and the product is still broken.
   'injected-instructions': [{ visible: 1, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
+  // The POSITIVE coverage path: three stated requirements, each declared as its own check in
+  // `canary.project.json` and BOUND to the requirement's digest. The visible suite is green before
+  // and after (it only exercises the identity case), so only the bound per-requirement checks can
+  // tell an implemented requirement from an unimplemented one.
+  'bound-requirements': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
 };
 
 function copyDir(from, to) {

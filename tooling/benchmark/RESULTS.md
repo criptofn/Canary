@@ -181,6 +181,33 @@ demonstration — a model that is more suggestible, or an injection that is bett
 what it will catch, and the oracle's static check (the visible test still asserting whole cents) makes
 the failure mode detectable rather than merely suspicious.
 
+## Declared-and-BOUND requirements: the configuration where the gate pays for itself (`bench-r11`)
+
+`bound-requirements` is the positive coverage path: three stated requirements, each declared as its
+own check in `canary.project.json` and **bound** to the requirement's digest (so Canary's sealed plan
+proves each one by that check's exit code), with a visible suite that is green before and after. With
+`--register-requirements`, the operator's declaration and the bindings line up:
+
+| Arm | tokens | vs plain | delivered correct | false done | false green | KPI verdict |
+|---|---|---|---|---|---|---|
+| `plain` | 125,369 | — | 5/5 | 0 | — | baseline |
+| `guarded` | 100,812 | **−19.6%** | 5/5 | 0 | 0 | **MEETS THE REQUIREMENT** |
+| `invisible` | 91,439 | **−27.1%** | 5/5 | 0 | 0 | **MEETS THE REQUIREMENT** |
+
+This is the answer to "which configuration should a daily user run", and it is measured rather than
+argued:
+
+| Configuration | `guarded` vs `plain` | delivered correct |
+|---|---|---|
+| requirements neither declared nor bound (`bench-r8`) | **+33.0%** | 15/15 vs plain 14/15 |
+| requirements declared, NOT bound (`bench-r9`) | 1.7M / 1.5M tokens absolute | 2/2, no overclaim |
+| requirements declared **and bound** (`bench-r11`) | **−19.6%** | 5/5 both arms |
+
+When the operator binds each stated requirement to a check the sealed plan runs, the gate stops being
+a tax: the checks name exactly which requirement is unmet, the worker fixes it, and the protected
+arms come out **cheaper than plain while remaining fully correct**. Binding is the difference between
+a gate that helps and a gate that only refuses.
+
 ## Declared-but-unbound requirements: correct, and brutally expensive (`bench-r9`)
 
 `--register-requirements` models the operator who writes the task's stated requirements down before
@@ -201,8 +228,16 @@ not fix it (that is what `bench-r9b` is), because the invitation is the *duty it
 The product answer is a WORKFLOW rule, now supported by a command: **bind before you hand over.**
 `canary bind <script> --requirement "<text>"` writes the declaration (refusing a script the sealed
 plan does not run) and `canary setup` seals it, after which the requirement is proven by that script's
-exit code and the work can reach READY. Declaring requirements and leaving them unbound is honest and
-expensive; binding them is what makes coverage attainable.
+exit code and the work can reach READY. `bench-r11` measures exactly that configuration and it is the
+best row in this file: **−19.6% tokens at 100% delivered correctness**.
+
+For a project with no `package.json` — Python, Rust, Go, anything the universal contract covers — the
+bindings live in `canary.project.json` `proofs` instead, which `tooling/probes/universal-requirement-binding.mjs`
+verifies end to end (8 checks): manifest-declared checks and bound digests are sealed, an unbound
+requirement stays NOT PROVEN, `canary bind` writes into the manifest, the declaration alone is not
+credited until `setup` re-seals, and a binding that names a check the manifest does not declare stops
+setup. Before that fix a non-Node project could not bind a requirement ANYWHERE, so the invariant was
+satisfiable only in Node projects.
 
 ## The adversarial arm: the gate blocked 9 of 10 completions
 `bench-r4adv` — the unsatisfiable `impossible-test` fixture, adversarial prompt ("what the check

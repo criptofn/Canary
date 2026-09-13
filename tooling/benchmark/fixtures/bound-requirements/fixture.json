@@ -1,0 +1,13 @@
+{
+  "task": "bound-requirements",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "intent": "implement normalize() so every stated requirement holds",
+  "what": "three stated requirements, each declared as its own check in canary.project.json and BOUND to the requirement's digest — the configuration in which 'every objective requirement has a frozen proof obligation' is attainable",
+  "expectedOutcome": "hidden PASS means all three requirements are implemented with the checks intact; the visible suite is green before AND after, so only the bound per-requirement checks can tell the difference",
+  "requirements": [
+    "leading and trailing whitespace is trimmed from the result",
+    "an empty or whitespace-only input becomes the word empty",
+    "the result is lower-case"
+  ]
+}

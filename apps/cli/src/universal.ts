@@ -141,7 +141,7 @@ function argvProblem(argv: unknown, at: string): string | null {
 }
 
 export interface UniversalManifestRead {
-  manifest: { scopes: ManifestScope[] } | null;
+  manifest: { scopes: ManifestScope[]; proofs: Record<string, string> } | null;
   problems: string[];
 }
 
@@ -153,7 +153,7 @@ export interface UniversalManifestRead {
 export function readUniversalManifest(root: string): UniversalManifestRead {
   const file = path.join(root, UNIVERSAL_MANIFEST);
   if (!fs.existsSync(file)) return { manifest: null, problems: [] };
-  const raw = parseJsonOrNull(file) as { schema?: unknown; scopes?: unknown } | null;
+  const raw = parseJsonOrNull(file) as { schema?: unknown; scopes?: unknown; proofs?: unknown } | null;
   if (raw === null) return { manifest: null, problems: [`${UNIVERSAL_MANIFEST} is not valid JSON`] };
   if (raw.schema !== UNIVERSAL_MANIFEST_SCHEMA) {
     return { manifest: null, problems: [`${UNIVERSAL_MANIFEST} must declare "schema": "${UNIVERSAL_MANIFEST_SCHEMA}" (found ${JSON.stringify(raw.schema)})`] };
@@ -209,7 +209,30 @@ export function readUniversalManifest(root: string): UniversalManifestRead {
     seenScope.add(rel);
   }
   if (problems.length > 0) return { manifest: null, problems };
-  return { manifest: { scopes: scopes.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) }, problems: [] };
+  /**
+   * REQUIREMENT BINDINGS, for a project that has no `package.json` to carry them.
+   *
+   * MEASURED gap this closes: `canary.proofs` is read from `package.json`, so a Python, Rust, Go or
+   * any other non-Node project could not bind a stated requirement to a sealed check AT ALL — the
+   * invariant ("every objective requirement must have a frozen proof obligation or remain NOT
+   * PROVEN") was satisfiable only in Node projects, and everything else could only end in human
+   * acceptance. The manifest is this contract's declaration surface, so the bindings belong here:
+   * `<64-hex requirement digest> -> <a check name this manifest declares>`.
+   */
+  const declared = new Set(scopes.flatMap((s) => s.checks.map((c) => c.name)));
+  const proofs: Record<string, string> = {};
+  if (raw.proofs !== undefined) {
+    if (typeof raw.proofs !== 'object' || raw.proofs === null || Array.isArray(raw.proofs)) {
+      return { manifest: null, problems: [`${UNIVERSAL_MANIFEST} "proofs" must be an object mapping a 64-hex requirement digest to a check name this manifest declares`] };
+    }
+    for (const [digest, name] of Object.entries(raw.proofs as Record<string, unknown>)) {
+      if (!/^[0-9a-f]{64}$/.test(digest)) { problems.push(`${UNIVERSAL_MANIFEST} proofs["${digest}"]: the key must be a full 64-hex requirement digest (get it from: canary task --requirement "<text>")`); continue; }
+      if (typeof name !== 'string' || !declared.has(name)) { problems.push(`${UNIVERSAL_MANIFEST} proofs["${digest}"]: "${String(name)}" is not a check this manifest declares (${[...declared].sort().join(', ')})`); continue; }
+      proofs[digest] = name;
+    }
+  }
+  if (problems.length > 0) return { manifest: null, problems };
+  return { manifest: { scopes: scopes.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)), proofs }, problems: [] };
 }
 
 // ─────────────────────────── discovery ───────────────────────────
@@ -585,7 +608,10 @@ export const universalAdapter: ProjectAdapter = {
         }
       }
       const note = `${UNIVERSAL_MANIFEST}: ${plan.length} declared check(s) across ${manifest.manifest.scopes.length} scope(s)`;
-      return { pm: 'universal', note, plan, source: {} };
+      // The bindings ride `source.canary` so setup seals them through the SAME path a Node project's
+      // `package.json` canary block uses — one sealing rule, two declaration surfaces.
+      const proofs = manifest.manifest.proofs;
+      return { pm: 'universal', note, plan, source: Object.keys(proofs).length > 0 ? { canary: { proofs } } : {} };
     }
     const found = discoverUniversalChecks(root);
     if (found.ambiguity !== undefined) return { pm: 'universal', note: found.ambiguity, plan: [], source: {} };

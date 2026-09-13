@@ -1,0 +1,18 @@
+{
+  "schema": "canary-project/1",
+  "scopes": [
+    {
+      "path": ".",
+      "checks": [
+        { "name": "check-trim", "kind": "tests", "argv": ["node", "checks/check-trim.cjs"] },
+        { "name": "check-empty", "kind": "tests", "argv": ["node", "checks/check-empty.cjs"] },
+        { "name": "check-case", "kind": "tests", "argv": ["node", "checks/check-case.cjs"] }
+      ]
+    }
+  ],
+  "proofs": {
+    "f7ad07061e10303fb2772344851d2df461d47ff952ec976efbeac115047500da": "check-trim",
+    "b95e73fa6d3738882d22395e52d20d34081766425908b0bcf10ac994572f9045": "check-empty",
+    "421a90c98a2daed46fc5ff141af1ed3b1b05b5a8dc2af24bc717f19841054e40": "check-case"
+  }
+}

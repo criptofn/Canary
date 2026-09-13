@@ -322,6 +322,10 @@ const STEPS = [
   // NOT PROVEN (never READY), the worker must be told, the printed exit must be one that can be
   // taken, and binding each requirement to a sealed script must make coverage attainable.
   ['1.1 requirement coverage gate (authorized requirements are proven or NOT PROVEN)', process.execPath, ['tooling/probes/requirement-coverage-gate.mjs'], {}],
+  // And the same invariant in a NON-Node project, where the bindings live in the universal manifest:
+  // declared checks + bound digests are sealed, an unbound requirement stays NOT PROVEN, `canary bind`
+  // writes to the right declaration surface, and an unknown proof check is refused.
+  ['1.1 universal requirement binding (manifest-declared proofs, non-Node project)', process.execPath, ['tooling/probes/universal-requirement-binding.mjs'], {}],
   // The benchmark harness validates ITSELF before any of its numbers are believed: known-good and
   // known-bad solutions per fixture, the verdict rules, secret redaction, and the instrument
   // fingerprint.

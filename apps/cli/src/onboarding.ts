@@ -2758,6 +2758,29 @@ export function cmdBind(rawArgs: string[]): number {
     return 2;
   }
   const pkgPath = path.join(root, 'package.json');
+  const manifestPath = path.join(root, 'canary.project.json');
+  /**
+   * WHICH DECLARATION SURFACE? A Node project carries `package.json` `canary.proofs`; every other
+   * project (Python, Rust, Go, anything the universal contract covers) has no package.json at all, so
+   * the binding goes into `canary.project.json` `proofs`. MEASURED: before this, a non-Node project
+   * could not bind a requirement anywhere, so its only reachable end state was human acceptance.
+   */
+  const targetPath = fs.existsSync(manifestPath) ? manifestPath : pkgPath;
+  if (targetPath === manifestPath) {
+    let manifest: Record<string, unknown>;
+    try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>; }
+    catch (e) { o.verdict('NEEDS ATTENTION', `cannot read canary.project.json to record the binding (${String(e).slice(0, 120)}).`, 'fix the file, then re-run'); return 2; }
+    const proofs = isRecord(manifest.proofs) ? { ...manifest.proofs } : {};
+    const written: Array<{ digest: string; text: string }> = [];
+    for (const r of requirements) { const d = materialDigest(r); proofs[d] = script; written.push({ digest: d, text: canonicalText(r).slice(0, 90) }); }
+    manifest.proofs = Object.fromEntries(Object.entries(proofs).sort(([a], [b]) => a.localeCompare(b)));
+    try { writeFileAtomic(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`); }
+    catch (e) { o.verdict('NEEDS ATTENTION', `could not write the binding into canary.project.json (${String(e).slice(0, 120)}).`, 'close whatever holds the file, then re-run'); return 2; }
+    o.say(`bound ${written.length} requirement(s) to the declared check "${safePath(script)}" in canary.project.json:`);
+    for (const w of written) o.say(`  ${w.digest}  "${w.text}"`);
+    o.say('this is a DECLARATION, not a seal: run `canary setup` to seal it into the plan authority.');
+    return 0;
+  }
   let pkg: Record<string, unknown>;
   try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as Record<string, unknown>; }
   catch (e) { o.verdict('NEEDS ATTENTION', `cannot read package.json to record the binding (${String(e).slice(0, 120)}).`, 'fix the file, then re-run'); return 2; }
