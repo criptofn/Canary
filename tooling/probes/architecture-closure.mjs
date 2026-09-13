@@ -61,9 +61,16 @@ check('B2-B3',()=>{const r=make();isolate(r,'make the dialog prettier');ok(accep
 check('B4',()=>{const r=make();ok(cli(r,'task','fix the crash and make the dialog prettier','--kind','refactor'));const t=O.readTaskRecord(r);assert.ok(t.kinds.includes('ui')&&t.kinds.includes('bugfix')&&t.kinds.includes('refactor'));});
 check('B5-B6',()=>{const r=make();isolate(r);const p=path.join(r,'.canary/task/current.json');const original=JSON.parse(fs.readFileSync(p,'utf8'));for(const t of [{...original,taskDigest:undefined},{...original,taskDigest:'bad'},{...original,schema:'canary-task/1'}]){fs.writeFileSync(p,JSON.stringify(t));blocked(verify(r));blocked(accept(r));}});
 check('C1',()=>{const r=make();isolate(r,'style dialog',['A']);ok(task(r,'style dialog',['B']));blocked(accept(r));notMoved(r,()=>blocked(promote(r)));});
-check('C2',()=>{const r=make();isolate(r,'style dialog',['A']);ok(accept(r));ok(task(r,'style dialog',['A','B']));blocked(verify(r));ok(accept(r));ok(promote(r));});
+// v1.2: the FIRST accept closes the genuinely open subjective duty (ui-proof). After requirements
+// are ADDED the growth makes per-requirement an OBJECTIVE-unproven duty, and the point of this case
+// is that NO signature can discharge it: the candidate stays NOT PROVEN and the base must not move,
+// even though a further subjective duty (ui-proof) is legitimately still open and can be accepted.
+// (It previously asserted `ok(accept)` + `ok(promote)` — acceptance laundering an objective duty.)
+check('C2',()=>{const r=make();isolate(r,'style dialog',['A']);ok(accept(r));ok(task(r,'style dialog',['A','B']));blocked(verify(r));notMoved(r,()=>blocked(promote(r)));});
 check('C3',()=>{const r=make();isolate(r,'style dialog',['A','B']);ok(task(r,'style dialog',['A']));blocked(accept(r));blocked(verify(r));});
-check('C4',()=>{const r=make();isolate(r,'style dialog',['A','B']);ok(accept(r));ok(task(r,'style dialog',['B','A']));ok(verify(r));});
+// v1.2: reordering the SAME requirement multiset is not growth, but the unbound requirement still
+// cannot be closed by a signature, so the candidate stays NOT PROVEN and the base must not move.
+check('C4',()=>{const r=make();isolate(r,'style dialog',['A','B']);ok(accept(r));ok(task(r,'style dialog',['B','A']));blocked(verify(r));});
 check('C5-C6',()=>{const f=A.declaredTask('ui',['ui'],['A','A']);assert.equal(f.requirementCount,2);assert.ok(A.taskWeakening(f,A.declaredTask('ui',['ui'],['A'])).length);assert.equal(A.canonicalTask({...f,requirementDigests:['bad','bad']}),null);});
 check('C7',()=>{const r=make(),rs=Array.from({length:64},(_,i)=>`r${i}`);ok(task(r,'ui',rs));const p=path.join(r,'.canary/task/current.json'),before=fs.readFileSync(p,'utf8');blocked(task(r,'ui',[...rs,'65']));assert.equal(fs.readFileSync(p,'utf8'),before);assert.equal(O.readTaskRecord(r).requirementCount,64);});
 check('C8',()=>{const p='x'.repeat(4000),a=A.declaredTask('ui',['ui'],[p+'A']),b=A.declaredTask('ui',['ui'],[p+'B']);assert.notDeepEqual(a.requirementDigests,b.requirementDigests);});
@@ -72,7 +79,12 @@ check('D2-D7',()=>{const r=make();isolate(r);blocked(verify(r));ok(accept(r));ok
 check('D3',()=>{const t='button must be #D94141 and width 240px';const r=make({e2e:true,bindings:{[A.materialDigest(t)]:'e2e'}});isolate(r,t);ok(promote(r));assert.ok(!fs.existsSync(accPath(r)));});
 check('D4',()=>{const r=make({e2e:true}),c=isolate(r,'fix the crash and make the dialog prettier');const v=blocked(verify(r));assert.match(v.stdout,/SUBJECTIVE ACCEPTANCE: USER JUDGMENT REQUIRED/);ok(accept(r));ok(verify(r));fs.appendFileSync(path.join(c,'tests/check.cjs'),'// regression fixture\n');commit(c);blocked(verify(r));ok(accept(r));ok(promote(r));});
 check('D5-D6',()=>{const r=make({e2e:true}),c=isolate(r);ok(accept(r));fs.writeFileSync(path.join(c,'screen.html'),'broken');commit(c);ok(accept(r));notMoved(r,()=>blocked(promote(r)));});
-check('E1-E3-E5',()=>{const r=make({bench:true});isolate(r,'render latency under 100ms');ok(accept(r));const v=blocked(verify(r));assert.match(v.stdout,/objective target/);notMoved(r,()=>blocked(promote(r)));});
+// v1.2: acceptance can only ever close a SUBJECTIVE duty, so the scenario needs one to be open.
+// A subjective requirement is registered beside the numeric performance target: the signature closes
+// the subjective duty (legitimately), and the OBJECTIVE target stays unproven — which is exactly the
+// invariant E asserts. The match now accepts either the numeric target duty or the unbound
+// requirement duty, because which of the two is named depends on the task shape, not on the rule.
+check('E1-E3-E5',()=>{const r=make({bench:true});isolate(r,'render latency under 100ms',['the result should feel smoother']);ok(accept(r));const v=blocked(verify(r));assert.match(v.stdout,/per-requirement|objective target/);notMoved(r,()=>blocked(promote(r)));});
 check('E2',()=>{const t='render latency under 100ms',r=make({bench:true,bindings:{[A.materialDigest(t)]:'bench'}});isolate(r,t);ok(promote(r));assert.ok(!fs.existsSync(accPath(r)));});
 check('E4',()=>{for(const bench of [false,true]){const r=make({bench});isolate(r,'make scrolling feel faster');const v=blocked(verify(r));assert.match(v.stdout,/subjective performance feel requires human judgment/);ok(accept(r));ok(promote(r));}});
 check('F1',()=>{const r=make();ok(cli(r,'isolate','c'));ok(task(r,'refactor'));blocked(verify(r));notMoved(r,()=>blocked(promote(r)));});
