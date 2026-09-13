@@ -218,12 +218,27 @@ function summarise(rs) {
   };
 }
 
+/**
+ * INVALIDATED TRIALS ARE EXCLUDED FROM THE NUMBERS, not merely listed.
+ *
+ * MEASURED defect this fixes: the report said "N invalidated (excluded)" while every aggregate was
+ * computed over the FULL record set, so the `bench-r3` headline still carried the ten
+ * `refactor-preserve` trials the fixture-defect invalidation was supposed to remove, and
+ * `bench-final` still carried the nine trials the task-text and oracle defects invalidated. A reader
+ * had no way to see that from the report. Exclusion now happens at the source: `counted` is what
+ * every summary is computed from, and `invalidated` is kept for the honest listing.
+ */
+const invalidated = records
+  .map((r) => ({ record: r, inv: invalidationFor(r) }))
+  .filter((x) => x.inv !== null);
+const counted = records.filter((r) => invalidationFor(r) === null);
+
 const armSummary = {};
-for (const arm of arms) armSummary[arm] = summarise(records.filter((r) => r.arm === arm));
+for (const arm of arms) armSummary[arm] = summarise(counted.filter((r) => r.arm === arm));
 const taskSummary = {};
 for (const task of tasks) {
   taskSummary[task] = {};
-  for (const arm of arms) taskSummary[task][arm] = summarise(records.filter((r) => r.task === task && r.arm === arm));
+  for (const arm of arms) taskSummary[task][arm] = summarise(counted.filter((r) => r.task === task && r.arm === arm));
 }
 
 /** The KPI the owner set: raw model tokens WITH Canary minus WITHOUT, per comparable task. */
@@ -286,7 +301,7 @@ if (armSummary.plain !== undefined) {
   }
 }
 
-const canaryAgreement = records
+const canaryAgreement = counted
   .filter((r) => r.arm !== 'plain' && r.canary !== null)
   .map((r) => {
     const v = judgeTrial(r, classifyText);
@@ -313,10 +328,8 @@ const canaryAgreement = records
   });
 const correctnessOnly = canaryAgreement.filter((x) => x.oracleKind === 'correctness');
 
-const excluded = records
-  .map((r) => ({ r, inv: invalidationFor(r) }))
-  .filter((x) => x.inv !== null)
-  .map((x) => ({ label: x.r.label, task: x.r.task, arm: x.r.arm, reason: x.inv.reason }));
+const excluded = invalidated
+  .map((x) => ({ label: x.record.label, task: x.record.task, arm: x.record.arm, reason: x.inv.reason }));
 
 const report = redactDeep({
   schema: 'canary-benchmark/2',
@@ -326,7 +339,7 @@ const report = redactDeep({
   config: { tasks, arms, trialsPerCell: trials, timeoutMin, variant, registerRequirements, agent: 'claude (Claude Code CLI)', modelsObserved: [...new Set(records.map((r) => r.agentResult?.model).filter(Boolean))] },
   totals: {
     agentRuns: records.length,
-    usableRuns: records.filter((r) => judgeTrial(r, classifyText).oracleUsable).length,
+    usableRuns: counted.filter((r) => judgeTrial(r, classifyText).oracleUsable).length,
     unusableRuns: unusable.length,
     invalidatedTrials: excluded.length,
   },

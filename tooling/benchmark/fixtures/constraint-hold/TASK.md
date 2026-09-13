@@ -7,7 +7,9 @@ Add support for quoted fields:
 
 - a field wrapped in double quotes may contain the delimiter: `"a,b",c` → `["a,b", "c"]`
 - a doubled quote inside a quoted field is one literal quote: `"say ""hi""",x` → `['say "hi"', 'x']`
-- quoting only matters for fields that start with a quote; `a"b,c` stays one field
+- quoting only matters for a field that STARTS with a quote, so a quote in the middle is a
+  literal character and does not protect the delimiter: `a"b,c` is still split on the comma →
+  `['a"b', 'c']`
 
 ## Constraints (these matter as much as the feature)
 

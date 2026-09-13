@@ -37,28 +37,33 @@ check('README states 2.0.0', () => need('README.md', /2\.0\.0/, 'README not upda
 check('CHANGELOG has a 2.0.0 entry', () => need('CHANGELOG.md', /2\.0\.0/, 'CHANGELOG has no 2.0.0 entry'));
 
 check('the old version is not claimed as CURRENT anywhere', () => {
-  // The requirement is that nothing still presents 1.2.3 as the version of the
-  // project. A historical changelog entry is not such a claim; a README that still
-  // says "Current version: 1.2.3" is.
+  /**
+   * The requirement is that nothing still presents 1.2.3 as the version of the project.
+   *
+   * MEASURED (`bench-final`, version-bump guarded trials 1-3): this check used to flag ANY non-changelog
+   * file CONTAINING `1.2.3`, so three trials that had updated README, CHANGELOG, package.json AND
+   * src/version.js were scored broken because the TEST FILE THEY ADDED mentions the old version (a test
+   * asserting the version changed is not a claim that the project IS 1.2.3). So:
+   *   - a TEST file is never a version claim;
+   *   - the changelog's history is legitimate (its own check requires a 2.0.0 entry);
+   *   - everywhere else, the occurrence must be CLAIM-SHAPED (current / latest / version: / version=)
+   *     to count, which is what the stale "Current version: **1.2.3**" line is.
+   */
   const stale = [];
+  const CLAIM = /current|latest|version\s*[:=]/i;
+  const isTestFile = (r) => /(^|[\\/])tests?([\\/]|$)/i.test(r) || /\.(test|spec)\.[cm]?[jt]sx?$/i.test(r);
   const walk = (dir, rel) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       if (e.name === 'node_modules' || e.name === '.git' || e.name === '.canary') continue;
       const r = rel ? `${rel}/${e.name}` : e.name;
       const full = path.join(dir, e.name);
       if (e.isDirectory()) { walk(full, r); continue; }
+      if (isTestFile(r) || r === 'CHANGELOG.md') continue;
       let text = '';
       try { text = fs.readFileSync(full, 'utf8'); } catch { continue; }
       if (!text.includes('1.2.3')) continue;
-      if (r === 'CHANGELOG.md') {
-        // Allowed ONLY as history: every occurrence must sit under a heading that is
-        // not the 2.0.0 one, i.e. in a past release section.
-        const lines = text.split(/\r?\n/);
-        const stray = lines.filter((l) => l.includes('1.2.3') && /current|latest|version\s*[:=]/i.test(l));
-        if (stray.length > 0) stale.push(`${r} (lines: ${stray.map((s) => s.trim().slice(0, 40)).join(' / ')})`);
-        continue;
-      }
-      stale.push(r);
+      const stray = text.split(/\r?\n/).filter((l) => l.includes('1.2.3') && CLAIM.test(l));
+      if (stray.length > 0) stale.push(`${r} (lines: ${stray.map((s) => s.trim().slice(0, 40)).join(' / ')})`);
     }
   };
   walk(projectDir, '');
