@@ -41,13 +41,17 @@ check('1. after recovery the tree is not reported as mid-mutation', () => {
   assert(!isMutationInFlight(), 'the journal is still present — recovery did not complete');
 });
 
-check('2. the outcome is HONEST: either repaired, or told to rebuild', () => {
-  if (before) {
-    assert(typeof note === 'string' && /repaired|tsc -b --force/i.test(note),
-      `an interrupted mutation must report a repair or name the rebuild, got: ${String(note)}`);
-  } else {
+check('2. the outcome is HONEST: repaired, or an explicit rebuild instruction', () => {
+  if (!before) {
     assert(note === null, `nothing to recover should be a no-op, got: ${String(note)}`);
+    return;
   }
+  // MEASURED: a journal can be present with NO usable entries (killed between the snapshot and the
+  // write, or the sidecars wiped). Recovery cannot repair that, so it must NAME the rebuild — the
+  // previous behaviour cleared the journal silently, a later battery then snapshotted the mutated
+  // tree as pristine, and the mutation battery reported seven phantom problems.
+  assert(typeof note === 'string' && /repaired|tsc -b --force/i.test(note),
+    `an interrupted mutation must report a repair or name the rebuild, got: ${String(note)}`);
 });
 
 console.log(`\n=== dist mutation recovery: ${failures === 0 ? 'ALL PASS' : `${failures} FAIL`} ===`);

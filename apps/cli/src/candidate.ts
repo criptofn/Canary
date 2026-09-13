@@ -691,8 +691,8 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
       o.say(`next: YOU can close ${byWorker.length} of these, with evidence in the candidate: ${byWorker.map((x) => x.id).join(', ')} — make it real (a check that fails without your change), commit in the candidate, then run finish again.`);
     }
     if (byOperator.length > 0) {
-      o.say(`NOT CLOSABLE FROM THIS SESSION (no amount of further work changes it): ${byOperator.map((x) => x.id).join(', ')}.`);
-      o.say(`  an OPERATOR closes these by binding each requirement to a check the sealed plan runs (canary bind <script> --requirement "…", then canary setup), or a HUMAN accepts them in a terminal: canary accept ${echoable(name)}.`);
+      o.say(`next: these are NOT CLOSABLE FROM THIS SESSION (no amount of further work changes it): ${byOperator.map((x) => x.id).join(', ')}.`);
+      o.say(`  an OPERATOR closes them by binding each requirement to a check the sealed plan runs (canary bind <script> --requirement "…", then canary setup), or a HUMAN accepts them in a terminal: canary accept ${echoable(name)}.`);
       o.say('  Do not keep working on them and do not edit checks to make them disappear. Report exactly this state and stop — the trusted base was not touched and promotion stays locked.');
     }
     return { code: 2, startHead: null, rec };

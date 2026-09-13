@@ -61,7 +61,21 @@ export function recoverInterruptedMutation() {
     try { fs.rmSync(JOURNAL, { force: true }); } catch { /* best effort */ }
     return 'a dist-mutation journal existed but was unreadable — removed it; run `npx tsc -b --force` if anything looks wrong';
   }
-  if (!Array.isArray(journal?.entries)) return null;
+  if (!Array.isArray(journal?.entries)) {
+    // MEASURED hazard this closes: a journal with NO usable entries cannot be repaired — there is
+    // nothing to restore from — and the previous version cleared it silently. A battery starting
+    // afterwards then snapshotted the ALREADY-MUTATED dist as its "pristine" bytes, so every later
+    // restore restored the mutation and the mutation battery reported seven phantom problems
+    // ("M9 anchor count 0 after restore"). Unusable means "dist is not trustworthy": say so.
+    try { fs.rmSync(JOURNAL, { force: true }); } catch { /* best effort */ }
+    return 'a dist-mutation journal existed but carried no usable entries, so the tree could not be '
+      + 'repaired from it — run `npx tsc -b --force` before trusting any result';
+  }
+  if (journal.entries.length === 0) {
+    try { fs.rmSync(JOURNAL, { force: true }); } catch { /* best effort */ }
+    return 'a dist-mutation journal existed with ZERO entries — nothing to repair from, so it was '
+      + 'removed; run `npx tsc -b --force` if anything looks wrong';
+  }
   const repaired = [];
   const unrecoverable = [];
   for (const e of journal.entries) {
