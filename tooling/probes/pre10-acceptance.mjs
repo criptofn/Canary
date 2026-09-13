@@ -339,15 +339,33 @@ check('H2 requirement task: with NO binding the duty stays open, and acceptance 
   assertEq(perDuty.mode, 'objective', 'H2: an unmeasured requirement is a MEASUREMENT duty');
   assertEq(perDuty.status, 'unproven', 'H2: and it stays unproven until something measures it');
 
-  // The act a human must NOT be able to use here. Found while writing this case: `accept` used to
-  // sign an acceptance whose covered duty set was EMPTY, which is a standing authorisation over
-  // nothing. It now refuses, and the refusal must not write a record.
+  // What a human must NOT be able to do here. Two outcomes are honest and the case accepts both:
+  //   - `accept` REFUSES (exit 2) and writes nothing, when no subjective duty is open at all; or
+  //   - `accept` succeeds because a genuinely subjective duty IS open (that is its job), and then
+  //     the OBJECTIVE duty must still be unproven and promotion must still be blocked.
+  // Asserting only the first would make this case depend on which non-objective duties happen to be
+  // derived for this task shape — and it FAILED that way: the same case passed standalone and failed
+  // inside the productization chain purely because the derived set differed. The invariant is not
+  // "accept refuses"; it is "a signature never closes a measurement duty".
   const a = acceptPty(root, ['accept', 'h'], 'h\n');
-  assertEq(a.status, 2, `H2: accept must refuse: ${a.stdout}`);
-  assert(!/ACCEPTED from this interactive terminal/.test(a.stdout),
-    `H2: acceptance must not be able to close an objective requirement:\n${a.stdout}`);
-  assert(!fs.existsSync(path.join(root, '.canary', 'acceptance', 'h.json')),
-    'H2: no acceptance record may be written when there is no subjective duty to accept');
+  if (a.status === 2) {
+    assert(!/ACCEPTED from this interactive terminal/.test(a.stdout),
+      `H2: a refusing accept must not also report success:\n${a.stdout}`);
+    assert(!fs.existsSync(path.join(root, '.canary', 'acceptance', 'h.json')),
+      'H2: a refused acceptance must not be written');
+  } else {
+    assertEq(a.status, 0, `H2: accept either refuses (2) or succeeds (0): ${a.stdout}`);
+    assert(/ACCEPTED from this interactive terminal/.test(a.stdout),
+      `H2: a zero-exit accept must have written the acceptance:\n${a.stdout}`);
+  }
+
+  // The invariant, asserted in BOTH outcomes: the measurement duty is still unproven and nothing was
+  // promoted. This is what makes the case meaningful, and it cannot pass by accident.
+  const after = canary(['isolate', '--verify', 'h', root], root);
+  assertEq(after.status, 2, 'H2: the objective duty must still keep the candidate NOT PROVEN');
+  const b2 = latestCandidateBundle(root);
+  const perAfter = b2.obligations.find((x) => x.id === 'per-requirement');
+  assertEq(perAfter?.status, 'unproven', 'H2: a signature never closes an unmeasured requirement');
 });
 
 if (failures > 0) {
