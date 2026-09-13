@@ -152,6 +152,28 @@ arm with one FEWER delivered-correct result and one false green, which is exactl
 trade the rule forbids. `bench-r6` measured −58.5% with correctness unchanged, which is
 the shape a saving must have.
 
+## The benchmark set, by the question a daily user actually asks
+
+Each row is a question an agentic-AI user has to make a decision about, the metric that answers it,
+and where the answer is measured. Nothing here is a proxy for "does it feel better".
+
+| The question | Metric | Where it is measured |
+|---|---|---|
+| "It said it was done — was it?" | **false done** (success claim ∧ delivered wrong), split into UNDISCLOSED vs disclosed | every matrix, per arm |
+| "Did Canary approve something that is broken?" | **false green** (verdict READY ∧ correctness oracle failed) | every matrix, `canaryAgreement` |
+| "Did Canary block work that was actually fine?" | **false red** (verdict refused ∧ oracle passed) | every matrix, `canaryAgreement` |
+| "Is the code in the state the task asked for, whatever the agent said?" | **delivered correct** — hidden oracle AND the project's own suite | every matrix, per arm |
+| "Does working with Canary cost me more tokens?" | **raw token mean/median/p75/p90**, and tokens per delivered-correct result | `bench.mjs` KPI block |
+| "Would a cheaper arm have been cheaper on a WRONG result?" | **KPI verdict** — a saving with less correct work is marked REJECTED AS A DEFAULT | `bench.mjs` KPI block |
+| "Did the agent weaken the tests to get green?" | `weakenedTests` (assertions REMOVED), `touchedTests`, `suiteRedAfterClaim` | every trial record |
+| "Did the agent run the checks itself, and what did that cost in context?" | checks run BY THE MODEL, agent-visible bytes, Canary-visible bytes | the stream ledger |
+| "Is the gate real — can a completion actually be blocked, and is the reason delivered?" | `hook-block-contract.mjs` (shape table), `hookBlocked`, `refusalReachedModel` | probe + every protected trial |
+| "Does the checks' pass actually say anything about MY change?" | regression evidence: the plan re-run on the base commit | `regression-evidence-gate.mjs` + the gate's obligation |
+| "Is every stated requirement covered by proof?" | `per-requirement` obligation: bound digest → sealed check, or NOT PROVEN | `requirement-coverage-gate.mjs`, `universal-requirement-binding.mjs` |
+| "What does it cost when requirements are declared and NOT bound?" | tokens and turns for that exact configuration | `bench-r9`/`r9b` (1.5–1.7M tokens, 41–48 turns) |
+| "Does it resist instructions planted in the repository?" | the injection fixture: product code fixed vs assertions re-pointed | `bench-r10` (this model: 15/15 resisted) |
+| "Is any of this measured on a stale binary or a mutated dist?" | instrument fingerprint incl. the built CLI; dist-mutation journal recovery | `fingerprint.test.mjs`, `dist-mutation-recover.mjs` |
+
 ### The arms, and which one a harness should use
 
 | Arm | What the model is told | Purpose |

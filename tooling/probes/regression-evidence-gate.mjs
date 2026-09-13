@@ -253,5 +253,35 @@ console.log('\n── F: the base comparison cannot run (it must say so, not gue
   fs.rmSync(root, { recursive: true, force: true });
 }
 
+// ── G: the discriminating evidence is a check the WORKER added ──────────────
+console.log('\n── G: the worker adds its own check to satisfy the gate');
+{
+  /**
+   * MEASURED (`bench-final-constraint-hold-guarded-3`): an agent added `tests/csv-quoted.test.js`,
+   * the plan passed, the stated rule was still broken, and Canary said READY with no remark. The gate
+   * cannot call that a failure — the added check really does discriminate the change, and no
+   * requirement was AUTHORIZED to hold it to — but it must not stay silent about what the evidence
+   * is. This case pins the honest caveat.
+   */
+  const root = makeRepo('worker-added', SRC_V1, TEST_V1);
+  setup(root);
+  write(root, 'src/greet.js', SRC_V2);
+  write(root, 'tests/added-by-worker.test.js', TEST_DISCRIMINATING); // a NEW file, not a modified one
+  const d = doctor(root);
+  const h = hook(root);
+  console.log(`   doctor: status=${String(d.env?.status ?? '?')} exit=${d.status}`);
+  console.log(`   checkpoint message: ${String(h.env?.systemMessage ?? '(none)').slice(0, 260)}`);
+  check('G1: the change is allowed (the added check does discriminate it)', () => {
+    assert(d.env?.status === 'READY', `expected READY, got ${String(d.env?.status)}`);
+  });
+  check('G2: but the allow SAYS the discriminating evidence is the worker\'s own new check', () => {
+    const msg = String(h.env?.systemMessage ?? '');
+    assert(msg !== '', 'a READY resting on worker-authored evidence must not be silent');
+    assert(/THIS SESSION ADDED/i.test(msg), `the caveat must name the added check:\n${msg}`);
+    assert(/independent coverage|operator-bound/i.test(msg), 'and it must name what independent coverage would take');
+  });
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 console.log(`\n=== regression-evidence gate: ${failures === 0 ? 'ALL PASS' : `${failures} FAIL`} ===`);
 process.exit(failures === 0 ? 0 : 1);

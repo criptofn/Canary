@@ -1232,7 +1232,9 @@ export function candidateDiffSignals(root: string, baseHead: string): DiffSignal
   return diffSignalsFrom(committed, staged, worktree, committed !== null, false);
 }
 
-export interface Obligation { id: string; mode: 'objective' | 'non-objective'; status: 'met' | 'unproven' | 'unmet'; note: string }
+export interface Obligation { id: string; mode: 'objective' | 'non-objective'; status: 'met' | 'unproven' | 'unmet'; note: string;
+  /** A MET obligation whose evidence is weaker than the word "met" suggests — said plainly, never hidden. */
+  caveat?: string }
 
 /**
  * Canary's OWN wiring is not the product under test.
@@ -1303,6 +1305,9 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
   return {
     id: 'regression-evidence', mode: 'objective', status: 'met',
     note: `the sealed checks fail without this change (${disc.baseFailures.join(', ') || 'a sealed step'}), so their pass is evidence about it${disc.overlaidChecks.length > 0 ? ` (candidate check files overlaid on the base: ${disc.overlaidChecks.slice(0, 3).map(safePath).join(', ')})` : ''}`,
+    ...(disc.addedChecks.length > 0
+      ? { caveat: `the evidence that discriminates this change includes check file(s) THIS SESSION ADDED (${disc.addedChecks.slice(0, 3).map(safePath).join(', ')}) — sensitive to the change, but written by the same worker whose work it judges. Independent coverage needs an operator-bound check (package.json canary.proofs, or canary.project.json proofs) or a human's acceptance` }
+      : {}),
   };
 }
 
@@ -1337,6 +1342,16 @@ export interface DiscriminationResult {
   reason: string;
   changedPaths: string[];
   overlaidChecks: string[];
+  /**
+   * Check files that did NOT exist at the sealed baseline — i.e. written by THIS session.
+   *
+   * MEASURED reason this is recorded (`bench-final-constraint-hold-guarded-3`): an agent added
+   * `tests/csv-quoted.test.js` (assertions 6 → 18), the sealed plan passed, the hidden oracle found
+   * the stated rule still broken, and Canary said READY. The regression evidence was REAL (the new
+   * check fails without the change) and simultaneously the worker's own reading of the requirement —
+   * SENSITIVITY, not independence. A verdict that rests on it must say so.
+   */
+  addedChecks: string[];
   basePassed: boolean | null;
   baseFailures: string[];
 }
@@ -1366,7 +1381,7 @@ export interface DiscriminationResult {
  */
 export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 600_000): DiscriminationResult {
   const none = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
-    ({ applicable: false, reason, changedPaths, overlaidChecks: [], basePassed: null, baseFailures: [] });
+    ({ applicable: false, reason, changedPaths, overlaidChecks: [], addedChecks: [], basePassed: null, baseFailures: [] });
 
   const signals = collectDiffSignals(root, cfg);
   if (!signals.resolved) return none('the change cannot be attributed to the sealed baseline, so the comparison premise does not hold');
@@ -1409,8 +1424,13 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
       return none('git could not materialize the sealed baseline for a comparison run', changed);
     }
     const overlaid: string[] = [];
+    const addedChecks: string[] = [];
     for (const p of changed) {
       if (!isTestPath(p)) continue;
+      // "Did this check file exist at the sealed baseline?" — asked of git, not guessed: a check the
+      // session ADDED is the worker's own evidence, and that distinction is the point.
+      const atBaseline = gitWithinRoot(root, ['cat-file', '-e', `${head}:${p}`]) !== null;
+      if (!atBaseline) addedChecks.push(p);
       if (copyInto(root, tree, p)) overlaid.push(p);
     }
     const ran: StepResult[] = [];
@@ -1433,6 +1453,7 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
         : 'the sealed checks fail without this change, so their pass is evidence about it',
       changedPaths: changed,
       overlaidChecks: overlaid,
+      addedChecks,
       basePassed: failures.length === 0,
       baseFailures: failures.map((f) => f.kind),
     };
@@ -2669,6 +2690,18 @@ export async function cmdCheckpoint(): Promise<number> {
      * demonstrably fail without the change. That is the strongest thing this gate can say, and it is
      * the only path to a silent allow.
      */
+    /**
+     * …EXCEPT when a MET obligation's evidence is weaker than "met" sounds. MEASURED
+     * (`bench-final-constraint-hold-guarded-3`): the worker added its own check file, the plan passed,
+     * and the stated rule was STILL broken — the hidden oracle found it while Canary said READY. The
+     * gate cannot call that a failure (the check really does discriminate the change, and no
+     * requirement was authorized to hold it to), but it must not stay silent either: an allow that
+     * SAYS what the evidence is beats a READY that hides it.
+     */
+    const caveats = obligations.filter((x) => x.status === 'met' && x.caveat !== undefined);
+    if (caveats.length > 0) {
+      return emit({ systemMessage: `Canary: the sealed checks passed — with a caveat. ${caveats.map((x) => `${x.id}: ${x.caveat}`).join(' ')}`.slice(0, 2000) });
+    }
     return 0; // silent even if an agent claim contradicts — claims never BLOCK, and never CREATE a pass
   }
   // The full runner output is written NEXT TO the evidence bundle and referred to by path, so
