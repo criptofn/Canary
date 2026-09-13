@@ -24,6 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createTerminal } from '../test-support/terminal.mjs';
 import { addRegression } from '../test-support/regression-fixture.mjs';
+import { materialDigest } from '../../apps/cli/dist/src/authorization.js';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
@@ -279,38 +280,73 @@ check('G dependency task: no-observed-change says so; after a lockfile edit acce
   assertEq(canary(['isolate', '--verify', 'c', root], root).status, 0, 'G: candidate completes');
 });
 
-// H — requirement tasks: the per-requirement duty names its real completion
-// path (OBJECTIVELY PROVEN or SUBJECTIVELY ACCEPTED) and closes via acceptance;
-// a registered-but-unenumerated multi task still routes the human to register.
-check('H requirement task: per-requirement duty closes via acceptance, never a dead end', () => {
+// H — requirement tasks, under the v1.2 rule.
+//
+// v1.1 asserted that a mechanical requirement's `per-requirement` duty CLOSES VIA ACCEPTANCE. That
+// was the defect, not the contract: the duty said "acceptance cannot replace measurement for an
+// objective requirement" while being acceptance-eligible, so a TTY signature could close a
+// requirement nobody had measured — and a worker told to satisfy it burned 1.5-1.85M tokens.
+//
+// H1 asserts the corrected completing path (a SEALED BINDING closes it, by measurement);
+// H2 asserts the corrected refusing path (with no binding it stays open, and acceptance cannot
+// close it — and, found while writing H2, `accept` now refuses to sign an empty duty set at all).
+check('H1 requirement task: a sealed binding closes the requirement duty — by measurement, not a signature', () => {
   const root = makeRepo('h-requirement');
-  register(root, 'split the settings page into tabs and fix the save bug', ['bugfix'],
-    ['tabs are visible on the settings page', 'save round-trips without data loss']);
+  const reqs = ['the rules are applied in the stated order', 'the save round-trips without data loss'];
+  // No UI vocabulary in the task text: `ui-proof` is a separate duty with its own acceptance path,
+  // and including it here would leave a NON-objective duty open and muddle what this case measures.
+  register(root, 'apply the settings rules and fix the save bug', ['bugfix'], reqs);
+
+  // The operator binds both requirements to the sealed plan's `test` script BEFORE isolating, which
+  // is the documented order (declare -> bind -> setup -> hand off).
+  const pkgPath = path.join(root, 'package.json');
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  pkg.canary = { proofs: Object.fromEntries(reqs.map((r) => [materialDigest(r), 'test'])) };
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+  git(root, 'add', '-A');
+  git(root, 'commit', '-m', 'bind the requirements to the sealed test script');
+  const reseal = canary(['setup', '--yes', root], root);
+  assert(reseal.status === 0, `H1: re-seal after binding failed:\n${reseal.stdout}${reseal.stderr}`);
+
   const c = isolate(root, 'h');
-  candCommit(c, { 'src/settings.js': 'tabs + save fix\n' }, 'candidate work', false);
+  // The candidate carries a discriminating check (the probe's standard regression fixture), so the
+  // ONLY thing that could keep the requirement duty open is the requirement itself.
+  candCommit(c, { 'src/settings.js': 'the stated rules, applied\n' }, 'candidate work', true);
+
   const v1 = canary(['isolate', '--verify', 'h', root], root);
-  assertEq(v1.status, 2, 'H: duties open before proof/acceptance');
-  assert(/\[per-requirement\] UNPROVEN \(non-objective\)/.test(v1.stdout), `H: requirement duty named:\n${v1.stdout}`);
-  // The duty must print the paths that actually close it. STRONGER than the phrase it replaced:
-  // the measurement path (bind the digest to a sealed script) AND the human-acceptance path.
-  assert(/canary\.proofs/.test(v1.stdout) && /canary accept/.test(v1.stdout), `H: the duty must print its REAL completion paths (sealed proof and acceptance):\n${v1.stdout}`);
-  assert(/\[regression-evidence\] UNPROVEN \(objective\)/.test(v1.stdout), `H: objective half present beside it:\n${v1.stdout}`);
-  const a = acceptPty(root, ['accept', 'h'], 'h\n');
-  assert(/ACCEPTED from this interactive terminal/.test(a.stdout), `H: accept closes the per-requirement duty:\n${a.stdout}`);
-  const v2 = canary(['isolate', '--verify', 'h', root], root);
-  assertEq(v2.status, 2, 'H: acceptance alone must not launder the objective half');
-  assert(/\[regression-evidence\] UNPROVEN \(objective\)/.test(v2.stdout), 'H: objective duty still open');
-  const b2 = latestCandidateBundle(root);
-  assertEq(b2.obligations.find((x) => x.id === 'per-requirement')?.status, 'met', 'H: per-requirement MET in the bundle');
-  candCommit(c, { 'tests/settings-save.test.js': '// round-trip check\n' }, 'add requirement check');
-  const v3 = canary(['isolate', '--verify', 'h', root], root);
-  assert(/STALE/.test(v3.stdout), `H: proof after a byte-change must not ride the old signature:\n${v3.stdout}`);
-  const a2 = acceptPty(root, ['accept', 'h'], 'h\n');
-  assert(/ACCEPTED from this interactive terminal/.test(a2.stdout), 'H: re-accept the final bytes');
-  const v4 = canary(['isolate', '--verify', 'h', root], root);
-  assertEq(v4.status, 0, `H: proof AND fresh acceptance complete a requirement task:\n${v4.stdout}`);
+  assertEq(v1.status, 0, `H1: a BOUND requirement completes by measurement alone:\n${v1.stdout}`);
+  const b1 = latestCandidateBundle(root);
+  const perDuty = b1.obligations.find((x) => x.id === 'per-requirement');
+  assert(perDuty, 'H1: the per-requirement duty must be in the bundle');
+  assertEq(perDuty.mode, 'objective', 'H1: an unmeasured requirement is a MEASUREMENT duty, not a signature');
+  assertEq(perDuty.status, 'met', 'H1: closed by the sealed binding, not by acceptance');
   const p = canary(['isolate', '--promote', 'h', root], root);
-  assertEq(p.status, 0, `H: promotes honestly:\n${p.stdout}`);
+  assertEq(p.status, 0, `H1: promotes honestly:\n${p.stdout}`);
+});
+
+check('H2 requirement task: with NO binding the duty stays open, and acceptance CANNOT close it', () => {
+  const root = makeRepo('h-unbound');
+  register(root, 'apply the settings rules and fix the save bug', ['bugfix'],
+    ['the rules are applied in the stated order', 'the save round-trips without data loss']);
+  const c = isolate(root, 'h');
+  candCommit(c, { 'src/settings.js': 'the stated rules, applied\n' }, 'candidate work', true);
+
+  const v = canary(['isolate', '--verify', 'h', root], root);
+  assertEq(v.status, 2, 'H2: an unmeasured requirement keeps the candidate NOT PROVEN');
+  const b = latestCandidateBundle(root);
+  const perDuty = b.obligations.find((x) => x.id === 'per-requirement');
+  assert(perDuty, 'H2: the duty must be present');
+  assertEq(perDuty.mode, 'objective', 'H2: an unmeasured requirement is a MEASUREMENT duty');
+  assertEq(perDuty.status, 'unproven', 'H2: and it stays unproven until something measures it');
+
+  // The act a human must NOT be able to use here. Found while writing this case: `accept` used to
+  // sign an acceptance whose covered duty set was EMPTY, which is a standing authorisation over
+  // nothing. It now refuses, and the refusal must not write a record.
+  const a = acceptPty(root, ['accept', 'h'], 'h\n');
+  assert(!/ACCEPTED from this interactive terminal/.test(a.stdout),
+    `H2: acceptance must not be able to close an objective requirement:\n${a.stdout}`);
+  assert(!fs.existsSync(path.join(root, '.canary', 'acceptance', 'h.json')),
+    'H2: no acceptance record may be written when there is no subjective duty to accept');
 });
 
 if (failures > 0) {

@@ -810,6 +810,26 @@ export async function cmdAccept(rawArgs: string[]): Promise<number> {
   const { rec, subject, task } = before;
   const subjective = subject.subjectiveDuties;
   const rc = task.requirementCount;
+  /**
+   * AN ACCEPTANCE MUST COVER SOMETHING (v1.2 fix).
+   *
+   * MEASURED, found by the v1.2 acceptance probe: `accept` was willing to sign an acceptance whose
+   * covered duty set was EMPTY — it printed "duties this signature covers: none currently open" and
+   * wrote the record anyway. That is the opposite of what a fail-closed act should do, and it is
+   * dangerous rather than merely untidy: an acceptance is bound to a subject digest that includes
+   * the subjective duty-id SET, so a signature over an empty set is a standing authorisation that
+   * can be re-read later, and the message even warned that "any duty that later joins this set will
+   * NOT be covered" — a warning is not a gate.
+   *
+   * A human signature is the one act Canary cannot verify, so it is the one that must be narrowest.
+   * With nothing acceptance-eligible, there is nothing to accept: refuse, and say what actually
+   * closes the open duties instead.
+   */
+  if (subjective.length === 0) {
+    o.say(`REFUSED — candidate "${name}" has NO subjective duty open, so there is nothing for a human to accept. An acceptance that covers nothing is not a signature over the work.`);
+    o.say('  If the work looks unfinished, the open duties are OBJECTIVE and only a measurement closes them: run `canary isolate --verify ' + name + '` to see exactly which ones, then make the proof hold (or have the OPERATOR bind the requirement to a check the sealed plan runs).');
+    return 2;
+  }
   const baseToken = headToken(root);
   o.say(`ACCEPTING the SUBJECTIVE duties of candidate "${name}" — live registration [${(task?.kinds ?? []).join(', ') || 'no kinds'}]${rc ? ` + ${rc} requirement(s)` : ''}`);
   o.say(`  base ${short(rec.baseHead)} → candidate ${short(subject.candidateCommit)}  (tree ${short(subject.candidateTree)})`);

@@ -2759,15 +2759,47 @@ export async function cmdCheckpoint(): Promise<number> {
     if (unproven.length > 0) {
       // FAIL CLOSED on an OBJECTIVE obligation, as the product invariant requires: an objective
       // requirement with no adequate proof must stay NOT PROVEN, and "the plan is green" is not a
-      // discharge of it. The instruction is actionable, and an agent CAN act on it: make the proof
-      // discriminate (the regression case), or tell the human that acceptance is what is missing.
+      // discharge of it.
       if (objectiveOpen.length > 0) {
         writeCheckpoint(root, 'unproven', objectiveOpen.map((x) => x.id), 'checkpoint');
-        const why = objectiveOpen.map((x) => x.note).join(' | ');
-        if (input.stop_hook_active === true) {
-          return emit({ systemMessage: `Canary: NOT PROVEN (${why.slice(0, 1200)}) — after one repair attempt. Stopping anyway; a human should look, or accept it with: canary accept`.slice(0, 2000) });
+        /**
+         * BLOCK ONLY WHAT THE WORKER CAN ACTUALLY CLOSE (v1.2, Mission 2).
+         *
+         * MEASURED, and this is the whole reason for the split: the block reason embeds each
+         * obligation's note, and some notes describe an OPERATOR act — "bind each uncovered digest
+         * in package.json canary.proofs and re-run canary setup". A worker cannot bind a frozen
+         * proof; only the operator can. Blocking with that text reads to a model as an instruction it
+         * must satisfy, and it complies: measured on this host, `cli-exit-codes/guarded` with seven
+         * unbound requirements ran **39 turns to 537,583 tokens and still timed out**, while the same
+         * fixture's plain arm finished in 18 turns. v1.1 recorded the same shape at 1.5-1.85M tokens.
+         *
+         * The split is the one `candidate.ts` already prints at the candidate boundary: a duty the
+         * worker can discharge with evidence in the repository belongs in a BLOCK; a duty that only an
+         * operator or a human can close belongs in a message that says plainly it is not the worker's
+         * — the shape that already exists below for subjective duties, and that was written for
+         * exactly this reason.
+         *
+         * NOTHING IS SOFTENED BY THIS: the checkpoint is still written `unproven`, `doctor` still
+         * refuses with NOT PROVEN and exit 2, promotion is still locked, and the message still says the
+         * completion is not proven. What changes is only whether the model is ordered to keep working
+         * on something it cannot finish.
+         */
+        const workerClosable = (x: { id: string; mode: string }): boolean =>
+          x.mode === 'objective' && !x.id.startsWith('target-') && x.id !== 'per-requirement';
+        const byWorker = objectiveOpen.filter(workerClosable);
+        const byOperator = objectiveOpen.filter((x) => !workerClosable(x));
+
+        if (byWorker.length > 0) {
+          const why = byWorker.map((x) => x.note).join(' | ');
+          if (input.stop_hook_active === true) {
+            return emit({ systemMessage: `Canary: NOT PROVEN (${why.slice(0, 1200)}) — after one repair attempt. Stopping anyway; a human should look, or accept it with: canary accept`.slice(0, 2000) });
+          }
+          return emit({ decision: 'block', reason: `Canary blocked completion: NOT PROVEN — ${why.slice(0, 1200)}`.slice(0, 1400) });
         }
-        return emit({ decision: 'block', reason: `Canary blocked completion: NOT PROVEN — ${why.slice(0, 1200)}`.slice(0, 1400) });
+
+        // Every open objective duty is operator-only. Say so, and let the turn end.
+        const operatorWhy = byOperator.map((x) => x.note).join(' ');
+        return emit({ systemMessage: `Canary: the sealed checks passed, but the work is NOT PROVEN: ${byOperator.length} duty(ies) remain open and NONE of them is yours to close — each needs the OPERATOR (bind the requirement to a check the sealed plan runs, then re-run canary setup) or a HUMAN (canary accept). This is not a failure of your change: do NOT keep working on it, do NOT edit checks to make it disappear, and do NOT report it as done. Finish now and report exactly what is still open. Details: ${operatorWhy}`.slice(0, 2000) });
       }
       // Subjective / operator-only duties: an agent cannot accept a duty for a human, and — MEASURED
       // (`bench-r9`) — an agent TOLD to close one spends enormous effort trying: two trials with five

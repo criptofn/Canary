@@ -339,14 +339,18 @@ describe('checkpoint/doctor integration — the sealed plan passes, obligations 
     const cfg = readConfig(root) as CanaryConfig;
     assert.equal(canary(['task', 'benchmark the tokenizer', '--requirement', 'p1'], root).status, 0);
     const out = checkpoint(root);
-    // v1.2: an unbound requirement is now an OBJECTIVE duty, so the hook BLOCKS and carries its text
-    // in `reason`; the operator-only `systemMessage` shape is reserved for duties a human must close.
-    // Both fields are read, and the block is asserted, because "the duty got quieter" would be the
-    // bug this test exists to catch.
+    // v1.2: an unbound requirement is now an OBJECTIVE duty, so the hook must carry it — and it is
+    // OPERATOR-ONLY, so the hook must NOT order the worker to keep working on it. Blocking with the old
+    // note ("bind each digest … and re-run canary setup", an operator act) is what made a model burn 39
+    // turns and 537,583 tokens on this host; the measured repair is to state the duty plainly as not the
+    // worker's to close. Both halves are asserted, because "the duty got quieter" would be the bug this
+    // test exists to catch.
     const text = `${String(out?.reason ?? '')} ${String(out?.systemMessage ?? '')}`;
     assert.match(text, /performance obligation|repeatable benchmark|NO sealed proof/);
     assert.match(text, /1 registered requirement/);
-    assert.equal(out?.decision, 'block', 'an unmeasured requirement must block, not merely advise');
+    assert.match(text, /NOT PROVEN/, 'the completion must still be reported as not proven');
+    assert.match(text, /NONE of them is yours to close/, 'and must not read as an instruction to the worker');
+    assert.notEqual(out?.decision, 'block', 'an operator-only duty must not trap the worker in a repair loop');
     // nothing ran beyond the sealed plan: obligations are evaluation, not execution
     const b = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'evidence',
       fs.readdirSync(path.join(root, '.canary', 'evidence')).filter((d) => d.endsWith('-checkpoint')).sort().at(-1)!,
