@@ -26,7 +26,7 @@
  *     instead of pretending a green plan was enough.
  */
 import { cmdIsolate } from './candidate.js';
-import { cmdTask, findRepoRoot, Out, parseGlobals } from './onboarding.js';
+import { cmdTask, findRepoRoot, Out, parseGlobals, readConfig, unboundRequirements } from './onboarding.js';
 
 /** Flags the delegated primitive needs, minus the ones that shape OUR output:
  *  forwarding `--json` would make two commands each print an envelope, and a
@@ -72,6 +72,42 @@ export async function cmdWork(rawArgs: string[]): Promise<number> {
   const taskArgs = [intent, ...forwarded(flags)];
   const taskCode = cmdTask(taskArgs);
   if (taskCode !== 0) { o.say('the intent could not be registered — nothing was opened.'); return taskCode; }
+
+  /**
+   * 1b. REFUSE TO HAND A WORKER A DUTY IT CANNOT CLOSE (v1.2, Mission 2).
+   *
+   * v1.1 discovered an unbound requirement only at the END of the session — at the Stop hook or at
+   * `finish`. By then the model had already spent its budget trying to satisfy a duty that no check
+   * measures and that it therefore could never discharge: MEASURED at 1.5-1.85M tokens over 41-53
+   * turns for a five-requirement task, and reproduced by v1.2's own pilot (a correct candidate
+   * refused as `UNPROVEN [per-requirement]: 7 registered requirement(s), 7 with NO sealed proof`,
+   * at +133% tokens against the plain arm).
+   *
+   * The information needed to prevent that exists the moment the task is registered, so it is used
+   * HERE — before isolation, before the worker is told anything. The candidate is not opened and
+   * nothing is spent.
+   *
+   * A registration that carries its OWN subjective marker is not blocked: acceptance is then a
+   * real path and the state is honest rather than stalled. Only a requirement that asks for a
+   * mechanical outcome with no check to measure it is refused.
+   */
+  const cfg = readConfig(root);
+  if (cfg !== null && cfg !== 'corrupt') {
+    const report = unboundRequirements(root, cfg);
+    if (report.unbound.length > 0 && !report.subjective) {
+      // Every line is emitted BEFORE the verdict: in `--json` mode `verdict()` writes the single
+      // stdout envelope, so anything said after it would be printed outside the envelope.
+      o.say('REQUIREMENT UNBOUND — worker execution was NOT started and no candidate was opened.');
+      o.say(`  ${report.unbound.length} registered requirement(s) have no sealed proof, so no check can measure them.`);
+      o.say(`  sealed plan script(s) available to bind: ${report.planScripts.length > 0 ? report.planScripts.join(', ') : '(none — this plan has no script that could measure a requirement)'}`);
+      for (const req of report.unbound) o.say(`  unbound: ${req.digest}`);
+      o.say('  (a purely subjective requirement is closed differently: register it with a subjective marker and a human runs `canary accept` in a terminal)');
+      o.verdict('NEEDS ATTENTION',
+        'REQUIREMENT UNBOUND — a registered requirement has no sealed proof, so no check can measure it. Spending model effort on it could not have discharged it, so the worker was never started.',
+        'bind each digest to a script the sealed plan runs, then re-seal: package.json "canary": { "proofs": { "<digest>": "<script>" } } → canary setup');
+      return 2;
+    }
+  }
 
   // 2. the candidate, from the trusted base, with that intent frozen into it
   const isolateCode = await cmdIsolate([name]);

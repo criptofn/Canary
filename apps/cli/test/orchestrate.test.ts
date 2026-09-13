@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
+import { materialDigest } from '../src/authorization.js';
 process.env.CANARY_TRUST_STORE = path.join(os.tmpdir(), `canary-trust-${process.pid}`); // 1.1 P0 isolation
 
 const REPO = path.resolve(import.meta.dirname, '..', '..', '..', '..');
@@ -77,31 +78,46 @@ describe('1.1 workflow: work registers and opens in one step', () => {
     // the flag TOKENS, so the VALUES were dropped and the intent absorbed them. The
     // failure direction is the bad one — the human asked for obligations and Canary
     // registered fewer, i.e. weaker verification than was authorized.
+    //
+    // v1.2 adds a second gate on the same command: an unbound requirement is refused BEFORE the
+    // worker is handed anything. So the value-forwarding contract is asserted where it can still
+    // be observed — the registration itself — and the refusal is asserted too, because a gate that
+    // silently stopped registering requirements would otherwise pass this test for the wrong reason.
     const root = fixture('work-flags');
     assert.equal(canary(['setup', '--yes'], root).status, 0);
+
+    const t = canary([
+      'task', 'add the validation rules',
+      '--kind', 'multi',
+      '--requirement', 'reject whitespace',
+      '--requirement', 'reject a missing at-sign',
+    ], root);
+    assert.equal(t.status, 0, t.stdout + t.stderr);
+
+    // The registered task must carry the declared kind AND both requirements — the values, not
+    // just the flag tokens.
+    const rec = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'task', 'current.json'), 'utf8')) as {
+      kinds?: string[]; requirementCount?: number; requirementDigests?: string[];
+    };
+    assert.deepEqual(rec.kinds, ['multi'], `the declared kind was lost: ${JSON.stringify(rec)}`);
+    assert.equal(rec.requirementCount, 2, `the requirements were lost: ${JSON.stringify(rec)}`);
+    assert.equal(new Set(rec.requirementDigests).size, 2, 'both requirement VALUES were registered');
+
+    // And neither requirement text leaked into the intent digest: the intent is the intent.
+    const intentDigest = materialDigest('add the validation rules');
+    assert.ok(!rec.requirementDigests!.includes(intentDigest), 'the intent must not be registered as a requirement');
+
+    // The new gate, on the same registration: `work` refuses and opens nothing.
     const w = canary([
       'work', 'flagged', 'add the validation rules',
       '--kind', 'multi',
       '--requirement', 'reject whitespace',
       '--requirement', 'reject a missing at-sign',
     ], root);
-    assert.equal(w.status, 0, w.stdout + w.stderr);
-
-    // The registered task must carry the declared kind AND both requirements: read them
-    // from the record the CANDIDATE froze, which is what verification judges against.
-    const rec = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'candidates', 'flagged.json'), 'utf8')) as {
-      intent?: { task?: { kinds?: string[]; requirementCount?: number } };
-    };
-    const task = rec.intent?.task;
-    assert.ok(task, 'the task must be frozen into the candidate');
-    assert.deepEqual(task!.kinds, ['multi'], `the declared kind was lost: ${JSON.stringify(task)}`);
-    assert.equal(task!.requirementCount, 2, `the requirements were lost: ${JSON.stringify(task)}`);
-
-    // And the intent must be the intent — not the intent plus the flag values.
-    const intentText = JSON.stringify(rec.intent);
-    assert.ok(!/reject whitespace/.test(intentText) || task!.requirementCount === 2,
-      'the requirement text must arrive as a requirement, not as prose inside the intent');
-    assert.ok(!/multi/.test(String(rec.intent?.task?.kinds?.join(' ') ?? '')) || task!.kinds![0] === 'multi');
+    assert.equal(w.status, 2, `an unbound requirement must refuse the handoff: ${w.stdout}${w.stderr}`);
+    assert.match(w.stdout + w.stderr, /REQUIREMENT UNBOUND/);
+    assert.ok(!fs.existsSync(path.join(root, '.canary', 'candidates', 'flagged.json')),
+      'the refusal must not have opened a candidate');
   });
 });
 

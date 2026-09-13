@@ -155,12 +155,17 @@ describe('task record — requirementDigests identity, prose never stored', () =
   });
 
   it('shared derivation: obligationsFor output and the scope digest agree on acceptance-eligible ids (multi task)', () => {
-    // A ui+multi registration derives ui-proof + per-requirement as non-objective;
-    // the digest the acceptance binds MUST cover exactly those duty ids.
+    // A ui+multi registration derives ui-proof as non-objective; the digest the acceptance binds
+    // MUST cover exactly those duty ids.
     const ob = obligationsFor(['ui', 'multi'], { resolved: true, hasTestDiff: true, hasUiDiff: false, hasDependencyDiff: false, hasPerfDiff: false, deletedTestsAttributable: [], deletedTestsUnattributable: [] } as never, new Set<string>(), 2, 'isolation');
     const ids = ob.filter((x) => x.mode === 'non-objective').map((x) => x.id).sort();
     assert.ok(ids.includes('ui-proof'), `ui-proof must be acceptance-eligible: ${JSON.stringify(ob)}`);
-    assert.ok(ids.includes('per-requirement'), 'per-requirement must be acceptance-eligible');
+    // v1.2: per-requirement is NOT acceptance-eligible any more. It carried mode 'non-objective'
+    // while its own note demanded measurement, which let a TTY signature close an unmeasured
+    // requirement. A ui registration still reaches acceptance through ui-proof, so the
+    // acceptance-eligible set is non-empty and this derivation guard stays meaningful.
+    assert.ok(!ids.includes('per-requirement'), 'an unmeasured requirement must not be closeable by signature');
+    assert.ok(ids.length > 0, 'a ui registration must still have an acceptance path');
     assert.equal(scope({ requirementCount: 2, requirementDigests: [sha256('A'), sha256('B')] }, ob),
       scope({ requirementCount: 2, requirementDigests: [sha256('A'), sha256('B')] }, ob));
   });

@@ -1585,11 +1585,92 @@ export function obligationsFor(
     add({ id: 'per-requirement', mode: 'objective', status: 'met',
       note: `every one of the ${digests.length} registered requirement(s) is covered: ${bound.length > 0 ? `sealed proof script(s) ${[...new Set(bound)].join(', ')}` : 'frozen objective targets'} whose exit codes the sealed plan produces` });
   } else if ((kinds.includes('multi') || requirementCount > 0) && (!task || requirementCount === 0 || uncovered.length > 0)) {
-    add({ id: 'per-requirement', mode: 'non-objective', status: 'unproven', note: requirementCount > 0
-      ? `multi-part task: ${requirementCount} registered requirement(s), ${uncovered.length} with NO sealed proof — a green plan proves the plan, NOT each part. Bind each uncovered digest in package.json canary.proofs to a script your plan runs and re-run canary setup (acceptance cannot replace measurement for an objective requirement), or accept the candidate from an interactive terminal (canary accept <candidate>) — until then UNPROVEN, never permanently dead`
+    /**
+     * THE CLASSIFICATION MUST NOT CONTRADICT ITS OWN NOTE (v1.2 fix).
+     *
+     * MEASURED BUG this replaces: the duty was ALWAYS `mode: 'non-objective'`, i.e. closable by a
+     * human `canary accept`, while its own note said "acceptance cannot replace measurement for an
+     * objective requirement". The consequence was the opposite of the intent: an operator could
+     * close an unbound OBJECTIVE requirement with a TTY signature, and — because the Stop hook
+     * routes non-objective duties down its operator-only branch — a worker facing it was told
+     * "none of them is yours to close" and left to loop. Benchmarked at 1.5-1.85M tokens.
+     *
+     * The rule now: an uncovered requirement is a MEASUREMENT duty (objective, unproven) unless
+     * the registration itself carries a subjective marker. A declared requirement is a
+     * requirement; "the dashboard should feel cleaner" is subjective only because it says so, and
+     * that case keeps its own acceptance path via `subjective-visual-acceptance` /
+     * `subjectivePerformance`.
+     */
+    const subjectiveRegistration = task?.subjectiveVisual === true || task?.subjectivePerformance === true;
+    add({ id: 'per-requirement', mode: subjectiveRegistration ? 'non-objective' : 'objective', status: 'unproven', note: requirementCount > 0
+      ? `multi-part task: ${requirementCount} registered requirement(s), ${uncovered.length} with NO sealed proof — a green plan proves the plan, NOT each part. Bind each uncovered digest in package.json canary.proofs to a script your plan runs and re-run canary setup (acceptance cannot replace measurement for an objective requirement)${subjectiveRegistration ? ', or accept the candidate from an interactive terminal (canary accept <candidate>)' : ''} — until then UNPROVEN, never permanently dead`
       : 'multi-part task detected but requirements were never enumerated — ask the human ONCE which parts must be proven separately, or register them: canary task "..." --requirement "..." per part (BEFORE isolation), or accept the candidate as-is from an interactive terminal: canary accept <candidate>' });
   }
   return out;
+}
+
+/** One requirement that no sealed check measures, with the plan scripts it could be bound to. */
+export interface UnboundRequirement {
+  digest: string;
+  /** Distinct plan scripts that do NOT already carry a binding — the candidate proof targets. */
+  candidateScripts: string[];
+}
+
+/** The requirements a registration declared and no frozen binding covers. */
+export interface UnboundReport {
+  /** Digests with no frozen binding and no frozen objective target. */
+  unbound: UnboundRequirement[];
+  /** True when the registration itself carries a subjective marker, so acceptance is a real path. */
+  subjective: boolean;
+  /** Every script the sealed plan will run, so a suggestion is always actionable. */
+  planScripts: string[];
+}
+
+/**
+ * INSPECT A REGISTRATION BEFORE A WORKER IS HANDED ANYTHING (v1.2, Mission 2).
+ *
+ * WHY THIS EXISTS AS A SEPARATE, PRE-HANDOFF QUESTION: v1.1 could only discover an unbound
+ * requirement at the END of a worker's session — at the Stop hook or at `finish` — after the model
+ * had already spent its budget trying to close a duty that was never its to close. Measured at
+ * 1.5-1.85M tokens for a five-requirement task. The information needed to prevent that is
+ * available the moment the task is registered, so it is answered here and consumed by the
+ * handoff, rather than rediscovered a million tokens later.
+ *
+ * It reports facts only: which digests are uncovered, and which plan scripts they could be bound
+ * to. It never decides a verdict and never mints a binding.
+ */
+export function unboundRequirements(
+  root: string,
+  cfg: { plan: PlanStep[]; planAuthority?: PlanAuthority } | null,
+): UnboundReport {
+  const task = readTaskRecord(root);
+  if (!task || task.requirementDigests.length === 0 || cfg === null) {
+    return { unbound: [], subjective: false, planScripts: cfg?.plan.map((s) => s.script) ?? [] };
+  }
+  const bindings = cfg.planAuthority?.proofBindings ?? {};
+  const inPlan = (script: string): boolean => cfg.plan.some((s) => s.script === script);
+  const digestSet = new Set(task.requirementDigests);
+
+  // Scripts already bound to one of THIS registration's requirements are not candidates for the
+  // others: a digest must map to the check that measures THAT requirement.
+  const usedByThisRegistration = new Set(
+    Object.entries(bindings).filter(([d]) => digestSet.has(d)).map(([, s]) => s),
+  );
+  const candidateScripts = [...new Set(cfg.plan.map((s) => s.script))].filter((s) => !usedByThisRegistration.has(s));
+
+  const unbound: UnboundRequirement[] = task.requirementDigests
+    .filter((d) => !task.objectiveTargets.some((t) => t.digest === d))
+    .filter((d) => {
+      const script = bindings[d];
+      return script === undefined || !inPlan(script);
+    })
+    .map((digest) => ({ digest, candidateScripts }));
+
+  return {
+    unbound,
+    subjective: task.subjectiveVisual === true || task.subjectivePerformance === true,
+    planScripts: cfg.plan.map((s) => s.script),
+  };
 }
 
 /** Strict canonical declaration reader. Incomplete/legacy records return null;

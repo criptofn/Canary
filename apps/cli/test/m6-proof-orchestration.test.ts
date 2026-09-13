@@ -339,8 +339,14 @@ describe('checkpoint/doctor integration — the sealed plan passes, obligations 
     const cfg = readConfig(root) as CanaryConfig;
     assert.equal(canary(['task', 'benchmark the tokenizer', '--requirement', 'p1'], root).status, 0);
     const out = checkpoint(root);
-    assert.match(out.systemMessage, /performance obligation|repeatable benchmark/);
-    assert.match(out.systemMessage, /1 registered requirement/);
+    // v1.2: an unbound requirement is now an OBJECTIVE duty, so the hook BLOCKS and carries its text
+    // in `reason`; the operator-only `systemMessage` shape is reserved for duties a human must close.
+    // Both fields are read, and the block is asserted, because "the duty got quieter" would be the
+    // bug this test exists to catch.
+    const text = `${String(out?.reason ?? '')} ${String(out?.systemMessage ?? '')}`;
+    assert.match(text, /performance obligation|repeatable benchmark|NO sealed proof/);
+    assert.match(text, /1 registered requirement/);
+    assert.equal(out?.decision, 'block', 'an unmeasured requirement must block, not merely advise');
     // nothing ran beyond the sealed plan: obligations are evaluation, not execution
     const b = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'evidence',
       fs.readdirSync(path.join(root, '.canary', 'evidence')).filter((d) => d.endsWith('-checkpoint')).sort().at(-1)!,

@@ -44,10 +44,26 @@ test('a registered requirement with NO sealed proof is UNPROVEN and names the wa
   const per = find(obs, 'per-requirement');
   assert.ok(per, 'a registered requirement must produce the per-requirement duty');
   assert.equal(per.status, 'unproven');
-  assert.equal(per.mode, 'non-objective');
+  // v1.2: OBJECTIVE, not acceptance-eligible. The duty used to be `non-objective` while its own
+  // note said "acceptance cannot replace measurement for an objective requirement" — so a TTY
+  // signature could close a requirement nobody had measured, and the Stop hook sent the worker down
+  // its operator-only branch ("none of them is yours to close"), which is what produced the
+  // measured 1.5-1.85M-token loops. A declared requirement is a requirement.
+  assert.equal(per.mode, 'objective', 'an unmeasured requirement is a MEASUREMENT duty, not a signature');
   assert.match(per.note, /NO sealed proof/);
   assert.match(per.note, /canary\.proofs/, 'the note must name the binding mechanism');
-  assert.match(per.note, /canary accept/, 'and the human-acceptance path, which an agent cannot take');
+});
+
+test('a SUBJECTIVE registration keeps the human-acceptance path (it is not a measurement duty)', () => {
+  // The other half of the rule above, and the reason it is not a blanket reclassification: when
+  // the registration itself carries a subjective marker, acceptance IS the honest closure, so the
+  // duty stays non-objective and can be closed by `canary accept`.
+  const task = declaredTask('make the dialog prettier', ['ui'] as TaskKind[], ['the dialog looks nicer']);
+  const obs = obligationsFor(['ui'], NO_CHANGE, new Set(['tests']), 1, 'setup', task, authorityWith());
+  const per = find(obs, 'per-requirement');
+  assert.ok(per);
+  assert.equal(per.mode, 'non-objective', 'a subjective registration is closed by human judgment');
+  assert.match(per.note, /canary accept/);
 });
 
 test('binding that digest to a sealed script makes the requirement COVERED by measurement', () => {
