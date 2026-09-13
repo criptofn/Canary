@@ -47,7 +47,8 @@ import path from 'node:path';
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
 const FX = path.join(REPO, 'tooling', 'test-support', 'fixtures');
-const FPASS = `node "${path.join(FX, 'f-pass.js')}"`;
+import { addRegression } from '../test-support/regression-fixture.mjs';
+const FPASS = `node "${path.join(FX, 'f-regression.cjs')}" && node tests/regression.test.cjs`;
 const FBUILD = `node "${path.join(FX, 'f-build.js')}"`;
 
 let failures = 0;
@@ -82,6 +83,7 @@ function makeRepo(name, scripts, files = {}) {
   fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'app.js'), 'module.exports = 1;\n');
   fs.writeFileSync(path.join(root, 'tests', 'baseline.test.js'), '// baseline coverage\n');
+  fs.writeFileSync(path.join(root, 'tests', 'regression.test.cjs'), "const fs = require('node:fs'); if (fs.existsSync('tests/regression.expected.json')) require('node:assert/strict').equal(require('../src/app.js'), 2);\n");
   for (const [f, content] of Object.entries(files)) fs.writeFileSync(path.join(root, f), content);
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, private: true, scripts }, null, 2) + '\n');
   git(root, 'init', '-b', 'main');
@@ -117,13 +119,14 @@ function isolate(root, name) {
   const r = canary(['isolate', name, root], root);
   assert(r.status === 0, `isolate ${name} failed: ${r.stdout}\n${r.stderr}`);
 }
-function candCommit(root, name, files, remove = []) {
+function candCommit(root, name, files, remove = [], proof = false) {
   const c = candPath(root, name);
   for (const f of remove) fs.rmSync(path.join(c, f), { force: true });
   for (const [f, content] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(c, f)), { recursive: true });
     fs.writeFileSync(path.join(c, f), content);
   }
+  if (proof) addRegression(c);
   git(c, 'add', '-A');
   git(c, 'commit', '-m', 'candidate work');
 }
@@ -158,7 +161,7 @@ check('S1 positive control: bugfix candidate WITH a test change → CANDIDATE PA
   assertEq(rec.intent.plan.map((s) => s.script).join(','), 'test,build', 'snapshot = the plan at isolation');
   assert(rec.intent.seal && /^[0-9a-f]{64}$/.test(rec.intent.seal.test ?? ''), 'snapshot carries the sealed digest of the test text');
   assertEq(rec.intent.task.kinds.join(','), 'bugfix', 'snapshot froze the registered task kinds');
-  candCommit(root, 'c', { 'src/login.js': 'fixed\n', 'tests/login.test.js': '// reproduces the crash\n' });
+  candCommit(root, 'c', { 'src/login.js': 'fixed\n', 'tests/login.test.js': '// reproduces the crash\n' }, [], true);
   const r = canary(['isolate', '--verify', 'c', root], root);
   assertEq(r.status, 0, `S1 verify must PASS: ${r.stdout}`);
   assertMatch(r.stdout, /CANDIDATE PASS/, 'S1-pass: PASS line');
@@ -191,7 +194,7 @@ check('S2 green plan + bugfix WITHOUT a test → CANDIDATE NOT PROVEN exit 2, un
   assertEq(p.status, 2, 'S2-notproven: promote must refuse an unproven candidate');
   assert(!/PROMOTED|ALREADY APPLIED/.test(p.stdout), 'S2-notproven: no apply wording');
   assertEq(bundles(root, '-promotion').length, 0, 'S2-notproven: zero promotion bundles');
-  candCommit(root, 'c', { 'tests/timer.test.js': '// real regression test\n' });
+  candCommit(root, 'c', { 'tests/timer.test.js': '// real regression test\n' }, [], true);
   const r2 = canary(['isolate', '--verify', 'c', root], root);
   assertEq(r2.status, 0, `S2-notproven: closing the obligation with actual work recovers PASS: ${r2.stdout}`);
   assertMatch(r2.stdout, /CANDIDATE PASS/, 'S2-notproven: PASS after real proof');
@@ -204,7 +207,7 @@ check('S3 committed test deletion → CANDIDATE BLOCKED exit 2 (steps + coverage
   const t = canary(['task', 'restructure the store', '--kind', 'refactor'], root);
   assertEq(t.status, 0, `task failed: ${t.stdout}`);
   isolate(root, 'c');
-  candCommit(root, 'c', { 'src/store.js': 'refactored\n' }, ['tests/baseline.test.js']); // deleted the coverage
+  candCommit(root, 'c', { 'src/store.js': 'refactored\n' }, ['tests/baseline.test.js'], true); // deleted the coverage
   const r = canary(['isolate', '--verify', 'c', root], root);
   assertEq(r.status, 2, 'S3-unmet: exit code');
   assertMatch(r.stdout, /CANDIDATE BLOCKED — the sealed plan passed/, 'S3-unmet: BLOCKED-on-obligation line (not NOT PROVEN)');
@@ -233,7 +236,7 @@ check('S4a plan step dropped after isolation (re-setup with a smaller script set
   const root = pinBase(makeRepo('s4a', TWO));
   registerWork(root, 'tidy the module layout'); // M10.1: the PASS legs need task authority (S12 owns the law)
   isolate(root, 'c');
-  candCommit(root, 'c', { 'src/tweak.js': 'ready to pass\n' });
+  candCommit(root, 'c', { 'src/tweak.js': 'ready to pass\n' }, [], true);
   const pre = canary(['isolate', '--verify', 'c', root], root);
   assertEq(pre.status, 0, `S4a-drop: pre-condition PASS: ${pre.stdout}`);
   reSeal(root, { test: FPASS }); // the dropped "build" step
@@ -268,7 +271,7 @@ check('S4a2 sealed text re-locked to different (green) commands after isolation 
   const root = pinBase(makeRepo('s4a2', TWO));
   registerWork(root, 'tidy the module layout'); // M10.1: restore-recovery asserts PASS — needs task authority
   isolate(root, 'c');
-  candCommit(root, 'c', { 'src/tweak.js': 'ready\n' });
+  candCommit(root, 'c', { 'src/tweak.js': 'ready\n' }, [], true);
   reSeal(root, { test: FBUILD, build: FBUILD }); // same step NAMES, different sealed texts (all green — the laundering target)
   const r = canary(['isolate', '--verify', 'c', root], root);
   assertEq(r.status, 2, 'S4a-reseal: exit code');
@@ -351,7 +354,7 @@ check('S5 record with the intent hand-stripped → NOT PROVEN naming [task-autho
 // ================= S6: FAIL stays FAIL and carries the obligation read ====
 check('S6 red plan → CANDIDATE FAIL (exit 2) whose bundle carries the obligations (M11 repair fuel); removing the cause recovers', () => {
   const root = pinBase(makeRepo('s6', RED_GREEN, {
-    'check.cjs': "const fs = require('node:fs');\nprocess.exit(fs.existsSync('RED') ? 1 : 0);\n",
+    'check.cjs': "const fs = require('node:fs'); const assert = require('node:assert/strict');\nif (fs.existsSync('RED')) process.exit(1);\nconst expected = 'tests/regression.expected.json'; if (fs.existsSync(expected)) assert.equal(require('./src/app.js'), JSON.parse(fs.readFileSync(expected, 'utf8')));\n",
   }));
   const t = canary(['task', 'fix the crash', '--kind', 'bugfix'], root);
   assertEq(t.status, 0, `task failed: ${t.stdout}`);
@@ -365,8 +368,9 @@ check('S6 red plan → CANDIDATE FAIL (exit 2) whose bundle carries the obligati
   assertEq(b.status, 'fail', 'S6-fail: bundle status');
   assertEq(b.steps.length, 1, 'S6-fail: the failing step is in the bundle');
   assertEq(b.obligations.length, 2, 'S6-fail: obligations ride the FAIL bundle');
-  assertEq(obOf(b, 'regression-evidence').status, 'met', 'S6-fail: proof already earned is visible even on FAIL');
+  assertEq(obOf(b, 'regression-evidence').status, 'unproven', 'S6-fail: a changed filename does not discharge proof even on FAIL');
   fs.rmSync(path.join(candPath(root, 'c'), 'RED'));
+  addRegression(candPath(root, 'c'));
   git(candPath(root, 'c'), 'add', '-A');
   git(candPath(root, 'c'), 'commit', '-m', 'drop the cause');
   const r2 = canary(['isolate', '--verify', 'c', root], root);
@@ -385,7 +389,7 @@ check('S8 lying index (--assume-unchanged) is seen as dirty: verify reports it, 
   registerWork(root, 'add src/a.js honestly'); // M10.1: the honest-bytes recovery asserts PASS — needs task authority
   isolate(root, 'c');
   const c = candPath(root, 'c');
-  candCommit(root, 'c', { 'src/a.js': 'committed candidate work\n' });
+  candCommit(root, 'c', { 'src/a.js': 'committed candidate work\n' }, [], true);
   fs.writeFileSync(path.join(c, 'tests', 'baseline.test.js'), '// hollowed — hidden from status by the index flag\n');
   git(c, 'update-index', '--assume-unchanged', 'tests/baseline.test.js');
   const r = canary(['isolate', '--verify', 'c', root, '--verbose'], root);
@@ -443,7 +447,7 @@ check('S9 committed git mv tests→src keeping the .test.js suffix → CANDIDATE
 // regression evidence and PASS — promoting committed bytes that contain no
 // test at all. Signals are collected BEFORE the window, exactly like
 // cid.head: what the verdict binds is what the verdict judged.
-check('S10 a plan step writing a test mid-window cannot mint its own regression evidence → NOT PROVEN; a COMMITTED test (pre-window) passes', () => {
+check('S10 a plan step writing a test mid-window cannot mint its own regression evidence → NOT PROVEN even after the later commit', () => {
   const Fghost = `node "${path.join(FX, 'm10-ghost-writer.cjs')}"`;
   const root = pinBase(makeRepo('s10', { test: Fghost, build: FBUILD }));
   const t = canary(['task', 'fix the timer', '--kind', 'bugfix'], root);
@@ -461,11 +465,11 @@ check('S10 a plan step writing a test mid-window cannot mint its own regression 
   const p = canary(['isolate', '--promote', 'c', root], root);
   assertEq(p.status, 2, 'S10: promote locked');
   fs.rmSync(path.join(candPath(root, 'c'), 'tests', 'ghost.test.js')); // drop the untracked mint
-  candCommit(root, 'c', { 'tests/timer.test.js': '// an honest committed regression test\n' });
+  candCommit(root, 'c', { 'tests/timer.test.js': '// an honest committed regression test\n' }, [], true);
   candCommit(root, 'c', { 'tests/ghost.test.js': '// ghost — written by the plan step itself\n' }); // every file the step writes now already belongs to the reviewed commit
   const r2 = canary(['isolate', '--verify', 'c', root], root);
-  assertEq(r2.status, 0, `S10: a test committed BEFORE the window is real work: ${r2.stdout}`);
-  assertMatch(r2.stdout, /CANDIDATE PASS/, 'S10: PASS on genuine evidence');
+  assertEq(r2.status, 2, `S10: the stronger completion gate remains closed: ${r2.stdout}`);
+  assertMatch(r2.stdout, notProvenRe, 'S10: the candidate remains NOT PROVEN');
 });
 
 // ================= S11: the clean premise is ASSERTED, not assumed =========
@@ -540,7 +544,7 @@ check('S12 taskless green candidate → NOT PROVEN naming [task-authority]; prom
   // the legitimate recovery: the registered task rides into a NEW isolation,
   // whose snapshot then freezes it.
   isolate(root, 'c2');
-  candCommit(root, 'c2', { 'src/tweak.js': 'behavior-preserving\n' });
+  candCommit(root, 'c2', { 'src/tweak.js': 'behavior-preserving\n' }, [], true);
   assertEq(recOf(root, 'c2').intent.task.kinds.join(','), 'refactor',
     'S12-reisolate: the fresh snapshot froze the registered authority');
   const r3 = canary(['isolate', '--verify', 'c2', root], root);

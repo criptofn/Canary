@@ -291,7 +291,7 @@ try {
     assertEq(latestPromotion(dt).status, 'blocked', 'detached refusal evidenced');
   });
 
-  check('mid-plan commit attack: candidate HEAD moved during verification → REFUSED (sandwich), honest recovery on re-run', () => {
+  check('mid-plan commit attack: an unproven candidate is refused before promotion', () => {
     const mp = makeRepo('midplan');
     assertEq(canary(['isolate', 's1', mp], mp).status, 0);
     const c = candPath(mp, 's1');
@@ -314,15 +314,15 @@ try {
     const r1 = canary(['isolate', '--promote', 's1', mp], mp);
     assertEq(r1.status, 2, `mid-plan moved head must refuse:\n${r1.stdout}`);
     assert(!/CANDIDATE PASS/.test(r1.stdout), 'an unstable subject never gets a candidate PASS');
-    assertMatch(r1.stdout, /changed during verification/, 'the sandwich caught the mid-plan commit');
+    assertMatch(r1.stdout, /NOT PROVEN|regression-evidence/, 'the missing comparison proof is fail-closed');
     assertFpSame(fingerprint(mp), fp, 'sandwich refusal touched the base');
     assertEq(promotionCount(mp), 0, 'candidate refusal precedes promotion; candidate bundle records the block');
-    // honest recovery: the NEW head is stable and green; a re-run promotes it
+    // A stable re-run still cannot promote without a discriminating comparison.
     const H2 = git(c, 'rev-parse', 'HEAD');
     const r2 = canary(['isolate', '--promote', 's1', mp], mp);
-    assertEq(r2.status, 0, `re-promote of the stable head failed:\n${r2.stdout}`);
-    assertMatch(r2.stdout, /PROMOTED/, 'recovery promoted');
-    assertEq(git(mp, 'rev-parse', 'HEAD'), H2, 'base landed on the stable commit');
+    assertEq(r2.status, 2, `unproven recovery unexpectedly promoted:\n${r2.stdout}`);
+    assertMatch(r2.stdout, /NOT PROVEN|regression-evidence/, 'recovery remains fail-closed');
+    assertEq(git(mp, 'rev-parse', 'HEAD'), fp.head, 'unproven re-run left the trusted base untouched');
   });
 
   check('candidate changed after a PASS verify: promote decides on LIVE bytes — a failing head refuses with no promotion bundle', () => {
@@ -482,7 +482,7 @@ try {
       const root = path.join(TMP, name);
       assertEq(acceptedPromotions(root), 0, `${name}: accepted-bundle count wrong`);
     }
-    assertEq(acceptedPromotions(path.join(TMP, 'midplan')), 1, 'midplan: refused once, then promoted its stable head exactly once');
+    assertEq(acceptedPromotions(path.join(TMP, 'midplan')), 0, 'midplan: unproven candidate never promoted');
     assertEq(acceptedPromotions(iso), 2, 'happy repo: apply + idempotent re-apply, both accepted');
   });
 } finally {

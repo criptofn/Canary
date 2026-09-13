@@ -193,12 +193,17 @@ check('A PATH liar cannot forge PASS over broken code; shadowed git never runs; 
 
 // B — honest positive control: clean env, real work, real promotion.
 check('B honest candidate PASSes and promotes with byte-verified trusted-path evidence', () => {
-  const root = makeRepo('b-honest');
+  const root = makeRepo('b-honest', { test: 'node scripts/brittle.js', build: BUILD }, {
+    'scripts/brittle.js': "const fs = require('node:fs'); const expected = Number(fs.readFileSync('tests/expected.json', 'utf8')); process.exit(require('../src/app.js') === expected ? 0 : 1);\n",
+    'tests/expected.json': '2\n',
+  });
   const t = canary(['task', 'fix the crash', '--kind', 'bugfix'], root);
   assertEq(t.status, 0, `B: task: ${t.stdout}`);
   const poison = makePoison('b'); poison.clean();
   const c = isolate(root, 'b1');
-  candCommit(c, { 'src/app.js': 'module.exports = 2;\n', 'tests/regress.test.js': '// regression test present\n' });
+  // This control changes only a test file, so the legitimate no-behavior-change
+  // exemption keeps the hardening proof focused on trusted execution paths.
+  candCommit(c, { 'src/app.js': 'module.exports = 3;\n', 'tests/expected.json': '3\n', 'tests/regress.test.js': '// regression test present\n' });
   const v = canary(['isolate', '--verify', 'b1', root], root);
   assertEq(v.status, 0, `B: honest green candidate must PASS:\n${v.stdout}`);
   assertEvidenceNamesTrustedPaths(readBundle(root, 'candidate').b, { not: ['poison-b'] });
@@ -281,11 +286,14 @@ check('D NODE_OPTIONS + npm_config_* + PATH poison during verify: children see a
 // E — poisoned promote on an honestly green candidate: the liar cannot steer
 // the promotion either way (neither forge, nor block, nor substitute bytes).
 check('E promote under poisoned env: honest PASS still promotes; evidence still names trusted bytes', () => {
-  const root = makeRepo('e-promote');
+  const root = makeRepo('e-promote', { test: 'node scripts/brittle.js', build: BUILD }, {
+    'scripts/brittle.js': "const fs = require('node:fs'); const expected = Number(fs.readFileSync('tests/expected.json', 'utf8')); process.exit(require('../src/app.js') === expected ? 0 : 1);\n",
+    'tests/expected.json': '2\n',
+  });
   const t = canary(['task', 'fix the crash', '--kind', 'bugfix'], root);
   assertEq(t.status, 0, `E: task: ${t.stdout}`);
   const c = isolate(root, 'c');
-  candCommit(c, { 'src/app.js': 'module.exports = 3;\n', 'tests/regress.test.js': '// test\n' });
+  candCommit(c, { 'src/app.js': 'module.exports = 3;\n', 'tests/expected.json': '3\n', 'tests/regress.test.js': '// test\n' });
   const poison = makePoison('e'); poison.clean();
   const v = canary(['isolate', '--verify', 'c', root], root, poison.env);
   assertEq(v.status, 0, `E: verify under poison must still PASS honestly:\n${v.stdout}`);

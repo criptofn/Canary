@@ -136,14 +136,17 @@ describe('1.1 workflow: finish cannot promote what was not proven', () => {
 describe('1.1 workflow: finish promotes the exact committed candidate once the duties hold', () => {
   it('objective work completes with no human approval', () => {
     const root = fixture('finish-proven');
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'finish-proven', scripts: { test: 'node --test regression.test.js' } }));
+    fs.writeFileSync(path.join(root, 'regression.test.js'), 'import assert from "node:assert/strict";\nassert.equal(1, 1);\n');
+    commitIn(root, 'declare the regression runner');
     assert.equal(canary(['setup', '--yes'], root).status, 0);
     const before = head(root);
     assert.equal(canary(['work', 'fix', 'fix the tolerance bug'], root).status, 0);
 
     const cand = candidate(root, 'fix');
-    fs.appendFileSync(path.join(cand, 'app.js'), '// the fix\n');
+    fs.writeFileSync(path.join(cand, 'app.js'), 'export const tolerance = 0.2; // the fix\n');
     // the duty the blocked case named: a test that came with the change
-    fs.writeFileSync(path.join(cand, 'regression.test.js'), 'import assert from "node:assert/strict";\nassert.equal(1, 1);\n');
+    fs.writeFileSync(path.join(cand, 'regression.test.js'), 'import assert from "node:assert/strict";\nimport { tolerance } from "./app.js";\nassert.equal(tolerance, 0.2);\n');
     commitIn(cand, 'the fix, with its regression test');
 
     const f = canary(['finish', 'fix'], root);

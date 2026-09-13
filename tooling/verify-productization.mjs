@@ -318,6 +318,7 @@ const STEPS = [
   // discriminating check must earn READY, and an unestablished comparison must not be read as
   // either answer.
   ['1.1 regression-evidence gate (a green plan that cannot discriminate a change is NOT PROVEN)', process.execPath, ['tooling/probes/regression-evidence-gate.mjs'], {}],
+  ['1.1 discrimination completion regressions (candidate, promotion, doctor, Stop hook)', process.execPath, ['--test', 'apps/cli/dist/test/discrimination-completion.test.js'], {}],
   // The other half of the same invariant: an AUTHORIZED requirement that no check covers must stay
   // NOT PROVEN (never READY), the worker must be told, the printed exit must be one that can be
   // taken, and binding each requirement to a sealed script must make coverage attainable.

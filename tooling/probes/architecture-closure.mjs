@@ -7,6 +7,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { addRegression } from '../test-support/regression-fixture.mjs';
 const REPO = path.resolve(import.meta.dirname,'../..');
 const CLI = process.env.CANARY_TEST_CLI ?? path.join(REPO,'apps/cli/dist/src/main.js');
 const helpers = process.env.CANARY_TEST_HELPERS ?? path.dirname(CLI);
@@ -28,13 +29,18 @@ function make({e2e=false,bench=false,bindings={}}={}) {
  const root=path.join(TMP,`case-${++serial}`);fs.mkdirSync(root);fs.mkdirSync(path.join(root,'.claude'));
  write(root,'.gitignore','.claude/\n');
  write(root,'screen.html','<button style="color:#D94141;width:240px">start</button>\n');
+ write(root,'src/app.js','module.exports = 1;\n');
  write(root,'tests/check.cjs',"const a=require('node:assert/strict'),f=require('node:fs');a.ok(f.readFileSync('screen.html','utf8').includes('<button'));\n");
  write(root,'bench.cjs',"const a=require('node:assert/strict'),p=require('node:perf_hooks').performance;const t=p.now();JSON.stringify(Array(100).fill(1));a.ok(p.now()-t<100);\n");
  write(root,'e2e.cjs',"const a=require('node:assert/strict'),f=require('node:fs'),s=f.readFileSync('screen.html','utf8');a.ok(s.includes('#D94141')&&s.includes('width:240px'));\n");
- write(root,'package.json',JSON.stringify({name:'closure-fixture',private:true,scripts:{test:'node tests/check.cjs',...(e2e?{e2e:'node e2e.cjs'}:{}),...(bench?{bench:'node bench.cjs'}:{})},canary:{proofs:bindings}}));
+ write(root,'package.json',JSON.stringify({name:'closure-fixture',private:true,scripts:{test:`node tests/check.cjs && node "${path.join(REPO,'tooling','test-support','fixtures','f-regression.cjs')}"`,...(e2e?{e2e:'node e2e.cjs'}:{}),...(bench?{bench:'node bench.cjs'}:{})},canary:{proofs:bindings}}));
  git(root,'init','-b','main');git(root,'config','user.email','closure@canary.local');git(root,'config','user.name','Closure');commit(root);ok(cli(root,'setup','--yes'));return root;
 }
-function isolate(root,text,reqs=[]) {ok(task(root,text,reqs));ok(cli(root,'isolate','c'));const c=path.join(root,'.canary/candidates/c');fs.appendFileSync(path.join(c,'screen.html'),'<!-- candidate -->\n');commit(c);return c;}
+// Every isolated candidate carries a REAL discriminating check (the sealed plan
+// must FAIL on the sealed base). These cases are about the closure laws, not the
+// discrimination gate itself — but a green suite that cannot tell candidate from
+// base is NOT PROVEN by design, so the fixture has to supply genuine proof.
+function isolate(root,text,reqs=[]) {ok(task(root,text,reqs));ok(cli(root,'isolate','c'));const c=path.join(root,'.canary/candidates/c');fs.appendFileSync(path.join(c,'screen.html'),'<!-- candidate -->\n');addRegression(c);commit(c);return c;}
 function accept(root,action='none') {return run(process.execPath,[driver,CLI,action],root);}
 const accPath=r=>path.join(r,'.canary/acceptance/c.json');
 function verify(root) {return cli(root,'isolate','--verify','c');}
@@ -64,7 +70,7 @@ check('C8',()=>{const p='x'.repeat(4000),a=A.declaredTask('ui',['ui'],[p+'A']),b
 check('D1',()=>{const r=make({e2e:true});isolate(r,'make my game prettier');const v=blocked(verify(r));assert.match(v.stdout,/SUBJECTIVE ACCEPTANCE: USER JUDGMENT REQUIRED/);assert.match(v.stdout,/subjective-visual-acceptance/);ok(accept(r));ok(promote(r));});
 check('D2-D7',()=>{const r=make();isolate(r);blocked(verify(r));ok(accept(r));ok(promote(r));});
 check('D3',()=>{const t='button must be #D94141 and width 240px';const r=make({e2e:true,bindings:{[A.materialDigest(t)]:'e2e'}});isolate(r,t);ok(promote(r));assert.ok(!fs.existsSync(accPath(r)));});
-check('D4',()=>{const r=make({e2e:true}),c=isolate(r,'fix the crash and make the dialog prettier');ok(accept(r));blocked(verify(r));fs.appendFileSync(path.join(c,'tests/check.cjs'),'// regression fixture\n');commit(c);blocked(verify(r));ok(accept(r));ok(promote(r));});
+check('D4',()=>{const r=make({e2e:true}),c=isolate(r,'fix the crash and make the dialog prettier');const v=blocked(verify(r));assert.match(v.stdout,/SUBJECTIVE ACCEPTANCE: USER JUDGMENT REQUIRED/);ok(accept(r));ok(verify(r));fs.appendFileSync(path.join(c,'tests/check.cjs'),'// regression fixture\n');commit(c);blocked(verify(r));ok(accept(r));ok(promote(r));});
 check('D5-D6',()=>{const r=make({e2e:true}),c=isolate(r);ok(accept(r));fs.writeFileSync(path.join(c,'screen.html'),'broken');commit(c);ok(accept(r));notMoved(r,()=>blocked(promote(r)));});
 check('E1-E3-E5',()=>{const r=make({bench:true});isolate(r,'render latency under 100ms');ok(accept(r));const v=blocked(verify(r));assert.match(v.stdout,/objective target/);notMoved(r,()=>blocked(promote(r)));});
 check('E2',()=>{const t='render latency under 100ms',r=make({bench:true,bindings:{[A.materialDigest(t)]:'bench'}});isolate(r,t);ok(promote(r));assert.ok(!fs.existsSync(accPath(r)));});

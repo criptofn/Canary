@@ -195,6 +195,16 @@ const tasked = makeRepo('tasked', true);
       assert(bad.status !== 0, `an unsealed script cannot be a proof:\n${bad.stdout}`);
       assert(/does not run a script named/.test(String(bad.stdout ?? '')), `the refusal must say why:\n${bad.stdout}`);
     });
+    /**
+     * The declaration is an OPERATOR act that is COMMITTED before re-sealing. With the binding left
+     * uncommitted the baseline is stamped dirty, and the stronger baseline-comparison semantics then
+     * keep the verdict at NOT PROVEN ("required baseline comparison could not be established: the repo
+     * was already dirty at setup") — correct fail-closed behaviour, pinned by
+     * `apps/cli/dist/test/discrimination-completion.test.js`, and not what this case is about.
+     */
+    const bindCommit = spawnSync('git', ['-C', tasked, 'add', '-A'], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+    const bindSeal = spawnSync('git', ['-C', tasked, 'commit', '-m', 'bind the stated requirements to their sealed checks'], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+    assert(bindCommit.status === 0 && bindSeal.status === 0, `committing the declaration must succeed: ${bindCommit.stderr}${bindSeal.stderr}`);
     const re = spawnSync(process.execPath, [CLI, 'setup', '--yes', tasked], { cwd: tasked, encoding: 'utf8', timeout: 240_000, windowsHide: true });
     console.log(`   re-setup after binding: exit ${re.status}`);
     const bound = doctor(tasked);

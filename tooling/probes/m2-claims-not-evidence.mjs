@@ -110,8 +110,9 @@ try {
     assert.equal(b.steps[0].stdout.sha256, h);
   });
 
-  // ---- 3. repair then re-check: green from EXECUTION, silence, honest pass bundle
-  check('after repairing the script, checkpoint is silent and records a pass from its own run', () => {
+  // ---- 3. repair then re-check: an untracked edit kept from the dirty window is
+  // still an unestablished comparison, so the stronger gate stays closed.
+  check('after repairing the script, the dirty-window comparison remains NOT PROVEN', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(dirty, 'package.json'), 'utf8'));
     pkg.scripts.test = `node "${FX('f-pass.js')}"`;
     fs.writeFileSync(path.join(dirty, 'package.json'), JSON.stringify(pkg, null, 2));
@@ -120,9 +121,12 @@ try {
     // in m5-proof-plan; this probe keeps its own story: honest repair -> silence.
     assert.equal(canary(['setup', '--yes', dirty]).status, 0);
     const out = canary(['checkpoint'], dirty, JSON.stringify({ cwd: dirty }));
-    assert.equal(out.stdout.trim(), '', `expected silence, got ${out.stdout}`);
+    assert.equal(out.status, 0, out.stdout);
+    const decision = JSON.parse(out.stdout);
+    assert.equal(decision.decision, 'block', JSON.stringify(decision));
+    assert.match(decision.reason, /NOT PROVEN|comparison could not be established/);
     const b = latestBundle(dirty, 'checkpoint');
-    assert.equal(b.status, 'pass');
+    assert.equal(b.status, 'pass', JSON.stringify(b)); // the plan passed; the completion decision is the NOT PROVEN block
     assert.equal(b.steps[0].observedCounts, null); // the old 2/1 output is gone from THIS run's bytes
   });
 

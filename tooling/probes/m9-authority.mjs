@@ -156,7 +156,9 @@ try {
   const ok = makeRepo('control');
   registerRefactor(ok); // M10.1 — the PASS it asserts needs task-obligation authority
   check('positive control: untouched authority verifies CANDIDATE PASS, zero §9 lines', () => {
-    isolateWithMode(ok, 'g1', 'none');
+    // No candidate bytes change in the control, so the discrimination duty
+    // legitimately does not apply.
+    assertEq(canary(['isolate', 'g1', ok], ok).status, 0, 'control isolate');
     const r = canary(['isolate', '--verify', 'g1', ok], ok);
     assertEq(r.status, 0, `clean verify failed:\n${r.stdout}`);
     assertMatch(r.stdout, /CANDIDATE PASS/, 'the sealed fixture ran green');
@@ -203,7 +205,7 @@ try {
   // ============ S7: containment pre-gate — stripped OUTSIDE the window ============
   const pre = makeRepo('pregate');
   registerRefactor(pre); // M10.1 — the recovery PASS it asserts needs task-obligation authority
-  check('stripped harness entry before execution → §9 (containment pre-gate); restore recovers PASS', () => {
+  check('stripped harness entry before execution → §9 (containment pre-gate); restore remains NOT PROVEN without discrimination', () => {
     isolateWithMode(pre, 'g3', 'none');
     const settings = path.join(pre, '.claude', 'settings.json');
     const saved = fs.readFileSync(settings);
@@ -221,8 +223,8 @@ try {
     // recovery is a state property, not a grudge:
     fs.writeFileSync(settings, saved);
     const r2 = canary(['isolate', '--verify', 'g3', pre], pre);
-    assertEq(r2.status, 0, `restore must recover PASS:\n${r2.stdout}`);
-    assertMatch(r2.stdout, /CANDIDATE PASS/, 'positive control again after restore');
+    assertEq(r2.status, 2, `restore unexpectedly promoted an unproven candidate:\n${r2.stdout}`);
+    assertMatch(r2.stdout, /NOT PROVEN|regression-evidence/, 'restored candidate still lacks comparison proof');
   });
 
   // ============ S8: promotion cannot launder a tampering verify ============
@@ -358,7 +360,7 @@ try {
       assertEq(b.status, 'blocked', `drift-${m}: last candidate verdict must be the mandate`);
       assert(b.authorityEvent, `drift-${m}: authorityEvent recorded`);
     }
-    assertEq(latestCandidate(pre).status, 'pass', 'pregate repo recovered to pass (restore)');
+    assertEq(latestCandidate(pre).status, 'unproven', 'pregate repo remains unproven after restore without comparison proof');
     assertEq(latestCandidate(pr).status, 'blocked', 'launder attempt ended blocked');
     for (const [repo, when] of [['second-window', 'during execution'], ['verifier-code', 'during execution'],
       ['swap-exec', 'after execution'], ['base-refmove', 'during execution']]) {

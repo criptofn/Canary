@@ -127,7 +127,7 @@ import { digest, canonicalTask, taskWeakening, subjectDigest, type TaskIdentity,
 
 import {
   ACCEPTANCE_SUBDIR, CLI_ENTRY, CONFIG_DIR, ENV_POLICY, EVIDENCE_DIR, Out, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
-  execDigest, findRepoRoot, gitCommand, gitExe, gitWithinRoot, hasCanaryEntry, obligationsFor, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readAcceptance, readConfig,
+  discriminationObligation, execDigest, findRepoRoot, gitCommand, gitExe, gitWithinRoot, hasCanaryEntry, obligationsFor, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readAcceptance, readConfig,
   readTaskRecord, runPlanStep, settingsPath, TASK_FILE, untrustedConfigReason, writeAcceptance, writeFileAtomic, writeVerificationBundle,
   type AcceptanceRecord, type CanaryConfig, type GitResult, type PlanStep, type StepResult, type TaskKind,
 } from './onboarding.js';
@@ -532,7 +532,13 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     ];
   };
   let results: StepResult[];
-  try { results = cfg.plan.map((step) => runPlanStep(rec.root, cfg.pm, step)); }
+  let regression: ReturnType<typeof discriminationObligation> = null;
+  try {
+    results = cfg.plan.map((step) => runPlanStep(rec.root, cfg.pm, step));
+    // Both executions stay inside the authority sandwich. The comparison uses
+    // the frozen isolation base, never setup's possibly older baseline.
+    if (results.every((r) => r.ok)) regression = discriminationObligation(rec.root, cfg, 600_000, rec.baseHead);
+  }
   catch (e) {
     const threwDrift = inWindowDrift();
     if (threwDrift.length) return authorityBlock('during execution', threwDrift);
@@ -560,6 +566,12 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   const task = readTaskRecord(root);
   const obligations = obligationsFor(task?.kinds ?? [], sig,
     new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'isolation', task, cfg);
+  if (regression !== null) {
+    for (let i = obligations.length - 1; i >= 0; i -= 1) {
+      if (obligations[i]!.id === regression.id) obligations.splice(i, 1);
+    }
+    obligations.push(regression);
+  }
   // M10.2 (GLM re-audit of M10.1, F4-GATE-1/2) — the task-obligation
   // AUTHORITY is FROZEN AT ISOLATION and only the frozen snapshot can
   // discharge it. obligationsFor derives proof duties from LIVE registered

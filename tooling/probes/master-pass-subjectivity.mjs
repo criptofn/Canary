@@ -18,13 +18,14 @@
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { addRegression } from '../test-support/regression-fixture.mjs';
 import os from 'node:os';
 import path from 'node:path';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
 const FX = path.join(REPO, 'tooling', 'test-support', 'fixtures');
-const FPASS = `node "${path.join(FX, 'f-pass.js')}"`;
+const FPASS = `node "${path.join(FX, 'f-regression.cjs')}"`;
 const FBUILD = `node "${path.join(FX, 'f-build.js')}"`;
 const TWO = { test: FPASS, build: FBUILD };
 
@@ -75,6 +76,8 @@ function isolate(root, name) {
 }
 function candCommit(root, name, files) {
   const c = path.join(root, '.canary', 'candidates', name);
+  // Positive/split controls need actual technical proof. F/H deliberately lack it.
+  if (!['f-objective', 'h-mixed'].includes(path.basename(root))) addRegression(c);
   for (const [f, content] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(c, f)), { recursive: true });
     fs.writeFileSync(path.join(c, f), content);

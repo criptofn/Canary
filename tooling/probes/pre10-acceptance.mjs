@@ -23,11 +23,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createTerminal } from '../test-support/terminal.mjs';
+import { addRegression } from '../test-support/regression-fixture.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
 const FX = path.join(REPO, 'tooling', 'test-support', 'fixtures');
-const TWO = { test: `node "${path.join(FX, 'f-pass.js')}"`, build: `node "${path.join(FX, 'f-build.js')}"` };
+const TWO = { test: `node "${path.join(FX, 'f-regression.cjs')}"`, build: `node "${path.join(FX, 'f-build.js')}"` };
 
 let failures = 0;
 let caseStart = 0;
@@ -85,7 +86,8 @@ function isolate(root, name) {
   assert(r.status === 0, `isolate failed: ${r.stdout}\n${r.stderr}`);
   return path.join(root, '.canary', 'candidates', name);
 }
-function candCommit(c, files, msg = 'candidate work') {
+function candCommit(c, files, msg = 'candidate work', proof = true) {
+  if (proof) addRegression(c);
   for (const [f, content] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(c, f)), { recursive: true });
     fs.writeFileSync(path.join(c, f), content);
@@ -132,7 +134,7 @@ check('B mixed task: acceptance never launders an objective gap; proof+acceptanc
   const root = makeRepo('b-mixed');
   register(root, 'fix the crash and make the dialog prettier', ['bugfix']);
   const c = isolate(root, 'c');
-  candCommit(c, { 'src/dialog.js': 'fixed + styled\n' });
+  candCommit(c, { 'src/dialog.js': 'fixed + styled\n' }, 'candidate work', false);
   const v1 = canary(['isolate', '--verify', 'c', root], root);
   assertEq(v1.status, 2, 'B: open duties before proof/acceptance');
   assert(/\[regression-evidence\] UNPROVEN \(objective\)/.test(v1.stdout), `B: objective gap named:\n${v1.stdout}`);
@@ -285,7 +287,7 @@ check('H requirement task: per-requirement duty closes via acceptance, never a d
   register(root, 'split the settings page into tabs and fix the save bug', ['bugfix'],
     ['tabs are visible on the settings page', 'save round-trips without data loss']);
   const c = isolate(root, 'h');
-  candCommit(c, { 'src/settings.js': 'tabs + save fix\n' });
+  candCommit(c, { 'src/settings.js': 'tabs + save fix\n' }, 'candidate work', false);
   const v1 = canary(['isolate', '--verify', 'h', root], root);
   assertEq(v1.status, 2, 'H: duties open before proof/acceptance');
   assert(/\[per-requirement\] UNPROVEN \(non-objective\)/.test(v1.stdout), `H: requirement duty named:\n${v1.stdout}`);

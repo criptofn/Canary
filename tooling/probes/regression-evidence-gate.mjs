@@ -21,7 +21,7 @@
  *   C  a failing check fixed                          -> READY (the plan fails on the base);
  *   D  nothing changed                                -> READY (no question to ask);
  *   E  only check files changed                       -> READY (no product behaviour to discriminate);
- *   F  the base comparison cannot run                 -> READY, and it says so rather than guessing.
+ *   F  the base comparison cannot run                 -> NOT PROVEN, never a weaker duty.
  *
  * Usage: node tooling/probes/regression-evidence-gate.mjs
  */
@@ -243,12 +243,15 @@ console.log('\n── F: the base comparison cannot run (it must say so, not gue
   write(root, 'run-tests.js', `${RUNNER}\n`);
   setup(root);
   write(root, 'src/greet.js', SRC_V2);
-  write(root, 'run-tests.js', "require('a-module-that-does-not-exist-anywhere');\n");
+  write(root, 'helper.cjs', 'module.exports = {};\n');
+  write(root, 'tests/greet.test.js', "require('../helper.cjs');\n" + TEST_V1);
   const d = doctor(root);
   console.log(`   doctor: status=${String(d.env?.status ?? '?')} exit=${d.status}`);
   console.log(`   why: ${String(d.env?.why ?? '').slice(0, 200)}`);
   check('F1: an environment-shaped comparison failure is not read as "the plan discriminates"', () => {
-    assert(d.env?.status !== 'READY' || !/regression-evidence/.test(String(d.stdout)), 'a broken comparison must never be quoted as evidence');
+    assert(d.status === 2 && d.env?.status === 'NOT PROVEN', `a broken comparison must remain NOT PROVEN: ${d.stdout}\n${d.stderr}`);
+    assert(/comparison could not be established/.test(d.stderr), 'the missing comparison must be disclosed');
+    assert(hook(root).env?.decision === 'block', 'the Stop hook must refuse the same missing comparison');
   });
   fs.rmSync(root, { recursive: true, force: true });
 }

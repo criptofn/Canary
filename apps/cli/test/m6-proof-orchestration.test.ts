@@ -124,9 +124,9 @@ describe('git output parsers (-z raw bytes: no quoting to outsmart, never crash,
 });
 
 describe('obligationsFor — the one-way obligation engine', () => {
-  it('bugfix: test ADDED/MODIFIED = met; nothing touched = UNPROVEN, never silent', () => {
+  it('bugfix: a test filename change alone remains UNPROVEN, just like no test change', () => {
     const met = obligationsFor(kinds(['bugfix']), sig({ changes: ['src/auth.ts', 'test/auth.test.ts'] }), new Set(['tests']), 0);
-    assert.equal(ob(met, 'regression-evidence')?.status, 'met');
+    assert.equal(ob(met, 'regression-evidence')?.status, 'unproven');
     const gap = obligationsFor(kinds(['bugfix']), sig(), new Set(['tests']), 0);
     assert.equal(ob(gap, 'regression-evidence')?.status, 'unproven');
     assert.match(ob(gap, 'regression-evidence')!.note, /regression evidence UNPROVEN/);

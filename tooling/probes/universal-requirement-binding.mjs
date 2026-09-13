@@ -131,6 +131,15 @@ console.log('\n── `canary bind` on a manifest project');
     const sealed = cfgOf(root).planAuthority?.proofBindings ?? {};
     assert(sealed[materialDigest(REQ_CASE)] === undefined, 'the unsealed declaration must not be credited');
   });
+  /**
+   * The declaration is COMMITTED before re-sealing, exactly as in the Node probe: an uncommitted
+   * binding stamps the baseline dirty, and the stronger comparison semantics then hold the verdict at
+   * NOT PROVEN ("required baseline comparison could not be established") by design. This case is about
+   * coverage being attainable, so the operator commits first.
+   */
+  const bindCommit = spawnSync('git', ['-C', root, 'add', '-A'], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+  const bindSeal = spawnSync('git', ['-C', root, 'commit', '-m', 'bind the stated requirement to its declared check'], { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+  assert(bindCommit.status === 0 && bindSeal.status === 0, `committing the declaration must succeed: ${bindCommit.stderr}${bindSeal.stderr}`);
   const reseal = canary(root, ['setup', '--yes']);
   const after = canary(root, ['doctor', root]);
   console.log(`   re-setup exit ${reseal.status}; doctor exit ${after.status}`);

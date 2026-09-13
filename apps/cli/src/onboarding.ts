@@ -1287,13 +1287,16 @@ const isGeneratedArtifact = (p: string): boolean =>
  * measurement becomes an ordinary proof obligation here, so the checkpoint gate, `doctor` and the
  * promotion path all read one thing — and an obligation that is `unproven` is NOT a pass.
  *
- * `null` means the question could not be asked (no change, no baseline, an environment-shaped base
- * failure). That is deliberately NOT an obligation: an unestablished comparison must not be dressed
- * up as either a duty or a discharge of one.
+ * `null` means no comparison duty applies (for example, no behavior changed).
+ * A required comparison that could not run remains objectively UNPROVEN.
  */
-export function discriminationObligation(root: string, cfg: CanaryConfig, timeoutMs = 600_000): Obligation | null {
-  const disc = planDiscrimination(root, cfg, timeoutMs);
+export function discriminationObligation(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string): Obligation | null {
+  const disc = planDiscrimination(root, cfg, timeoutMs, isolationBase);
   if (!disc.applicable) return null;
+  if (disc.basePassed === null) return {
+    id: 'regression-evidence', mode: 'objective', status: 'unproven',
+    note: `required baseline comparison could not be established: ${disc.reason} — regression evidence UNPROVEN; restore the comparison prerequisites and re-run verification`,
+  };
   const files = disc.changedPaths.slice(0, 4).map(safePath).join(', ');
   const more = disc.changedPaths.length > 4 ? ` (+${disc.changedPaths.length - 4} more)` : '';
   if (disc.basePassed === true) {
@@ -1337,7 +1340,7 @@ function looksLikeInfraFailure(r: StepResult): boolean {
 }
 
 export interface DiscriminationResult {
-  /** false = the question could not be asked here; the caller must NOT read that as either answer. */
+  /** false only when no comparison duty applies; true with basePassed:null means UNPROVEN. */
   applicable: boolean;
   reason: string;
   changedPaths: string[];
@@ -1379,12 +1382,13 @@ export interface DiscriminationResult {
  * unproven change means. It also never mutates the working tree — the comparison happens in a
  * throwaway `git worktree` at the sealed baseline, removed in a `finally`.
  */
-export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 600_000): DiscriminationResult {
+export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string): DiscriminationResult {
   const none = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
     ({ applicable: false, reason, changedPaths, overlaidChecks: [], addedChecks: [], basePassed: null, baseFailures: [] });
+  const unknown = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
+    ({ ...none(reason, changedPaths), applicable: true });
 
-  const signals = collectDiffSignals(root, cfg);
-  if (!signals.resolved) return none('the change cannot be attributed to the sealed baseline, so the comparison premise does not hold');
+  const signals = isolationBase === undefined ? collectDiffSignals(root, cfg) : candidateDiffSignals(root, isolationBase);
   /**
    * A baseline stamped DIRTY cannot attribute worktree changes to this session — the very same
    * doctrine the obligation engine uses for deletions. MEASURED case that forced this: `canary
@@ -1392,7 +1396,6 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
    * and the uncommitted `package.json` that caused the re-seal was then asked for regression
    * evidence about itself. The operator's own re-seal is not the worker's change.
    */
-  if (signals.setupDirtProven) return none('the repo was already dirty at setup, so this change cannot be attributed to the worker');
   /**
    * Dependency manifests and lockfiles are excluded from the DISCRIMINATION question, for two
    * measured reasons. (1) Running the sealed checks can REWRITE them: the Rust journey's
@@ -1402,7 +1405,7 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
    * check should discriminate.
    */
   const changed = signals.changes.filter((p) =>
-    fs.existsSync(path.join(root, p)) && !isCanaryOwnArtifact(p) && !isGeneratedArtifact(p) && !isDepPath(p));
+    !isCanaryOwnArtifact(p) && !isGeneratedArtifact(p) && !isDepPath(p));
   if (changed.length === 0) return none('the working tree has no change to discriminate');
   /**
    * A change that touches ONLY check/definition files has no product behaviour to discriminate:
@@ -1414,37 +1417,43 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
     return none('only check/documentation files changed — there is no product behaviour to discriminate', changed);
   }
 
-  const head = cfg.baseline?.head ?? null;
-  if (head === null || !/^[0-9a-f]{40,64}$/i.test(head)) return none('the sealed baseline has no commit to compare against', changed);
+  if (!signals.resolved) return unknown('the change cannot be attributed to the sealed baseline, so the comparison premise does not hold', changed);
+  if (signals.setupDirtProven) return unknown('the repo was already dirty at setup, so this change cannot be attributed to the worker', changed);
+  const head = isolationBase ?? cfg.baseline?.head ?? null;
+  if (head === null || !/^[0-9a-f]{40,64}$/i.test(head)) return unknown('the sealed baseline has no commit to compare against', changed);
 
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-discriminate-'));
-  const tree = path.join(tmp, 'tree');
+  let tmp: string | undefined;
+  let tree: string | undefined;
   try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-discriminate-'));
+    tree = path.join(tmp, 'tree');
     if (gitWithinRoot(root, ['worktree', 'add', '--detach', '--force', tree, head]) === null) {
-      return none('git could not materialize the sealed baseline for a comparison run', changed);
+      return unknown('git could not materialize the sealed baseline for a comparison run', changed);
     }
     const overlaid: string[] = [];
     const addedChecks: string[] = [];
     for (const p of changed) {
-      if (!isTestPath(p)) continue;
+      if (!isTestPath(p) || !signals.changes.includes(p)) continue;
       // "Did this check file exist at the sealed baseline?" — asked of git, not guessed: a check the
       // session ADDED is the worker's own evidence, and that distinction is the point.
       const atBaseline = gitWithinRoot(root, ['cat-file', '-e', `${head}:${p}`]) !== null;
       if (!atBaseline) addedChecks.push(p);
-      if (copyInto(root, tree, p)) overlaid.push(p);
+      if (!copyInto(root, tree, p)) return unknown(`candidate check could not be overlaid: ${safePath(p)}`, changed);
+      overlaid.push(p);
     }
     const ran: StepResult[] = [];
     for (const s of cfg.plan) {
       let r: StepResult;
       try { r = runPlanStep(tree, cfg.pm, s, timeoutMs); } catch (e) {
-        return none(`the sealed checks could not run against the baseline (${String(e).slice(0, 120)})`, changed);
+        return unknown(`the sealed checks could not run against the baseline (${String(e).slice(0, 120)})`, changed);
       }
       ran.push(r);
-      if (r.exitCode === null) return none('the sealed checks could not run against the baseline (the program produced no exit code)', changed);
+      if (r.exitCode === null) return unknown('the sealed checks could not run against the baseline (the program produced no exit code)', changed);
     }
+    if (ran.length === 0) return unknown('no sealed check ran against the baseline', changed);
     const failures = ran.filter((r) => !r.ok);
     if (failures.length > 0 && failures.some(looksLikeInfraFailure)) {
-      return none('the baseline run failed in an environment-shaped way (a missing module or file), so it proves nothing either way', changed);
+      return unknown('the baseline run failed in an environment-shaped way (a missing module or file), so it proves nothing either way', changed);
     }
     return {
       applicable: true,
@@ -1457,9 +1466,11 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
       basePassed: failures.length === 0,
       baseFailures: failures.map((f) => f.kind),
     };
+  } catch (e) {
+    return unknown(`the baseline comparison failed (${String(e).slice(0, 120)})`, changed);
   } finally {
-    try { gitWithinRoot(root, ['worktree', 'remove', '--force', tree]); } catch { /* fall through to the rm */ }
-    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort: never fail a verdict on cleanup */ }
+    try { if (tree) gitWithinRoot(root, ['worktree', 'remove', '--force', tree]); } catch { /* fall through to the rm */ }
+    try { if (tmp) fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort: never fail a verdict on cleanup */ }
   }
 }
 
@@ -1486,7 +1497,7 @@ export function obligationsFor(
   if (kinds.includes('bugfix')) {
     const testTouched = sig.changes.some(isTestPath); // deletions are coverage LOSS, never regression evidence (review #4)
     add(testTouched
-      ? { id: 'regression-evidence', mode: 'objective', status: 'met', note: 'regression evidence: test files were added/modified in the candidate diff' }
+      ? { id: 'regression-evidence', mode: 'objective', status: 'unproven', note: 'test files were added/modified, but a changed filename is not regression proof — a measured baseline comparison must establish discrimination' }
       : { id: 'regression-evidence', mode: 'objective', status: 'unproven', note: `no test file was added or changed since ${baseline} — regression evidence UNPROVEN (an old suite can stay green while the bug survives). Add a test that reproduces the fixed bug.` });
   }
   if (kinds.includes('refactor') || has('tests')) {

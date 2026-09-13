@@ -27,11 +27,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createTerminal } from '../test-support/terminal.mjs';
+import { addRegression } from '../test-support/regression-fixture.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
 const FX = path.join(REPO, 'tooling', 'test-support', 'fixtures');
-const TWO = { test: `node "${path.join(FX, 'f-pass.js')}"`, build: `node "${path.join(FX, 'f-build.js')}"` };
+const TWO = { test: `node "${path.join(FX, 'f-regression.cjs')}"`, build: `node "${path.join(FX, 'f-build.js')}"` };
 
 let failures = 0;
 let caseStart = 0;
@@ -90,7 +91,8 @@ function isolate(root, name) {
   assert(r.status === 0, `isolate failed: ${r.stdout}\n${r.stderr}`);
   return path.join(root, '.canary', 'candidates', name);
 }
-function candCommit(c, files, msg = 'candidate work') {
+function candCommit(c, files, msg = 'candidate work', proof = true) {
+  if (proof) addRegression(c);
   for (const [f, content] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(c, f)), { recursive: true });
     fs.writeFileSync(path.join(c, f), content);
@@ -204,7 +206,15 @@ check('A6 accept → grow an OBJECTIVE task kind → exact task identity stales;
   const root = makeRepo('a6');
   register(root, 'make the landing page prettier', ['ui']);
   const c = isolate(root, 'c');
-  candCommit(c, { 'src/hero.js': 'prettier\n' });
+  /**
+   * The first change is deliberately NON-behavioural (documentation). Under the strengthened
+   * semantics a behaviour-bearing change with no measured comparison is itself an OBJECTIVE duty
+   * ("the sealed checks pass on the base commit too"), so a `src/` change could not be completed by a
+   * subjective acceptance — which is the very law this control asserts two steps later. Using a
+   * documentation change isolates the acceptance-growth law: subjective duty closes by acceptance,
+   * objective duty never does.
+   */
+  candCommit(c, { 'docs/hero.md': 'prettier landing copy\n' }, 'candidate work', false);
   accept(root, 'c');
   assertEq(canary(['isolate', '--verify', 'c', root], root).status, 0, 'A6: fresh ui-only scope PASSes');
   register(root, 'make the landing page prettier', ['ui', 'bugfix']);

@@ -386,7 +386,7 @@ try {
     assert.ok(sig.changes.includes('tests/new.test.js'));
     assert.deepEqual(sig.deletedTestsAttributable, []);
     const ob = obligationsFor(['bugfix'], sig, new Set(['tests']), 0);
-    assert.equal(ob.find((x) => x.id === 'regression-evidence')!.status, 'met');
+    assert.equal(ob.find((x) => x.id === 'regression-evidence')!.status, 'unproven', 'a filename is not measured regression proof');
     assert.equal(ob.find((x) => x.id === 'tests-green')!.status, 'met', 'the sealed plan ran a tests step green — the engine says met');
   });
 
@@ -488,7 +488,7 @@ try {
   test('F4-C: a task frozen at isolation whose obligations are all MET still reaches PASS and ACCEPTED promotion (the gate must not shout at innocence)', () => {
     const root = f4Repo('f4-c');
     f4Task(root, 'behavior-preserving restructure', '--kind', 'refactor');
-    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'src', 'tweak.js'), 'behavior-preserving\n'));
+    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'README.md'), 'document the preserved behavior\n'));
     const rec = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'candidates', 'f1.json'), 'utf8')) as
       { intent?: { task?: { kinds?: string[] } | null } };
     assert.deepEqual(rec.intent?.task?.kinds, ['refactor'],
@@ -579,7 +579,7 @@ try {
   test('F4-I (GLM F4-GATE-2): deleting rec.intent does not restore a legacy-PASS shape — absence fails safe to NOT PROVEN', () => {
     const root = f4Repo('f4-i');
     f4Task(root, 'behavior-preserving restructure', '--kind', 'refactor'); // PRE-isolation, honestly
-    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'src', 'tweak.js'), 'behavior-preserving\n'));
+    f4Candidate(root, (c) => fs.writeFileSync(path.join(c, 'README.md'), 'document the preserved behavior\n'));
     assert.equal(f4Verify(root).status, 0, 'precondition: the frozen authority PASSes before the strip');
     const rp = path.join(root, '.canary', 'candidates', 'f1.json');
     const rec = JSON.parse(fs.readFileSync(rp, 'utf8')) as Record<string, unknown>;

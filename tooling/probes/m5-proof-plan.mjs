@@ -112,14 +112,16 @@ try {
   });
 
   // ---- 4. re-seal is a setup act: the smoke test visibly runs the new command first
-  check('setup re-run executes the swapped command in smoke and only then seals it; checkpoint passes', () => {
+  check('setup re-run executes the swapped command in smoke, then leaves the changed behavior NOT PROVEN', () => {
     const r2 = makeRealGitRepo('reseal');
     assert.equal(canary(['setup', '--yes', r2]).status, 0);
     setTest(r2, 'echo all good');
     assert.equal(checkpointOut(r2).decision, 'block');
     assert.equal(canary(['setup', '--yes', r2]).status, 0, 'smoke ran the new command and it exited 0');
     assert.equal(cfgOf(r2).planAuthority.scriptDigests.test, sha256('echo all good'));
-    assert.equal(checkpointOut(r2), null, 'deliberately re-sealed authority is authority again');
+    const out = checkpointOut(r2);
+    assert.equal(out?.decision, 'block');
+    assert.match(out?.reason ?? '', /NOT PROVEN|comparison could not be established/);
     const dirs = fs.readdirSync(path.join(r2, '.canary', 'evidence')).filter((d) => d.endsWith('-checkpoint'));
     assert.ok(dirs.length > 0, 'the passed checkpoint must now write its executed bundle');
   });

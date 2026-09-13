@@ -30,6 +30,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { addRegression } from '../test-support/regression-fixture.mjs';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
@@ -57,7 +58,11 @@ function canary(args, cwd, env) {
 }
 // f4Repo shape: 'test' seals as plan kind 'tests'; green unless red.flag appears;
 // tests/keep.test.js is coverage a deletion can violate (UNMET), distinct from
-// the missing authority (UNPROVEN).
+// the missing authority (UNPROVEN). The sealed plan carries the shared
+// discrimination fixture (a no-op until a candidate adds the expected value),
+// so every leg that must PASS has to carry REAL regression proof: a green suite
+// that cannot tell the candidate from its base proves nothing (M10.2 law, and
+// the reason these legs assert PASS rather than "green + authority frozen").
 function makeRepo(name) {
   const root = path.join(TMP, name);
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
@@ -66,8 +71,9 @@ function makeRepo(name) {
   fs.writeFileSync(path.join(root, 'check.cjs'), "const fs = require('node:fs');\nprocess.exit(fs.existsSync('red.flag') ? 1 : 0);\n");
   fs.writeFileSync(path.join(root, 'tests', 'keep.test.js'), 'test();\n');
   fs.writeFileSync(path.join(root, 'src', 'a.js'), '1\n');
+  fs.writeFileSync(path.join(root, 'src', 'app.js'), 'module.exports = 1;\n');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(
-    { name, private: true, scripts: { test: 'node check.cjs' } }, null, 2) + '\n');
+    { name, private: true, scripts: { test: `node check.cjs && node "${path.join(REPO, 'tooling', 'test-support', 'fixtures', 'f-regression.cjs')}"` } }, null, 2) + '\n');
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.email', 'm102@canary.local');
   git(root, 'config', 'user.name', 'Canary M10.2');
@@ -188,6 +194,7 @@ check('D register → re-isolate under a fresh name → the new snapshot freezes
   assertMatch(verify(root, 'c').stdout, authRe, 'D: c still hears the frozen-authority duty');
   const headBefore = git(root, 'rev-parse', 'HEAD');
   isolate(root, 'c2'); // the recovery: a fresh isolation freezes the honest task
+  addRegression(candPath(root, 'c2')); // real discrimination proof: the plan fails on the sealed base
   work(root, 'c2', { 'src/tweak.js': 'behavior-preserving\n' });
   assertEq(recOf(root, 'c2').intent.task.kinds.join(','), 'refactor', 'D: the fresh snapshot carries the authority');
   const r2 = verify(root, 'c2');
@@ -284,6 +291,7 @@ check('H remove/re-add of the task record after isolation cannot change the froz
   const root2 = makeRepo('h-churn-frozen');
   register(root2, 'behavior-preserving restructure', 'refactor');
   isolate(root2, 'c');
+  addRegression(candPath(root2, 'c'));
   work(root2, 'c', { 'src/tweak.js': 'behavior-preserving\n' });
   assertEq(verify(root2, 'c').status, 0, 'H2: precondition — frozen authority PASSes while the task stands');
   fs.rmSync(path.join(root2, '.canary', 'task', 'current.json'));
@@ -319,6 +327,7 @@ check('J a hand-planted PASS bundle (byte-copied from a genuinely-PASSED repo) c
   const honest = makeRepo('j-source');
   register(honest, 'behavior-preserving restructure', 'refactor');
   isolate(honest, 'c');
+  addRegression(candPath(honest, 'c'));
   work(honest, 'c', { 'src/tweak.js': 'behavior-preserving\n' });
   assertEq(verify(honest, 'c').status, 0, 'J: precondition — honest repo PASSes (its bundle is the copy source)');
   const srcDir = fs.readdirSync(path.join(honest, '.canary', 'evidence')).filter((x) => x.endsWith('-candidate')).at(-1);
@@ -388,6 +397,7 @@ check('L POSITIVE CONTROL: bugfix registered BEFORE isolation + committed regres
   const root = makeRepo('l-honest');
   register(root, 'fix the timer crash', 'bugfix');
   isolate(root, 'c');
+  addRegression(candPath(root, 'c')); // the bugfix must be pinned by a check that fails without it
   work(root, 'c', { 'src-timer.js': 'fixed\n', 'tests/timer-crash.test.js': '// reproduces the crash\n' });
   const r = verify(root, 'c');
   assertEq(r.status, 0, `L: the honest path must PASS:\n${r.stdout}`);

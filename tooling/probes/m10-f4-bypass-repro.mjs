@@ -34,6 +34,7 @@ import path from 'node:path';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
+import { addRegression } from '../test-support/regression-fixture.mjs';
 
 let failures = 0;
 function check(name, fn) {
@@ -58,9 +59,12 @@ function canary(args, cwd) {
 function makeRepo(name) {
   const root = path.join(TMP, name);
   fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'src', 'app.js'), 'module.exports = 1;\n');
   fs.mkdirSync(path.join(root, 'checks'), { recursive: true });
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(
-    { name, private: true, scripts: { test: 'node checks/verify.js' } }, null, 2) + '\n');
+    { name, private: true, scripts: { test: `node checks/verify.js && node "${path.join(REPO, 'tooling', 'test-support', 'fixtures', 'f-regression.cjs')}"` } }, null, 2) + '\n');
   fs.writeFileSync(path.join(root, 'checks', 'verify.js'),
     "const fs = require('node:fs');\nprocess.exit(fs.readFileSync('marker.txt', 'utf8').includes('FAIL') ? 1 : 0);\n");
   fs.writeFileSync(path.join(root, 'marker.txt'), 'ok\n');
@@ -94,6 +98,7 @@ function runAttack(root, name, { withTask, addTest }) {
   if (addTest) {
     fs.mkdirSync(path.join(c, 'tests'), { recursive: true });
     fs.writeFileSync(path.join(c, 'tests', 'timer-crash.test.js'), '// reproduces the crash\n');
+    addRegression(c);
   }
   git(c, 'add', '-A');
   git(c, 'commit', '-m', 'testless bugfix-shaped change');
