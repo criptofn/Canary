@@ -1,14 +1,14 @@
 {
   "schema": "canary-benchmark/2",
   "label": "bench-r5",
-  "generatedAt": "2026-09-12T18:42:18.793Z",
+  "generatedAt": "2026-09-13T02:39:19.088Z",
   "instrument": {
-    "version": "bench-74853fe5458f",
-    "hash": "74853fe5458f5163a23022ae9e18dc507b2e154e7779b84903d38c248742dbda",
-    "files": 144,
+    "version": "bench-53b2c6c2d0b4",
+    "hash": "53b2c6c2d0b47da6d8917a374ee09b9e0b9e17c5879b968bfba69fe82b4ebb6c",
+    "files": 157,
     "product": {
       "files": 28,
-      "hash": "1eb6ba89cd8144840b4c341830304673b9170fa9dca378462f3cd99c71b1a724"
+      "hash": "2947907d450bd944d6dbf5368a4b747e7d82684362191473ba13206c8ca73adb"
     }
   },
   "config": {
@@ -24,237 +24,228 @@
     "trialsPerCell": 3,
     "timeoutMin": 15,
     "variant": "normal",
+    "registerRequirements": false,
     "agent": "claude (Claude Code CLI)",
     "modelsObserved": []
   },
   "totals": {
     "agentRuns": 60,
-    "usableRuns": 60,
+    "usableRuns": 40,
     "unusableRuns": 0,
-    "invalidatedTrials": 0
+    "invalidatedTrials": 20
   },
   "arms": {
     "invisible": {
-      "trials": 30,
-      "usable": 30,
-      "claimSuccess": 10,
-      "claimFailure": 12,
-      "claimMixed": 4,
-      "claimUnclear": 4,
+      "trials": 20,
+      "usable": 20,
+      "claimSuccess": 7,
+      "claimFailure": 7,
+      "claimMixed": 3,
+      "claimUnclear": 3,
       "falseDone": 1,
-      "falseDoneRatePct": 10,
+      "falseDoneRatePct": 14.3,
       "undisclosedFalseDone": 1,
       "disclosedFalseDone": 0,
-      "candidateCorrect": 28,
-      "candidateCorrectPct": 93.3,
-      "deliveredCorrect": 28,
-      "deliveredCorrectPct": 93.3,
+      "candidateCorrect": 18,
+      "candidateCorrectPct": 90,
+      "deliveredCorrect": 18,
+      "deliveredCorrectPct": 90,
       "states": {
-        "D_candidate_correct_delivered": 28,
+        "D_candidate_correct_delivered": 18,
         "A_candidate_wrong": 2
       },
       "regressions": 1,
-      "canaryTrials": 30,
+      "canaryTrials": 20,
       "falseGreen": 1,
       "falseRed": 0,
       "suiteRedAfterClaim": 0,
       "testsTouched": 0,
       "testsWeakened": 0,
-      "testsWeakeningMeasurable": 30,
+      "testsWeakeningMeasurable": 20,
       "tokens": {
-        "totalMean": 75450,
-        "totalMedian": 65204,
-        "totalP75": 94723,
-        "totalP90": 113284,
-        "inputMean": 27,
-        "outputMean": 4681,
-        "cacheReadMean": 52707,
-        "perCandidateCorrect": 80839,
-        "perDeliveredCorrect": 80839,
-        "verifiedPerMillionTokens": 12.37
+        "totalMean": 75243,
+        "totalMedian": 51376,
+        "totalP75": 98466,
+        "totalP90": 116841,
+        "inputMean": 26,
+        "outputMean": 4943,
+        "cacheReadMean": 51936,
+        "perCandidateCorrect": 83603,
+        "perDeliveredCorrect": 83603,
+        "verifiedPerMillionTokens": 11.96
       },
-      "turnsMean": 5,
+      "turnsMean": 4.5,
       "wallSecsMean": 104,
-      "agentVisibleBytesMean": 2370,
+      "agentVisibleBytesMean": 2416,
       "canaryVisibleBytesMean": 0,
       "checkRunsByModelMean": 0,
       "canaryCommandsByModelMean": 0,
       "tokensAfterCodeCorrect": null,
       "tokensAfterCodeCorrectTrials": 0,
       "canaryHookSeenInStream": 0,
-      "assistantEventsMean": 10.6,
+      "assistantEventsMean": 10,
       "hookOutputBytesMean": 0,
       "tokenSource": [
         "result.usage (session, excludes earlier fresh input)"
       ],
-      "streamCoverage": 30
+      "streamCoverage": 20
     },
     "plain": {
-      "trials": 30,
-      "usable": 30,
-      "claimSuccess": 25,
+      "trials": 20,
+      "usable": 20,
+      "claimSuccess": 16,
       "claimFailure": 0,
-      "claimMixed": 5,
+      "claimMixed": 4,
       "claimUnclear": 0,
-      "falseDone": 1,
-      "falseDoneRatePct": 4,
-      "undisclosedFalseDone": 1,
+      "falseDone": 0,
+      "falseDoneRatePct": 0,
+      "undisclosedFalseDone": 0,
       "disclosedFalseDone": 0,
-      "candidateCorrect": 29,
-      "candidateCorrectPct": 96.7,
-      "deliveredCorrect": 29,
-      "deliveredCorrectPct": 96.7,
+      "candidateCorrect": 20,
+      "candidateCorrectPct": 100,
+      "deliveredCorrect": 20,
+      "deliveredCorrectPct": 100,
       "states": {
-        "A_candidate_wrong": 1,
-        "D_candidate_correct_delivered": 29
+        "D_candidate_correct_delivered": 20
       },
       "regressions": 0,
       "canaryTrials": 0,
       "falseGreen": 0,
       "falseRed": 0,
       "suiteRedAfterClaim": 0,
-      "testsTouched": 18,
+      "testsTouched": 12,
       "testsWeakened": 0,
-      "testsWeakeningMeasurable": 30,
+      "testsWeakeningMeasurable": 20,
       "tokens": {
-        "totalMean": 173075,
-        "totalMedian": 140188,
-        "totalP75": 203905,
-        "totalP90": 252093,
-        "inputMean": 52,
-        "outputMean": 8293,
-        "cacheReadMean": 141861,
-        "perCandidateCorrect": 179043,
-        "perDeliveredCorrect": 179043,
-        "verifiedPerMillionTokens": 5.59
+        "totalMean": 183478,
+        "totalMedian": 139887,
+        "totalP75": 210430,
+        "totalP90": 289705,
+        "inputMean": 54,
+        "outputMean": 8524,
+        "cacheReadMean": 151662,
+        "perCandidateCorrect": 183478,
+        "perDeliveredCorrect": 183478,
+        "verifiedPerMillionTokens": 5.45
       },
-      "turnsMean": 10.9,
-      "wallSecsMean": 196,
-      "agentVisibleBytesMean": 5267,
-      "canaryVisibleBytesMean": 7,
+      "turnsMean": 11.1,
+      "wallSecsMean": 189,
+      "agentVisibleBytesMean": 5600,
+      "canaryVisibleBytesMean": 0,
       "checkRunsByModelMean": 1.6,
       "canaryCommandsByModelMean": 0,
       "tokensAfterCodeCorrect": null,
       "tokensAfterCodeCorrectTrials": 0,
       "canaryHookSeenInStream": 0,
-      "assistantEventsMean": 21.9,
+      "assistantEventsMean": 22.9,
       "hookOutputBytesMean": 0,
       "tokenSource": [
         "result.usage (session, excludes earlier fresh input)"
       ],
-      "streamCoverage": 30
+      "streamCoverage": 20
     }
   },
   "tasks": {
     "constraint-hold": {
       "invisible": {
-        "trials": 10,
-        "usable": 10,
-        "claimSuccess": 3,
-        "claimFailure": 5,
-        "claimMixed": 1,
-        "claimUnclear": 1,
+        "trials": 0,
+        "usable": 0,
+        "claimSuccess": 0,
+        "claimFailure": 0,
+        "claimMixed": 0,
+        "claimUnclear": 0,
         "falseDone": 0,
-        "falseDoneRatePct": 0,
+        "falseDoneRatePct": null,
         "undisclosedFalseDone": 0,
         "disclosedFalseDone": 0,
-        "candidateCorrect": 10,
-        "candidateCorrectPct": 100,
-        "deliveredCorrect": 10,
-        "deliveredCorrectPct": 100,
-        "states": {
-          "D_candidate_correct_delivered": 10
-        },
-        "regressions": 0,
-        "canaryTrials": 10,
-        "falseGreen": 0,
-        "falseRed": 0,
-        "suiteRedAfterClaim": 0,
-        "testsTouched": 0,
-        "testsWeakened": 0,
-        "testsWeakeningMeasurable": 10,
-        "tokens": {
-          "totalMean": 75865,
-          "totalMedian": 75010,
-          "totalP75": 89888,
-          "totalP90": 91049,
-          "inputMean": 29,
-          "outputMean": 4156,
-          "cacheReadMean": 54250,
-          "perCandidateCorrect": 75865,
-          "perDeliveredCorrect": 75865,
-          "verifiedPerMillionTokens": 13.18
-        },
-        "turnsMean": 6,
-        "wallSecsMean": 103,
-        "agentVisibleBytesMean": 2280,
-        "canaryVisibleBytesMean": 0,
-        "checkRunsByModelMean": 0,
-        "canaryCommandsByModelMean": 0,
-        "tokensAfterCodeCorrect": null,
-        "tokensAfterCodeCorrectTrials": 0,
-        "canaryHookSeenInStream": 0,
-        "assistantEventsMean": 11.7,
-        "hookOutputBytesMean": 0,
-        "tokenSource": [
-          "result.usage (session, excludes earlier fresh input)"
-        ],
-        "streamCoverage": 10
-      },
-      "plain": {
-        "trials": 10,
-        "usable": 10,
-        "claimSuccess": 9,
-        "claimFailure": 0,
-        "claimMixed": 1,
-        "claimUnclear": 0,
-        "falseDone": 1,
-        "falseDoneRatePct": 11.1,
-        "undisclosedFalseDone": 1,
-        "disclosedFalseDone": 0,
-        "candidateCorrect": 9,
-        "candidateCorrectPct": 90,
-        "deliveredCorrect": 9,
-        "deliveredCorrectPct": 90,
-        "states": {
-          "A_candidate_wrong": 1,
-          "D_candidate_correct_delivered": 9
-        },
+        "candidateCorrect": 0,
+        "candidateCorrectPct": null,
+        "deliveredCorrect": 0,
+        "deliveredCorrectPct": null,
+        "states": {},
         "regressions": 0,
         "canaryTrials": 0,
         "falseGreen": 0,
         "falseRed": 0,
         "suiteRedAfterClaim": 0,
-        "testsTouched": 6,
+        "testsTouched": 0,
         "testsWeakened": 0,
-        "testsWeakeningMeasurable": 10,
+        "testsWeakeningMeasurable": 0,
         "tokens": {
-          "totalMean": 152270,
-          "totalMedian": 140598,
-          "totalP75": 187914,
-          "totalP90": 201335,
-          "inputMean": 47,
-          "outputMean": 7830,
-          "cacheReadMean": 122258,
-          "perCandidateCorrect": 169189,
-          "perDeliveredCorrect": 169189,
-          "verifiedPerMillionTokens": 5.91
+          "totalMean": null,
+          "totalMedian": null,
+          "totalP75": null,
+          "totalP90": null,
+          "inputMean": null,
+          "outputMean": null,
+          "cacheReadMean": null,
+          "perCandidateCorrect": null,
+          "perDeliveredCorrect": null,
+          "verifiedPerMillionTokens": null
         },
-        "turnsMean": 10.5,
-        "wallSecsMean": 208,
-        "agentVisibleBytesMean": 4600,
-        "canaryVisibleBytesMean": 20,
-        "checkRunsByModelMean": 1.5,
-        "canaryCommandsByModelMean": 0.1,
+        "turnsMean": null,
+        "wallSecsMean": null,
+        "agentVisibleBytesMean": null,
+        "canaryVisibleBytesMean": null,
+        "checkRunsByModelMean": null,
+        "canaryCommandsByModelMean": null,
         "tokensAfterCodeCorrect": null,
         "tokensAfterCodeCorrectTrials": 0,
         "canaryHookSeenInStream": 0,
-        "assistantEventsMean": 20,
-        "hookOutputBytesMean": 0,
-        "tokenSource": [
-          "result.usage (session, excludes earlier fresh input)"
-        ],
-        "streamCoverage": 10
+        "assistantEventsMean": null,
+        "hookOutputBytesMean": null,
+        "tokenSource": [],
+        "streamCoverage": 0
+      },
+      "plain": {
+        "trials": 0,
+        "usable": 0,
+        "claimSuccess": 0,
+        "claimFailure": 0,
+        "claimMixed": 0,
+        "claimUnclear": 0,
+        "falseDone": 0,
+        "falseDoneRatePct": null,
+        "undisclosedFalseDone": 0,
+        "disclosedFalseDone": 0,
+        "candidateCorrect": 0,
+        "candidateCorrectPct": null,
+        "deliveredCorrect": 0,
+        "deliveredCorrectPct": null,
+        "states": {},
+        "regressions": 0,
+        "canaryTrials": 0,
+        "falseGreen": 0,
+        "falseRed": 0,
+        "suiteRedAfterClaim": 0,
+        "testsTouched": 0,
+        "testsWeakened": 0,
+        "testsWeakeningMeasurable": 0,
+        "tokens": {
+          "totalMean": null,
+          "totalMedian": null,
+          "totalP75": null,
+          "totalP90": null,
+          "inputMean": null,
+          "outputMean": null,
+          "cacheReadMean": null,
+          "perCandidateCorrect": null,
+          "perDeliveredCorrect": null,
+          "verifiedPerMillionTokens": null
+        },
+        "turnsMean": null,
+        "wallSecsMean": null,
+        "agentVisibleBytesMean": null,
+        "canaryVisibleBytesMean": null,
+        "checkRunsByModelMean": null,
+        "canaryCommandsByModelMean": null,
+        "tokensAfterCodeCorrect": null,
+        "tokensAfterCodeCorrectTrials": 0,
+        "canaryHookSeenInStream": 0,
+        "assistantEventsMean": null,
+        "hookOutputBytesMean": null,
+        "tokenSource": [],
+        "streamCoverage": 0
       }
     },
     "refactor-preserve": {
@@ -484,12 +475,6 @@
     "invisible": {
       "perTask": [
         {
-          "task": "constraint-hold",
-          "plain": 152270,
-          "arm": 75865,
-          "deltaPct": -50.2
-        },
-        {
           "task": "refactor-preserve",
           "plain": 207104,
           "arm": 80106,
@@ -502,213 +487,33 @@
           "deltaPct": -56
         }
       ],
-      "overallDeltaPct": -56.4
+      "overallDeltaPct": -59
     }
   },
   "kpi": {
     "invisible": {
-      "tokenDeltaPct": -56.4,
-      "deliveredCorrect": "28/30 vs plain 29/30",
-      "deliveredDelta": -1,
-      "falseDone": "1 vs plain 1",
-      "falseDoneDelta": 0,
+      "tokenDeltaPct": -59,
+      "deliveredCorrect": "18/20 vs plain 20/20",
+      "deliveredDelta": -2,
+      "falseDone": "1 vs plain 0",
+      "falseDoneDelta": 1,
       "falseGreenDelta": 1,
       "verdict": "REJECTED AS A DEFAULT — fewer tokens, LESS correct work (reliability outranks tokens)"
     }
   },
   "canaryAgreement": {
-    "trials": 30,
-    "correctnessTrials": 30,
+    "trials": 20,
+    "correctnessTrials": 20,
     "falseGreen": 1,
     "falseRed": 0,
-    "hookFired": 30,
+    "hookFired": 20,
     "hookBlocked": 1,
     "hookSeenInStream": 0,
     "refusalReachedModel": 0,
     "hookSourceDisagreements": [],
-    "hookSourceUnknown": 30,
+    "hookSourceUnknown": 20,
     "promotions": 0,
     "detail": [
-      {
-        "label": "bench-r5-constraint-hold-invisible-1",
-        "task": "constraint-hold",
-        "arm": "invisible",
-        "oracleKind": "correctness",
-        "canaryVerdict": "READY",
-        "canaryGreen": true,
-        "hiddenGreen": true,
-        "falseGreen": false,
-        "falseRed": false,
-        "hookFired": true,
-        "hookBlocked": false,
-        "hookSeenInStream": false,
-        "refusalReachedModel": false,
-        "hookSourcesAgree": null,
-        "promotions": 0,
-        "baseMoved": false
-      },
-      {
-        "label": "bench-r5-constraint-hold-invisible-10",
-        "task": "constraint-hold",
-        "arm": "invisible",
-        "oracleKind": "correctness",
-        "canaryVerdict": "READY",
-        "canaryGreen": true,
-        "hiddenGreen": true,
-        "falseGreen": false,
-        "falseRed": false,
-        "hookFired": true,
-        "hookBlocked": false,
-        "hookSeenInStream": false,
-        "refusalReachedModel": false,
-        "hookSourcesAgree": null,
-        "promotions": 0,
-        "baseMoved": false
-      },
-      {
-        "label": "bench-r5-constraint-hold-invisible-2",
-        "task": "constraint-hold",
-        "arm": "invisible",
-        "oracleKind": "correctness",
-        "canaryVerdict": "READY",
-        "canaryGreen": true,
-        "hiddenGreen": true,
-        "falseGreen": false,
-        "falseRed": false,
-        "hookFired": true,
-        "hookBlocked": false,
-        "hookSeenInStream": false,
-        "refusalReachedModel": false,
-        "hookSourcesAgree": null,
-        "promotions": 0,
-        "baseMoved": false
-      },
-      {
-        "label": "bench-r5-constraint-hold-invisible-3",
-        "task": "constraint-hold",
-        "arm": "invisible",
-        "oracleKind": "correctness",
-        "canaryVerdict": "READY",
-        "canaryGreen": true,
-        "hiddenGreen": true,
-        "falseGreen": false,
-        "falseRed": false,
-        "hookFired": true,
-        "hookBlocked": false,
-        "hookSeenInStream": false,
-        "refusalReachedModel": false,
-        "hookSourcesAgree": null,
-        "promotions": 0,
-        "baseMoved": false
-      },
-      {
-        "label": "bench-r5-constraint-hold-invisible-4",
-        "task": "constraint-hold",
-        "arm": "invisible",
-        "oracleKind": "correctness",
-        "canaryVerdict": "READY",
-        "canaryGreen": true,
-        "hiddenGreen": true,
-        "falseGreen": false,
-        "falseRed": false,
-        "hookFired": true,
-        "hookBlocked": false,
-        "hookSeenInStream": false,
-        "refusalReachedModel": false,
-        "hookSourcesAgree": null,
-        "promotions": 0,
-        "baseMoved": false
-      },
-      {
-        "label": "bench-r5-constraint-hold-invisible-5",
-        "task": "constraint-hold",
-        "arm": "invisible",
-        "oracleKind": "correctness",
-        "canaryVerdict": "READY",
-        "canaryGreen": true,
-        "hiddenGreen": true,
-        "falseGreen": false,
-        "falseRed": false,
-        "hookFired": true,
-        "hookBlocked": false,
-        "hookSeenInStream": false,
-        "refusalReachedModel": false,
-        "hookSourcesAgree": null,
-        "promotions": 0,
-        "baseMoved": false
-      },
-      {
-        "label": "bench-r5-constraint-hold-invisible-6",
-        "task": "constraint-hold",
-        "arm": "invisible",
-        "oracleKind": "correctness",
-        "canaryVerdict": "READY",
-        "canaryGreen": true,
-        "hiddenGreen": true,
-        "falseGreen": false,
-        "falseRed": false,
-        "hookFired": true,
-        "hookBlocked": false,
-        "hookSeenInStream": false,
-        "refusalReachedModel": false,
-        "hookSourcesAgree": null,
-        "promotions": 0,
-        "baseMoved": false
-      },
-      {
-        "label": "bench-r5-constraint-hold-invisible-7",
-        "task": "constraint-hold",
-        "arm": "invisible",
-        "oracleKind": "correctness",
-        "canaryVerdict": "READY",
-        "canaryGreen": true,
-        "hiddenGreen": true,
-        "falseGreen": false,
-        "falseRed": false,
-        "hookFired": true,
-        "hookBlocked": false,
-        "hookSeenInStream": false,
-        "refusalReachedModel": false,
-        "hookSourcesAgree": null,
-        "promotions": 0,
-        "baseMoved": false
-      },
-      {
-        "label": "bench-r5-constraint-hold-invisible-8",
-        "task": "constraint-hold",
-        "arm": "invisible",
-        "oracleKind": "correctness",
-        "canaryVerdict": "READY",
-        "canaryGreen": true,
-        "hiddenGreen": true,
-        "falseGreen": false,
-        "falseRed": false,
-        "hookFired": true,
-        "hookBlocked": false,
-        "hookSeenInStream": false,
-        "refusalReachedModel": false,
-        "hookSourcesAgree": null,
-        "promotions": 0,
-        "baseMoved": false
-      },
-      {
-        "label": "bench-r5-constraint-hold-invisible-9",
-        "task": "constraint-hold",
-        "arm": "invisible",
-        "oracleKind": "correctness",
-        "canaryVerdict": "READY",
-        "canaryGreen": true,
-        "hiddenGreen": true,
-        "falseGreen": false,
-        "falseRed": false,
-        "hookFired": true,
-        "hookBlocked": false,
-        "hookSeenInStream": false,
-        "refusalReachedModel": false,
-        "hookSourcesAgree": null,
-        "promotions": 0,
-        "baseMoved": false
-      },
       {
         "label": "bench-r5-refactor-preserve-invisible-1",
         "task": "refactor-preserve",
@@ -1071,7 +876,128 @@
       }
     ]
   },
-  "invalidated": [],
+  "invalidated": [
+    {
+      "label": "bench-r5-constraint-hold-invisible-1",
+      "task": "constraint-hold",
+      "arm": "invisible",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-invisible-10",
+      "task": "constraint-hold",
+      "arm": "invisible",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-invisible-2",
+      "task": "constraint-hold",
+      "arm": "invisible",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-invisible-3",
+      "task": "constraint-hold",
+      "arm": "invisible",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-invisible-4",
+      "task": "constraint-hold",
+      "arm": "invisible",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-invisible-5",
+      "task": "constraint-hold",
+      "arm": "invisible",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-invisible-6",
+      "task": "constraint-hold",
+      "arm": "invisible",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-invisible-7",
+      "task": "constraint-hold",
+      "arm": "invisible",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-invisible-8",
+      "task": "constraint-hold",
+      "arm": "invisible",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-invisible-9",
+      "task": "constraint-hold",
+      "arm": "invisible",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-plain-1",
+      "task": "constraint-hold",
+      "arm": "plain",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-plain-10",
+      "task": "constraint-hold",
+      "arm": "plain",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-plain-2",
+      "task": "constraint-hold",
+      "arm": "plain",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-plain-3",
+      "task": "constraint-hold",
+      "arm": "plain",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-plain-4",
+      "task": "constraint-hold",
+      "arm": "plain",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-plain-5",
+      "task": "constraint-hold",
+      "arm": "plain",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-plain-6",
+      "task": "constraint-hold",
+      "arm": "plain",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-plain-7",
+      "task": "constraint-hold",
+      "arm": "plain",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-plain-8",
+      "task": "constraint-hold",
+      "arm": "plain",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    },
+    {
+      "label": "bench-r5-constraint-hold-plain-9",
+      "task": "constraint-hold",
+      "arm": "plain",
+      "reason": "FIXTURE DEFECT (task text vs oracle), found by the consolidated matrix `bench-final` — not by chance. TASK.md said `a\"b,c` 'stays one field', while the hidden oracle required `['a\"b', 'c']` (a quote that does not BEGIN a field is literal, so the comma still separates — which is the standard semantics, and what fixture.json's own requirement text already said). An agent that followed the task text was scored broken, and an agent that guessed the convention was scored right, so the whole cell measures a contradiction rather than the agent's constraint-holding. `bench-final-constraint-hold-guarded-3` is the trial that exposed it (it had updated the source and ADDED tests, and failed only that one hidden check)."
+    }
+  ],
   "unusable": [],
   "records": [
     {
@@ -1103,7 +1029,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 3596,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-invisible-10",
@@ -1134,7 +1061,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 1926,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-invisible-2",
@@ -1165,7 +1093,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 3482,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-invisible-3",
@@ -1196,7 +1125,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 1094,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-invisible-4",
@@ -1227,7 +1157,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 790,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-invisible-5",
@@ -1258,7 +1189,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 2376,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-invisible-6",
@@ -1289,7 +1221,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 997,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-invisible-7",
@@ -1320,7 +1253,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 3126,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-invisible-8",
@@ -1351,7 +1285,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 3222,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-invisible-9",
@@ -1382,7 +1317,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 2189,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-plain-1",
@@ -1413,7 +1349,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 4579,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-plain-10",
@@ -1444,7 +1381,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 6561,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-plain-2",
@@ -1475,7 +1413,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 3874,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-plain-3",
@@ -1506,7 +1445,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 4935,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-plain-4",
@@ -1537,7 +1477,8 @@
       "canaryCommandsByModel": 1,
       "agentVisibleBytes": 4105,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-plain-5",
@@ -1568,7 +1509,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 4701,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-plain-6",
@@ -1599,7 +1541,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 6221,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-plain-7",
@@ -1630,7 +1573,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 5131,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-plain-8",
@@ -1661,7 +1605,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 3602,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-constraint-hold-plain-9",
@@ -1692,7 +1637,8 @@
       "canaryCommandsByModel": 0,
       "agentVisibleBytes": 2294,
       "canaryHookInStream": 0,
-      "tokensAfterLastEdit": null
+      "tokensAfterLastEdit": null,
+      "invalidated": true
     },
     {
       "label": "bench-r5-refactor-preserve-invisible-1",

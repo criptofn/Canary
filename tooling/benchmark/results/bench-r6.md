@@ -1,6 +1,6 @@
 # Benchmark: bench-r6
 
-Instrument: `bench-74853fe5458f` (144 files, hash 74853fe5458f5163…) — recorded with every result, because the rules can change and old data must stay attributable.
+Instrument: `bench-53b2c6c2d0b4` (157 files, hash 53b2c6c2d0b47da6…) — recorded with every result, because the rules can change and old data must stay attributable.
 Agent: `claude` (Claude Code CLI); models observed: unknown. Variant: normal.
 Trials: 48 records, 48 usable, 0 unusable, 0 invalidated (excluded).
 

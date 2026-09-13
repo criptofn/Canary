@@ -1,14 +1,14 @@
 {
   "schema": "canary-benchmark/2",
   "label": "bench-r6",
-  "generatedAt": "2026-09-12T18:42:18.927Z",
+  "generatedAt": "2026-09-13T02:39:19.243Z",
   "instrument": {
-    "version": "bench-74853fe5458f",
-    "hash": "74853fe5458f5163a23022ae9e18dc507b2e154e7779b84903d38c248742dbda",
-    "files": 144,
+    "version": "bench-53b2c6c2d0b4",
+    "hash": "53b2c6c2d0b47da6d8917a374ee09b9e0b9e17c5879b968bfba69fe82b4ebb6c",
+    "files": 157,
     "product": {
       "files": 28,
-      "hash": "1eb6ba89cd8144840b4c341830304673b9170fa9dca378462f3cd99c71b1a724"
+      "hash": "2947907d450bd944d6dbf5368a4b747e7d82684362191473ba13206c8ca73adb"
     }
   },
   "config": {
@@ -25,6 +25,7 @@
     "trialsPerCell": 3,
     "timeoutMin": 15,
     "variant": "normal",
+    "registerRequirements": false,
     "agent": "claude (Claude Code CLI)",
     "modelsObserved": []
   },

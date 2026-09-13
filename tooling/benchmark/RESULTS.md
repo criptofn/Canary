@@ -13,12 +13,17 @@ Excluded data and why: [`invalidated.json`](invalidated.json).
 
 ## STATUS — read this before quoting any number below
 
-1. **`refactor-preserve`: every trial before the fixture fix is INVALIDATED** (`bench-r1`/`r2`/`r3`
-   labels). The fixture contradicted its own task — its visible suite asserted that
-   `formatMoney('12')` throws, while the task makes decimal strings valid input — so a compliant
-   agent faced an unsatisfiable choice. `fixtures.test.mjs` found it, and the earlier conclusion
-   that "preservation is where this model fails" is retracted. `bench-r5` re-runs the task against
-   the corrected fixture (10/10 plain, 9/10 invisible).
+1. **The first favourable finding in this file did NOT survive validation, and that is stated here
+   rather than buried.** `bench-r2`'s "Canary halves the false-done rate (20% → 7.1%)" rested on
+   `constraint-hold` and `refactor-preserve` — the two fixtures later found to contradict their own
+   tasks/oracles. On r2's VALID cells both arms were 12/12 correct and Canary cost +23.5%. Every cell
+   of every matrix now states its own instrument, and INVALIDATED trials are excluded from the
+   numbers (they were listed but counted until this round — see the harness defect below).
+2. **`refactor-preserve`** (all pre-fix trials) and **`constraint-hold`** (all pre-fix trials) are
+   INVALIDATED for fixture defects: a visible test that contradicted the task, and a task line that
+   contradicted the oracle. **`bench-final`'s three `version-bump` guarded trials** are invalidated
+   for an ORACLE false positive. See [`invalidated.json`](invalidated.json) for each reason, and the
+   section below for what the corrected numbers say.
 2. **The instrument changed substantially in `bench-r4` onward** (the token ledger plus four
    corrected measurements — see "The instrument" below). Numbers from different instruments are
    never pooled: each matrix states its own.
@@ -37,21 +42,31 @@ Excluded data and why: [`invalidated.json`](invalidated.json).
 
 ---
 
-## The headline: with Canary the agent spends FEWER tokens
+## The headline: does Canary make the agent spend FEWER tokens?
 
-| Matrix | Tasks | Arm | raw tokens (mean) | Δ | turns | checks run BY THE MODEL | delivered correct | false done |
-|---|---|---|---|---|---|---|---|---|
-| `bench-r4` (n=10/cell) | `bug-sum`, `add-validation` | `plain` | 87,518 | — | 7.4 | 1.1 | 20/20 | 0 |
-| | | **`invisible`** | **59,664** | **−31.8%** | 4.7 | 0.0 | 20/20 | 0 |
-| `bench-r5` (n=10/cell) | `constraint-hold`, `spec-edges`, `refactor-preserve` | `plain` | 173,075 | — | 10.9 | 1.6 | 29/30 | 1 |
-| | | **`invisible`** | **75,450** | **−56.4%** | 5.0 | 0.0 | 28/30 | 1 |
-| `bench-r6` (n=6/cell) | 4 harder realistic tasks | `plain` | 150,817 | — | 12.5 | 1.2 | 24/24 | 0 |
-| | | **`invisible`** | **62,592** | **−58.5%** | 6.1 | 0.0 | 24/24 | 0 |
-| `bench-r4adv` (n=10/cell) | `impossible-test`, adversarial prompt | `plain` | 136,596 | — | 10.4 | 1.9 | 10/10 honest | 0 |
-| | | `invisible` | 145,763 | +6.7% | 10.9 | 0.0 | 9/10 honest | 0 |
-| `bench-r7` (n=5/cell, MIXED product) | 3 tasks, first with the reliability gate | `plain` | 164,963 | — | 10.7 | 1.5 | 15/15 | 0 |
-| | | `guarded` | 157,403 | −4.6% | 9.5 | 1.5 | 15/15 | 0 |
-| | | `invisible` | 113,760 | −31.0% | 6.7 | 0.0 | 15/15 | 0 |
+The answer depends on the CONFIGURATION, and every number below is post-invalidation (the cells whose
+fixtures were defective are excluded, not explained away):
+
+| Matrix | Arm | raw tokens (mean) | Δ | delivered correct | false done |
+|---|---|---|---|---|---|
+| `bench-r4` (n=10/cell) | `plain` | 87,518 | — | 20/20 | 0 |
+| | **`invisible`** | **59,664** | **−31.8%** | 20/20 | 0 |
+| `bench-r5` (n=10/cell, valid cells) | `plain` | 183,478 | — | 20/20 | 0 |
+| | `invisible` | 75,243 | −59.0% | **18/20** | 1 |
+| `bench-r6` (n=6/cell) | `plain` | 150,817 | — | 24/24 | 0 |
+| | **`invisible`** | **62,592** | **−58.5%** | 24/24 | 0 |
+| `bench-r11` (bound requirements) | `plain` | 125,369 | — | 5/5 | 0 |
+| | **`guarded`** | **100,812** | **−19.6%** | 5/5 | 0 |
+| `bench-final` (13 fixtures × 2 arms × 3) | `plain` | 136,402 | — | 36/36 | 0 |
+| | `guarded` | 193,519 | **+40.2%** | 33/33 | 0 |
+
+Read together: the saving is real in the configurations where the proof is adequate (`r4`, `r6`, and
+`r11`'s bound requirements), it is bought with correctness when it is not (`r5`, `r8`), and with NO
+operator-declared proof at all the recommended `guarded` arm costs ~40% more on the full fixture set
+because it produces the regression evidence those tasks do not supply. Reliability first, tokens
+second — and the configuration table under "Declared-and-BOUND requirements" is the lever.
+
+
 
 The mechanism is the product's thesis, and the ledger measures it directly: in the `invisible` arm
 the model **stopped doing the verification work** (−100% project checks run by the model, −36%
@@ -238,6 +253,20 @@ requirement stays NOT PROVEN, `canary bind` writes into the manifest, the declar
 credited until `setup` re-seals, and a binding that names a check the manifest does not declare stops
 setup. Before that fix a non-Node project could not bind a requirement ANYWHERE, so the invariant was
 satisfiable only in Node projects.
+
+## The final consolidated matrix (`bench-final`, 13 fixtures × {plain, guarded} × 3)
+
+| Arm | usable | delivered correct | false done | false green | tokens (mean) | vs plain |
+|---|---|---|---|---|---|---|
+| `plain` | 36 | **36/36** | 0 | — | 136,402 | — |
+| `guarded` | 33 | **33/33** | 0 | 0 | 193,519 | **+40.2%** |
+
+(69 of the 78 trials count; the other nine are the two fixture defects below, invalidated rather than
+explained away.) **Both arms delivered everything correctly on the final product**, and the honest
+remaining difference is cost: the guarded arm spends ~40% more because the gate makes it produce the
+regression evidence this task set does not supply. `bench-final2` re-runs the two repaired fixtures
+and agrees: `constraint-hold` 3/3 + 3/3, `version-bump` 3/3 + 3/3, guarded +84.5% on those two cells
+(the version-bump fix is where the gate demands the most).
 
 ## Two fixture defects the consolidated matrix found, and one harness defect it exposed
 
