@@ -1,1 +1,2 @@
 Canary GitHub Bridge E2E smoke test.
+Second line added by the bridge E2E flow.
