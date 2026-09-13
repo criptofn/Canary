@@ -1,49 +1,140 @@
 # Canary
 
-Canary is an independent verification layer for software changes.
+**Canary is an independent verification layer for coding agents.**
 
-It is designed especially for coding-agent workflows, where generated changes
-should be verified before they are treated as complete.
+The agent builds. Canary verifies.
+
+Its core rule is:
+
+> **NO PROOF, NO DONE.**
+
+A coding agent saying "done" is not evidence. A green test suite is useful
+evidence — but if those checks do not prove the change, or do not cover the
+stated requirements, Canary reports **NOT PROVEN**.
 
 > *"Cool diff. Prove that it actually made the project better."*
 
-**Canary checks coding-agent work before completion.** Setup connects
-your coding agent to the project's own checks. For isolated changes, the agent
-registers the request, works in a candidate, commits it, and asks Canary to
-verify and promote. Explicitly subjective results need your review of the
-exact clean committed candidate. Acceptance never replaces objective proof.
+**Why isn't this just "run the tests"?**
 
-See [the 1.0 authorization contract](docs/AUTHORIZATION-1.0.md) for task identity,
-numeric proof bindings, input limits, and the remaining local trust boundaries.
+| A green suite can be green because… | Canary's answer |
+|---|---|
+| the same checks were already green **before** the change, so they say nothing about it | proof must **discriminate**: the check has to fail without the change and pass with it, measured against the sealed base commit |
+| a **stated requirement** is covered by no check at all | every authorized requirement needs a **sealed proof binding** (`canary bind`), or it stays `NOT PROVEN` |
+| "prettier" / "feels faster" was never machine-checkable | subjective duties are a **separate, human act** (`canary accept`, in a terminal) — they can never become a fake technical `PASS` |
+| the only evidence is a test **the worker just wrote** | Canary says so out loud, in the verdict (worker-authored-evidence caveat) |
+
+**Canary checks coding-agent work before completion.** Setup connects your coding
+agent to the project's own checks. For isolated changes the agent registers the
+request, works in a candidate, commits it, and asks Canary to verify and promote.
+Explicitly subjective results need your review of the exact clean committed
+candidate. Acceptance never replaces objective proof.
+
+New here? → **[`docs/RELEASE-1.1.md`](docs/RELEASE-1.1.md)** is the 2–4 minute
+overview of the current release, with links into the deep evidence.
+
+## What's new in v1.1
+
+**1 · Language / project support.** Native discovery and toolchain handling for
+**Node / JS / TS**, **Python**, **Rust** and **Go**, plus a **universal
+command-driven project contract** that verifies any other ecosystem honestly
+about what it actually proved (`canary.project.json`, or discovery from the
+commands your CI / Makefile / CMake / Gradle tree already declares).
+
+**2 · Proof discrimination.** The sealed plan is re-run against the **sealed base
+commit**. A check that passes on both sides is not evidence about your change —
+the verdict is `NOT PROVEN`, not `READY`. A required comparison that cannot be
+established (missing module, materialization failure, unavailable execution,
+thrown error) is **UNPROVEN — never an accidental PASS**.
+
+**3 · Requirement coverage.** `canary task --requirement "…"` prints each
+requirement's digest; the operator's `canary bind <script> --requirement "…"`
+attaches it to a check the sealed plan really runs. An objective requirement with
+no bound proof stays `NOT PROVEN` — a green plan is not a proven deliverable.
+
+**4 · Candidate workflow.** `canary work` opens an **isolated candidate** from a
+frozen base; the worker commits **inside it**; `canary finish` verifies from
+outside and **promotes only when the proof holds**, applying the exact verified
+committed bytes.
+
+**5 · Subjective acceptance.** Technical proof and human judgment are separate.
+Aesthetic or subjective duties cannot be laundered into a technical `PASS`, and a
+human acceptance can never close an objective gap.
+
+**6 · Agent support.** Claude Code is **GATED** — a completion hook can block it.
+Codex and any other command-line agent are **ADVISORY** (a marked, removable
+`AGENTS.md` block that tells the agent what to run and **cannot block anything**
+— it says so). `canary mcp` exposes the same operations over MCP for generic
+clients. Advisory integrations are never reported as a gate.
+
+**7 · Machine interface.** Global `--json`, `canary result --json` (free — it
+writes nothing), and compact failure payloads that name the failing check and
+point at the full log **on disk**, so evidence stays outside the model's context.
+
+**8 · Security level.** `LOCAL` is the honest current capability, with documented
+same-UID limits. The provider/broker architecture exists, but **`HARDENED` is
+reported only when the required OS-level controls are measured present** — it is
+not "installation away", and it is not marketed as established isolation.
 
 ## 60-second quickstart
 
 1. **Install Canary** (Node.js 22 or newer):
 
-   Download `canary-rn-cli-1.0.0.tgz` from the
-   [GitHub release](https://github.com/criptofn/Canary/releases/tag/v1.0.0), then:
+   Download `canary-rn-cli-1.1.0.tgz` from the
+   [v1.1.0 release](https://github.com/criptofn/Canary/releases/tag/v1.1.0), then:
 
    ```bash
-   npm install -g ./canary-rn-cli-1.0.0.tgz
-   canary --version
+   npm install -g ./canary-rn-cli-1.1.0.tgz
+   canary --version        # canary 1.1.0
    ```
 
-2. **In your project** (a Node.js repo with `package.json`):
+   The package is ONE self-contained bundle with **zero runtime dependencies**
+   (check the download against the published `.sha256`). Prefer source?
+   `npm ci && npm run build`, then `node apps/cli/dist/src/main.js`.
+
+2. **In your project** — any supported repo, Node or not:
 
    ```bash
-   canary setup
+   cd your-repo
+   canary setup      # detect the project + the agents, pin the toolchain, wire, smoke-run
+   canary doctor     # run your own checks NOW: READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED
    ```
 
-   That is the whole job. Canary detects your package manager from your
-   lockfile, infers a verification plan from the `test` / `typecheck` /
-   `build` scripts in your `package.json` (showing you exactly what it
-   picked), wires itself into Claude Code automatically — merging with, never
-   overwriting, your existing hooks — and runs your checks once right there
-   as a smoke test.
+   That is the whole first-use path. Canary detects your package manager from
+   your lockfile and infers a verification plan from the checks your project
+   **already declares** — the `test` / `typecheck` / `build` scripts in
+   `package.json`, the ecosystem's own test command for Python / Rust / Go, or
+   the commands your CI or build files anchor (showing you exactly what it
+   picked). It wires itself into Claude Code automatically — merging with, never
+   overwriting, your existing hooks — and runs your checks once right there as a
+   smoke test.
 
 3. **It worked if it says `READY`.** Unsure at any point later?
    `canary doctor` answers "is Canary really protecting this repo?" with
    READY / NEEDS ATTENTION / UNSUPPORTED and the one command that fixes it.
+
+### The task-aware path (when the work must be *proven*, not just green)
+
+Not part of your first 30 seconds — this is what you reach for when a change
+needs evidence rather than a green suite.
+
+```bash
+# operator, BEFORE the handoff — declare each stated requirement, then bind it
+canary task "make the dialog prettier" --requirement "the button is #D94141"
+canary bind e2e --requirement "the button is #D94141"   # attach it to a sealed check
+canary setup                                            # re-seal: the binding becomes frozen authority
+
+# worker
+canary work fix "make the dialog prettier" --kind ui    # register + open an isolated candidate
+#   ...work only inside the candidate directory printed above, then commit THERE...
+canary finish fix                                       # verify from outside; promote only if the proof holds
+```
+
+**Bind the requirements before you hand off — measured, not stylistic.** In one
+benchmark, five requirements that were *declared but never bound* cost the
+guarded run **1.5–1.7M tokens and 41–45 turns**, because the worker was left
+pursuing a duty only the operator could close. The same five requirements
+**bound** to sealed checks came out **cheaper than the unprotected arm** at 100%
+delivered correctness (see [what the benchmarks actually show](#what-the-benchmarks-actually-show)).
 
 **What you get after that single command:**
 
@@ -69,6 +160,7 @@ and it never invents one:
 | Python | `pyproject.toml`, `setup.py`, `setup.cfg`, `tox.ini`, `requirements*.txt` | `pytest`, `tox`, `unittest`, plus `mypy` / `pyright` / `ruff` |
 | Rust | `Cargo.toml` | `cargo test`, `cargo check`, `cargo build` |
 | Go | `go.mod`, `go.work` | `go test ./...`, `go vet ./...` |
+| **Any other command-driven project** | the executable truth you already declare — CI workflow commands, `Makefile` / `Taskfile` / `justfile` targets, CMake+CTest or Meson, a shipped `gradlew` / `mvnw`, `pom.xml`, `build.gradle*`, `*.sln` / `*.csproj`, `Package.swift`, `build.zig`, `phpunit.xml`, `composer.json`, `Rakefile`, `mix.exs`, `shard.yml` — or your own `canary.project.json` (argv arrays, never a shell line) | those commands, **sealed and pinned** to absolute paths, verified as **UNIVERSAL**: the command really ran, with that exit status, bound to the candidate's bytes — but the runner's internals were **not** observed |
 
 Agents are reported by what they can actually do, not by what we wish they could:
 
@@ -93,6 +185,61 @@ ATTENTION, never a fake green. This auto-watched plan runner is the everyday
 path; the much stronger **attested proof pipeline** (`canary prove` /
 `canary check`, below) is a separate, different promise for release-grade
 claims.
+
+## What the benchmarks actually show
+
+Short version, with the full ledgers linked below — and stated the way the
+evidence supports it:
+
+**This corpus did NOT demonstrate a general correctness advantage for Canary.**
+On the consolidated 13-fixture matrix the plain model already hit a ceiling:
+**36/36 delivered correct**, with zero false dones and zero false greens in
+*both* arms. What the measurements do show is a **token** effect that depends
+entirely on whether the operator bound the requirements:
+
+| Configuration (one benchmark, one model, one host) | Measured result |
+|---|---|
+| 13 fixtures, **no declared proof** (`bench-final`) | plain **36/36** correct · `guarded` **33/33** correct · 0 false dones, 0 false greens in both arms · `guarded` **+40.2%** tokens |
+| requirements declared **and BOUND** to sealed checks (`bench-r11`) | plain 125,369 tokens → `guarded` **100,812 (−19.6%)**, `invisible` 91,439 (**−27.1%**) · **5/5 correct in every arm**, 0 false dones, 0 false greens |
+| requirements declared and **NOT bound** (`bench-r9`) | `guarded` **1.5–1.7M tokens over 41–45 turns** — the worker pursuing a duty only the operator can close |
+
+**The safe claim is exactly this:** *in one bound-requirement benchmark, Canary
+reduced model-token use by 19.6% while maintaining 100% delivered correctness.*
+It is **not** "Canary saves 19.6% of tokens", it is **not** a correctness claim,
+and it is **not** a universal result. An earlier configuration measured −58.5%
+tokens with correctness unchanged (`bench-r6`); that is a **historical
+configuration result**, not the v1.1 headline. A −56.4% configuration
+(`bench-r5`) is explicitly **rejected as a default** because it lost one
+delivered-correct result and produced a false green. **Reliability outranks
+token savings.**
+
+Numbers, denominators and the counter-examples: [`tooling/benchmark/RESULTS.md`](tooling/benchmark/RESULTS.md) ·
+what the set can and cannot tell you: [`tooling/benchmark/BENCHMARKS.md`](tooling/benchmark/BENCHMARKS.md) ·
+the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`](docs/V1.1-STATUS.md).
+
+## Known limitations (v1.1)
+
+- **`LOCAL` is not an OS isolation boundary.** A same-UID worker can replace the
+  local root of trust; those limits are documented, not papered over
+  ([`docs/CAPABILITY-LEVELS.md`](docs/CAPABILITY-LEVELS.md)).
+- **`HARDENED` is not available in this release.** The provider/broker
+  architecture exists and refuses to serve without a proven separation, but
+  `HARDENED` is only ever produced by a boundary **measurement** in which every
+  control is observed present (`canary provider status`).
+- **A bound check is declared proof coverage inside Canary's model — not
+  semantic truth.** Binding a requirement to a sealed check says the plan
+  measures something for it; Canary does not thereby *understand* the
+  requirement.
+- Canary does **not** claim to "never fail open" universally, nor that every
+  promoted change is independently **semantically** proven.
+- Claim strength is tiered: only the observed runners (`mocha`, `node --test`,
+  `pytest`, `unittest`) bound to an authority can carry a strong verdict; an
+  unknown runner is `INCONCLUSIVE_ONLY` by construction, and printed text never
+  upgrades a verdict.
+- `NOT PROVEN`, `NEEDS ATTENTION`, `UNSUPPORTED`, `INCONCLUSIVE` and `BLOCKED`
+  are first-class outcomes — and **a skip is not a pass**.
+
+Full list: [`docs/RELEASE-1.1.md`](docs/RELEASE-1.1.md).
 
 ---
 
@@ -141,7 +288,7 @@ Reproduce it:
 ```bash
 npm ci            # lockfile-exact, reproducible install
 npm run build
-npm test          # 503 tests / 78 suites (offline; symlink-dependent tests skip only when the OS denies link creation)
+npm test          # 1072 tests / 0 failures (offline; symlink-dependent tests skip only when the OS denies link creation)
 npm run prove     # fresh end-to-end run; PASS requires the committed proof host (36 assertions
                   # executed, zero skips). On any other runtime it honestly exits 2 (INCOMPLETE):
                   # the 22 portable assertions must all hold, the 6 host-exact ones are skipped,
@@ -304,7 +451,7 @@ Three ways to get it, in increasing order of what you must already have:
 
 | You have | Use | Result |
 |---|---|---|
-| A Node.js 22+ installation | `npm pack` (see `tooling/pack.mjs`) and install the tarball, or run straight from a checkout with `node apps/cli/dist/src/main.js` | one self-contained bundle, zero runtime dependencies |
+| A Node.js 22+ installation | install `canary-rn-cli-1.1.0.tgz` from the [v1.1.0 release](https://github.com/criptofn/Canary/releases/tag/v1.1.0) (check it against the published `.sha256`), or build it yourself with `node tooling/pack.mjs`, or run straight from a checkout with `node apps/cli/dist/src/main.js` | one self-contained bundle, zero runtime dependencies |
 | No Node.js, and a supported host | `npm run standalone` (see `tooling/standalone.mjs`) | ONE executable with Node embedded |
 | A source checkout | `npm ci && npm run build` | the development tree |
 
@@ -412,7 +559,11 @@ packages/github/                pinned-SHA tarball fetch
 packages/ai/                    optional explain-only adapter (noop shipped)
 fixtures/axios-0.27-to-1.0/     golden fixture: spec + committed proof expectations
 schemas/evidence.schema.json    published evidence contract (GENERATED from packages/evidence/schema/src/contract.ts — the single source of truth)
-docs/                           ADR-001 · PLAN · SECURITY · EXECUTION-AUTHORITY
+docs/                           ADR-001 · PLAN · SECURITY · EXECUTION-AUTHORITY · RELEASE-1.1
+                                V1.1-STATUS · CAPABILITY-LEVELS · TRUST-ARCHITECTURE
+                                AUTHORIZATION-1.0 · COMPATIBILITY · MIGRATION-1.0-TO-1.1
+                                TEST-COUNTING · SPEC-FORMAT
+tooling/benchmark/              BENCHMARKS (method) · RESULTS (per-configuration ledgers)
 archive/python-golden-prototype/ superseded first prototype (concepts preserved in TS)
 archive/prototype-scripts/      superseded M0/ladder harnesses (now the CLI)
 ```

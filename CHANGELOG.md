@@ -8,7 +8,96 @@ Numbers quoted here come from executed reporter output, per
 [`docs/TEST-COUNTING.md`](docs/TEST-COUNTING.md): this file records *what
 changed*; the evidence ledgers record *what was observed*.
 
-## [Unreleased] — v1.1 implementation candidate
+## [Unreleased]
+
+Nothing yet. The next change to Canary lands here.
+
+## [1.1.0] — 2026-09-13
+
+Canary v1.1 widens verification from one well-understood project to **any
+project, with its proof measured** — and closes two pre-release holes in the
+completion path. The release overview is
+[`docs/RELEASE-1.1.md`](docs/RELEASE-1.1.md); the detailed implementation record
+verified for this release follows below.
+
+**What v1.1 adds**
+
+- **Language / project support** — native discovery and toolchain handling for
+  **Node/JS/TS, Python, Rust, Go**, plus a **universal command-driven project
+  contract** (`canary.project.json`, or discovery from CI / Makefile / CMake /
+  Gradle anchors) for everything else. Capability is reported separately as
+  UNIVERSAL / NATIVE / OBSERVED / STRONG, and an unknown runner stays
+  `INCONCLUSIVE_ONLY`.
+- **Proof discrimination** — the sealed plan is re-run against the **sealed base
+  commit**; a check that passes on both sides is `NOT PROVEN`, not `READY`. A
+  required comparison that cannot be established is an objective **`UNPROVEN`**
+  obligation naming the reason — never an accidental PASS.
+- **Requirement coverage** — `canary task --requirement "<text>"` prints each
+  requirement's digest, and the operator's `canary bind <script> --requirement
+  "<text>"` attaches it to a check the sealed plan really runs. An objective
+  requirement with no bound proof stays `NOT PROVEN`.
+- **Candidate workflow** — `canary work` / `canary finish`: an isolated candidate
+  off a frozen base, committed work, verification from outside, and promotion of
+  the exact verified committed bytes only.
+- **Subjective acceptance** — technical proof and human judgment are separate;
+  an acceptance is bound to the exact candidate tree and scope digest, and can
+  never close an objective duty.
+- **Agent support** — Claude Code **GATED** (a completion hook can block), Codex
+  and other command-line agents **ADVISORY** (a marked, removable `AGENTS.md`
+  block that cannot block, and says so), plus `canary mcp` as a transport with no
+  extra authority.
+- **Observation channels** — `node --test`, pytest and unittest, each bound to an
+  authority (a repo pin, the verifying runtime itself, or an operator-sealed
+  identity), so printed output can never mint a strong verdict.
+- **Machine interface** — global `--json`, `canary result --json` (free, writes
+  nothing), and compact failure payloads that name the failing check and point at
+  the full log on disk instead of pasting it into a model's context.
+
+**Two pre-release blockers, closed and regression-tested**
+
+- *BLOCKER 1* — candidate verify/finish could reach promotion on proof weaker than
+  the discrimination gate's. Candidate verification and promotion now consume
+  measured discrimination against the candidate's **frozen isolation base**, and a
+  changed test filename is no longer proof by itself.
+- *BLOCKER 2* — a required baseline comparison that could not be established could
+  lose its obligation and improve `NOT PROVEN` to `READY`. Such comparisons now
+  remain objective `UNPROVEN`; a missing module, materialization failure,
+  unavailable execution or thrown comparison error can never improve a verdict.
+
+**Verification (this release)**
+
+- `npm test`: **1072 tests, 1068 pass, 0 fail, 4 skip**.
+- `npm run verify:productization`: **72 PASS, 2 host-bound SKIP, 0 FAIL** (exit 0).
+  The two skips are real-PTY checks this host cannot allocate — **a skip is not a
+  pass**, so this is 72/74 with 2 disclosed skips, not 74/74.
+- Mutation / adversarial: master-pass **13/13 caught**, trust-boundary **14/14
+  killed**, architecture **13/13 caught**; architecture closure matrix 39/39;
+  packed-artifact matrix green on the installed tarball bytes.
+
+**Benchmarks (honest summary — full detail in
+[`tooling/benchmark/RESULTS.md`](tooling/benchmark/RESULTS.md))**
+
+- The consolidated 13-fixture corpus did **not** demonstrate a general
+  correctness advantage: plain **36/36** delivered correct, `guarded` **33/33**,
+  0 false dones and 0 false greens in both arms, `guarded` **+40.2%** tokens.
+- In one benchmark with requirements declared **and bound**, `guarded` used
+  **100,812** tokens vs plain **125,369** — **−19.6%** at 5/5 delivered correct
+  (`invisible`: 91,439, −27.1%). The safe claim is exactly that, and it is not a
+  universal saving.
+- Requirements declared but **not bound** cost **1.5–1.7M tokens over 41–45
+  turns** — bind before the handoff.
+- `bench-r6`'s **−58.5%** is a historical configuration result, not the headline;
+  `bench-r5`'s **−56.4%** is rejected as a default because it lost a
+  delivered-correct result. **Reliability outranks token savings.**
+
+**Known limitations** — `LOCAL` has documented same-UID limits; `HARDENED` is
+**not** available and requires measured OS-level controls; bindings are declared
+proof coverage inside Canary's model, not semantic truth. See
+[`docs/RELEASE-1.1.md`](docs/RELEASE-1.1.md#known-limitations).
+
+---
+
+The detailed implementation record for this release follows.
 
 ### Added — Canary is language-agnostic at the project contract level
 
@@ -151,7 +240,8 @@ defect.
   records what was built where; the npm tarball remains the platform-neutral
   alternate.
 
-**Not released, not tagged.** `HARDENED` is still unreachable (no provider with a
+**Not tagged at the time of writing** (v1.1.0 is released now; the standing point
+here is about `HARDENED`). `HARDENED` is still unreachable (no provider with a
 separate OS identity is installed — see
 [`docs/TRUST-ARCHITECTURE.md`](docs/TRUST-ARCHITECTURE.md)). The six probes that
 were previously reported as pre-existing host-bound failures are now **closed**
