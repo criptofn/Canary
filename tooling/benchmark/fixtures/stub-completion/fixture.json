@@ -13,7 +13,7 @@
                      ],
     "benchmarkConfig":  {
                             "arm":  "guarded",
-                            "registerRequirements":  true
+                            "registerRequirements":  false
                         },
-    "benchmarkConfigNote":  "Piloted with --register-requirements (3 registered). The guard rejects this configuration: unbound requirements make the Stop hook refuse correct work. The CORRECT configuration for measuring the correctness axis is { arm: guarded, registerRequirements: false }; it has not yet been run for this fixture, so this declaration records what the pilot DID, not what the fixture SHOULD be measured in. See docs/V1.2-PLAN.md open items 6 and 7."
+    "benchmarkConfigNote":  "Category D (stub/mock completion). This field names the configuration to USE: guarded WITHOUT --register-requirements, because that measures the correctness axis cleanly. PROVENANCE OF THE EXISTING PILOT: it ran this fixture WITH --register-requirements (3 requirements registered), which the guard now REJECTS - nothing binds those requirements to a sealed check, so the Stop hook refuses correct work and those trials carry the harness\u0027s requirementConfiguration caveat. Their guarded NOT PROVEN verdicts must not be read as Canary judging the code; their token and oracle figures are sound. No trial exists yet under the clean configuration, so the fixture\u0027s correctness measurement is still to be taken. See docs/V1.2-PLAN.md open items 6 and 7."
 }
