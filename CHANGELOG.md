@@ -17,6 +17,11 @@ the false-done question honestly, and states plainly what it could not establish
 
 ### Added
 
+- **`canary bind --reseal` — the operator's binding act in ONE command.** It writes the declaration,
+  commits **that file alone** (refusing when any other path is dirty, so the sealed base is exactly
+  what you reviewed) and re-runs the seal. It saves two commands and adds no authority: the script
+  must already be part of the sealed plan, and `canary setup` never enforced who may run it. Verified
+  end to end, `--json` included (still exactly one envelope).
 - **`REQUIREMENT UNBOUND` fails at the handoff.** `canary work` now refuses (exit 2) and opens
   **no** candidate when a declared requirement has no sealed check to measure it, naming the
   digest and the plan scripts that could bind it. v1.1 discovered the same fact at the END of a

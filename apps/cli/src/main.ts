@@ -111,14 +111,19 @@ usage:
                             judge completion at all — none frozen = NOT PROVEN, never
                             PASS, and registering after the fact cannot mint it:
                             register, then re-isolate (there is no opt-out)
-  canary bind <script> --requirement "<exact stated requirement>" [--requirement …]
+  canary bind <script> --requirement "<exact stated requirement>" [--requirement …] [--reseal]
                             the OPERATOR's binding act: declare that a stated requirement
                             is proven by a script the SEALED PLAN runs. Writes
-                            package.json canary.proofs and names the step that seals it
-                            ('canary setup'). Without a sealed binding a registered
-                            requirement stays NOT PROVEN — acceptance cannot replace
-                            measurement for an objective requirement, and an agent cannot
-                            bind its own duties away
+                            package.json canary.proofs (or canary.project.json proofs) and
+                            names the step that seals it ('canary setup'). --reseal does the
+                            whole ritual in one act: it commits the declaration FILE alone —
+                            refusing if any other path is dirty, so the sealed base is
+                            exactly what you reviewed — and then runs the seal. It saves two
+                            commands, never authority: the script must already be part of the
+                            sealed plan. Without a sealed binding a registered requirement
+                            stays NOT PROVEN — acceptance cannot replace measurement for an
+                            objective requirement, and an agent cannot bind its own duties
+                            away
   canary work <name> "<intent>" [--kind k] [--requirement "…"]…
                             the ORDINARY path: register the intent and open the
                             candidate in one step. The intent is frozen into the

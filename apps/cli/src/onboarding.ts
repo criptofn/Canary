@@ -2949,14 +2949,25 @@ export async function cmdCheckpoint(): Promise<number> {
  * NOT PROVEN; the second half was reachable, the first was not, because binding meant hand-editing
  * `package.json` `canary.proofs` with a 64-hex digest nobody had printed.
  *
- * This command is that act, and it is deliberately narrow: it only writes the DECLARATION. It does
- * not seal anything (that stays `canary setup`, the one human-authorized moment), it refuses a script
- * the sealed plan does not run, and it names the next step. It is an operator command, not an
- * agent-facing one — a worker cannot bind its own duties away.
+ * This command is that act, and it is deliberately narrow: it refuses a script the sealed plan does
+ * not run, it writes the DECLARATION, and — with `--reseal` — it also commits that one file and
+ * re-runs the seal, so the operator's path is ONE command instead of three. It is an operator
+ * command, not an agent-facing one: what a binding may point at is still decided by the plan the
+ * operator already sealed.
+ *
+ * WHY `--reseal` ADDS STEPS SAVED AND NOT AUTHORITY (v1.2, Mission 2's last named gap). The ritual
+ * was `bind` → commit → `canary setup`, and the middle step is the one that silently breaks the
+ * result if forgotten: a binding that lives only in the working tree makes the sealed base dirty,
+ * and a dirty base cannot establish discrimination, so the requirement stays NOT PROVEN for a reason
+ * that has nothing to do with the requirement (measured; that is why the note below exists). What
+ * `--reseal` does NOT change is who may seal: `canary setup` has never enforced that — it runs
+ * unattended, `--yes` or not — so this flag removes two commands without minting any authority. The
+ * script must already be part of the SEALED plan, which is the operator's earlier act.
  */
-export function cmdBind(rawArgs: string[]): number {
+export async function cmdBind(rawArgs: string[]): Promise<number> {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose, opts.json);
+  const reseal = rawArgs.includes('--reseal');
   const positional = rest.filter((a) => !a.startsWith('--'));
   const script = positional[0];
   const requirements: string[] = [];
@@ -2964,8 +2975,8 @@ export function cmdBind(rawArgs: string[]): number {
     if (rawArgs[i] === '--requirement' && typeof rawArgs[i + 1] === 'string') requirements.push(rawArgs[i + 1] as string);
   }
   if (script === undefined || requirements.length === 0) {
-    o.say('usage: canary bind <script> --requirement "<the exact stated requirement>" [--requirement …]');
-    o.say('  the script must be one your SEALED plan runs; bind, then run: canary setup');
+    o.say('usage: canary bind <script> --requirement "<the exact stated requirement>" [--requirement …] [--reseal]');
+    o.say('  the script must be one your SEALED plan runs; bind, then run: canary setup (or add --reseal to do both)');
     return 3;
   }
   const root = findRepoRoot(dirArg(rest) ?? process.cwd());
@@ -2989,39 +3000,35 @@ export function cmdBind(rawArgs: string[]): number {
    * could not bind a requirement anywhere, so its only reachable end state was human acceptance.
    */
   const targetPath = fs.existsSync(manifestPath) ? manifestPath : pkgPath;
-  if (targetPath === manifestPath) {
-    let manifest: Record<string, unknown>;
-    try { manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as Record<string, unknown>; }
-    catch (e) { o.verdict('NEEDS ATTENTION', `cannot read canary.project.json to record the binding (${String(e).slice(0, 120)}).`, 'fix the file, then re-run'); return 2; }
-    const proofs = isRecord(manifest.proofs) ? { ...manifest.proofs } : {};
-    const written: Array<{ digest: string; text: string }> = [];
-    for (const r of requirements) { const d = materialDigest(r); proofs[d] = script; written.push({ digest: d, text: canonicalText(r).slice(0, 90) }); }
-    manifest.proofs = Object.fromEntries(Object.entries(proofs).sort(([a], [b]) => a.localeCompare(b)));
-    try { writeFileAtomic(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`); }
-    catch (e) { o.verdict('NEEDS ATTENTION', `could not write the binding into canary.project.json (${String(e).slice(0, 120)}).`, 'close whatever holds the file, then re-run'); return 2; }
-    o.say(`bound ${written.length} requirement(s) to the declared check "${safePath(script)}" in canary.project.json:`);
-    for (const w of written) o.say(`  ${w.digest}  "${w.text}"`);
-    o.say('this is a DECLARATION, not a seal: run `canary setup` to seal it into the plan authority.');
-    return 0;
-  }
-  let pkg: Record<string, unknown>;
-  try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as Record<string, unknown>; }
-  catch (e) { o.verdict('NEEDS ATTENTION', `cannot read package.json to record the binding (${String(e).slice(0, 120)}).`, 'fix the file, then re-run'); return 2; }
-  const canarySection = isRecord(pkg.canary) ? { ...pkg.canary } : {};
-  const proofs = isRecord(canarySection.proofs) ? { ...canarySection.proofs } : {};
+  const isNode = targetPath === pkgPath;
+  const surface = isNode ? 'package.json' : 'canary.project.json';
+  let doc: Record<string, unknown>;
+  try { doc = JSON.parse(fs.readFileSync(targetPath, 'utf8')) as Record<string, unknown>; }
+  catch (e) { o.verdict('NEEDS ATTENTION', `cannot read ${surface} to record the binding (${String(e).slice(0, 120)}).`, 'fix the file, then re-run'); return 2; }
+  const canarySection = isNode && isRecord(doc.canary) ? { ...(doc.canary as Record<string, unknown>) } : {};
+  const existingProofs = isNode ? canarySection.proofs : doc.proofs;
+  const proofs: Record<string, unknown> = isRecord(existingProofs) ? { ...existingProofs } : {};
   const written: Array<{ digest: string; text: string }> = [];
   for (const r of requirements) {
     const d = materialDigest(r);
     proofs[d] = script;
     written.push({ digest: d, text: canonicalText(r).slice(0, 90) });
   }
-  pkg.canary = { ...canarySection, proofs: Object.fromEntries(Object.entries(proofs).sort(([a], [b]) => a.localeCompare(b))) };
-  try { writeFileAtomic(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`); }
-  catch (e) { o.verdict('NEEDS ATTENTION', `could not write the binding into package.json (${String(e).slice(0, 120)}).`, 'close whatever holds the file, then re-run'); return 2; }
-  o.say(`bound ${written.length} requirement(s) to the sealed script "${safePath(script)}":`);
+  const sortedProofs = Object.fromEntries(Object.entries(proofs).sort(([a], [b]) => a.localeCompare(b)));
+  if (isNode) doc.canary = { ...canarySection, proofs: sortedProofs };
+  else doc.proofs = sortedProofs;
+  try { writeFileAtomic(targetPath, `${JSON.stringify(doc, null, 2)}\n`); }
+  catch (e) { o.verdict('NEEDS ATTENTION', `could not write the binding into ${surface} (${String(e).slice(0, 120)}).`, 'close whatever holds the file, then re-run'); return 2; }
+  o.say(isNode
+    ? `bound ${written.length} requirement(s) to the sealed script "${safePath(script)}":`
+    : `bound ${written.length} requirement(s) to the declared check "${safePath(script)}" in canary.project.json:`);
   for (const w of written) o.say(`  ${w.digest}  "${w.text}"`);
+
+  // The one-act path (v1.2, Mission 2's last named gap): declare, commit the declaration alone, seal.
+  if (reseal) return await resealAfterBind(root, targetPath, script, opts, o);
+
   o.say('this is a DECLARATION, not a seal: run `canary setup` to seal it into the plan authority.');
-  o.say('until then the requirement stays UNPROVEN — a green plan does not cover an unsealed binding.');
+  if (isNode) o.say('until then the requirement stays UNPROVEN — a green plan does not cover an unsealed binding.');
   /**
    * THE STEP THAT IS EASY TO MISS, AND IT COSTS A CONFUSING RESULT (v1.2, Mission 2).
    *
@@ -3032,7 +3039,7 @@ export function cmdBind(rawArgs: string[]): number {
    * look.
    *
    * Saying it HERE costs one line and removes the detour. It is reported, not enforced: committing is
-   * the operator's act, and `setup` must still run afterwards.
+   * the operator's act, and `setup` must still run afterwards — or `--reseal` performs both.
    */
   if (written.length > 0) {
     const id = candidateIdentity(root);
@@ -3041,11 +3048,94 @@ export function cmdBind(rawArgs: string[]): number {
       o.say('  commit it BEFORE re-sealing, or the sealed base is dirty and discrimination cannot be established:');
       o.say(`  git add ${safePath(path.relative(root, targetPath) || path.basename(targetPath))} && git commit -m "bind requirement(s) to ${safePath(script)}"`);
       o.say('  then: canary setup');
+      o.say('  ...or re-run this bind with --reseal, which commits the declaration and re-seals in one step.');
     } else if (id.dirty === null) {
       o.say('NOTE: could not determine whether the working tree is clean. If the binding is uncommitted, commit it before re-sealing — a dirty sealed base cannot establish discrimination.');
     }
   }
   return 0;
+}
+
+/**
+ * `--reseal`: commit the declaration FILE and re-run the seal, in one operator act.
+ *
+ * The decisions worth stating once rather than inline:
+ *
+ * 1. NOTHING ELSE MAY BE DIRTY. A sealed base must be exactly what the operator reviewed; a commit
+ *    that swept unrelated work in would make the base something else while looking like a binding.
+ *    Canary's OWN files are excluded, for the reason `setup` excludes them from its baseline:
+ *    `.canary/**` is self-ignored, and the managed `.claude/settings.json` entry is written by setup
+ *    itself — refusing on Canary's own act would block the command with no operator fix available.
+ * 2. THE COMMIT CARRIES ONLY THE DECLARATION FILE (`git commit -- <path>`), so a staged, unrelated
+ *    change stays staged and uncommitted instead of riding along.
+ * 3. IF THAT FILE IS ALREADY COMMITTED, nothing is committed: re-running the act is idempotent
+ *    rather than an empty-commit failure.
+ * 4. THE SEAL IS THE SAME `canary setup` the operator would have run, forwarded as `--yes` (the flag
+ *    IS the consent), with `--json`/`--verbose` preserved so `--json` still emits exactly ONE
+ *    envelope, from the setup path.
+ */
+async function resealAfterBind(
+  root: string, targetPath: string, script: string,
+  opts: GlobalOpts, o: Out,
+): Promise<number> {
+  const declRel = rel(root, targetPath).split(path.sep).join('/');
+  const porcelain = gitWithinRoot(root, ['status', '--porcelain']);
+  if (porcelain === null) {
+    o.say(`REFUSED — could not read the git working-tree state, so the declaration cannot be committed safely. It IS written to ${safePath(declRel)}: commit it yourself, then run: canary setup`);
+    return 2;
+  }
+  const ownSettings = rel(root, settingsPath(root)).split(path.sep).join('/');
+  /**
+   * What counts as "unrelated work"? Not Canary's own surface: `.canary/**` is self-ignored, and the
+   * `.claude/` directory holds the managed hook entry that THIS TOOL wrote. MEASURED while writing
+   * this: `git status --porcelain` reports an untracked directory as `dir/` — NOT as each file inside
+   * it — so matching the settings PATH alone let `.claude/` through as "another change" and refused
+   * every `--reseal` on a project whose harness dir is not committed. The check therefore accepts the
+   * directory entry that CONTAINS the managed settings file, which is the same surface `setup`
+   * already excludes from its baseline.
+   */
+  const isCanaryOwned = (p: string): boolean => {
+    if (p === '.canary' || p.startsWith('.canary/')) return true;
+    if (p === ownSettings) return true;
+    return p.endsWith('/') && ownSettings.startsWith(p);
+  };
+  const changed = porcelain.split('\n').map(porcelainPath).filter((p): p is string => p !== null);
+  const others = changed.filter((p) => p !== declRel && !isCanaryOwned(p));
+  if (others.length > 0) {
+    o.say(`REFUSED — the working tree has ${others.length} other change(s) (${others.slice(0, 3).map(safePath).join(', ')}${others.length > 3 ? ', …' : ''}), and --reseal commits the declaration ALONE: the sealed base must be exactly what you reviewed.`);
+    o.say(`  the declaration IS written to ${safePath(declRel)}: commit that file together with the rest of your work, then run: canary setup`);
+    o.say('  ...or commit or stash the other changes first, then re-run this command.');
+    return 2;
+  }
+  let committed = 'the declaration was already committed — nothing to commit';
+  if (changed.includes(declRel)) {
+    if (gitWithinRoot(root, ['add', '--', declRel]) === null) {
+      o.say(`REFUSED — git could not stage ${safePath(declRel)}. The declaration IS written: commit it yourself, then run: canary setup`);
+      return 2;
+    }
+    if (gitWithinRoot(root, ['commit', '-m', `bind requirement(s) to ${script}`, '--', declRel]) === null) {
+      o.say('REFUSED — git would not create the commit (are user.name and user.email configured?). The declaration IS written and staged: commit it yourself, then run: canary setup');
+      return 2;
+    }
+    const sha = (gitWithinRoot(root, ['rev-parse', '--short', 'HEAD']) ?? '').trim();
+    committed = `committed ${safePath(declRel)} alone as ${sha === '' ? 'HEAD' : sha}`;
+  }
+  o.say(`--reseal: ${committed}.`);
+  o.say('re-sealing now: `canary setup` — the same act, so the saved round trip adds no authority (the script above was already part of the sealed plan).');
+  const forwarded = ['--yes'];
+  if (opts.json) forwarded.push('--json');
+  if (opts.verbose) forwarded.push('--verbose');
+  return await cmdSetup(forwarded);
+}
+
+/** Porcelain v1 is `XY PATH`, renames as `XY OLD -> NEW`, and quotes paths containing special characters. */
+function porcelainPath(line: string): string | null {
+  if (line.trim() === '') return null;
+  const rest = line.slice(3).trim();
+  const arrow = rest.lastIndexOf(' -> ');
+  const raw = arrow === -1 ? rest : rest.slice(arrow + 4);
+  const unquoted = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
+  return unquoted.split(path.sep).join('/');
 }
 
 /** Minimal record guard, local to cmdBind: a hand-edited non-object here must never crash the write. */

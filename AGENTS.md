@@ -147,8 +147,10 @@ reproduced by v1.2's own pilot at +133% tokens.
 1. **`canary setup` prints the same note** when a registered requirement is unbound, so you
    can see it before you start. Read it; it names the digests.
 2. **If the requirement is objective** (a behaviour someone could measure), it needs a sealed
-   binding — an OPERATOR act, not yours: bind the digest to a script the sealed plan runs
-   (`package.json` → `canary.proofs`), commit that, and re-run `canary setup`. Then `work`.
+   binding — an OPERATOR act, not yours: `canary bind <script> --requirement "<the exact text>"
+   --reseal` writes the declaration, commits that file alone and re-runs the seal, in one command
+   (it refuses when any other path is dirty, so the sealed base is exactly what was reviewed). The
+   three steps by hand are: edit `package.json` → `canary.proofs`, commit that, `canary setup`.
 3. **If the requirement is genuinely subjective** ("make it feel cleaner"), register it with
    a subjective marker; the duty stays a human one and a human runs `canary accept` in a
    terminal. Say so plainly in your report.

@@ -52,7 +52,9 @@ when everything passed.
 candidate when a declared requirement has no sealed check bound to it, naming the digest and
 the plan scripts that could measure it. `canary setup` prints the same note. This is the cheap
 ending — v1.1 discovered it at the end of a session, at 1.5–1.85M tokens. Binding is an
-OPERATOR act; a subjective requirement stays a human `canary accept`.
+OPERATOR act; a subjective requirement stays a human `canary accept`. Binding is also ONE command:
+`canary bind <script> --requirement "<the exact text>" --reseal` writes the declaration, commits
+that file alone (refusing when anything else is dirty) and re-seals.
 
 **Required intake is verbatim or refused.** `canary task --requirement` takes the next argument as
 the requirement TEXT even when it begins with `--`; a missing value, or an option Canary does not

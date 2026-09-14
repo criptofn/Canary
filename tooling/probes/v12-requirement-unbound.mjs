@@ -155,6 +155,78 @@ const REQ = 'the CLI must exit 2 when the config is invalid';
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
+// ---------------------------------------------------------------- E: --reseal is ONE operator act
+{
+  console.log('--- E: `canary bind --reseal` collapses bind -> commit -> setup into one act');
+  const { root, project, git } = makeProject('e');
+  try {
+    const headBefore = git('rev-parse', 'HEAD').stdout.trim();
+    const bind = cli(project, ['bind', 'test', '--requirement', REQ, '--reseal']);
+    check('E: `bind --reseal` exits 0', bind.status === 0, `exit ${String(bind.status)}`);
+    const cfg = JSON.parse(fs.readFileSync(path.join(project, '.canary', 'canary.local.json'), 'utf8'));
+    const sealedToTest = Object.entries(cfg.planAuthority?.proofBindings ?? {}).filter(([, s]) => s === 'test');
+    check('E: the SEALED authority carries the binding (no second command was needed)',
+      sealedToTest.length === 1, JSON.stringify(cfg.planAuthority?.proofBindings ?? {}));
+    const headAfter = git('rev-parse', 'HEAD').stdout.trim();
+    check('E: HEAD advanced — the command committed the declaration', headAfter !== headBefore,
+      `${headBefore.slice(0, 7)} -> ${headAfter.slice(0, 7)}`);
+    const changedFiles = git('show', '--name-only', '--pretty=format:', 'HEAD').stdout.trim().split('\n').filter(Boolean);
+    check('E: the commit contains the DECLARATION FILE ONLY',
+      changedFiles.length === 1 && changedFiles[0] === 'package.json', changedFiles.join(', '));
+    check('E: the commit message says what it is', /bind requirement\(s\) to test/.test(git('log', '-1', '--pretty=%s').stdout.trim()),
+      git('log', '-1', '--pretty=%s').stdout.trim());
+    const status = git('status', '--porcelain').stdout.trim().split('\n').filter(Boolean)
+      .map((l) => l.slice(3).trim());
+    // The declaration must no longer be dirty, and nothing else may have been touched. Canary's own
+    // surface may legitimately remain untracked: `setup` wrote `.claude/` after the fixture's commit.
+    const canaryOwned = (p) => p === '.canary' || p.startsWith('.canary/') || p === '.claude' || p.startsWith('.claude/');
+    check('E: the declaration is committed and nothing else was touched',
+      status.every(canaryOwned), status.join(', ') || '(clean)');
+    // The outcome that matters: the requirement is no longer unbound, so the worker is handed the duty.
+    const work = cli(project, ['work', 'e1', 'fix the CLI exit codes', '--requirement', REQ]);
+    check('E: `canary work` then PROCEEDS', !/REQUIREMENT UNBOUND/.test(work.stdout),
+      work.stdout.split('\n').filter((l) => /UNBOUND|CONNECTED/.test(l))[0] ?? '(neither)');
+    check('E: and the candidate IS opened', candidateExists(project, 'e1'));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+
+// ---------------------------------------------------------------- F: --reseal refuses a dirty tree
+{
+  console.log('--- F: `--reseal` refuses to seal a base that is not what the operator reviewed');
+  const { root, project, git } = makeProject('f');
+  try {
+    fs.writeFileSync(path.join(project, 'UNRELATED.txt'), 'work in progress\n');
+    git('add', 'UNRELATED.txt'); // staged, and nothing to do with the binding
+    const bind = cli(project, ['bind', 'test', '--requirement', REQ, '--reseal']);
+    check('F: it refuses with exit 2', bind.status === 2, `exit ${String(bind.status)}`);
+    check('F: the refusal names the OTHER path', /UNRELATED\.txt/.test(bind.stdout),
+      bind.stdout.split('\n').find((l) => /REFUSED/.test(l)) ?? '(no refusal line)');
+    const cfg = JSON.parse(fs.readFileSync(path.join(project, '.canary', 'canary.local.json'), 'utf8'));
+    const bindings = cfg.planAuthority?.proofBindings ?? {};
+    check('F: NOTHING was sealed', !Object.values(bindings).includes('test'), JSON.stringify(bindings));
+    const pkg = JSON.parse(fs.readFileSync(path.join(project, 'package.json'), 'utf8'));
+    check('F: the declaration IS written, so the operator loses no work',
+      Object.values(pkg.canary?.proofs ?? {}).includes('test'), JSON.stringify(pkg.canary?.proofs ?? {}));
+    check('F: and the refusal says how to finish', /canary setup/.test(bind.stdout));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+
+// ---------------------------------------------------------------- G: --json keeps ONE envelope
+{
+  console.log('--- G: `--reseal --json` keeps the one-envelope contract');
+  const { root, project } = makeProject('g');
+  try {
+    const bind = cli(project, ['bind', 'test', '--requirement', REQ, '--reseal', '--json']);
+    check('G: it exits 0', bind.status === 0, `exit ${String(bind.status)}`);
+    const lines = bind.stdout.split('\n').filter((l) => l.trim() !== '');
+    check('G: stdout carries exactly ONE JSON line (two commands, one envelope)', lines.length === 1, `${lines.length} non-empty line(s): ${lines.slice(0, 3).join(' | ').slice(0, 200)}`);
+    let env = null;
+    try { env = JSON.parse(lines[0] ?? ''); } catch { env = null; }
+    check('G: that line is the setup envelope and says READY', env !== null && env.status === 'READY', String(lines[0] ?? '(nothing)').slice(0, 140));
+    check('G: the human prose went to stderr, never stdout', /bound 1 requirement/.test(bind.stderr), (bind.stderr.split('\n')[0] ?? '(no stderr)').slice(0, 140));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+
 console.log('');
 console.log(failures === 0
   ? 'REQUIREMENT UNBOUND gate: every case holds'
