@@ -1,0 +1,9 @@
+{
+  "name": "stub-completion",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A conversion function stubbed to satisfy exactly the inputs the visible suite uses.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}
