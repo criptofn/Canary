@@ -23,7 +23,22 @@ const mutants = [
  ['M12','B4',[['onboarding','[kindFlag, ...inferred]','[kindFlag]']]],
  ['M13','F1',[['candidate','if (!frozenKinds.length || !canonicalTask(frozenTask))','if (false)']]],
 ];
-const run = (args, env = process.env) => spawnSync(process.execPath,args,{cwd:repo,env,encoding:'utf8',timeout:240000,windowsHide:true,maxBuffer:8*1024*1024});
+/**
+ * TIMEOUT RAISED FROM 240 s TO 600 s (v1.2), because 240 s was an 8-SECOND MARGIN and the probe failed
+ * on it.
+ *
+ * MEASURED: `architecture-closure.mjs` takes **248 s** on this host against a 240 s budget, so the
+ * mutation probe's baseline assertion failed with `status: null` / `ETIMEDOUT` — intermittently, on
+ * machine load. The failure looked like a broken gate and was really a stopwatch.
+ *
+ * The first hypothesis (piped stdio) was tested and DISPROVED before this: `tooling/probes/
+ * v12-spawn-shape.mjs` shows piped and file-descriptor stdio returning exit codes identically, and
+ * BOTH timing out on the real target. The measured cause is the budget, not the spawn shape.
+ *
+ * Raising a timeout does not weaken any assertion: the baseline must still exit 0, and every mutant
+ * must still be killed. It only stops the harness reporting a slow-but-correct run as a defect.
+ */
+const run = (args, env = process.env) => spawnSync(process.execPath,args,{cwd:repo,env,encoding:'utf8',timeout:600000,windowsHide:true,maxBuffer:8*1024*1024});
 let failures=0;
 try {
  const baseline=run(['tooling/probes/architecture-closure.mjs']);
