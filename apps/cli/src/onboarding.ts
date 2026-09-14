@@ -2228,6 +2228,27 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   writeVerificationBundle(root, 'setup', ran, allOk ? 'pass' : 'fail', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
   writeCheckpoint(root, allOk ? 'pass' : 'fail', failed.map((f) => f.kind), 'setup');
   if (allOk) {
+    /**
+     * A GREEN PLAN IS NOT A PROVEN TASK — DO NOT SAY READY WHILE A REGISTERED REQUIREMENT IS UNBOUND.
+     *
+     * MEASURED friction this closes (v1.2 recon): `setup` never evaluated obligations, so it could
+     * print READY on a repository where `doctor` — seconds later, same bytes — printed NOT PROVEN.
+     * An operator reading READY reasonably concludes the task is covered, and the contradiction is
+     * then discovered at the END of a worker's session, which is where the measured 1.5-1.85M-token
+     * loops came from.
+     *
+     * The honest ending depends on what is registered: with no outstanding duty the wiring really is
+     * fresh and READY is right; with requirements that no sealed check measures, saying so HERE costs
+     * one sentence and saves the whole loop. Exit stays 0 — this IS a successful setup, and the
+     * requirement state is reported rather than turned into a failure.
+     */
+    const unbound = unboundRequirements(root, cfg);
+    if (unbound.unbound.length > 0 && !unbound.subjective) {
+      o.say(`note: ${unbound.unbound.length} registered requirement(s) have NO sealed proof, so the checks above cannot measure them.`);
+      for (const req of unbound.unbound) o.say(`  unbound: ${req.digest}`);
+      o.say(`  sealed plan script(s) available to bind: ${unbound.planScripts.length > 0 ? unbound.planScripts.join(', ') : '(none)'}`);
+      o.say('  the wiring here is ready, but the TASK is not: bind each digest (package.json "canary" proofs) and re-run setup. Until then `canary doctor` will say NOT PROVEN — that is the same fact, not a second problem.');
+    }
     o.verdict('READY', 'Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.', `try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor`);
     return 0;
   }
