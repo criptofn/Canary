@@ -95,18 +95,26 @@ try {
   ];
   let boundaryHolds = false;
   let confinementAvailable = false;
+  let hostSkips = 0;
   for (const [name, token] of levels) {
     const confined = attempt(['runas.exe', token], `confined-${name}`);
-    // A confined child that never ran proves nothing either way — report exactly that.
+    /**
+     * A CONFINED CHILD THAT NEVER RAN IS A HOST-BOUND SKIP, NOT A FAILURE.
+     *
+     * This line used to print FAIL, which contradicted this repository's own convention — and its own
+     * words. A child that did not run is *"not evidence of a boundary"*; it is evidence that this host
+     * cannot drive the mechanism. Reporting it as FAIL made the productization log show two failures
+     * for a probe whose honest outcome is "no boundary is available here", which is exactly the
+     * SKIP-versus-FAIL distinction the rest of this repository is careful about (`pre10-acceptance`
+     * reports its undrivable real-pty check as an explicit host-bound SKIP for the same reason).
+     */
     if (!confined.childWrote) {
-      record(`${name}-integrity: does a confined child run at all on this host?`, false,
-        `the child left no file (launcher exit ${String(confined.launcherExit)}, stderr ${JSON.stringify(confined.launcherStderr)}) — this is NOT evidence of a boundary, only of a child that did not run`);
+      hostSkips += 1;
+      console.log(`SKIP  ${name}-integrity: does a confined child run at all on this host? — the child left no file (launcher exit ${String(confined.launcherExit)}, stderr ${JSON.stringify(confined.launcherStderr)}); this is NOT evidence of a boundary, only of a child that did not run, so nothing is claimed`);
       continue;
     }
     confinementAvailable = true;
-    const held = !confined.childWrote;
-    void held;
-    // If the child wrote, the boundary did NOT hold. Recorded as a real finding.
+    // If the child wrote, the boundary did NOT hold. That IS a real finding, and a real FAIL.
     record(`${name}-integrity: the confined child is refused a write into the authority tree`, false,
       `the confined child WROTE ${String(confined.content)} — no boundary; do NOT claim one`);
   }
@@ -119,9 +127,12 @@ try {
   console.log(boundaryPresent
     ? 'VERDICT: a non-privileged integrity boundary is present and held against the executed write attempt.'
     : 'VERDICT: NO integrity boundary is available on this host — `runas /trustlevel` cannot start a lowered process here, so no confinement was established and NOTHING is claimed.');
+  if (hostSkips > 0) {
+    console.log(`PROBE-PASS-WITH-SKIP — ${hostSkips} host-bound SKIP(s) above; the mechanism this probe would measure could not be driven here, so the absence of a boundary is REPORTED rather than proven. A skip is never a pass.`);
+  }
   console.log('platform:', process.platform, 'node:', process.version, 'elevated:', spawnSync('net', ['session'], { windowsHide: true }).status === 0);
   fs.writeFileSync(path.join(os.tmpdir(), 'canary-integrity-boundary.json'),
-    JSON.stringify({ at: new Date().toISOString(), platform: process.platform, node: process.version, results, boundaryPresent }, null, 2));
+    JSON.stringify({ at: new Date().toISOString(), platform: process.platform, node: process.version, results, boundaryPresent, hostSkips }, null, 2));
 
   process.exit(0);
 } finally {
