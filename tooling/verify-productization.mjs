@@ -351,7 +351,9 @@ const STEPS = [
   // any v1.2 number is believed: what the agent SAID is kept separate from what is TRUE, an oracle
   // that did not run is UNUSABLE rather than a failure, and a false-green rate with no denominator is
   // null rather than a fabricated zero.
-  ['1.2 benchmark outcome instrument (five outcomes; agrees with 395 stored trials)', process.execPath, ['tooling/probes/v12-outcome-selfcheck.mjs'], {}],
+  // No count in the label: the corpus grows, the probe prints the real denominator, and a number baked
+  // into a step name goes stale silently — this one said "395 stored trials" when it had reached 410.
+  ['1.2 benchmark outcome instrument (five outcomes; re-checks itself against the stored corpus)', process.execPath, ['tooling/probes/v12-outcome-selfcheck.mjs'], {}],
   // A security measurement is a measurement: it can be wrong, and the first version of this one WAS
   // (a control write and a confined write shared a filename, so the probe measured itself and called
   // it a boundary). It is in the chain so the retraction stays visible and re-runs.
