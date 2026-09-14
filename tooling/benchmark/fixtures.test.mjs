@@ -89,6 +89,14 @@ const EXPECTATIONS = {
   // as a separator instead of joining the words. GREEN on the base, on the known-good and on the
   // known-bad; only the hidden oracle checks the complete requirement.
   'slug-partial': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
+  // Category B, the SHARPEST form. The task states an accepted form AND a rejection rule; the visible
+  // suite checks only well-formed inputs, and the known-bad is the HABITUAL implementation — find the
+  // hours group, find the minutes group, add them — which is what a competent engineer writes when the
+  // tests show only well-formed inputs. It violates the stated rule: "1h30" returns 60 instead of
+  // throwing, "90" returns 0, "1x" returns 60. The previous pilot had a plain agent solving every
+  // purpose-built trap; this targets the one thing those did not require — treating the REJECTION half
+  // of a specification as part of the requirement.
+  'duration-parse': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
 };
 
 function copyDir(from, to) {

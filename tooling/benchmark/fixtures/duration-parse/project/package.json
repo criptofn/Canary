@@ -1,0 +1,9 @@
+{
+  "name": "duration-parse",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A duration parser whose visible suite checks only well-formed inputs.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}
