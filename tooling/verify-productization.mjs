@@ -224,7 +224,14 @@ process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-t
   if (repaired !== null) console.log(`WARNING: ${repaired}`);
 }
 const STEPS = [
-  ['build (tsc -b)', 'npm', ['run', 'build'], {}],
+  // FORCED, not incremental. MEASURED (2026-09-14): `npm run build` (`tsc -b`) reports success
+  // WITHOUT re-emitting a file whose bytes were changed after compilation — so a `dist` left mutated
+  // by an interrupted mutation battery stays mutated, and the whole chain then measures a corrupted
+  // artifact while every step reports on it as if it were a build. `--force` makes the first step
+  // actually produce the artifact it claims to produce, which is the precondition for the tripwire
+  // below to mean anything.
+  ['build (tsc -b --force)', 'npx', ['tsc', '-b', 'apps/cli', '--force'], {}],
+  ['build (npm run build, incremental)', 'npm', ['run', 'build'], {}],
   // BEFORE anything reads the artifact: is the compiled CLI a real build, or a mutation battery's
   // leftover? MEASURED (2026-09-14): an interrupted `master-pass-mutations` run left
   // `apps/cli/dist/src/candidate.js` containing `if (false) {` in place of the non-TTY acceptance
