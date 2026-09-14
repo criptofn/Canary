@@ -225,6 +225,14 @@ process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-t
 }
 const STEPS = [
   ['build (tsc -b)', 'npm', ['run', 'build'], {}],
+  // BEFORE anything reads the artifact: is the compiled CLI a real build, or a mutation battery's
+  // leftover? MEASURED (2026-09-14): an interrupted `master-pass-mutations` run left
+  // `apps/cli/dist/src/candidate.js` containing `if (false) {` in place of the non-TTY acceptance
+  // gate. The source was correct; the artifact was not. Against it, `pre10-acceptance` case C failed
+  // while passing standalone on the byte-identical tree, and the master-pass battery aborted at its
+  // own acceptance baseline — hours spent explaining behaviour the source never had. This step turns
+  // that state into a loud first failure instead of a phantom product defect.
+  ['dist tripwire (is the compiled artifact mutated?)', process.execPath, ['tooling/probes/v12-dist-tripwire.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],

@@ -813,6 +813,15 @@ export async function cmdAccept(rawArgs: string[]): Promise<number> {
   // could not be honoured would be theatre.
   const store = storeFromEnv();
   const providerOnly = brokerRoutingRequired(store);
+  /**
+   * IF YOU ARE DEBUGGING A FAILING "case C" AND THIS CONDITION READS `if (false)` IN `dist`:
+   * the compiled artifact is MUTATED, not the gate removed on purpose.
+   * `tooling/probes/master-pass-mutations.mjs` writes exactly that form for its "TTY gate removable"
+   * case, mutating `dist` and restoring it afterwards; an interrupted battery leaves it behind, and
+   * then `pre10-acceptance` case C fails against an artifact this source never produced. Rebuild with
+   * `npx tsc -b apps/cli --force`. The tripwire `tooling/probes/v12-dist-tripwire.mjs` now runs first
+   * in the productization chain and names this state explicitly.
+   */
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     o.say('REFUSED — the supported acceptance flow requires an interactive terminal on both streams; this session has none, so the non-interactive path is refused. (No flag or env var escapes this. A terminal is friction, not cryptographic human identity — see SECURITY.md.) To accept, run canary accept <candidate> yourself from a real terminal.');
     return 2;
