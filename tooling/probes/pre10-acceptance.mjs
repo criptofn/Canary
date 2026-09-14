@@ -259,6 +259,18 @@ check('F no frozen authority: accept refuses and recommends register+re-isolate 
   fs.writeFileSync(rp, JSON.stringify(record));
   const empty = acceptPty(root, ['accept', 'c'], 'c\n');
   assertEq(empty.status, 2, 'F: shape-valid empty frozen kind set cannot mint authority');
+  /**
+   * ASSERT WHY, NOT MERELY THAT. MEASURED (v1.2, master-pass M12): with the guard
+   * `if (!frozen || !frozen.kinds.length)` mutated to `if (!frozen)`, this case stayed GREEN because
+   * a LATER check refused the same record — so `accept` still exited 2 and the assertions above were
+   * satisfied by a refusal from somewhere else. The mutant survived a probe that appeared to cover it.
+   *
+   * The refusal must therefore be the one this case is about: the authority context must say the
+   * frozen task is unusable, which is the guard's own reason. If M12 opens that door, this reason is
+   * replaced by a different one and the case turns red — which is what makes the mutation detectable.
+   */
+  assert(/NO frozen task authority/.test(empty.stdout),
+    `F: the refusal must be the FROZEN-KIND guard's own reason, not some later check:\n${empty.stdout}`);
   assert(!fs.existsSync(accPath(root, 'c')), 'F: empty frozen kinds write nothing');
 });
 
