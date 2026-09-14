@@ -230,7 +230,9 @@ const STEPS = [
   // artifact while every step reports on it as if it were a build. `--force` makes the first step
   // actually produce the artifact it claims to produce, which is the precondition for the tripwire
   // below to mean anything.
-  ['build (tsc -b --force)', 'npx', ['tsc', '-b', 'apps/cli', '--force'], {}],
+  // `npm exec`, not `npx`: the chain spawns steps without a shell, and `npx` is a shell shim that
+  // `spawnSync` cannot resolve here (MEASURED: `spawnSync npx ENOENT`), while `npm` resolves.
+  ['build (tsc -b --force)', 'npm', ['exec', '--', 'tsc', '-b', 'apps/cli', '--force'], {}],
   ['build (npm run build, incremental)', 'npm', ['run', 'build'], {}],
   // BEFORE anything reads the artifact: is the compiled CLI a real build, or a mutation battery's
   // leftover? MEASURED (2026-09-14): an interrupted `master-pass-mutations` run left
