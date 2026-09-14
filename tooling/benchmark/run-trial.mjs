@@ -285,6 +285,25 @@ if (arm === 'canary' || arm === 'workflow' || arm === 'invisible' || arm === 'gu
  */
 if (arm !== 'plain' && arm !== 'workflow' && registerRequirements) {
   const reqs = Array.isArray(fixtureMeta.requirements) ? fixtureMeta.requirements : [];
+  /**
+   * A RECORDED HAZARD, MADE LOUD RATHER THAN SILENT.
+   *
+   * MEASURED (v1.2, `version-bump`): on the `guarded` arm this flag produces a FALSE RED on correct
+   * work. The guarded prompt never drives `canary work`, so the agent edits the repository in place;
+   * registering a requirement creates a `per-requirement` duty on the task; nothing binds it to a
+   * sealed check; and the Stop hook then refuses work the hidden oracle says was CORRECT — measured at
+   * 217,799 tokens over 21 turns, with every place actually updated.
+   *
+   * It is not wrong for every fixture: a fixture that BINDS its requirement to a sealed check whose
+   * verdict the work still fails measures something real. But the failure mode is a fabricated
+   * negative verdict that looks like a Canary result, so the trial must SAY which configuration it
+   * ran. See docs/V1.2-PLAN.md open item 6, which lays out the three configurations and what each
+   * one measures.
+   */
+  record.requirementConfiguration = 'registered-unbound-on-a-non-workflow-arm';
+  record.requirementConfigurationCaveat =
+    'The guarded/visible arms do not drive `canary work`, so a registered-but-unbound requirement is refused by the Stop hook AFTER the work is done. A guarded NOT PROVEN verdict in this trial is explained by that duty, not by the code. Do not read it as Canary judging the work.';
+  console.error('NOTE: --register-requirements on a non-workflow arm registers requirements that nothing binds; the Stop hook will refuse correct work. Read this trial\'s verdict accordingly (see docs/V1.2-PLAN.md open item 6).');
   if (reqs.length > 0) {
     const firstProseLine = taskText.split('\n').map((l) => l.trim()).find((l) => l !== '' && !l.startsWith('#'));
     const intent = typeof fixtureMeta.intent === 'string' && fixtureMeta.intent !== '' ? fixtureMeta.intent : (firstProseLine ?? 'the stated task');
