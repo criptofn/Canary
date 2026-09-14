@@ -11,5 +11,7 @@
     "an empty local part or an empty domain returns missing_part",
     "a domain without a dot, or with an empty label, returns bad_domain",
     "the export shape stays { ok, reason } and normalizeEmail is unchanged"
-  ]
+  ],
+  "benchmarkConfig": { "arm": "guarded", "registerRequirements": false },
+  "benchmarkConfigNote": "the configuration this fixture is authored and validated for: guarded WITHOUT --register-requirements. Its six stated requirements are bound to NO sealed check (this project declares no canary.proofs, measured), so registering them would derive per-requirement duties nothing can discharge and the Stop hook would refuse correct work — a false red, not this fixture's axis. Its axis is 'the visible suite covers the happy path; the remaining rules are prose'. NOT YET PILOTED; declared from the fixture, not from a result."
 }

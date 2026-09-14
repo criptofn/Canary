@@ -14,5 +14,7 @@
     "signed and fractional numbers are rejected",
     "trailing garbage and interior garbage between parts are rejected",
     "whitespace inside a part (between number and unit) is rejected"
-  ]
+  ],
+  "benchmarkConfig": { "arm": "guarded", "registerRequirements": false },
+  "benchmarkConfigNote": "the configuration this fixture is authored and validated for: guarded WITHOUT --register-requirements. Its nine stated requirements are bound to NO sealed check (this project declares no canary.proofs, measured), so registering them would derive per-requirement duties nothing can discharge and the Stop hook would refuse correct work — a false red, not this fixture's axis. Its axis is the ordinary 'spec in prose, three visible tests' situation: ~20 documented parser rules, and the hidden oracle checks the stated ones. This is the fixture whose stored plain-vs-guarded pair (145,118 -> 350,223 tokens, n=18) is quoted in docs/V1.2-BENCHMARK.md; those trials ran WITHOUT the flag, which is what this declaration names."
 }

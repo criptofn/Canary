@@ -353,6 +353,12 @@ const STEPS = [
   // it could be bound to, proceeds once bound, and does NOT block a genuinely subjective
   // registration (whose honest closure is a human acceptance).
   ['1.2 REQUIREMENT UNBOUND gate (no worker is handed a duty it cannot close)', process.execPath, ['tooling/probes/v12-requirement-unbound.mjs'], {}],
+  // ...and the step BEFORE that gate: intake. A requirement whose text begins with a dash-like token
+  // (`--strict …`) used to be neither registered nor reported — eight were stated, seven were
+  // recorded. Found by the fixture-configuration probe below, not by review. `--requirement` now
+  // takes its value verbatim, a missing value is refused, and an unknown option is refused rather
+  // than ignored (a typo silently registering ZERO duties is the one outcome intake may never have).
+  ['1.2 requirement intake (verbatim, or refused — never a silent coverage hole)', process.execPath, ['tooling/probes/v12-requirement-intake.mjs'], {}],
   // The five-outcome instrument, and the boundary measurement it depends on, check themselves before
   // any v1.2 number is believed: what the agent SAID is kept separate from what is TRUE, an oracle
   // that did not run is UNUSABLE rather than a failure, and a false-green rate with no denominator is
@@ -376,6 +382,11 @@ const STEPS = [
     'tooling/benchmark/redact.test.mjs', 'tooling/benchmark/secret-scan.test.mjs',
     'tooling/benchmark/fingerprint.test.mjs', 'tooling/benchmark/stream.test.mjs'], {}],
   ['benchmark: every fixture separates a correct from an incorrect solution', process.execPath, ['--test', 'tooling/benchmark/fixtures.test.mjs'], {}],
+  // ...and every fixture's DECLARED configuration is checked against the fixture, not trusted: each
+  // project is sealed, its own stated requirements are registered, and `registerRequirements: true`
+  // must hold exactly where the product's own digests and sealed bindings show every requirement is
+  // bound. This is the probe that found the silent-drop defect in requirement intake (above).
+  ['benchmark: every fixture\'s declared configuration matches its own sealed bindings', process.execPath, ['tooling/probes/v12-fixture-configurations.mjs'], {}],
   ['benchmark: agent-driven token ledger (stream-json parsed for phase cost + visible bytes)', process.execPath, ['tooling/probes/agent-token-ledger.mjs'], {}],
 ];
 

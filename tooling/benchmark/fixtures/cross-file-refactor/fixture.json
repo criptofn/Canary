@@ -12,5 +12,7 @@
     "formatMoney(amount) keeps working exactly as before, for numbers and numeric strings, as a deprecated alias for format(amount, 'USD')",
     "Cart.total(currency = 'USD') formats the summed line items in the requested currency and still defaults to USD",
     "src/index.js keeps exporting formatMoney, format and Cart"
-  ]
+  ],
+  "benchmarkConfig": { "arm": "guarded", "registerRequirements": false },
+  "benchmarkConfigNote": "the configuration this fixture is authored and validated for: guarded WITHOUT --register-requirements. Its seven stated requirements are bound to NO sealed check (this project declares no canary.proofs, measured), so registering them would derive per-requirement duties nothing can discharge and the Stop hook would refuse correct work — a false red, not this fixture's axis. Its axis is 'green tests, broken compatibility' across four files. NOT YET PILOTED; declared from the fixture, not from a result."
 }

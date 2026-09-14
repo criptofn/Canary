@@ -114,6 +114,15 @@ stated rule wrongly, wrote its own test that missed the case, and Canary correct
 reported `READY` — because the rule was never a duty. With the requirement declared,
 that outcome needs either a machine check or a human acceptance.
 
+**And the declaration is taken verbatim, or refused — never silently reduced.** `--requirement`
+consumes the next argument as the requirement TEXT even when that text begins with a dash-like
+token (`--strict moves warnings into errors rather than dropping them` is a real requirement, not an
+option), and an option Canary does not recognise is **refused** (exit 3, nothing written) rather
+than ignored. Measured (v1.2): the old parser dropped such a requirement without a word — eight
+stated requirements became seven recorded duties — which is the same defect class as the v1.1
+`canary work` bug ("Canary silently registered FEWER, i.e. weaker verification than the human
+authorized"). A silent coverage hole is the one outcome intake may never produce.
+
 ### `REQUIREMENT UNBOUND` — a declared requirement that no sealed check measures
 
 **Since v1.2, `canary work` does not start a worker on a duty the worker cannot close.** If

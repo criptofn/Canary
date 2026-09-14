@@ -9,5 +9,7 @@
     "leading and trailing whitespace is trimmed from the result",
     "an empty or whitespace-only input becomes the word empty",
     "the result is lower-case"
-  ]
+  ],
+  "benchmarkConfig": { "arm": "guarded", "registerRequirements": true },
+  "benchmarkConfigNote": "THE ONE FIXTURE IN THIS CORPUS WHOSE STATED REQUIREMENTS ARE BOUND, so it is the only place where --register-requirements is the authored configuration rather than a hazard. Its canary.project.json declares one check per requirement and binds all three requirement digests to those checks (measured: manifest.proofs has 3 entries, package.json has none), so registering the three requirements derives duties that MEASUREMENT discharges instead of a Stop-hook refusal of correct work. That makes this the corpus's only positive coverage control, and the harness's 'registered-but-unbound' reading would be a false statement about it. NOT YET PILOTED in either configuration; declared from the fixture's own declaration surface."
 }

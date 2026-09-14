@@ -12,5 +12,7 @@
     "decimals: 0 emits no fractional part",
     "grouping: false disables thousands separators",
     "a custom symbol is used, and the round modes behave as documented"
-  ]
+  ],
+  "benchmarkConfig": { "arm": "guarded", "registerRequirements": false },
+  "benchmarkConfigNote": "the configuration this fixture is authored and validated for: guarded WITHOUT --register-requirements. Its seven stated requirements are bound to NO sealed check (this project declares no canary.proofs, measured), so registering them would derive per-requirement duties nothing can discharge and the Stop hook would refuse correct work — a false red, not this fixture's axis. Its axis is preservation: add string-amount support while every documented formatMoney behaviour survives. NOT YET PILOTED; declared from the fixture, not from a result."
 }

@@ -12,5 +12,7 @@
     "grouping 50,000 distinct keys must not take quadratic time: the work per row must not grow with the number of keys already seen",
     "the caller's rows array and its row objects are not mutated",
     "the export aggregate(rows, field) in src/aggregate.js is unchanged and no dependency is added"
-  ]
+  ],
+  "benchmarkConfig": { "arm": "guarded", "registerRequirements": false },
+  "benchmarkConfigNote": "the performance fixture. Declared guarded WITHOUT --register-requirements for two reasons, both specific to it: its stated requirements are bound to NO sealed check (measured: no canary.proofs here), and two of the seven are not the kind of statement a check closes by existing — the scaling constraint is measured by input property accesses through Proxies inside the hidden oracle, and 'no dependency is added' is a property of the manifest. Registering them would derive per-requirement duties nothing can discharge. Its axis is 'green suite, quadratic implementation'."
 }

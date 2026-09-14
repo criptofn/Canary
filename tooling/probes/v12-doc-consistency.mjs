@@ -41,7 +41,8 @@ const fixtures = fs.readdirSync(fixturesDir, { withFileTypes: true }).filter((d)
 const declaring = fixtures.filter((d) => {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(fixturesDir, d.name, 'fixture.json'), 'utf8'));
-    return j.benchmarkConfig !== undefined || j.benchmarkArm !== undefined;
+    return j.benchmarkConfig !== undefined || Array.isArray(j.benchmarkConfigs)
+      || typeof j.benchmarkArm === 'string' || Array.isArray(j.benchmarkArms);
   } catch {
     return false;
   }
@@ -58,7 +59,14 @@ const actual = {
 // --- what the documents assert --------------------------------------------------------------
 const plan = read('docs/V1.2-PLAN.md');
 const findings = [];
+/**
+ * The check COUNT is counted, not written down. It used to be the literal `4 + 3` in the summary
+ * line, which goes stale the moment a check is added — the same class of defect as a step label that
+ * said "395 stored trials" after the corpus had reached 410.
+ */
+let checksRun = 0;
 const check = (name, ok, detail) => {
+  checksRun += 1;
   if (ok) {
     console.log(`PASS ${name}`);
   } else {
@@ -128,8 +136,33 @@ for (const [file, text] of [['README.md', read('README.md')], ['CHANGELOG.md', r
 }
 
 console.log('');
+
+/*
+ * EVERY FIXTURE MUST DECLARE ITS CONFIGURATION — the invariant open item 7 finished. `declaringConfig`
+ * was already computed here and NEVER USED, so the one corpus fact that could silently go stale again
+ * had no check behind it at all.
+ */
+check(
+  'every fixture declares the configuration it is authored for',
+  actual.declaringConfig === actual.fixtures,
+  `${actual.fixtures - actual.declaringConfig} of ${actual.fixtures} fixture(s) declare no benchmarkConfig/benchmarkArm`,
+);
+
+/*
+ * THE GOVERNING TOKEN NUMBER, pinned against the MISSTATEMENT rather than the word (audit entry 12):
+ * Section 6 of the benchmark document — the section that disclaims token savings — quoted `+82.7%`,
+ * the contaminated-corpus aggregate, as "the measured delta", while Section 2 says in as many words
+ * that `+115.1%` governs. A check is cheaper than noticing it a third time.
+ */
+const deltaMisstated = (text) => /delta\s+is\s+\*{0,2}\+?82\.7%/.test(text);
+check(
+  'no release document presents the contaminated +82.7% aggregate as the measured delta',
+  !deltaMisstated(read('docs/V1.2-BENCHMARK.md')) && !deltaMisstated(read('README.md')),
+  'the contaminated-corpus aggregate is quoted as the headline; quote +115.1% and cite +82.7% only as the contaminated-corpus aggregate',
+);
+
 if (findings.length === 0) {
-  console.log(`doc consistency: all ${4 + 3} checks held (${actual.commits} commits, ${actual.v12Trials} v1.2 trials, ${actual.fixtures} fixtures)`);
+  console.log(`doc consistency: all ${checksRun} checks held (${actual.commits} commits, ${actual.v12Trials} v1.2 trials, ${actual.fixtures} fixtures)`);
   process.exit(0);
 }
 console.log(`doc consistency: ${findings.length} disagreement(s)`);

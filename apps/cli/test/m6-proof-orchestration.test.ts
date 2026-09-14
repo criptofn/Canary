@@ -256,6 +256,32 @@ describe('canary task — an AGENT_REPORTED hint with zero authority', () => {
     assert.equal(canary(['task'], root).status, 3); // bare usage
     assert.match(canary(['task'], root).stdout, /usage: canary task/);
   });
+  /**
+   * MEASURED defect this pins (v1.2, found by tooling/probes/v12-fixture-configurations.mjs, not by
+   * review): the parser accepted a `--requirement` value only if it did NOT start with `--`, then
+   * skipped every remaining `--` token — so fixture `cli-exit-codes`' own requirement
+   * `"--strict moves warnings into errors rather than dropping them"` was neither registered nor
+   * reported. EIGHT stated requirements became SEVEN recorded duties, silently. Same defect class as
+   * the `canary work` bug in orchestrate.test.ts REG-R1, one layer down.
+   */
+  it('a requirement whose TEXT begins with "--" is registered verbatim; a misuse is REFUSED', () => {
+    const root = makeProject('task-dash-requirement');
+    assert.equal(canary(['setup', '--yes', root], root).status, 0);
+    const dash = '--strict moves warnings into errors rather than dropping them';
+    const r = canary(['task', 'harden the validator', '--requirement', 'a normal one', '--requirement', dash], root);
+    assert.equal(r.status, 0, `a dash-leading requirement must register: ${r.stdout}${r.stderr}`);
+    const rec = taskRecord(root);
+    assert.equal(rec.requirementCount, 2);
+    assert.equal(new Set(rec.requirementDigests).size, 2);
+    assert.match(r.stdout, /2 requirement\(s\)/);
+    const recordPath = path.join(root, '.canary', 'task', 'current.json');
+    const bytes = fs.readFileSync(recordPath, 'utf8');
+    // a missing value and an unrecognised option are BOTH refused, and a refusal writes nothing —
+    // ignoring a typo would register ZERO duties while the operator believes otherwise.
+    assert.equal(canary(['task', 'intent', '--requirement'], root).status, 3);
+    assert.equal(canary(['task', 'intent', '--requirment', 'x'], root).status, 3);
+    assert.equal(fs.readFileSync(recordPath, 'utf8'), bytes, 'a refused registration must leave the record untouched');
+  });
   it('registering a task against no setup / no git says so; nothing is written', () => {
     const bare = path.join(TMP, 'task-nosetup');
     fs.mkdirSync(path.join(bare, '.git'), { recursive: true });

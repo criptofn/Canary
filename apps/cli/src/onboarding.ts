@@ -1757,15 +1757,60 @@ export function cmdTask(rawArgs: string[]): number {
   let kindFlag: string | null = null;
   const prose: string[] = [];
   const requirements: string[] = [];
+  /**
+   * A STATED REQUIREMENT MUST NEVER BE SILENTLY DROPPED (v1.2, found by a probe rather than by a hunch).
+   *
+   * MEASURED, tooling/probes/v12-fixture-configurations.mjs: fixture `cli-exit-codes` states EIGHT
+   * requirements and `canary task` recorded SEVEN digests. The missing one begins with `--`:
+   *
+   *   "--strict moves warnings into errors rather than dropping them"
+   *
+   * The old loop required the value to NOT start with `--` (`!rest[i+1].startsWith('--')`) and then
+   * skipped any remaining `--` token outright, so a requirement whose TEXT begins with a dash-like
+   * token was neither consumed nor reported: the operator saw "8 requirements" in their head and
+   * "7 requirement(s)" on screen, and the eighth became prose nobody checks. That is the exact
+   * failure this repository exists to prevent, and it is the same defect class as the MEASURED `work`
+   * bug recorded in orchestrate.ts ("Canary silently registered FEWER, i.e. weaker verification than
+   * the human authorized") — fixed there in v1.1, still present here.
+   *
+   * The rule now: `--requirement` takes the NEXT ARGUMENT VERBATIM as the requirement text. The only
+   * values rejected are the ones that cannot be text at all — no value, or another option token,
+   * which is a misuse Canary refuses instead of guessing. An unrecognised option is REFUSED rather
+   * than ignored, because ignoring `--requirment "x"` (a typo) registers zero duties while the
+   * operator believes otherwise, and a silent coverage hole is the one outcome this command may
+   * never produce.
+   */
+  const optionToken = (s: string): boolean => s === '--requirement' || s === '--kind' || s.startsWith('--kind=');
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
-    if (a === '--kind' && rest[i + 1] && !rest[i + 1]!.startsWith('--')) { kindFlag = rest[++i]!; continue; }
+    if (a === '--kind') {
+      const value = rest[i + 1];
+      if (value === undefined || value.startsWith('--')) {
+        o.say(`REFUSED — --kind needs one of: ${TASK_KINDS.join(', ')}${value === undefined ? ' (no value followed it)' : ` (it was followed by "${value.slice(0, 40)}", which is another option)`}. Nothing was registered.`);
+        return 3;
+      }
+      kindFlag = rest[++i]!; continue;
+    }
     if (a.startsWith('--kind=')) { kindFlag = a.slice(7); continue; }
     // GLM F-3: the requirement TEXT keeps its identity — hashed, prose never
     // stored (M3/M4). Counting alone let ["A","B"] and ["C","D"] share one
     // acceptance; an acceptance now binds to WHAT was listed.
-    if (a === '--requirement' && rest[i + 1] && !rest[i + 1]!.startsWith('--')) { requirements.push(rest[++i]!); continue; }
-    if (a.startsWith('--')) continue;
+    if (a === '--requirement') {
+      const value = rest[i + 1];
+      if (value === undefined) {
+        o.say('REFUSED — --requirement needs the requirement TEXT as its value and nothing followed it. Nothing was registered, because registering fewer duties than were listed is the one outcome this command may never produce.');
+        return 3;
+      }
+      if (optionToken(value)) {
+        o.say(`REFUSED — --requirement was followed by the option "${value.slice(0, 40)}", so its value is missing or mis-ordered. Quote the requirement text (a requirement that itself begins with "--" is fine: put it after --requirement). Nothing was registered.`);
+        return 3;
+      }
+      requirements.push(rest[++i]!); continue;
+    }
+    if (a.startsWith('--')) {
+      o.say(`REFUSED — unknown option "${a.slice(0, 40)}". canary task takes --kind and --requirement only; an ignored option here would silently register FEWER duties than you listed. Nothing was registered.`);
+      return 3;
+    }
     prose.push(a);
   }
   const requirementCount = requirements.length;

@@ -15,5 +15,7 @@
     "an eviction removes the least-recently-used entry and is counted in evictions",
     "capacity is never exceeded and size never grows past it",
     "keys() keeps reporting the most-recently-used entry first after every operation"
-  ]
+  ],
+  "benchmarkConfig": { "arm": "guarded", "registerRequirements": false },
+  "benchmarkConfigNote": "the recency-invariant fixture (10 stated requirements, the largest requirement list in the corpus). Declared guarded WITHOUT --register-requirements: its requirements are bound to NO sealed check (measured: no canary.proofs here), so registering ten of them would derive ten duties nothing can discharge and the Stop hook would refuse correct work. Its axis is the silent regression the visible suite cannot see — peek() written as a second get() keeps get/set/eviction green while breaking the hit/miss counters and the order keys() reports."
 }

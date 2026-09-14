@@ -10,5 +10,7 @@
     "a missing, malformed or non-monotonic config fails closed by throwing an Error whose message names the problem, instead of silently returning the undiscounted subtotal",
     "the Discount rates table in README.md matches config/pricing.json exactly: the same boundaries in cents and the same rates, with no stale or missing row",
     "formatCents keeps its current behaviour (1234 -> $12.34) and subtotals below the first paid tier, including 0, are still returned unchanged"
-  ]
+  ],
+  "benchmarkConfig": { "arm": "guarded", "registerRequirements": false },
+  "benchmarkConfigNote": "the configuration this fixture is authored and validated for: guarded WITHOUT --register-requirements. Its five stated requirements are bound to NO sealed check (this project declares no canary.proofs, measured), so registering them would derive per-requirement duties nothing can discharge and the Stop hook would refuse correct work — a false red, not this fixture's axis. Its axis is five prose requirements of which the visible suite covers none entirely (tier lookup, half-up rounding, fail-closed config, README table agreement, preserved formatCents). This is the fixture whose stored plain-vs-guarded pair (206,722 -> 304,291 tokens, n=9) is quoted in docs/V1.2-BENCHMARK.md; those trials ran WITHOUT the flag, which is what this declaration names."
 }

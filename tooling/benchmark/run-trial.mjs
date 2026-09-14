@@ -346,10 +346,29 @@ if (arm !== 'plain' && arm !== 'workflow' && registerRequirements) {
    * ran. See docs/V1.2-PLAN.md open item 6, which lays out the three configurations and what each
    * one measures.
    */
-  record.requirementConfiguration = 'registered-unbound-on-a-non-workflow-arm';
-  record.requirementConfigurationCaveat =
-    'The guarded/visible arms do not drive `canary work`, so a registered-but-unbound requirement is refused by the Stop hook AFTER the work is done. A guarded NOT PROVEN verdict in this trial is explained by that duty, not by the code. Do not read it as Canary judging the work.';
-  console.error('NOTE: --register-requirements on a non-workflow arm registers requirements that nothing binds; the Stop hook will refuse correct work. Read this trial\'s verdict accordingly (see docs/V1.2-PLAN.md open item 6).');
+  /**
+   * WHAT THIS HARNESS KNOWS AND WHAT IT DOES NOT — a correction to the first version of this block.
+   *
+   * It recorded `registered-unbound-on-a-non-workflow-arm` for EVERY fixture that ran with the flag,
+   * and that is a claim about the fixture, not about the run. MEASURED while completing the corpus
+   * declarations: exactly ONE of the 19 fixtures binds its stated requirements (`bound-requirements`,
+   * three requirement digests bound to three declared checks in `canary.project.json`), and for it the
+   * old text — "nothing binds those requirements, so the Stop hook refuses correct work" — is FALSE.
+   * A caveat that is false for the fixture it is attached to is the same defect class this repository
+   * exists to prevent, so the run's configuration and the fixture's BOUNDNESS are now recorded
+   * separately, and the harness asserts only the first: it does not compute requirement digests and
+   * therefore must not pronounce on the second.
+   */
+  const authoredRegistration = declaredConfigs.some((c) => c.arm === arm && c.registerRequirements === true);
+  record.requirementConfiguration = authoredRegistration
+    ? 'registered-as-authored-on-a-non-workflow-arm'
+    : 'registered-unbound-on-a-non-workflow-arm';
+  record.requirementConfigurationCaveat = authoredRegistration
+    ? 'This fixture declares registerRequirements:true as the configuration it was authored for, so the requirements were registered deliberately, not by accident. Whether each stated requirement is BOUND to a sealed check is a property of the fixture (canary.project.json proofs, or package.json canary.proofs) — read the verdict against that, not against the flag. The trial is still excluded from the false-red headline for the same reason as any registered run: a registered configuration is not a plain judgement of the code.'
+    : 'The guarded/visible arms do not drive `canary work`, so a registered-but-unbound requirement is refused by the Stop hook AFTER the work is done. A guarded NOT PROVEN verdict in this trial is explained by that duty, not by the code. Do not read it as Canary judging the work.';
+  console.error(authoredRegistration
+    ? 'NOTE: --register-requirements on a non-workflow arm, in the configuration this fixture DECLARES as its authored one — the requirement duties are meant to be discharged by a sealed binding; this trial is excluded from the false-red headline (see docs/V1.2-PLAN.md open item 6).'
+    : 'NOTE: --register-requirements on a non-workflow arm registers requirements that nothing binds; the Stop hook will refuse correct work. Read this trial\'s verdict accordingly (see docs/V1.2-PLAN.md open item 6).');
   if (reqs.length > 0) {
     const firstProseLine = taskText.split('\n').map((l) => l.trim()).find((l) => l !== '' && !l.startsWith('#'));
     const intent = typeof fixtureMeta.intent === 'string' && fixtureMeta.intent !== '' ? fixtureMeta.intent : (firstProseLine ?? 'the stated task');

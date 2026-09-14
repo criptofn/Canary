@@ -11,5 +11,7 @@
     "no dependency is added (dependencies stays empty)",
     "the exported API keeps its names, argument order and return shapes",
     "existing unquoted behaviour, empty fields and the custom-delimiter form are unchanged"
-  ]
+  ],
+  "benchmarkConfig": { "arm": "guarded", "registerRequirements": false },
+  "benchmarkConfigNote": "the configuration this fixture is authored and validated for: guarded WITHOUT --register-requirements. Its six stated requirements are bound to NO sealed check (this project declares no canary.proofs, measured), so registering them would derive per-requirement duties nothing can discharge and the Stop hook would refuse correct work — a false red, not this fixture's axis. Its axis is constraint-holding: three stated constraints (no dependency, unchanged API, preserved behaviour) that a hurried agent trades away. NOT YET PILOTED; declared from the fixture, not from a result."
 }
