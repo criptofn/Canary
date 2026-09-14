@@ -224,9 +224,9 @@ const record = {
   fixture: fixtureMeta,
   startedAt: new Date().toISOString(),
   runRoot,
-  // Set below when the fixture declares a benchmarkArm this run does not use. Absent means "this is
-  // the configuration the fixture was authored for".
-  armMismatch: null,
+  // Set below when the fixture declares a benchmark configuration this run does not use. Absent means
+  // "this is the configuration the fixture was authored for". Two axes: arm AND registerRequirements.
+  configMismatch: null,
   agent: { command: 'claude', model: null, exitCode: null, secs: null, timedOut: false },
   prompt: taskText,
   setup: null,
@@ -287,26 +287,46 @@ if (arm === 'canary' || arm === 'workflow' || arm === 'invisible' || arm === 'gu
  * stated requirements so the worker can declare them itself.
  */
 /**
- * WHAT ARM A FIXTURE IS SUPPOSED TO BE MEASURED ON — declared, not left to whoever runs it.
+ * THE CONFIGURATION A FIXTURE IS SUPPOSED TO BE MEASURED IN — declared, not left to whoever runs it.
  *
- * WHY THIS EXISTS (v1.2, MEASURED): the same fixture can be run on `guarded` or `workflow` and those
- * measure DIFFERENT things. `guarded` never drives `canary work`, so its only gate is the Stop hook;
- * `workflow` drives the candidate flow, so the handoff gate fires. Running a fixture on the wrong arm
- * is how a corpus silently stops measuring what it claims to: version-bump's registration turned a
- * correctness measurement into a false red, and no part of the harness said so.
+ * WHY THIS EXISTS (v1.2, MEASURED): the same fixture run under different configurations measures
+ * DIFFERENT things, and nothing said so. `guarded` never drives `canary work`, so its only gate is the
+ * Stop hook; `workflow` drives the candidate flow, so the handoff gate fires; and `guarded` WITH
+ * `--register-requirements` is a third configuration again, because a registered-but-unbound
+ * requirement makes the Stop hook refuse CORRECT work. That last one turned version-bump from a
+ * correctness measurement into a false red with no part of the harness objecting.
  *
- * A fixture may therefore declare `benchmarkArm` (or `benchmarkArms`) with the configuration it was
- * authored for. This does NOT block a run — an experiment on another arm is legitimate — but it says
- * plainly when the run is not the one the fixture was designed and validated for, and it records that
- * on the trial so a stored result carries the caveat.
+ * THE ARM ALONE IS NOT THE CONFIGURATION. A first version of this guard checked only `benchmarkArm`,
+ * which cannot distinguish "guarded, no registered requirements" from "guarded, registered" — so it
+ * would have accepted the exact run that caused the harm. The configuration therefore has TWO axes and
+ * both are checked.
+ *
+ * A fixture declares:
+ *   `benchmarkConfig`:  { arm, registerRequirements }   (or `benchmarkConfigs`: [ ... ])
+ * and the older `benchmarkArm` / `benchmarkArms` are still honoured for the arm axis alone.
+ *
+ * This does NOT block a run — an experiment outside the authored configuration is legitimate, and
+ * refusing would have prevented the comparison that found this — but it says so plainly and records
+ * it on the trial, so a stored result carries the caveat instead of looking like that fixture's
+ * measurement.
  */
-const declaredArms = Array.isArray(fixtureMeta.benchmarkArms)
-  ? fixtureMeta.benchmarkArms
-  : (typeof fixtureMeta.benchmarkArm === 'string' ? [fixtureMeta.benchmarkArm] : []);
-const armMismatch = declaredArms.length > 0 && !declaredArms.includes(arm);
-if (armMismatch) {
-  console.error(`NOTE: ${task} declares benchmarkArm=${JSON.stringify(declaredArms)} but this trial ran --arm ${arm}. The result is an experiment outside the configuration the fixture was authored and validated for; do not present it as that fixture's measurement.`);
-  record.armMismatch = { declared: declaredArms, ran: arm };
+const declaredConfigs = (() => {
+  if (Array.isArray(fixtureMeta.benchmarkConfigs)) return fixtureMeta.benchmarkConfigs;
+  if (fixtureMeta.benchmarkConfig !== undefined) return [fixtureMeta.benchmarkConfig];
+  // Legacy: arm-only declarations. `registerRequirements` is left undefined, meaning "unspecified",
+  // so these cannot match a run that registered requirements — which is the honest reading.
+  if (Array.isArray(fixtureMeta.benchmarkArms)) return fixtureMeta.benchmarkArms.map((a) => ({ arm: a }));
+  if (typeof fixtureMeta.benchmarkArm === 'string') return [{ arm: fixtureMeta.benchmarkArm }];
+  return [];
+})();
+const ranConfig = { arm, registerRequirements };
+const configMatches = (declared) =>
+  declared.arm === ranConfig.arm
+  && (declared.registerRequirements === undefined || declared.registerRequirements === ranConfig.registerRequirements);
+const configMismatch = declaredConfigs.length > 0 && !declaredConfigs.some(configMatches);
+if (configMismatch) {
+  console.error(`NOTE: ${task} declares benchmarkConfig=${JSON.stringify(declaredConfigs)} but this trial ran arm=${arm} registerRequirements=${String(registerRequirements)}. The result is an experiment outside the configuration the fixture was authored and validated for; do not present it as that fixture's measurement.`);
+  record.configMismatch = { declared: declaredConfigs, ran: ranConfig };
 }
 
 if (arm !== 'plain' && arm !== 'workflow' && registerRequirements) {

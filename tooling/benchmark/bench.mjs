@@ -170,7 +170,7 @@ function summarise(rs) {
    * The raw records are untouched: the tokens those trials measured remain valid, and the exclusion is
    * reported so a reader can see what was set aside and why.
    */
-  const verdictIsAboutTheCode = (j) => j.record.requirementConfiguration === undefined;
+  const verdictIsAboutTheCode = (j) => j.record.requirementConfiguration === undefined && j.record.configMismatch == null;
   const excludedFromAgreement = canaryRows.filter((j) => !verdictIsAboutTheCode(j));
   const judgeable = canaryRows.filter(verdictIsAboutTheCode);
   const falseGreen = judgeable.filter((j) => j.record.canary?.doctorExitCode === 0 && !j.v.deliveredCorrect);
@@ -335,8 +335,8 @@ const canaryAgreement = counted
       // code — see summarise(). `run-trial.mjs` records `requirementConfiguration` on those trials and
       // warns on stderr; without this, every one of them inflated the false-red headline.
       falseRed: v.oracleKind === 'correctness' && r.canary?.doctorExitCode !== 0 && v.deliveredCorrect
-        && r.requirementConfiguration === undefined,
-      verdictNotAboutTheCode: r.requirementConfiguration !== undefined,
+        && r.requirementConfiguration === undefined && r.configMismatch == null,
+      verdictNotAboutTheCode: r.requirementConfiguration !== undefined || r.configMismatch != null,
       hookFired: v.canary.hookFired, hookBlocked: v.canary.hookBlocked,
       // "The gate ran" has one authoritative source: the checkpoint file the hook wrote during the
       // run. The stream is a SECONDARY source, and it has a MEASURED limit — this CLI emits no
