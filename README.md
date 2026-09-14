@@ -220,12 +220,13 @@ the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`]
 [`docs/V1.2-BENCHMARK.md`](docs/V1.2-BENCHMARK.md).
 
 > **The v1.2 result, in one line, so it cannot be missed:** five fixtures were authored for the failure
-> classes v1.1 had no coverage of, and **eight paired trials** were run (four fixtures on both arms).
-> In the configuration the harness accepts, the guarded arm reached `READY` on **all four** fixtures —
-> and cost **+115.1%** more model tokens (539,419 → 1,160,170) for the same, correct results. **The
-> plain agent was correct in every trial; no correctness advantage was demonstrated, and Canary's own
-> KPI reads FAILS THE TOKEN REQUIREMENT.** The three measured reasons the corpus cannot show an
-> advantage are in that document.
+> classes v1.1 had no coverage of. In the configuration the harness accepts, the guarded arm was
+> **correct on all seven fixtures measured** — the completion path works end to end — and it cost **more
+> than the bare agent on every one of them**, by an amount that depends heavily on the task: **+3.2% to
+> +408.7%**, with four paired fixtures totalling **+115.1%** (539,419 → 1,160,170 tokens). **The plain
+> agent was correct in every trial; no correctness advantage was demonstrated, and Canary's own KPI
+> reads FAILS THE TOKEN REQUIREMENT.** The three measured reasons the corpus cannot show an advantage,
+> and the caveats that limit each number, are in that document.
 
 ## Known limitations (v1.1)
 

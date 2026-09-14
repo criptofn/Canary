@@ -59,12 +59,27 @@ the false-done question honestly, and states plainly what it could not establish
 
 ### Benchmark result, stated here as well as in the results document
 
-Five fixtures, eight paired arm-trials. **In the configuration the harness accepts** (`guarded`,
-requirements not registered), the guarded arm reached `READY` on **all four** piloted fixtures — the
-completion path working end to end — and cost **+115.1% more model tokens** (539,419 → 1,160,170) for
-the same, correct results. **The plain agent was correct in every trial, and there were zero false
-dones in either arm.** Canary's own KPI report therefore reads *FAILS THE TOKEN REQUIREMENT (no
-saving)*. **No correctness advantage was demonstrated**, for three measured reasons recorded in
+### Benchmark result, stated here as well as in the results document
+
+**In the configuration the harness accepts** (`guarded`, requirements not registered), the guarded arm
+was **correct on all seven fixtures measured** — the completion path working end to end — and cost
+**more than the bare agent on every one**, by an amount that depends heavily on the task:
+
+| fixture | delta vs plain |
+|---|---|
+| `stub-completion` | +3.2% |
+| `bug-sum` | +8.5% |
+| `multi-requirement-pricing` | +47.2% |
+| `cli-exit-codes` | +58.0% |
+| `duration-parse` | +132.0% |
+| `spec-edges` | +141.3% |
+| `flag-clusters` | +408.7% |
+
+Four of these are paired same-session trials totalling **+115.1%** (539,419 → 1,160,170 tokens); the
+other three are compared against plain means from earlier batches and are weaker evidence. **The plain
+agent was correct in every trial, and there were zero false dones in either arm.** Canary's own KPI
+report therefore reads *FAILS THE TOKEN REQUIREMENT (no saving)*. **No correctness advantage was
+demonstrated**, for three measured reasons recorded in
 [`docs/V1.2-BENCHMARK.md`](docs/V1.2-BENCHMARK.md). n = 1 per cell is not a rate.
 
 ## [1.1.0] — 2026-09-13
