@@ -2977,6 +2977,29 @@ export function cmdBind(rawArgs: string[]): number {
   for (const w of written) o.say(`  ${w.digest}  "${w.text}"`);
   o.say('this is a DECLARATION, not a seal: run `canary setup` to seal it into the plan authority.');
   o.say('until then the requirement stays UNPROVEN — a green plan does not cover an unsealed binding.');
+  /**
+   * THE STEP THAT IS EASY TO MISS, AND IT COSTS A CONFUSING RESULT (v1.2, Mission 2).
+   *
+   * The discriminator compares the candidate against the SEALED BASE. A binding that lives only in the
+   * working tree makes that baseline dirty, and a dirty baseline cannot establish discrimination — so
+   * `setup` after an uncommitted bind leaves the requirement NOT PROVEN for a reason that has nothing
+   * to do with the requirement. The recovery was documented in a probe and nowhere the operator would
+   * look.
+   *
+   * Saying it HERE costs one line and removes the detour. It is reported, not enforced: committing is
+   * the operator's act, and `setup` must still run afterwards.
+   */
+  if (written.length > 0) {
+    const id = candidateIdentity(root);
+    if (id.dirty === true) {
+      o.say('NOTE: the binding is written but NOT committed, and the working tree is now dirty.');
+      o.say('  commit it BEFORE re-sealing, or the sealed base is dirty and discrimination cannot be established:');
+      o.say(`  git add ${safePath(path.relative(root, targetPath) || path.basename(targetPath))} && git commit -m "bind requirement(s) to ${safePath(script)}"`);
+      o.say('  then: canary setup');
+    } else if (id.dirty === null) {
+      o.say('NOTE: could not determine whether the working tree is clean. If the binding is uncommitted, commit it before re-sealing — a dirty sealed base cannot establish discrimination.');
+    }
+  }
   return 0;
 }
 
