@@ -224,6 +224,9 @@ const record = {
   fixture: fixtureMeta,
   startedAt: new Date().toISOString(),
   runRoot,
+  // Set below when the fixture declares a benchmarkArm this run does not use. Absent means "this is
+  // the configuration the fixture was authored for".
+  armMismatch: null,
   agent: { command: 'claude', model: null, exitCode: null, secs: null, timedOut: false },
   prompt: taskText,
   setup: null,
@@ -283,6 +286,29 @@ if (arm === 'canary' || arm === 'workflow' || arm === 'invisible' || arm === 'gu
  * measure the operator's declaration instead of the worker's. Its prompt carries the fixture's
  * stated requirements so the worker can declare them itself.
  */
+/**
+ * WHAT ARM A FIXTURE IS SUPPOSED TO BE MEASURED ON — declared, not left to whoever runs it.
+ *
+ * WHY THIS EXISTS (v1.2, MEASURED): the same fixture can be run on `guarded` or `workflow` and those
+ * measure DIFFERENT things. `guarded` never drives `canary work`, so its only gate is the Stop hook;
+ * `workflow` drives the candidate flow, so the handoff gate fires. Running a fixture on the wrong arm
+ * is how a corpus silently stops measuring what it claims to: version-bump's registration turned a
+ * correctness measurement into a false red, and no part of the harness said so.
+ *
+ * A fixture may therefore declare `benchmarkArm` (or `benchmarkArms`) with the configuration it was
+ * authored for. This does NOT block a run — an experiment on another arm is legitimate — but it says
+ * plainly when the run is not the one the fixture was designed and validated for, and it records that
+ * on the trial so a stored result carries the caveat.
+ */
+const declaredArms = Array.isArray(fixtureMeta.benchmarkArms)
+  ? fixtureMeta.benchmarkArms
+  : (typeof fixtureMeta.benchmarkArm === 'string' ? [fixtureMeta.benchmarkArm] : []);
+const armMismatch = declaredArms.length > 0 && !declaredArms.includes(arm);
+if (armMismatch) {
+  console.error(`NOTE: ${task} declares benchmarkArm=${JSON.stringify(declaredArms)} but this trial ran --arm ${arm}. The result is an experiment outside the configuration the fixture was authored and validated for; do not present it as that fixture's measurement.`);
+  record.armMismatch = { declared: declaredArms, ran: arm };
+}
+
 if (arm !== 'plain' && arm !== 'workflow' && registerRequirements) {
   const reqs = Array.isArray(fixtureMeta.requirements) ? fixtureMeta.requirements : [];
   /**
