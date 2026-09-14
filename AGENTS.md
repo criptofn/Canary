@@ -35,6 +35,17 @@ npm run verify:productization         # the whole productization surface, ONE co
   weakening an assertion.
 - Quote numbers only from an executed reporter's output
   ([`docs/TEST-COUNTING.md`](docs/TEST-COUNTING.md)).
+- **A build that reports success is not evidence the artifact matches the source.** MEASURED
+  (v1.2): `tsc -b` reports exit 0 *without re-emitting* a file whose bytes changed after
+  compilation, so a `dist` left mutated by an interrupted mutation battery stays mutated —
+  and every probe then measures corrupted bytes. That cost several rounds of this repository's
+  own time chasing "product defects" that the source never produced. `verify:productization`
+  now runs a forced rebuild and then `tooling/probes/v12-dist-tripwire.mjs`, which fails loudly
+  if the artifact contains a mutation battery's leftover (`if (false) {` and friends). If you
+  see that tripwire fail: `npm exec -- tsc -b apps/cli --force`, then re-run what you were
+  measuring **and do not read the previous result as a product finding**.
+- **Never run `npm test` concurrently with `verify:productization`.** The chain rebuilds `dist`
+  (and the mutation batteries rewrite it); a concurrent suite reads it mid-flight.
 
 ## Verification workflow authoring (binding for every agent)
 
@@ -86,11 +97,13 @@ Probe conventions: fixtures only under the OS temp dir (`fs.mkdtempSync`); print
 
 ```sh
 canary result --json                      # what Canary knows here (free; writes nothing)
+canary setup --yes                        # seal the plan; prints a note if a requirement is unbound
 canary work <name> "<intent>" \
   --requirement "<each stated requirement>"  # ONE PER REQUIREMENT the task states
 #   work only in the candidate directory printed above, then commit there
 canary finish <name>                      # verify from outside; promote only if the proof holds
 canary doctor --json                      # the completion gate: run the sealed checks now
+#   if a requirement has no sealed check, `work` REFUSES (see REQUIREMENT UNBOUND below)
 ```
 
 **Declare the task's requirements, one `--requirement` each.** This is not
@@ -101,11 +114,34 @@ stated rule wrongly, wrote its own test that missed the case, and Canary correct
 reported `READY` — because the rule was never a duty. With the requirement declared,
 that outcome needs either a machine check or a human acceptance.
 
+### `REQUIREMENT UNBOUND` — a declared requirement that no sealed check measures
+
+**Since v1.2, `canary work` does not start a worker on a duty the worker cannot close.** If
+you declare a requirement and no check the sealed plan runs is bound to it, `work` refuses
+(exit 2), opens **no** candidate, and prints the digest plus the plan scripts that could
+measure it. This is deliberate and it is the cheap ending: v1.1 discovered the same fact at
+the END of a session, after the model had spent its budget trying to satisfy an obligation
+only an operator can discharge — measured at 1.5–1.85M tokens over 41–53 turns, and
+reproduced by v1.2's own pilot at +133% tokens.
+
+**What to do, in order:**
+
+1. **`canary setup` prints the same note** when a registered requirement is unbound, so you
+   can see it before you start. Read it; it names the digests.
+2. **If the requirement is objective** (a behaviour someone could measure), it needs a sealed
+   binding — an OPERATOR act, not yours: bind the digest to a script the sealed plan runs
+   (`package.json` → `canary.proofs`), commit that, and re-run `canary setup`. Then `work`.
+3. **If the requirement is genuinely subjective** ("make it feel cleaner"), register it with
+   a subjective marker; the duty stays a human one and a human runs `canary accept` in a
+   terminal. Say so plainly in your report.
+
+**Never** satisfy an unbound requirement by weakening a check, editing a test to match the
+current behaviour, or reporting it as done. A rejection here is information, not an obstacle.
+
 Consequence to expect, not to work around: a declared requirement that no machine
-check covers becomes `USER JUDGMENT REQUIRED`, and `finish` will refuse until a human
-runs `canary accept` in a terminal. Say so plainly in your report — an honest
-"verified, but promotion needs your acceptance" is the correct ending, and it is a
-different thing from "done".
+check covers and that is not subjective stays `NOT PROVEN`, and `finish` will refuse.
+Say so plainly in your report — an honest "verified, but promotion needs your
+acceptance" is the correct ending, and it is a different thing from "done".
 
 An agent may not close a subjective duty — that stays `canary accept`, in a
 terminal. If a check fails, fix exactly what was reported and re-run; do not

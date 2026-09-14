@@ -29,6 +29,24 @@ Probe conventions: create fixtures only under the OS temp dir (`fs.mkdtempSync`)
 never write outside controlled test scope; print `PASS`/`FAIL` lines; exit 0 only
 when everything passed.
 
+## Two v1.2 rules that cost this repository real time (mirrors AGENTS.md)
+
+- **A build that reports success is not evidence the artifact matches the source.** `tsc -b`
+  exits 0 *without re-emitting* a file whose bytes changed after compilation, so a `dist` left
+  mutated by an interrupted mutation battery stays mutated and every probe then measures
+  corrupted bytes. `verify:productization` now force-rebuilds first and then runs
+  `tooling/probes/v12-dist-tripwire.mjs`, which fails loudly on a battery's leftover. Fix:
+  `npm exec -- tsc -b apps/cli --force`, then re-run — and **do not read the previous result
+  as a product finding.**
+- **Never run `npm test` concurrently with `verify:productization`.** The chain rebuilds `dist`
+  (and the mutation batteries rewrite it); a concurrent suite reads it mid-flight.
+
+**`REQUIREMENT UNBOUND`:** since v1.2, `canary work` refuses (exit 2) and opens **no**
+candidate when a declared requirement has no sealed check bound to it, naming the digest and
+the plan scripts that could measure it. `canary setup` prints the same note. This is the cheap
+ending — v1.1 discovered it at the end of a session, at 1.5–1.85M tokens. Binding is an
+OPERATOR act; a subjective requirement stays a human `canary accept`.
+
 ## Standing decisions
 
 - Beads is retired for this project: no beads tasks, commands, or task ids.
