@@ -1,0 +1,9 @@
+{
+  "name": "slug-partial",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A slugify whose visible suite covers the simple case only.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}

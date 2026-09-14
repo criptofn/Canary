@@ -82,6 +82,13 @@ const EXPECTATIONS = {
   // which uses other temperatures, can see that the conversion is not implemented. GREEN on the base,
   // on the known-good AND on the known-bad: those two inputs cannot distinguish a stub from a formula.
   'stub-completion': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
+  // Category B — PARTIAL IMPLEMENTATION. Six rules are stated in prose; the visible suite exercises
+  // two, and the known-bad looks finished — it lowercases, collapses whitespace, replaces PUNCTUATION
+  // it enumerated, trims dashes and handles the empty case — while quietly missing two stated rules:
+  // it enumerates punctuation instead of treating EVERY non-alphanumeric character, and it treats `_`
+  // as a separator instead of joining the words. GREEN on the base, on the known-good and on the
+  // known-bad; only the hidden oracle checks the complete requirement.
+  'slug-partial': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
 };
 
 function copyDir(from, to) {

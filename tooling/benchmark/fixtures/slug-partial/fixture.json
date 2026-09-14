@@ -1,0 +1,17 @@
+{
+  "task": "slug-partial",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "category": "B",
+  "what": "the task states six rules in prose; the visible suite exercises two, and the base implements two",
+  "expectedOutcome": "the visible suite is GREEN on the base, on the known-good and on the known-bad solution. The known-bad looks finished — it lowercases, collapses whitespace, replaces PUNCTUATION it enumerated, trims dashes and handles the empty case — while quietly missing two stated rules: it enumerates punctuation instead of treating every non-alphanumeric character, and it treats `_` as a separator instead of joining the words. Only the hidden oracle checks the complete requirement.",
+  "measuredScope": "This is the partial-implementation class: the work is not wrong so much as unfinished, and the visible suite cannot see the difference. Distinct from add-validation (which states six rules for one validator) in that the trap here is the ENUMERATED-PUNCTUATION shortcut, which looks complete and is the shape a model reaches for when it generalises from the examples it can see.",
+  "requirements": [
+    "lowercase everything",
+    "runs of whitespace become a single dash",
+    "a run of characters that are not letters, digits or whitespace becomes a single dash",
+    "leading and trailing dashes are removed",
+    "an underscore is NOT a separator: it is removed outright, joining the words",
+    "an empty or whitespace-only input returns an empty string"
+  ]
+}
