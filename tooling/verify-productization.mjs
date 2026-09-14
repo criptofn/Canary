@@ -242,6 +242,12 @@ const STEPS = [
   // own acceptance baseline — hours spent explaining behaviour the source never had. This step turns
   // that state into a loud first failure instead of a phantom product defect.
   ['dist tripwire (is the compiled artifact mutated?)', process.execPath, ['tooling/probes/v12-dist-tripwire.mjs'], {}],
+  // And before anything is BELIEVED FROM THE DOCS: do their checkable numbers still match the
+  // repository? This session's most persistent defect was summaries drifting from what they summarise
+  // - the standings were stale twice, the README quoted a superseded token figure, a step label named
+  // a corpus size that had moved. Each was caught by hand, one at a time, by someone already
+  // suspicious. This turns that into a command.
+  ['doc consistency (do the release documents still match the repository?)', process.execPath, ['tooling/probes/v12-doc-consistency.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
