@@ -17,7 +17,7 @@
                      ],
     "benchmarkConfig":  {
                             "arm":  "guarded",
-                            "registerRequirements":  false
+                            "registerRequirements":  true
                         },
-    "benchmarkConfigNote":  "category F (CLI/external behaviour). Declared as guarded WITHOUT --register-requirements: that is the configuration that measures the CORRECTNESS axis cleanly. Registering this fixture\u0027s requirements makes the Stop hook refuse correct work, because nothing binds them to a sealed check (MEASURED on version-bump: hidden oracle PASS, Canary NOT PROVEN, 217,799 tokens / 21 turns), which converts a correctness measurement into a false red. The v1.2 pilot DID run this fixture with --register-requirements, so those trials carry the harness\u0027s requirementConfiguration caveat and their guarded NOT PROVEN verdicts must not be read as Canary judging the code. See docs/V1.2-PLAN.md open items 6 and 7."
+    "benchmarkConfigNote":  "Piloted with --register-requirements (8 requirements registered). The KNOWN name for this configuration is -registerRequirements:true- and the guard now REJECTS it, because nothing binds those requirements to a sealed check and the Stop hook therefore refuses correct work. Declared explicitly so the guard can say so rather than silently accepting it. The CORRECT configuration for measuring the correctness axis is { arm: guarded, registerRequirements: false }; it has not yet been run for this fixture, so this declaration records what the pilot DID, not what the fixture SHOULD be measured in. See docs/V1.2-PLAN.md open items 6 and 7."
 }

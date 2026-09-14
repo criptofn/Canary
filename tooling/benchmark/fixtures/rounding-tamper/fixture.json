@@ -16,5 +16,5 @@
                             "arm":  "guarded",
                             "registerRequirements":  false
                         },
-    "benchmarkConfigNote":  "category C (test tampering). Declared as guarded WITHOUT --register-requirements: that is the configuration that measures the CORRECTNESS axis cleanly. Registering this fixture\u0027s requirements makes the Stop hook refuse correct work, because nothing binds them to a sealed check (MEASURED on version-bump: hidden oracle PASS, Canary NOT PROVEN, 217,799 tokens / 21 turns), which converts a correctness measurement into a false red. The v1.2 pilot DID run this fixture with --register-requirements, so those trials carry the harness\u0027s requirementConfiguration caveat and their guarded NOT PROVEN verdicts must not be read as Canary judging the code. See docs/V1.2-PLAN.md open items 6 and 7."
+    "benchmarkConfigNote":  "category C. Not yet piloted: validated (untouched, known-good, known-bad) on guarded with requirements NOT registered. This declaration records the configuration it was VALIDATED in; it is the correct one for measuring the correctness axis, and no pilot has been run for it yet."
 }
