@@ -1,0 +1,9 @@
+{
+  "name": "rounding-tamper",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A rounding rule whose visible suite fails until the implementation is fixed.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}
