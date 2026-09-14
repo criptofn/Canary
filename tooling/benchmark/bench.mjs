@@ -156,8 +156,25 @@ function summarise(rs) {
   // Canary's own honesty, per arm: READY while the correctness oracle failed is the product's
   // worst failure mode, so it is summarised beside the token numbers (the KPI verdict needs it).
   const canaryRows = judged.filter((j) => j.record.canary !== null && j.v.oracleKind === 'correctness' && j.v.oracleUsable);
-  const falseGreen = canaryRows.filter((j) => j.record.canary?.doctorExitCode === 0 && !j.v.deliveredCorrect);
-  const falseRed = canaryRows.filter((j) => j.record.canary?.doctorExitCode !== 0 && j.v.deliveredCorrect);
+  /**
+   * FALSE RED IS ONLY MEANINGFUL WHEN CANARY ACTUALLY JUDGED THE WORK.
+   *
+   * MEASURED (v1.2): a trial run with `--register-requirements` on a NON-workflow arm registers
+   * requirements that nothing binds, and the Stop hook then refuses work the correctness oracle says
+   * was right. Every such trial satisfies `doctorExitCode !== 0 && deliveredCorrect` and was being
+   * counted as a false red — a headline metric of this benchmark — when the refusal says nothing
+   * about the code. All four v1.2 guarded pilot trials did exactly that.
+   *
+   * `run-trial.mjs` records `requirementConfiguration` on those trials and warns on stderr; they are
+   * excluded here rather than silently inflating (or, if read as protection, flattering) the number.
+   * The raw records are untouched: the tokens those trials measured remain valid, and the exclusion is
+   * reported so a reader can see what was set aside and why.
+   */
+  const verdictIsAboutTheCode = (j) => j.record.requirementConfiguration === undefined;
+  const excludedFromAgreement = canaryRows.filter((j) => !verdictIsAboutTheCode(j));
+  const judgeable = canaryRows.filter(verdictIsAboutTheCode);
+  const falseGreen = judgeable.filter((j) => j.record.canary?.doctorExitCode === 0 && !j.v.deliveredCorrect);
+  const falseRed = judgeable.filter((j) => j.record.canary?.doctorExitCode !== 0 && j.v.deliveredCorrect);
   return {
     trials: rs.length,
     usable: usable.length,
@@ -178,6 +195,9 @@ function summarise(rs) {
     canaryTrials: canaryRows.length,
     falseGreen: falseGreen.length,
     falseRed: falseRed.length,
+    // Trials whose verdict reflects a registration configuration rather than a judgement of the code,
+    // excluded above. Reported so the exclusion is visible rather than a silent filter.
+    agreementExcluded: excludedFromAgreement.length,
     // A success claim while the project's OWN suite was red: the delivery is not a delivery, whatever
     // the hidden oracle thinks of the behaviours it happens to check (MEASURED, bench-r8).
     suiteRedAfterClaim: usable.filter((j) => j.v.suiteRedAfterClaim).length,
@@ -311,7 +331,12 @@ const canaryAgreement = counted
       canaryGreen: r.canary?.doctorExitCode === 0,
       hiddenGreen: v.deliveredCorrect,
       falseGreen: v.oracleKind === 'correctness' && r.canary?.doctorExitCode === 0 && !v.deliveredCorrect,
-      falseRed: v.oracleKind === 'correctness' && r.canary?.doctorExitCode !== 0 && v.deliveredCorrect,
+      // Excluded when the verdict reflects a registration configuration rather than a judgement of the
+      // code — see summarise(). `run-trial.mjs` records `requirementConfiguration` on those trials and
+      // warns on stderr; without this, every one of them inflated the false-red headline.
+      falseRed: v.oracleKind === 'correctness' && r.canary?.doctorExitCode !== 0 && v.deliveredCorrect
+        && r.requirementConfiguration === undefined,
+      verdictNotAboutTheCode: r.requirementConfiguration !== undefined,
       hookFired: v.canary.hookFired, hookBlocked: v.canary.hookBlocked,
       // "The gate ran" has one authoritative source: the checkpoint file the hook wrote during the
       // run. The stream is a SECONDARY source, and it has a MEASURED limit — this CLI emits no
