@@ -102,7 +102,11 @@ other three are compared against plain means from earlier batches and are weaker
 agent was correct in every trial, and there were zero false dones in either arm.** Canary's own KPI
 report therefore reads *FAILS THE TOKEN REQUIREMENT (no saving)*. **No correctness advantage was
 demonstrated**, for three measured reasons recorded in
-[`docs/V1.2-BENCHMARK.md`](docs/V1.2-BENCHMARK.md). n = 1 per cell is not a rate.
+[`docs/V1.2-BENCHMARK.md`](docs/V1.2-BENCHMARK.md). n = 1 per cell is not a rate. The `workflow`
+arm — the one that actually drives `canary work` → candidate → `finish` — was separately run
+against `plain` on `bound-requirements`, the corpus's only fixture whose stated requirements are
+**bound**: both arms produced correct work, **zero false dones**, and the workflow arm cost
+**+50.5%** tokens. That is the same negative result on the arm the claim is about.
 
 ## [1.1.0] — 2026-09-13
 
