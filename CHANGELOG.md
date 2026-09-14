@@ -10,7 +10,61 @@ changed*; the evidence ledgers record *what was observed*.
 
 ## [Unreleased]
 
-Nothing yet. The next change to Canary lands here.
+## [1.2.0] — unreleased, on `feat/v1.2`
+
+Canary v1.2 makes the requirement workflow fail **early** instead of expensively, benchmarks
+the false-done question honestly, and states plainly what it could not establish.
+
+### Added
+
+- **`REQUIREMENT UNBOUND` fails at the handoff.** `canary work` now refuses (exit 2) and opens
+  **no** candidate when a declared requirement has no sealed check to measure it, naming the
+  digest and the plan scripts that could bind it. v1.1 discovered the same fact at the END of a
+  session — measured at 1.5–1.85M tokens over 41–53 turns, and reproduced at +133% tokens by
+  v1.2's own pilot. `canary setup` prints the same note, so the two commands no longer appear
+  to disagree.
+- **A five-outcome benchmark instrument** (`DELIVERED_CORRECT` / `TRUE_DONE` / `FALSE_DONE` /
+  `FALSE_GREEN` / `NOT_DONE`) that keeps "what the agent said" separate from "what is true",
+  treats an oracle that did not run as `UNUSABLE` rather than as a failure, and returns `null` —
+  never a fabricated `0` — for a false-green rate with no denominator. Self-tested 16/16,
+  re-checked against the whole stored corpus on every run.
+- **Five fixtures covering the failure classes v1.1 had no coverage of**: CLI/external
+  behaviour, requirement-coverage gap, test tampering, stub/mock completion, partial
+  implementation. Each validated — untouched, known-good, known-bad — before registration.
+- **`docs/V1.2-BENCHMARK.md`**: the corpus and its result, including what it does **not**
+  establish.
+- **A `dist` tripwire** (`tooling/probes/v12-dist-tripwire.mjs`) that fails loudly when the
+  compiled artifact contains a mutation battery's leftover, run first in
+  `verify:productization` after a forced rebuild.
+
+### Changed
+
+- **An unmeasured requirement is a MEASUREMENT duty.** `per-requirement` was
+  `mode: 'non-objective'` while its own note demanded measurement — so a terminal signature
+  could close an unmeasured requirement, and the Stop hook told workers the duty was not
+  theirs to close. It is now objective unless the registration carries a subjective marker.
+- **The Stop hook no longer orders a worker to do an operator's job.** It blocked with the
+  obligation's note, which instructs the reader to bind a proof; a model complies. Blocking is
+  now reserved for duties the worker can discharge with evidence in the repository. Measured on
+  the configuration that exposed it: **537,583 → 308,879 tokens, 39 → 21 turns, timeout →
+  161.6 s**.
+- `canary accept` refuses to sign an acceptance that covers **nothing**, and the acceptance
+  subject now filters on duty status, so the snapshot and its consumer describe the same set.
+- `canary bind` tells the operator to **commit before re-sealing**, with the exact command — an
+  uncommitted binding makes the sealed base dirty, and a dirty base cannot establish
+  discrimination.
+- **`HARDENED` remains unreachable on this host, and no claim is made.** The integrity boundary
+  was measured and reported unavailable. A first measurement of mine that reported otherwise was
+  a false positive and is **retracted** in the audit trail.
+
+### Benchmark result, stated here as well as in the results document
+
+Five fixtures, eight paired arm-trials: **the plain agent was correct in every trial, the
+guarded arm was correct in every trial, zero false dones in either arm — and the guarded arm
+cost +82.7% more model tokens.** Canary's own KPI report therefore reads *FAILS THE TOKEN
+REQUIREMENT (no saving)*. **No correctness advantage was demonstrated**, for three measured
+reasons recorded in [`docs/V1.2-BENCHMARK.md`](docs/V1.2-BENCHMARK.md). n = 1 per cell is not a
+rate.
 
 ## [1.1.0] — 2026-09-13
 
