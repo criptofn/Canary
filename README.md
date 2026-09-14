@@ -215,7 +215,16 @@ token savings.**
 
 Numbers, denominators and the counter-examples: [`tooling/benchmark/RESULTS.md`](tooling/benchmark/RESULTS.md) ·
 what the set can and cannot tell you: [`tooling/benchmark/BENCHMARKS.md`](tooling/benchmark/BENCHMARKS.md) ·
-the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`](docs/V1.1-STATUS.md).
+the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`](docs/V1.1-STATUS.md) ·
+**v1.2's false-done corpus and its result — which is that no correctness advantage was demonstrated**:
+[`docs/V1.2-BENCHMARK.md`](docs/V1.2-BENCHMARK.md).
+
+> **The v1.2 result, in one line, so it cannot be missed:** five fixtures were authored for the failure
+> classes v1.1 had no coverage of, **eight paired trials** were run (four fixtures on both arms), and
+> **the plain agent was correct in every trial while the guarded arm cost +82.7% more model tokens** —
+> so Canary's own KPI report says the token requirement is not met. No correctness claim is made. The
+> corpus did not create the false completions it was built to catch, and the three measured reasons why
+> are in that document.
 
 ## Known limitations (v1.1)
 
