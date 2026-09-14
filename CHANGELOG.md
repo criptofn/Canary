@@ -59,12 +59,13 @@ the false-done question honestly, and states plainly what it could not establish
 
 ### Benchmark result, stated here as well as in the results document
 
-Five fixtures, eight paired arm-trials: **the plain agent was correct in every trial, the
-guarded arm was correct in every trial, zero false dones in either arm — and the guarded arm
-cost +82.7% more model tokens.** Canary's own KPI report therefore reads *FAILS THE TOKEN
-REQUIREMENT (no saving)*. **No correctness advantage was demonstrated**, for three measured
-reasons recorded in [`docs/V1.2-BENCHMARK.md`](docs/V1.2-BENCHMARK.md). n = 1 per cell is not a
-rate.
+Five fixtures, eight paired arm-trials. **In the configuration the harness accepts** (`guarded`,
+requirements not registered), the guarded arm reached `READY` on **all four** piloted fixtures — the
+completion path working end to end — and cost **+115.1% more model tokens** (539,419 → 1,160,170) for
+the same, correct results. **The plain agent was correct in every trial, and there were zero false
+dones in either arm.** Canary's own KPI report therefore reads *FAILS THE TOKEN REQUIREMENT (no
+saving)*. **No correctness advantage was demonstrated**, for three measured reasons recorded in
+[`docs/V1.2-BENCHMARK.md`](docs/V1.2-BENCHMARK.md). n = 1 per cell is not a rate.
 
 ## [1.1.0] — 2026-09-13
 
