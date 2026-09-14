@@ -61,6 +61,14 @@ const EXPECTATIONS = {
   // the accepting path; the requirement is the real process contract (exit 2 on a rejected config,
   // errors on stderr, nothing on stdout). Nothing in the base's unit tests can see any of that.
   'cli-exit-codes': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
+  // Category J — REQUIREMENT COVERAGE GAP. The stated requirement is a written rule the visible suite
+  // never exercises: it is GREEN on the base, on the known-good and on the known-bad solution, so it
+  // cannot tell them apart. The known-bad is the shape a hurried agent produces — it splits only
+  // "long enough" clusters, so `-ab` stays a single flag named "ab" — and only the hidden oracle sees
+  // that. See the fixture's `measuredScope`: this measures whether a CANDIDATE satisfies the
+  // requirement, and deliberately does NOT claim to measure the handoff refusal, which the v1.2
+  // REQUIREMENT UNBOUND gate produces before a worker starts.
+  'flag-clusters': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
 };
 
 function copyDir(from, to) {

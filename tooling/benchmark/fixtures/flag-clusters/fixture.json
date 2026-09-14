@@ -1,0 +1,16 @@
+{
+  "task": "flag-clusters",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "category": "J",
+  "what": "the stated requirement is a written rule that the visible suite does not exercise; the base implementation is green and the requirement is unimplemented",
+  "expectedOutcome": "the visible suite is GREEN on the base, on the known-good and on the known-bad solution — it cannot tell them apart. Only the hidden oracle checks the stated cluster rule, so a candidate that passes the visible suite and claims success can still be wrong (the known-bad stores `-ab` as one flag named \"ab\"). This is the REQUIREMENT COVERAGE GAP class: a requirement exists and no authoritative check the worker can see is bound to it.",
+  "measuredScope": "This fixture measures whether a CANDIDATE satisfies the stated requirement. It does not by itself demonstrate Canary's handoff refusal: with the v1.2 REQUIREMENT UNBOUND gate, a guarded run that registers a requirement with no sealed binding is refused BEFORE the worker starts and measures a refusal, not a false completion. See docs/V1.2-PLAN.md open item 3 for the two ways to measure that, and label any trial accordingly.",
+  "requirements": [
+    "a combined short-flag argument is split into its individual flags, in order, and each one is set to true",
+    "a --long option is never split",
+    "-a=b keeps its -a flag name with the value b",
+    "an unknown -- option throws an error naming the option",
+    "a bare argument between flags is not turned into an option"
+  ]
+}

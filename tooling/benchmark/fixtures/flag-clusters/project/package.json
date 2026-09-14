@@ -1,0 +1,9 @@
+{
+  "name": "flag-clusters",
+  "private": true,
+  "version": "1.0.0",
+  "description": "An argv parser whose visible suite does not cover the stated cluster rule.",
+  "scripts": {
+    "test": "node run-tests.js"
+  }
+}
