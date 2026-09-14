@@ -29,7 +29,7 @@ Probe conventions: create fixtures only under the OS temp dir (`fs.mkdtempSync`)
 never write outside controlled test scope; print `PASS`/`FAIL` lines; exit 0 only
 when everything passed.
 
-## Two v1.2 rules that cost this repository real time (mirrors AGENTS.md)
+## Three v1.2 rules that cost this repository real time (mirrors AGENTS.md)
 
 - **A build that reports success is not evidence the artifact matches the source.** `tsc -b`
   exits 0 *without re-emitting* a file whose bytes changed after compilation, so a `dist` left
@@ -40,12 +40,25 @@ when everything passed.
   as a product finding.**
 - **Never run `npm test` concurrently with `verify:productization`.** The chain rebuilds `dist`
   (and the mutation batteries rewrite it); a concurrent suite reads it mid-flight.
+- **`npm test` pins `--test-concurrency=8`, and the pin is a MEASUREMENT, not a preference.** At
+  node's default (one file per core — 23 here) three different process-spawning tests timed out
+  across two runs (`lifecycle`'s sweep ~34 s, the `node:test` executor wiring ~33 s, `provenance`'s
+  pristine run 161 s against its own 120 s round budget → `INFRASTRUCTURE_FAILURE` instead of a
+  verdict). Each passes standalone in seconds; at 8 the suite is **1095 tests, 1091 pass, 0 fail,
+  4 skipped**. Scheduling only — never an assertion, timeout or threshold. Do not remove it to save
+  time: a random red in the release battery is the false red this project exists to prevent.
 
 **`REQUIREMENT UNBOUND`:** since v1.2, `canary work` refuses (exit 2) and opens **no**
 candidate when a declared requirement has no sealed check bound to it, naming the digest and
 the plan scripts that could measure it. `canary setup` prints the same note. This is the cheap
 ending — v1.1 discovered it at the end of a session, at 1.5–1.85M tokens. Binding is an
 OPERATOR act; a subjective requirement stays a human `canary accept`.
+
+**Required intake is verbatim or refused.** `canary task --requirement` takes the next argument as
+the requirement TEXT even when it begins with `--`; a missing value, or an option Canary does not
+recognise, is REFUSED (exit 3, nothing written) rather than ignored. MEASURED: the old parser
+dropped a dash-leading requirement silently, so eight stated requirements became seven recorded
+duties.
 
 ## Standing decisions
 

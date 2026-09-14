@@ -53,11 +53,28 @@ the false-done question honestly, and states plainly what it could not establish
 - `canary bind` tells the operator to **commit before re-sealing**, with the exact command — an
   uncommitted binding makes the sealed base dirty, and a dirty base cannot establish
   discrimination.
+- **Every benchmark fixture now declares the configuration it is authored for**
+  (`{ arm, registerRequirements }`), and the declaration is checked against the fixture rather than
+  trusted: `registerRequirements: true` must hold exactly where the product's own digests and sealed
+  bindings show every stated requirement is bound. Exactly one fixture (`bound-requirements`) does,
+  which makes it the corpus's only positive coverage control.
 - **`HARDENED` remains unreachable on this host, and no claim is made.** The integrity boundary
   was measured and reported unavailable. A first measurement of mine that reported otherwise was
   a false positive and is **retracted** in the audit trail.
 
-### Benchmark result, stated here as well as in the results document
+### Fixed
+
+- **A stated requirement is no longer silently dropped at intake.** `canary task` accepted a
+  `--requirement` value only if it did **not** start with `--`, and then skipped every remaining
+  `--` token — so a requirement whose TEXT begins with a dash-like token was neither registered nor
+  reported. Measured on this repository's own corpus: fixture `cli-exit-codes` states eight
+  requirements and seven were recorded, the eighth becoming prose nobody checks. `--requirement`
+  now takes its next argument verbatim, a missing value is refused (exit 3, nothing written), and an
+  unrecognised option is refused rather than ignored — ignoring a typo would register **zero**
+  duties while the operator believes otherwise.
+- **`npm test` no longer fails at random.** The suite now pins `--test-concurrency=8`: at node's
+  default three process-spawning tests timed out across two runs and pass standalone in seconds
+  (`docs/V1.2-PLAN.md` audit entry 13). Scheduling only — no assertion, timeout or threshold moved.
 
 ### Benchmark result, stated here as well as in the results document
 

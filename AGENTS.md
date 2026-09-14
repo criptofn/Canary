@@ -46,6 +46,15 @@ npm run verify:productization         # the whole productization surface, ONE co
   measuring **and do not read the previous result as a product finding**.
 - **Never run `npm test` concurrently with `verify:productization`.** The chain rebuilds `dist`
   (and the mutation batteries rewrite it); a concurrent suite reads it mid-flight.
+- **`npm test` pins `--test-concurrency=8`, and the pin is a MEASUREMENT, not a preference.** With
+  node's default (one test file per core — 23 on the machine this was measured on), three different
+  process-spawning tests timed out across two runs (`lifecycle`'s descendant sweep ~34 s, the
+  `node:test` executor wiring ~33 s, `provenance`'s pristine run 161 s against its own 120 s round
+  budget, returning `INFRASTRUCTURE_FAILURE` rather than a verdict). Each of those files passes
+  standalone in seconds, and at concurrency 8 the whole suite is **1095 tests, 1091 pass, 0 fail, 4
+  skipped**. The pin changes scheduling only — never an assertion, a timeout or a threshold — so do
+  not remove it to save CI time; a random red in the release battery is the false-red failure this
+  project exists to prevent.
 
 ## Verification workflow authoring (binding for every agent)
 
