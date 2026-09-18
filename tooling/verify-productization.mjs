@@ -315,6 +315,7 @@ const STEPS = [
   ['probe: clean-room lazy vibecoder', process.execPath, ['tooling/probes/cleanroom-lazy-vibecoder.mjs'], {}],
   ['probe: HTG inline-interpreter corpus', process.execPath, ['tooling/probes/htg-inline-interpreter-corpus.mjs'], {}],
   ['probe: packed-artifact clean room (spaces path)', process.execPath, ['tooling/probes/cleanroom-packed-artifact.mjs'], {}],
+  ...(process.platform === 'win32' ? [['probe: installed HARDENED production authority and custody', process.execPath, ['tooling/probes/v12-packed-provider-audit.mjs'], {}]] : []),
   ['probe: documented examples (Node + Python, real CLI)', process.execPath, ['tooling/probes/examples-smoke.mjs'], {}],
   ['probe: packed architecture matrix', process.execPath, ['tooling/probes/packed-architecture.mjs'], {}],
   // ── v1.1 Phase 2/3: the observation channels, the runner-identity authority, the

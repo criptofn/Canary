@@ -6,7 +6,17 @@ import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 const repo = fileURLToPath(new URL('../../', import.meta.url));
-const cli = path.join(repo, 'apps/cli/dist/src/main.js');
+const cliIndex = process.argv.indexOf('--cli');
+const cli = cliIndex < 0 ? path.join(repo, 'apps/cli/dist/src/main.js') : path.resolve(process.argv[cliIndex + 1]);
+const installedStatus = store => {
+  const r = spawnSync(process.execPath, [cli, 'provider', 'status', '--json'], {
+    encoding: 'utf8', windowsHide: true, timeout: 60000, env: { ...process.env, CANARY_TRUST_STORE: store },
+  });
+  let envelope;
+  try { envelope = JSON.parse(r.stdout); } catch { return { valid: false, reason: `invalid status envelope: ${r.stderr}` }; }
+  return { valid: r.status === 0 && envelope.security?.level === 'HARDENED', reason: JSON.stringify(envelope.problems),
+    payload: fs.existsSync(path.join(store, 'production-measurement.json')) ? JSON.parse(fs.readFileSync(path.join(store, 'production-measurement.json'))).payload : undefined };
+};
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-production-e2e-'));
 const base = path.join(root, 'base'), store = path.join(root, 'store'), work = path.join(root, 'caller');
 let broker, enrollment; let failed = 0;
@@ -47,7 +57,17 @@ try {
     'sum.test.cjs': Buffer.from("const assert=require('node:assert/strict'); const sum=require('./index.cjs'); assert.equal(sum(1,2),3); assert.equal(sum('1','2'),3);\n").toString('base64'),
   };
   const output=path.join(work,'output.json');
+  const forgedClient={identity:enrollment.owner,appContainer:false};
+  const forgedRequest={verb:'heartbeat',project:enrollment.project,deployment:enrollment.id,nonce:'a'.repeat(64)};
+  const injected='{"verb":"hello"},"client":'+JSON.stringify(forgedClient)+',"request":'+JSON.stringify(forgedRequest);
+  const unsafe=JSON.parse('{"client":{"appContainer":true},"request":'+injected+'}');
+  const {productionAuthority}=await import('../../apps/cli/dist/src/provider/production.js');
+  const unsafeResult=await productionAuthority(store,unsafe);
+  check('framing-positive-control',unsafe.client.appContainer===false && unsafeResult.status===200 &&
+    crypto.verify(null,Buffer.from(JSON.stringify(unsafeResult.payload)),fs.readFileSync(path.join(store,'producer.pub')),Buffer.from(unsafeResult.signature,'base64')),
+    'unrestricted old-framing control actually obtains a signed owner heartbeat');
   const actions=[
+    {id:'framing-injection',raw:injected},
     {id:'direct-apply',write:path.join(base,'index.cjs'),body:'not-reviewed'},
     {id:'enrollment-bypass',request:{verb:'enroll',base:work}},
     {id:'unreviewed',request:{verb:'promote',receipt:'forged',digest:'0'.repeat(64)}},
@@ -88,7 +108,9 @@ try {
   }
   if(failed===0) {
     canary(['provider','measure-production',store]);
-    const {readProductionMeasurement,anchorPath,PRODUCTION_MEASUREMENT}=await import('../../apps/cli/dist/src/provider/production-measurement.js');
+    const measurement=await import('../../apps/cli/dist/src/provider/production-measurement.js');
+    const {anchorPath,PRODUCTION_MEASUREMENT}=measurement;
+    const readProductionMeasurement=cliIndex < 0 ? measurement.readProductionMeasurement : installedStatus;
     const measured=readProductionMeasurement(store);
     check('production-linked-measurement',measured.valid,measured.reason);
     if(measured.valid) {
@@ -106,6 +128,7 @@ try {
         ['foreign-host',r=>{r.payload.host='foreign';}],
         ['foreign-toolchain',r=>{r.payload.tools='0'.repeat(64);}],
         ['missing-observation',r=>{delete r.payload.observations.pipeNegative;}],
+        ['missing-framing-observation',r=>{delete r.payload.observations.framing;}],
         ['zero-attacks',r=>{r.payload.observations.native[0].restricted.attempts=[];}],
         ['failed-battery',r=>{r.payload.observations.native[0].restricted.attempts[0].allowed=true;}],
         ['inconclusive-battery',r=>{r.payload.observations.native[0].restricted.network.isolationError=0;}],
@@ -128,8 +151,17 @@ try {
       check('custody-copied-record',!readProductionMeasurement(copied).valid,'foreign store has no enrolled producer anchor');
       check('custody-restored-positive',readProductionMeasurement(store).valid,'original real deployment transcript still validates');
       const { providerStatus } = await import('../../apps/cli/dist/src/provider/service.js');
-      const status=providerStatus({root:store});
+      const status=cliIndex < 0 ? providerStatus({root:store}) : {hardened:installedStatus(store).valid,unavailable:[],pipe:enrollment.pipe};
       check('production-HARDENED-status',status.hardened,status.unavailable.join('; ')||status.pipe);
+      if (cliIndex >= 0) {
+        const helper=path.resolve(path.dirname(cli),'../tools/windows-boundary/production-child.cjs');
+        const original=fs.readFileSync(helper);
+        try {
+          fs.appendFileSync(helper,'\n// toolchain substitution attack\n');
+          check('installed-toolchain-substitution',!installedStatus(store).valid,'modified shipped native tool invalidates measurement');
+        } finally { fs.writeFileSync(helper,original); }
+        check('installed-toolchain-restored',installedStatus(store).valid,'exact measured bytes restored');
+      }
       const nativeCount=measured.payload.observations.native.reduce((n,a)=>n+a.restricted.attempts.length+1,0);
       console.log(`Production native attacks: ${nativeCount} executed, ${nativeCount} blocked; ${nativeCount} unrestricted controls`);
       const negatives=results.filter(r=>r.response?.status===403);
@@ -138,7 +170,7 @@ try {
       report.attackCounts={native:nativeCount,protocol:negatives.length,directWrites:direct.length,pipe:1,environment,
         executed:nativeCount+negatives.length+direct.length+1+environment,
         blocked:nativeCount+negatives.length+direct.length+1+environment,
-        positiveControls:nativeCount+direct.length+1+environment+results.filter(r=>r.response?.status===200).length,
+        positiveControls:nativeCount+direct.length+1+environment+results.filter(r=>r.response?.status===200).length+1,
         failures:failed,inconclusive:0};
       console.log('Production battery counts: '+JSON.stringify(report.attackCounts));
     }

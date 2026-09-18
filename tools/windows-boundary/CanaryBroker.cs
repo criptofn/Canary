@@ -405,7 +405,8 @@ namespace CanaryBroker {
       using (var process = System.Diagnostics.Process.Start(start)) {
         var output = process.StandardOutput.ReadToEndAsync();
         var errors = process.StandardError.ReadToEndAsync();
-        process.StandardInput.Write("{\"client\":" + client.Json() + ",\"request\":" + request + "}");
+        // Request bytes are a JSON STRING, never an outer-envelope fragment.
+        process.StandardInput.Write("{\"client\":" + client.Json() + ",\"requestJson\":" + J(request) + "}");
         process.StandardInput.Close();
         if (!process.WaitForExit(600000)) { process.Kill(); throw new InvalidOperationException("controller deadline exceeded"); }
         string response = output.Result.Trim();
@@ -414,7 +415,7 @@ namespace CanaryBroker {
           return Response(403, "production", "controller refused the request", null);
         File.AppendAllText(Path.Combine(_store, "authority.jsonl"),
           "{\"at\":" + J(DateTime.UtcNow.ToString("o")) + ",\"client\":" + client.Json() +
-          ",\"request\":" + request + ",\"response\":" + response + "}\n");
+          ",\"requestJson\":" + J(request) + ",\"response\":" + response + "}\n");
         return response;
       }
     }

@@ -10,7 +10,7 @@
  * a failing project that must BLOCK, uninstall that preserves unrelated
  * config, and a stale hook that stays silent afterwards.
  *
- * Also audits the tarball itself: only the bundle + manifest ship; no
+ * Also audits the tarball itself: exact bundle/manifest/native-asset allowlist; no
  * monorepo paths, no secrets, no .night-run/cage content, zero runtime deps.
  *
  * First-class probe (repo workflow rule): fixtures under OS temp only,
@@ -70,8 +70,11 @@ check(2, 'tgz parses as a ustar archive with files', entries.length >= 2, JSON.s
 console.log('  entries: ' + JSON.stringify(entries));
 const stripped = entries.map((e) => e.replace(/^package\//, ''));
 check(2, 'every entry lives under package/', entries.every((e) => e.startsWith('package/')));
-check(2, 'allowlist holds: only package.json + dist/main.js ship',
-  stripped.every((f) => f === 'package.json' || f === 'dist/main.js') && stripped.includes('dist/main.js'));
+const expected = ['package.json', 'dist/main.js',
+  ...['CanaryConfinedLauncher.cs', 'CanaryBroker.cs', 'production-native.ps1', 'production-child.cjs', 'production-host.ps1', 'production-heartbeat.ps1'].map(f => `tools/windows-boundary/${f}`),
+  ...['boundary-native-child.cs', 'boundary-native-parent.cs', 'boundary-native-run.ps1', 'confined-listener.cjs', 'confined-caller.cjs', 'medium-pipe.ps1'].map(f => `tooling/test-support/fixtures/${f}`)];
+check(2, 'exact allowlist: bundle, manifest, native runtime and measured attack programs',
+  stripped.length === expected.length && expected.every(f => stripped.includes(f)));
 check(2, 'no node_modules / .night-run / cage / secrets / absolute paths in the listing',
   !entries.some((e) => /node_modules|[.][ ]?night-run|cage|secret|^package\/[a-zA-Z]:|\\/.test(e)));
 const man = JSON.parse(files.get('package/package.json') ?? '');

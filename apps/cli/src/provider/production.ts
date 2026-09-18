@@ -11,7 +11,8 @@ import { candidateIdentity, configPath, gitCommand, readConfig, untrustedConfigR
 import { controllerExecution, type ControllerExecution } from './execution.js';
 import { enrollMeasurementAuthority, measurementGeneration, productionHost } from './production-measurement.js';
 
-export const nativeRoot = path.resolve(import.meta.dirname, '../../../../../tools/windows-boundary');
+import { providerRoot } from './assets.js';
+export const nativeRoot = path.join(providerRoot, 'tools/windows-boundary');
 const sha = (value: string | Buffer): string => crypto.createHash('sha256').update(value).digest('hex');
 export const quote = (value: string): string => {
   if (/["\r\n\0]/.test(value)) throw new Error('unsupported native argument');

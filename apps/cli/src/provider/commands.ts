@@ -67,7 +67,9 @@ export async function cmdProvider(rawArgs: string[]): Promise<number> {
       const log = console.log;
       console.log = (...args: unknown[]) => console.error(...args);
       try {
-        const result = await productionAuthority(rest[1]!, JSON.parse(input));
+        const envelope = JSON.parse(input);
+        if (typeof envelope.requestJson !== 'string') throw new Error('invalid broker framing');
+        const result = await productionAuthority(rest[1]!, { client: envelope.client, request: JSON.parse(envelope.requestJson) });
         log(JSON.stringify(result)); return 0;
       } catch (e) {
         log(JSON.stringify({ status: 403, detail: String((e as Error).message) })); return 0;

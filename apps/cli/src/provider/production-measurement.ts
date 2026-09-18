@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const repo = path.resolve(import.meta.dirname, '../../../../..');
+import { packagedProvider, providerRoot as repo } from './assets.js';
 const hash = (b: string | Buffer): string => crypto.createHash('sha256').update(b).digest('hex');
 export const PRODUCTION_MEASUREMENT = 'production-measurement.json';
 export const NATIVE_ATTACKS = ['inherited-file', 'inherited-process-duplicate', 'acquire-and-duplicate-broker-file',
@@ -74,10 +74,10 @@ export function productionToolsDigest(store: string): string {
     }
   };
   visit(path.join(repo, 'tools/windows-boundary'));
-  visit(path.join(repo, 'apps/cli/dist/src'));
+  visit(path.join(repo, packagedProvider ? 'dist' : 'apps/cli/dist/src'));
   for (const name of ['boundary-native-child.cs', 'boundary-native-parent.cs', 'boundary-native-run.ps1', 'confined-listener.cjs', 'confined-caller.cjs', 'medium-pipe.ps1'])
     h.update(fs.readFileSync(path.join(repo, 'tooling/test-support/fixtures', name)));
-  for (const group of ['core', 'runner', 'evidence', 'support']) {
+  for (const group of packagedProvider ? [] : ['core', 'runner', 'evidence', 'support']) {
     const root = path.join(repo, 'packages', group);
     if (fs.existsSync(path.join(root, 'dist'))) visit(path.join(root, 'dist'));
     else for (const name of fs.readdirSync(root).sort()) if (fs.existsSync(path.join(root, name, 'dist'))) visit(path.join(root, name, 'dist'));
@@ -95,6 +95,7 @@ export interface NativeObservation {
 }
 interface AuthorityEvent { client: Record<string, unknown>; request: Record<string, unknown>; response: Record<string, unknown> }
 export interface ProductionTranscript {
+  framing: { at: string; client: Record<string, unknown>; requestJson: string; response: { status: number } };
   native: NativeObservation[];
   authority: AuthorityEvent[];
   enrollmentDigest: string;
@@ -111,6 +112,19 @@ interface Payload {
 /** Each required result is derived from concrete native return values and broker
  * transcripts. Aggregate pass/complete/available fields have no authority. */
 function checkObservations(p: Payload, enrollment: { package: string; verifier: string; project: string; base: string }): void {
+  const framing = p.observations.framing;
+  if (!framing || framing.response.status !== 403 || framing.client.package !== enrollment.package || framing.client.identity !== p.user ||
+      framing.client.appContainer !== true || framing.client.restricted !== true || framing.client.capabilities !== 0 ||
+      framing.client.integrity !== 'S-1-16-4096' || !Number.isFinite(Date.parse(framing.at)) ||
+      Date.parse(framing.at) < p.startedAt || Date.parse(framing.at) > p.finishedAt) throw new Error('framing attack denial not observed');
+  // Reproduce the unsafe control directly from the bytes the real pipe received.
+  const unsafe = JSON.parse('{"client":{"appContainer":true},"request":' + framing.requestJson + '}');
+  if (unsafe.client.appContainer !== false || unsafe.request.verb !== 'heartbeat' ||
+      unsafe.request.project !== enrollment.project || unsafe.request.deployment !== p.deployment)
+    throw new Error('framing positive control missing');
+  let malformed = false;
+  try { JSON.parse(framing.requestJson); } catch { malformed = true; }
+  if (!malformed) throw new Error('framing attack did not execute');
   const events = p.observations.authority;
   if (!Array.isArray(events) || events.length !== 10) throw new Error('production authority attacks missing or unexpected');
   const review = events.find(x => x.request.verb === 'review' && x.response.status === 200);

@@ -22,7 +22,15 @@ export async function measureProductionAttacks(store: string): Promise<void> {
   let server: ReturnType<typeof spawn> | undefined;
   let negativePipe: ReturnType<typeof spawn> | undefined;
   try {
-    const authority = plainFile(path.join(store, 'authority.jsonl')).toString('utf8').trim().split('\n').map(x => JSON.parse(x)).filter(x => x.request?.challenge === challenge);
+    const events = plainFile(path.join(store, 'authority.jsonl')).toString('utf8').trim().split('\n').map(x => JSON.parse(x));
+    const framing = events.find(event => {
+      try { JSON.parse(event.requestJson); return false; } catch { return Date.parse(event.at) >= startedAt; }
+    });
+    if (!framing) throw new Error('production framing attack missing');
+    const authority = events.map(event => {
+      try { return { ...event, request: JSON.parse(event.requestJson) }; }
+      catch { if (event.response?.status !== 403) throw new Error('malformed request was not refused'); return event; }
+    }).filter(x => x.request?.challenge === challenge);
     const review = authority.find(x => x.request.verb === 'review' && x.response.status === 200);
     if (!review || typeof review.request.candidate !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,40}$/.test(review.request.candidate)) throw new Error('reviewed production subject missing');
     const privateCheckout = path.join(os.tmpdir(), `canary-production-${e.id}-${review.request.candidate}`);
@@ -86,7 +94,7 @@ export async function measureProductionAttacks(store: string): Promise<void> {
     };
     const applied = candidateIdentity(e.base);
     if (!applied.head || !applied.tree) throw new Error('promoted base identity unavailable');
-    const observations: ProductionTranscript = { native, authority, pipeNegative,
+    const observations: ProductionTranscript = { native, authority, pipeNegative, framing,
       enrollmentDigest: crypto.createHash('sha256').update(plainFile(path.join(store, 'enrollment.json'))).digest('hex'),
       promotedHead: applied.head, promotedTree: applied.tree };
     publishProductionMeasurement(store, challenge, startedAt, observations);

@@ -2,10 +2,10 @@ const fs = require('node:fs');
 const net = require('node:net');
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const observations = [];
-const call = request => new Promise((resolve, reject) => {
+const call = (request, raw) => new Promise((resolve, reject) => {
   const s = net.connect('\\\\.\\pipe\\' + cfg.pipe); let buffer = '';
   s.setTimeout(120000);
-  s.on('connect', () => s.write(JSON.stringify(request) + '\n'));
+  s.on('connect', () => s.write((raw ?? JSON.stringify(request)) + '\n'));
   s.on('data', bytes => { buffer += bytes; if(buffer.includes('\n')) { s.destroy(); resolve(JSON.parse(buffer.split('\n')[0])); } });
   s.on('error', reject); s.on('timeout', () => { s.destroy(); reject(new Error('broker timeout')); });
 });
@@ -22,7 +22,7 @@ const call = request => new Promise((resolve, reject) => {
       const review = observations.find(x => x.id === 'review')?.response;
       request = { ...request, receipt: review?.receipt, digest: review?.digest, ...item.override };
     }
-    observations.push({ id: item.id, executed: true, response: await call(request) });
+    observations.push({ id: item.id, executed: true, response: await call(request, item.raw) });
   }
   fs.writeFileSync(cfg.output, JSON.stringify(observations));
 })().catch(e => { fs.writeFileSync(cfg.output, JSON.stringify({ error: e.stack, observations })); process.exitCode = 2; });

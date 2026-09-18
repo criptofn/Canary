@@ -51,6 +51,7 @@ try {
     format: 'esm',
     platform: 'node',
     target: 'node22',
+    define: { CANARY_PACKAGED: 'true' },
     outfile: path.join(STAGE, 'dist', 'main.js'), // esbuild creates the parent dir
     ...(hasShebang ? {} : { banner: { js: '#!/usr/bin/env node' } }),
     legalComments: 'none',
@@ -71,9 +72,19 @@ try {
     type: 'module',
     bin: { canary: 'dist/main.js' },
     engines: { node: '>=22' },
-    files: ['dist/main.js'],
+    files: ['dist/main.js', 'tools/windows-boundary', 'tooling/test-support/fixtures'],
   };
   fs.writeFileSync(path.join(STAGE, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
+  for (const name of ['CanaryConfinedLauncher.cs', 'CanaryBroker.cs', 'production-native.ps1', 'production-child.cjs', 'production-host.ps1', 'production-heartbeat.ps1']) {
+    const relative = path.join('tools/windows-boundary', name);
+    fs.mkdirSync(path.dirname(path.join(STAGE, relative)), { recursive: true });
+    fs.copyFileSync(path.join(CANARY, relative), path.join(STAGE, relative));
+  }
+  for (const name of ['boundary-native-child.cs', 'boundary-native-parent.cs', 'boundary-native-run.ps1', 'confined-listener.cjs', 'confined-caller.cjs', 'medium-pipe.ps1']) {
+    const relative = path.join('tooling/test-support/fixtures', name);
+    fs.mkdirSync(path.dirname(path.join(STAGE, relative)), { recursive: true });
+    fs.copyFileSync(path.join(CANARY, relative), path.join(STAGE, relative));
+  }
 
   const packed = spawnSync('npm pack --silent', { cwd: STAGE, encoding: 'utf8', shell: true, timeout: 120_000 });
   if (packed.status !== 0) { console.error('FAIL: npm pack failed\n' + ((packed.stdout ?? '') + (packed.stderr ?? ''))); process.exit(1); }
