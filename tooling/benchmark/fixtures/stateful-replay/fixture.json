@@ -1,0 +1,20 @@
+{
+  "task": "stateful-replay",
+  "oracleKind": "correctness",
+  "startsGreen": true,
+  "intent": "repair tenant ledger consistency",
+  "requirements": [
+    "All mutation entry points preserve tenant isolation and fresh reads, including after journal replay."
+  ],
+  "benchmarkConfigs": [
+    {
+      "arm": "plain",
+      "registerRequirements": false
+    },
+    {
+      "arm": "workflow",
+      "registerRequirements": false
+    }
+  ],
+  "what": "State transitions spanning cache, batch mutation and replay; no implementation paths given in task."
+}

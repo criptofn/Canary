@@ -23,8 +23,8 @@
  *      proof bindings. A requirement is bound when its digest maps to a script the sealed plan runs.
  *      The probe computes no digest of its own — the digests are Canary's, so a change to the
  *      digest rule cannot make this probe agree with a stale copy of that rule.
- *   3. THE INVARIANT — `registerRequirements: true` if and only if EVERY stated requirement is
- *      bound, and `false` for any fixture that states requirements no check measures. A fixture
+ *   3. THE INVARIANT — `registerRequirements: true` requires EVERY stated requirement to be
+ *      bound. Bindings do not force a trial to register requirements. A fixture
  *      with no requirements array must declare `false`, because for it the flag is a no-op.
  *
  * What this probe does NOT check: whether a declared configuration has been RUN. A declaration is a
@@ -129,10 +129,11 @@ check('1. each fixture declares BOTH axes (arm and registerRequirements)', () =>
 
 console.log('\n── 2. measured against each fixture\'s own sealed bindings');
 const measured = [];
-check('2. `registerRequirements: true` exactly where every stated requirement is BOUND', () => {
+check('2. every registration-enabled configuration has sealed bindings', () => {
   for (const name of fixtureNames) {
     const meta = metaOf(name);
-    const declared = declaredOf(meta)[0];
+    const configurations = declaredOf(meta);
+    const declared = { registerRequirements: configurations.some(c => c.registerRequirements) };
     const reqs = requirementsOf(meta);
     const m = measure(name, meta);
     const bound = m.unbound.length === 0;
@@ -146,10 +147,8 @@ check('2. `registerRequirements: true` exactly where every stated requirement is
       continue;
     }
     assert(m.digests.length === reqs.length, `${name}: stated ${reqs.length} requirement(s) but the task record digested ${m.digests.length}`);
-    assert(bound === declared.registerRequirements,
-      bound
-        ? `${name} declares registerRequirements:false, but every stated requirement IS bound to a sealed check — the declaration understates the fixture`
-        : `${name} declares registerRequirements:true, but ${m.unbound.length} of ${reqs.length} stated requirement(s) are bound to NO sealed check. Registering them would derive duties nothing can discharge and the Stop hook would refuse correct work — a false red, exactly the configuration open item 7 exists to prevent`);
+    assert(!declared.registerRequirements || bound,
+      `${name} declares a registerRequirements:true configuration, but ${m.unbound.length} of ${reqs.length} requirements have no sealed check`);
   }
 });
 

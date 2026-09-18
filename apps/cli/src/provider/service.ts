@@ -1,38 +1,20 @@
-/**
- * The Canary provider service — the trusted side of the HARDENED boundary
- * (v1.1 Phase 3).
- *
- * THE ONE INVARIANT THIS FILE EXISTS TO KEEP: the privileged broker NEVER
- * executes candidate or project code with its own identity. Verification runs in
- * a RESTRICTED RUNNER (a separate account), and if that identity is not
- * available the service refuses the work — it does not fall back to running it
- * itself. Everything else here is plumbing around that rule.
- *
- * IT REFUSES TO START WITHOUT A PROVEN BOUNDARY. `measureBoundary()` must show
- * that the store is not writable by the worker, that a broker service runs as an
- * account which is not the caller's, and that a worker identity is enrolled. If
- * even one control is missing the service prints exactly which and exits 2 —
- * because a broker that runs without the separation is a single-process Canary
- * with extra steps, and calling that HARDENED is the overclaim this whole
- * repository is organised against.
- *
- * WHAT IS *NOT* HERE, so no reader infers it: this file does not create the
- * worker identity, install the service, or rewrite the store DACL. Those are
- * privileged and are the owner's decision; `installPlan()` prints the exact
- * commands and `provider status` measures whether they were run.
- */
+/** Provider reporting and legacy LOCAL protocol compatibility. Enrolled Windows
+ * deployments are served by production.ts and the authenticated native broker.
+ * Candidate code only runs under the measured restricted AppContainer runner;
+ * legacy reservations cannot mint evidence or authorize caller-owned apply. */
 import path from 'node:path';
+import fs from 'node:fs';
+import { serveProduction } from './production.js';
 
 import { LocalAuthorityBroker } from '../broker.js';
 import type { AuthorizationSubject } from '../authorization.js';
-import { subjectDigest } from '../authorization.js';
 import { storeFromEnv, type TrustStore } from '../trust-store.js';
 import {
   PROVIDER_PIPE_NAME, PROVIDER_SERVICE_NAME, WORKER_USER_ENV, installPlan,
   measureBoundary, type BoundaryMeasurement, type InstallPlan,
 } from './boundary.js';
 import {
-  IpcError, callBroker, createBrokerServer, ensureBrokerToken, providerEndpoint,
+  IpcError, callBroker, ensureBrokerToken, providerEndpoint,
   type WireRequest,
 } from './ipc.js';
 
@@ -51,40 +33,77 @@ export interface ProviderStatus {
   unavailable: string[];
   /** True when a worker identity is enrolled but the service is not running. */
   activationPending: boolean;
+  /** Where candidate code would be confined, when it can be. */
+  confinement:
+    | { kind: 'win32-appcontainer-restricted-low'; package: string; measuredAt: string; ageMs: number | null }
+    | { kind: 'identity-runner'; account: string | null }
+    | null;
 }
 
 export function providerStatus(store: TrustStore = storeFromEnv(), env: NodeJS.ProcessEnv = process.env): ProviderStatus {
   const boundary = measureBoundary(store, env);
-  const unavailable = Object.entries(boundary.controls)
+  const unavailable = (Object.entries(boundary.controls) as Array<[string, { available: boolean; why: string }]>)
     .filter(([, c]) => !c.available)
     .map(([name, c]) => `${name}: ${c.why}`);
+  const record = boundary.confined.record;
+  const production = boundary.production?.valid ? boundary.production.payload : undefined;
+  const confinement: ProviderStatus['confinement'] = production
+    ? { kind: 'win32-appcontainer-restricted-low', package: production.observations.native[0]!.package,
+      measuredAt: new Date(production.finishedAt).toISOString(), ageMs: Date.now() - production.finishedAt }
+    : boundary.confined.measured && record !== null
+    ? {
+      kind: 'win32-appcontainer-restricted-low',
+      package: boundary.confined.callerPackage ?? '',
+      measuredAt: record.measuredAt,
+      ageMs: boundary.confined.ageMs,
+    }
+    : boundary.workerUser !== null
+      ? { kind: 'identity-runner', account: boundary.workerUser }
+      : null;
   return {
     schema: 'canary-provider-status/1',
     service: PROVIDER_SERVICE_NAME,
-    pipe: providerEndpoint(PROVIDER_PIPE_NAME),
+    pipe: providerEndpoint(production ? `canary-production-${production.deployment}` : PROVIDER_PIPE_NAME),
     boundary,
     hardened: boundary.hardenedAvailable,
     unavailable,
-    activationPending: boundary.workerUser !== null && !boundary.brokerServiceRunning,
+    activationPending: boundary.workerUser !== null && !boundary.brokerServiceRunning
+      && !boundary.confined.measured && !production,
+    confinement,
   };
 }
 
 /**
- * A restricted runner: launches candidate code under the enrolled worker
+ * A restricted runner: launches candidate code under the ENROLLED worker
  * identity. It is deliberately the ONLY place a provider would start a child for
- * verification, and it refuses when the identity is not enrolled — so there is no
- * path in this file that runs project code as the broker.
+ * verification, and it refuses when neither mechanism is available — so there is
+ * no path in this file that runs project code as the broker.
+ *
+ * v1.2 Mission 3 added the path that matters: when a confined-caller deployment
+ * is MEASURED (`provider/confined-measurement.ts`), candidate code runs inside
+ * an AppContainer added to a restricted, low-integrity, zero-capability token —
+ * no elevation, no second account — and that is the mechanism this build
+ * activates. The identity account remains the fallback for a host that has one.
  *
  * The launch mechanism is per platform (`runas`/a scheduled task on Windows,
  * `sudo -u`/`setpriv` on POSIX); the identity argument is the enrolled worker
  * account, never anything a client supplied.
  */
 export class RestrictedRunner {
-  constructor(private readonly workerUser: string | null) {}
+  constructor(
+    private readonly workerUser: string | null,
+    /** The measured confinement, when a deployment record validates. */
+    private readonly confinement: ProviderStatus['confinement'] = null,
+  ) {}
 
   /** The argv a provider WOULD use, so the mechanism is inspectable and testable
    *  without the identity existing. Returns null when it cannot be built. */
   launchArgv(program: string, args: readonly string[], cwd: string): string[] | null {
+    if (this.confinement?.kind === 'win32-appcontainer-restricted-low') {
+      // The confined caller is launched by the native helper, never by a shell:
+      // one command line, a mandatory disposable sandbox, a side-channel record.
+      return ['CanaryConfinedLauncher', 'run', program, ...args, cwd];
+    }
     if (this.workerUser === null) return null;
     if (program.includes('"') || cwd.includes('"')) return null; // cannot embed safely
     if (process.platform === 'win32') {
@@ -99,8 +118,9 @@ export class RestrictedRunner {
   /** Refuse rather than execute as the broker. The provider turns this into a
    *  BLOCKED outcome; it never falls back. */
   assertUsable(): string | null {
+    if (this.confinement?.kind === 'win32-appcontainer-restricted-low') return null;
     if (this.workerUser === null) {
-      return `no restricted runner identity is enrolled (${WORKER_USER_ENV} is unset): running candidate code as the broker identity is exactly what HARDENED forbids, so the verification is BLOCKED`;
+      return `neither a measured confined-caller deployment nor an enrolled runner identity exists (${WORKER_USER_ENV} is unset): running candidate code as the broker identity is exactly what HARDENED forbids, so the verification is BLOCKED`;
     }
     if (process.platform === 'win32') {
       return 'a Windows restricted runner must be a scheduled task or a second service running as the enrolled identity; no such runner is installed here, so the verification is BLOCKED';
@@ -119,7 +139,10 @@ export function createProviderHandler(opts: {
   liveSubject: () => AuthorizationSubject;
 }): (req: WireRequest) => unknown {
   const broker = new LocalAuthorityBroker(opts.store, opts.projectId);
-  const runner = new RestrictedRunner(process.env[WORKER_USER_ENV]?.trim() || null);
+  const runner = new RestrictedRunner(
+    process.env[WORKER_USER_ENV]?.trim() || null,
+    providerStatus(opts.store).confinement,
+  );
   return (req) => {
     switch (req.op) {
       case 'broker.hello':
@@ -139,11 +162,9 @@ export function createProviderHandler(opts: {
       case 'broker.submit-acceptance': {
         const blocked = runner.assertUsable();
         if (blocked !== null) throw new IpcError('no-restricted-runner', blocked);
-        // With a real restricted runner installed, the provider would execute the
-        // sealed plan THERE and sign the statement with the broker-held key. The
-        // signing path is the kernel's (`request`), which is already implemented
-        // and attack-tested; what is missing on this host is the identity.
-        throw new IpcError('runner-not-installed', 'the restricted runner is declared but not installed; verification cannot be produced');
+        // The legacy reservation protocol has no signing operation. Production
+        // verification belongs exclusively to the authenticated native controller.
+        throw new IpcError('production-protocol-required', 'use the enrolled production broker; legacy callers cannot submit trusted evidence');
       }
       case 'broker.reserve-promotion': {
         const live = opts.liveSubject();
@@ -160,36 +181,22 @@ export function createProviderHandler(opts: {
 
 /** Run the service in the foreground (what `sc.exe` starts). */
 export async function providerServe(store: TrustStore = storeFromEnv()): Promise<number> {
+  if (fs.existsSync(path.join(store.root, 'enrollment.json'))) return serveProduction(store.root);
   const status = providerStatus(store);
   if (!status.hardened) {
     process.stderr.write('CANARY PROVIDER UNAVAILABLE — the boundary is not established, so the broker will not run.\n');
     for (const u of status.unavailable) process.stderr.write(`  - ${u}\n`);
-    process.stderr.write('\nwhy this is a refusal and not a warning: a broker without a separate identity is our own\n');
+    process.stderr.write('\nwhy this is a refusal and not a warning: a broker without a measured boundary is our own\n');
     process.stderr.write('process with extra steps, and running candidate code under it is the exact overclaim that\n');
-    process.stderr.write('HARDENED is reserved for. Run `canary provider install-plan` for the privileged steps.\n');
+    process.stderr.write('HARDENED is reserved for. Measure the confined-caller deployment:\n');
+    process.stderr.write('  node tooling/probes/v12-confined-caller.mjs\n');
+    process.stderr.write('and, only if a separate broker identity is wanted too, `canary provider install-plan`.\n');
     return 2;
   }
-  const token = ensureBrokerToken(store.root);
-  // The subject is read from the store by the broker itself; this stand-in keeps
-  // the handler shaped correctly and is replaced by enrollment lookup once the
-  // provider is activated.
-  const projectId = 'p-'.padEnd(34, '0');
-  const generation = process.env.CANARY_AUTHORITY_GENERATION?.trim() || '1';
-  const server = createBrokerServer({
-    pipeName: PROVIDER_PIPE_NAME,
-    token,
-    authorityGeneration: generation,
-    handler: createProviderHandler({
-      store, projectId, generation,
-      liveSubject: () => { throw new IpcError('no-enrollment', 'this broker has no enrolled subject'); },
-    }),
-    log: (l) => process.stderr.write(`canary-broker: ${l}\n`),
-  });
-  process.stderr.write(`canary-broker: serving ${providerEndpoint(PROVIDER_PIPE_NAME)} as generation ${generation}\n`);
-  const shutdown = async (): Promise<void> => { await server.close(); process.exit(0); };
-  process.on('SIGINT', () => { void shutdown(); });
-  process.on('SIGTERM', () => { void shutdown(); });
-  return await new Promise<number>(() => { /* serve until signalled */ });
+  // Only real enrollment can start a production controller. No placeholder
+  // project, enrollment resolver or generic local server is an authority path.
+  process.stderr.write('CANARY PROVIDER UNAVAILABLE — production enrollment required.\n');
+  return 2;
 }
 
 /** A worker-side call. Present so the CLI can be pointed at a provider. */

@@ -1,0 +1,21 @@
+{
+  "schema": "canary-project/1",
+  "scopes": [
+    {
+      "path": ".",
+      "checks": [
+        {
+          "name": "contract",
+          "kind": "tests",
+          "argv": [
+            "node",
+            "checks/contract.cjs"
+          ]
+        }
+      ]
+    }
+  ],
+  "proofs": {
+    "5ab88ede7cc2e33265b381cbd0e2c2abf816ed140660e299da1f341f5db8b971": "contract"
+  }
+}

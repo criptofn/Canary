@@ -1,0 +1,16 @@
+const assert = require('node:assert/strict');
+const {open} = require('../src/api');
+const a = open();
+a.put('a','same','one'); a.put('b','same','two');
+assert.equal(a.get('a','same'),'one');
+a.get('a','new');
+a.batch([{op:'put',tenant:'a',id:'new',value:'present'}]);
+assert.equal(a.get('a','new'),'present');
+a.put('a','same','updated'); assert.equal(a.get('a','same'),'updated');
+a.batch([{op:'delete',tenant:'b',id:'same'}]);
+assert.equal(a.get('b','same'),undefined);
+a.remove('a','same');
+assert.equal(open(a.exportJournal()).get('a','same'),undefined);
+const exported = a.exportJournal(); exported[0].value='tampered'; exported.length=0;
+assert.notEqual(a.exportJournal()[0].value,'tampered');
+console.log('contract checks passed');

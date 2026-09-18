@@ -123,6 +123,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { controllerExecution } from './provider/execution.js';
 import { digest, canonicalTask, taskWeakening, subjectDigest, type TaskIdentity, type AuthorizationSubject } from './authorization.js';
 
 import {
@@ -133,7 +134,7 @@ import {
 } from './onboarding.js';
 import { authorityDrift, quarantineInfo, QUARANTINE_FILE, shortState, snapshotAuthority, snapshotTree, stampQuarantine, treeDrift, type AuthorityChange } from './authority.js';
 import {
-  brokerRoutingRequired, expectedAuthorityGeneration, refusalText,
+  brokerRoutingRequired, refusalText,
   reservePromotionThroughBroker, submitAcceptanceThroughBroker,
 } from './provider/routing.js';
 import { projectIdForRoot, storeFromEnv } from './trust-store.js';
@@ -982,7 +983,7 @@ async function isolatePromote(root: string, cfg: CanaryConfig, o: Out, name: str
   // live identities below — a broker that authorizes a different candidate, base or
   // project authorizes nothing.
   const store = storeFromEnv();
-  if (brokerRoutingRequired(store)) {
+  if (brokerRoutingRequired(store) && !controllerExecution.getStore()) {
     const routed = await reservePromotionThroughBroker({ projectId: projectIdForRoot(root), candidate: name }, store);
     if (!routed.routed || !routed.ok) {
       const detail = routed.routed ? refusalText(routed.code, routed.message) : 'the broker could not be consulted';
@@ -998,7 +999,9 @@ async function isolatePromote(root: string, cfg: CanaryConfig, o: Out, name: str
         'the broker is bound to another candidate or base; re-run canary setup on this repository',
         { branch, from: idb.head, to: H, tree: treeT, providerOnly: true, brokerWindow: window });
     }
-    o.say(`  provider: promotion window reserved by the broker (target ${String(window.targetId ?? 'unstated')}, generation ${expectedAuthorityGeneration(store) ?? 'unstated'})`);
+    return refuse(rec, 'the broker reserved a window but did not perform protected promotion; caller-owned apply is forbidden with a provider configured',
+      'a production broker-owned verifier and promoter must be installed; reservation is not apply authority',
+      { branch, from: idb.head, to: H, tree: treeT, providerOnly: true });
   }
   // Gate 7 — the apply: fast-forward only. H passed HEX_RE, so it can never
   // parse as a flag; --end-of-options is deliberately NOT used (undocumented
@@ -1106,6 +1109,18 @@ function isolateRemove(root: string, o: Out, name: string, discard: boolean): nu
 }
 
 // ---------- entry ----------
+
+/** Called only inside a trusted controller execution scope. The OS boundary,
+ * not possession of this exported function, protects the base and registry. */
+export async function controllerCandidate(root: string, name: string, head: string, baseHead: string, promote: boolean): Promise<number> {
+  if (!controllerExecution.getStore()) throw new Error('restricted controller execution is required');
+  const o = new Out(false);
+  const base = trustedBase(root, o);
+  if (typeof base === 'number') return base;
+  const rec = loadRecord(root, name);
+  if (typeof rec !== 'object' || candidateIdentity(rec.root).head !== head || candidateIdentity(root).head !== baseHead) return 2;
+  return promote ? await isolatePromote(root, base.cfg, o, name) : verifyCandidate(root, base.cfg, o, name).code;
+}
 
 export async function cmdIsolate(rawArgs: string[]): Promise<number> {
   const { opts, rest } = parseGlobals(rawArgs);

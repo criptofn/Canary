@@ -110,11 +110,19 @@ describe('boundary measurement on a real host is honest about what it cannot see
     assert.equal(m.storeExists, false);
     assert.equal(m.hardenedAvailable, false);
     assert.equal(m.workerUser, null);
-    assert.equal(m.workerCanWriteStore, null, 'no enrolled worker means the question is unanswerable, not "false"');
+    assert.equal(m.confined.measured, false, 'nothing has measured a confined-caller deployment in this store');
+    assert.equal(m.confined.signatureVerified, false);
+    // The six production controls come from the deployment measurement, and with
+    // no record every one of them is unavailable WITH the validation's reason.
+    assert.deepEqual(Object.keys(m.controls).sort(), ALL_CONTROLS.slice().sort());
     for (const c of ALL_CONTROLS) {
       assert.equal(m.controls[c].available, false, `${c} must not be claimed`);
       assert.ok(m.controls[c].why.length > 20, `${c} must state why`);
+      assert.match(m.controls[c].why, /confined-caller deployment is not measured/);
     }
+    // The identity path is reported SEPARATELY: it is not evidence of anything on
+    // a host where nobody ran an elevated install, so it never mixes into the six.
+    for (const c of ALL_CONTROLS) assert.equal(m.identityControls[c].available, false);
     assert.ok(m.observations.length >= 3, 'the raw observations are retained so a human can re-check');
   });
 
@@ -125,6 +133,10 @@ describe('boundary measurement on a real host is honest about what it cannot see
     fs.mkdirSync(store.root, { recursive: true });
     ensureBrokerToken(store.root);
     assert.equal(providerConfigured(store, {}), true, 'a store token means a provider ran here');
+    fs.rmSync(path.join(store.root, 'provider-token'), { force: true });
+    // A measurement record is the other trace a provider leaves behind.
+    fs.writeFileSync(path.join(store.root, 'confined-caller-measurement.json'), '{}');
+    assert.equal(providerConfigured(store, {}), true, 'a measurement record means a provider ran here');
   });
 
   it('providerStatus explains HARDENED is unavailable and flags pending activation', () => {
@@ -132,7 +144,8 @@ describe('boundary measurement on a real host is honest about what it cannot see
     const s = providerStatus(store, { CANARY_WORKER_USER: 'canary-worker' });
     assert.equal(s.hardened, false);
     assert.equal(s.unavailable.length, ALL_CONTROLS.length);
-    assert.equal(s.activationPending, true, 'a worker is enrolled but the service is not running');
+    assert.equal(s.activationPending, true, 'a worker is enrolled but no deployment is measured and no service runs');
+    assert.equal(s.confinement?.kind, 'identity-runner');
   });
 });
 
@@ -147,7 +160,10 @@ describe('the install lifecycle is explicit, privileged and reversible', () => {
     assert.equal(plan.steps.find((s) => s.id === 'enroll-worker')!.needsElevation, false);
     assert.ok(plan.rollback.length >= 4, 'a plan without a rollback is not a plan');
     assert.ok(plan.verify.length >= 2);
-    assert.ok(plan.postState.some((p) => /hardenedAvailable = true/.test(p)));
+    assert.ok(plan.postState.some((p) => /hardenedAvailable/.test(p)));
+    // The plan must say how the level is actually produced, so a reader does not
+    // infer that running it is what makes HARDENED reachable.
+    assert.ok(plan.verify.some((v) => /v12-confined-caller\.mjs/.test(v)), 'the plan must name the measurement that produces the controls');
   });
 
   it('uninstall keeps the sealed authority and says so', () => {
@@ -194,21 +210,30 @@ describe('the install lifecycle is explicit, privileged and reversible', () => {
 });
 
 describe('the restricted runner refuses rather than running as the broker', () => {
-  it('has no launch argv without an enrolled identity, and refuses in words', () => {
-    const r = new RestrictedRunner(null);
+  it('has no launch argv without a measured deployment and refuses in words', () => {
+    const r = new RestrictedRunner(null, null);
     assert.equal(r.launchArgv('python', ['-m', 'unittest'], TMP), null);
     const why = r.assertUsable();
-    assert.ok(why !== null, 'without an identity the runner MUST refuse');
+    assert.ok(why !== null, 'without a measured deployment or an identity the runner MUST refuse');
     assert.match(why!, /BLOCKED/);
     assert.match(why!, /as the broker identity/);
   });
 
   it('builds a platform-shaped launch only WITH an identity', () => {
-    const r = new RestrictedRunner('canary-worker');
+    const r = new RestrictedRunner('canary-worker', null);
     const argv = r.launchArgv('python', ['-m', 'unittest'], TMP);
     assert.ok(argv !== null);
     if (process.platform === 'win32') assert.equal(argv![0], 'schtasks');
     else assert.deepEqual(argv!.slice(0, 4), ['sudo', '-n', '-u', 'canary-worker']);
+  });
+
+  it('an identity alone is not enough on Windows: it still refuses, because no runner is installed', () => {
+    const r = new RestrictedRunner('canary-worker', { kind: 'identity-runner', account: 'canary-worker' });
+    if (process.platform === 'win32') {
+      assert.match(r.assertUsable()!, /BLOCKED/);
+    } else {
+      assert.equal(r.assertUsable(), null);
+    }
   });
 });
 

@@ -30,6 +30,7 @@ const FIXTURES = path.join(BENCH, 'fixtures');
 
 /** Every fixture, with what each of its three states must produce. */
 const EXPECTATIONS = {
+  'stateful-replay': [{ visible: 0, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
   // task: [untouched, good, bad] as { visible, hidden } exit-code expectations (0 = pass).
   'bug-sum': [{ visible: 1, hidden: 1 }, { visible: 0, hidden: 0 }, { visible: 0, hidden: 1 }],
   'impossible-test': [{ visible: 1, hidden: 0 }, { visible: 1, hidden: 0 }, { visible: 0, hidden: 1 }],

@@ -144,6 +144,29 @@ check('every control is unavailable and every reason is substantive', () => {
 // ─────────────────── 3b. the REAL provider surface (v1.1 Phase 3) ───────────────────
 console.log('\n=== canary provider status (the measured boundary) ===');
 {
+  // v1.2 Mission 3: the tripwire is no longer "HARDENED must never appear" — the
+  // confined-caller measurement may legitimately produce it. What must never
+  // happen is HARDENED from anything OTHER than a measurement, so this reads the
+  // product's own measurement of a store that has none.
+  const boundaryModule = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'provider', 'boundary.js');
+  if (!fs.existsSync(boundaryModule)) { failures++; console.log(`FAIL missing built boundary module: ${boundaryModule}`); }
+  else {
+    const { measureBoundary } = await import(`file://${boundaryModule.replace(/\\/g, '/')}`);
+    const emptyStore = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-provider-probe-measure-'));
+    const measured = measureBoundary({ root: emptyStore }, {});
+    check('a store with no measurement reports no control available and not HARDENED', () => {
+      assert(measured.hardenedAvailable === false, 'hardenedAvailable was true with no measurement');
+      assert(measured.confined.measured === false, 'a deployment was reported measured with no record');
+      const available = CONTROLS.filter((c) => measured.controls[c].available);
+      assert(available.length === 0, `controls claimed available with no measurement: ${available.join(', ')}`);
+      for (const c of CONTROLS) {
+        assert(typeof measured.controls[c].why === 'string' && measured.controls[c].why.length > 20, `${c} must state why`);
+      }
+    });
+    console.log(`measured boundary on an unmeasured store -> hardenedAvailable ${measured.hardenedAvailable}, reason: ${measured.confined.reason}`);
+    fs.rmSync(emptyStore, { recursive: true, force: true });
+  }
+
   const cli = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
   if (!fs.existsSync(cli)) { failures++; console.log(`FAIL missing built CLI: ${cli}`); }
   else {
@@ -196,8 +219,11 @@ console.log('\n=== canary provider status (the measured boundary) ===');
 }
 
 // ─────────────────── 3. the exact authorization ask ───────────────────
-console.log('\n=== the exact privileged step (NOT executed here) ===');
-console.log('Elevation is required, and it is a human decision. On Windows x64:');
+console.log('\n=== the identity path: privileged steps (NOT executed here) ===');
+console.log('This build does NOT need these steps: capability comes from the measured');
+console.log('confined-caller deployment (node tooling/probes/v12-confined-caller.mjs),');
+console.log('which uses no elevation. They remain here for a host that wants a separate');
+console.log('broker ACCOUNT on top of it, and elevation stays a human decision. On Windows x64:');
 console.log('  1. create a restricted worker identity (as Administrator, once):');
 console.log('       net user canary-worker <STRONG-PASSWORD> /add /passwordreq:yes');
 console.log('       net localgroup "Users" canary-worker /add');
@@ -210,8 +236,10 @@ console.log('  4. declare the pairing, then re-run THIS probe and the broker con
 console.log('       set CANARY_WORKER_USER=canary-worker');
 console.log('       set CANARY_BROKER_ENDPOINT=\\\\.\\pipe\\canary-broker');
 console.log('       node tooling/probes/provider-boundary.mjs && npm test');
-console.log('Until step 4 passes on a host with a real second identity, HARDENED stays unreachable');
-console.log('and every one of the six controls above stays reported unavailable.');
+console.log('Until step 4 passes on a host with a real second identity, the IDENTITY path contributes');
+console.log('no control; that is not the same as HARDENED being unreachable, which it is not:');
+console.log('HARDENED is produced by a measured confined-caller deployment, and this probe checks');
+console.log('that a host without one still reports every control unavailable.');
 
-console.log(`\n=== provider-boundary: ${failures === 0 ? 'HONEST POSTURE HOLDS (HARDENED unreachable, all six controls unavailable, measured)' : `${failures} FAIL`} ===`);
+console.log(`\n=== provider-boundary: ${failures === 0 ? 'HONEST POSTURE HOLDS (no unproven HARDENED, all six controls unavailable without a measurement)' : `${failures} FAIL`} ===`);
 process.exit(failures === 0 ? 0 : 1);

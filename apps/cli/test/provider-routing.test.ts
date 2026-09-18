@@ -302,7 +302,7 @@ describe('provider-only routing — with a real broker serving', () => {
     } finally { mode = 'stub'; }
   });
 
-  it('promotion proceeds when the broker authorizes exactly this {base, candidate} pair', async () => {
+  it('an exact reservation cannot authorize caller-owned apply', async () => {
     const root = await makeRepo('authorized');
     const { candidate, baseHead } = await preparedCandidate(root, 'w3');
     const before = fingerprint(root);
@@ -310,12 +310,10 @@ describe('provider-only routing — with a real broker serving', () => {
     mode = 'approve-exact';
     try {
       const r = await canary(['isolate', '--promote', 'w3'], root);
-      assert.equal(r.status, 0, `an authorized promotion must apply: ${r.stdout}\n${r.stderr}`);
-      assert.match(r.stdout, /provider: promotion window reserved by the broker/);
+      assert.equal(r.status, 2, `reservation without broker apply must refuse: ${r.stdout}\n${r.stderr}`);
+      assert.match(r.stdout, /caller-owned apply is forbidden/);
       const after = fingerprint(root);
-      assert.notEqual(after.head, before.head, 'the base must actually move');
-      assert.equal(after.head, candidate, 'and land exactly on the verified candidate commit');
-      assert.equal(after.tree, git(root, 'rev-parse', `${candidate}^{tree}`));
+      assert.deepEqual(after, before, 'a reservation must not move the base');
       assert.ok(seen.includes('broker.reserve-promotion'), `the broker must have been asked: ${JSON.stringify(seen)}`);
     } finally { mode = 'stub'; }
   });

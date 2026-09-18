@@ -51,6 +51,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { spawnSync } from 'node:child_process';
+import { controllerExecution } from './provider/execution.js';
 import { fileURLToPath } from 'node:url';
 // Single-executable (SEA) detection for the standalone distribution (v1.1 item
 // C). `node:sea` exists in every supported Node and `isSea()` is simply false
@@ -563,11 +564,13 @@ export interface GitResult { status: number | null; stdout: string; stderr: stri
 export function gitCommand(root: string, args: string[], timeoutMs = 15_000): GitResult | null {
   const exe = gitExe();
   if (exe === null) return null;
-  const r = spawnSync(exe, ['-C', root, ...args], {
+  const controller = controllerExecution.getStore();
+  const r = spawnSync(exe, [...(controller ? ['-c', `core.hooksPath=${controller.hooksDirectory}`, '-c', 'core.fsmonitor=false', '-c', 'commit.gpgsign=false'] : []), '-C', root, ...args], {
     // 32MB maxBuffer: the 1MB default would turn a large repo's `ls-tree -r`
     // (M7's submodule probe) into a spurious null.
     cwd: root, encoding: 'utf8', timeout: timeoutMs,
-    env: sanitizedEnv({ ws: { root: os.tmpdir(), fixture: root }, nodeDir: NODE_DIR, materialize: false }), shell: false, windowsHide: true,
+    env: { ...sanitizedEnv({ ws: { root: os.tmpdir(), fixture: root }, nodeDir: NODE_DIR, materialize: false }),
+      ...(controller ? { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null' } : {}) }, shell: false, windowsHide: true,
     maxBuffer: 32 * 1024 * 1024,
   });
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', error: r.error };
@@ -741,6 +744,8 @@ function resolveFromAdapterDirs(step: PlanStep, program: string): string | null 
 /** Shared spawn for a resolved pm: the plan runner and doctor's liveness
  *  probe must consult the SAME bytes, so they share this one door. */
 function spawnHardened(resolved: ResolvedPm, args: string[], cwd: string, timeoutMs: number, toolchain?: Record<string, string>) {
+  const controller = controllerExecution.getStore();
+  if (controller) return controller.run([...resolved.spawnArgv, ...args], cwd, timeoutMs);
   return spawnSync(resolved.spawnArgv[0], [...resolved.spawnArgv.slice(1), ...args], {
     cwd, encoding: 'utf8', timeout: timeoutMs,
     env: toolchain !== undefined && Object.keys(toolchain).length > 0 ? hardenedEnvWithToolchain(cwd, toolchain) : hardenedEnv(cwd),
@@ -2401,16 +2406,24 @@ export function securityCapability(): { level: 'HARDENED' | 'LOCAL' | 'ADVISORY'
     // to write nothing. The write-measuring probe belongs to setup/doctor, where
     // writing is already part of the job.
     const store = storeFromEnv();
-    // v1.1 Phase 3: when a provider is CONFIGURED, the level is the MEASURED one
-    // — HARDENED becomes reachable exactly when every boundary control is
-    // observed, and never because a provider is merely present. With no provider
-    // installed this branch is skipped entirely, so the ordinary answer stays
-    // byte-identical and costs no extra process spawns.
+    // v1.1 Phase 3 / v1.2 Mission 3: when a provider is CONFIGURED, the level is
+    // the MEASURED one — HARDENED becomes reachable exactly when every boundary
+    // control is derived from a fresh, signed, complete confined-caller
+    // deployment measurement, and never because a provider is merely present.
+    // With no provider installed this branch is skipped entirely, so the ordinary
+    // answer stays byte-identical and costs no extra process spawns.
     if (providerConfigured(store)) {
       const status = providerStatus(store);
       const measured = measuredCapabilities(status.boundary);
       if (measured.level === 'HARDENED') {
-        return { level: 'HARDENED', reasons: [`a provider is installed and every boundary control is measured available on ${status.boundary.platform}`] };
+        return {
+          level: 'HARDENED',
+          reasons: [
+            `a confined-caller deployment was measured on ${status.boundary.platform} and every boundary control is present: `
+            + `package ${status.confinement?.kind === 'win32-appcontainer-restricted-low' ? status.confinement.package : 'n/a'}, measured ${status.confinement?.kind === 'win32-appcontainer-restricted-low' ? status.confinement.measuredAt : 'n/a'}, `
+            + `custody signature verified, all six controls with an unrestricted positive control and a real restricted attack`,
+          ],
+        };
       }
       return { level: measured.level, reasons: status.unavailable };
     }

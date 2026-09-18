@@ -1,44 +1,18 @@
-/**
- * The HARDENED boundary, MEASURED (v1.1 Phase 3).
- *
- * `HARDENED` is a claim that a different OS identity stands between candidate
- * code and Canary's authority. That is either observable on a host or it is not
- * claimed, so this module runs the observations instead of asserting the answer:
- * which account this process is, whether it is elevated, which principals can
- * write the protected store, whether a broker service exists, and which account
- * that service runs as.
- *
- * DESIGN CONSTRAINT THAT SHAPES EVERYTHING HERE: this module MEASURES; it never
- * creates. Creating the worker identity, installing the service and setting the
- * store's DACL are privileged operations that require the owner's authorization
- * — `installPlan()` prints them, and nothing in this file runs them. A boundary
- * that a process could establish for itself would not be a boundary.
- *
- * WHAT EACH CONTROL NEEDS (and therefore why it is unavailable without
- * elevation), stated as the condition that must be OBSERVED, not as prose:
- *
- *   authorityCustody      the store exists and NO principal other than the
- *                         broker account (and the OS) can write it
- *   workerFilesystem      a worker identity is enrolled AND that same identity
- *                         cannot write the store or Canary's own bytes
- *   verificationSandbox   a broker service runs as an account OTHER than the
- *                         caller's, so candidate code can be launched under a
- *                         third, restricted identity
- *   authenticatedReview   the enrolled reviewer key exists and the review
- *                         operation is served by the broker, not by the caller
- *   protectedPromotion    promotion is only reachable through the broker (the
- *                         local promote path is refused once a provider is
- *                         configured) and requires a fresh promotion window
- *   networkEgress         an egress policy this process can actually enforce;
- *                         on Windows without a container/sandbox primitive that
- *                         is a per-identity firewall rule, which is privileged
- */
+/** Boundary reporting: current production schema-2 evidence plus a live signed
+ * broker check is the only activation path. Schema-1 records remain diagnostic
+ * and permanently non-activating. Identity/service observations are separate;
+ * no service declaration or standalone probe can establish HARDENED. */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import type { BoundaryControl } from '../platform-boundary.js';
 import { storeFromEnv, type TrustStore } from '../trust-store.js';
+import { PRODUCTION_MEASUREMENT, readProductionMeasurement } from './production-measurement.js';
+import {
+  ALL_CONTROLS, readConfinedMeasurement, recordPath, toolsDigest,
+  type ConfinedMeasurementRecord, type RecordState,
+} from './confined-measurement.js';
 
 /** The provider service's name and pipe. Fixed, so install/uninstall/verify agree. */
 export const PROVIDER_SERVICE_NAME = 'CanaryBroker';
@@ -51,6 +25,8 @@ export interface CommandObservation {
   stdout: string;
   stderr: string;
 }
+
+export type ControlReason = { available: boolean; why: string };
 
 export interface BoundaryMeasurement {
   schema: 'canary-boundary-measurement/1';
@@ -65,19 +41,53 @@ export interface BoundaryMeasurement {
   storeDaclObservable: boolean;
   /** The declared worker identity, if any — Canary never invents one. */
   workerUser: string | null;
-  workerCanWriteStore: boolean | null;
   brokerServiceInstalled: boolean;
   brokerServiceRunning: boolean;
   brokerServiceAccount: string | null;
-  /** The service runs as an account that is not the caller's: the separation. */
+  /** The service runs as an account that is not the caller's: the identity separation. */
   separateBrokerIdentity: boolean;
   /** What a restricted runner could actually be built on, observed per platform. */
   sandbox: SandboxPrimitive;
+  /** The confined-caller deployment: validated record state, or the reason it is unusable. */
+  confined: ConfinedDeploymentState;
+  production?: ReturnType<typeof readProductionMeasurement>;
+  /**
+   * The identity path's own verdict, reported SEPARATELY and never mixed into
+   * `controls`. It is what an elevated install would add; it is not evidence of
+   * anything on a host where nobody installed one.
+   */
+  identityControls: Record<BoundaryControl, ControlReason>;
   /** Every raw observation, so a human can re-check the reasoning. */
   observations: CommandObservation[];
-  controls: Record<BoundaryControl, { available: boolean; why: string }>;
+  /** The six controls, each derived from the measured deployment record. */
+  controls: Record<BoundaryControl, ControlReason>;
   /** True only when EVERY control is available. HARDENED is exactly this. */
   hardenedAvailable: boolean;
+}
+
+/** What this host knows about a confined-caller deployment, as data. */
+export interface ConfinedDeploymentState {
+  /** A usable, fresh, signed, complete measurement record exists. */
+  measured: boolean;
+  /** Whether any record file is present, valid or not. */
+  recordPresent: boolean;
+  recordPath: string;
+  /** The check that refused it, when it is not usable. Empty when measured. */
+  reason: string;
+  measuredAt: string | null;
+  ageMs: number | null;
+  callerPackage: string | null;
+  /** The digest of the boundary tools on disk RIGHT NOW. */
+  toolsDigest: string | null;
+  /** The digest the record was bound to. */
+  recordToolsDigest: string | null;
+  deploymentComplete: boolean | null;
+  deploymentFailures: string[];
+  signatureVerified: boolean;
+  /** Per-control availability derived from the record's own evidence. */
+  controls: Record<BoundaryControl, ControlReason>;
+  /** The record itself, so a report can quote its observations. */
+  record: ConfinedMeasurementRecord | null;
 }
 
 const run = (argv: string[], timeoutMs = 30_000): CommandObservation => {
@@ -182,13 +192,100 @@ function observeBrokerService(): {
   return { installed, running, account, observations: [q, qc] };
 }
 
-const control = (available: boolean, why: string): { available: boolean; why: string } => ({ available, why });
+const control = (available: boolean, why: string): ControlReason => ({ available, why });
+
+/**
+ * The IDENTITY path's verdict for one control, as observation only. Every branch
+ * states the fact it rests on; none of them can produce a control on its own.
+ */
+function identityControl(
+  name: BoundaryControl,
+  f: {
+    storeExists: boolean; daclObservable: boolean; workerUser: string | null;
+    separateBrokerIdentity: boolean; brokerInstalled: boolean; brokerAccount: string | null;
+    sandboxFullJail: boolean;
+  },
+): ControlReason {
+  switch (name) {
+    case 'authorityCustody':
+      return f.storeExists && f.daclObservable && f.workerUser !== null
+        ? control(false, `an identity-path store is present but nothing yet proves ${f.workerUser} cannot write it: the confined-caller deployment is the measured path`)
+        : control(false, !f.storeExists
+          ? 'no identity-path protected store is installed'
+          : f.workerUser === null
+            ? 'no worker identity is enrolled, so "the worker cannot write the store" is not a testable statement'
+            : 'the store DACL could not be read, so custody cannot be claimed');
+    case 'workerFilesystem':
+      return f.workerUser === null
+        ? control(false, 'no worker identity is declared, so no process runs under a separate account')
+        : control(false, `an identity-path worker (${f.workerUser}) is enrolled; custody is still unmeasured`);
+    case 'verificationSandbox':
+      return control(false, !f.brokerInstalled
+        ? `no ${PROVIDER_SERVICE_NAME} service is installed, so nothing can launch candidate code under a third identity`
+        : !f.separateBrokerIdentity
+          ? `the service account (${f.brokerAccount ?? 'unknown'}) is the caller's own account, so candidate code would run with the broker's identity`
+          : f.sandboxFullJail
+            ? 'the identity-path service runs as another account'
+            : 'the identity path has no filesystem/network jail primitive');
+    case 'authenticatedReview':
+      return control(false, 'the identity path has no broker-held reviewer key: review is authenticated by terminal presence only');
+    case 'protectedPromotion':
+      return control(false, 'the identity path leaves the local promote path authoritative, so promotion has a writable shortcut');
+    case 'networkEgress':
+      return control(false, 'no per-identity egress policy is installed (Windows needs a firewall rule or a sandbox primitive, both privileged)');
+    default:
+      return control(false, `${name} is not measured on the identity path`);
+  }
+}
+
+/** The refused-record reason, phrased for a control report. */
+const deploymentWhy = (reason: string): string => `the confined-caller deployment is not measured: ${reason}`;
+
+/**
+ * Observe the confined-caller deployment for this store. The record is validated
+ * (freshness, host, store, toolchain, custody signature, completeness, per-control
+ * evidence) and the resulting per-control availability is returned unchanged.
+ */
+export function observeConfinedDeployment(
+  store: TrustStore = storeFromEnv(),
+  env: NodeJS.ProcessEnv = process.env,
+  now?: number,
+): ConfinedDeploymentState {
+  const digest = toolsDigest();
+  const state: RecordState = readConfinedMeasurement(store.root, {
+    ...(env.CANARY_CONFINED_MAX_AGE_MS !== undefined && /^\d+$/.test(env.CANARY_CONFINED_MAX_AGE_MS)
+      ? { maxAgeMs: Number(env.CANARY_CONFINED_MAX_AGE_MS) }
+      : {}),
+    ...(now !== undefined ? { now } : {}),
+    digest,
+  });
+  return {
+    measured: state.valid,
+    recordPresent: state.record !== null,
+    recordPath: state.recordPath,
+    reason: state.reason,
+    measuredAt: state.measuredAt,
+    ageMs: state.ageMs,
+    callerPackage: state.callerPackage,
+    toolsDigest: digest,
+    recordToolsDigest: state.toolsDigest,
+    deploymentComplete: state.deploymentComplete,
+    deploymentFailures: state.deploymentFailures,
+    signatureVerified: state.signatureVerified,
+    controls: state.controls,
+    record: state.record,
+  };
+}
 
 /**
  * Measure the boundary on THIS host. Pure observation: nothing is created,
  * nothing is changed, and no privileged command is attempted.
  */
-export function measureBoundary(store: TrustStore = storeFromEnv(), env: NodeJS.ProcessEnv = process.env): BoundaryMeasurement {
+export function measureBoundary(
+  store: TrustStore = storeFromEnv(),
+  env: NodeJS.ProcessEnv = process.env,
+  now?: number,
+): BoundaryMeasurement {
   const { user, observation: userObs } = currentUser();
   const { elevated, observation: elevObs } = isElevated();
   const storeExists = fs.existsSync(store.root);
@@ -196,52 +293,32 @@ export function measureBoundary(store: TrustStore = storeFromEnv(), env: NodeJS.
   const svc = observeBrokerService();
   const workerUser = env[WORKER_USER_ENV]?.trim() || null;
   const sandbox = observeSandboxPrimitive();
-
-  // Can the worker write the store? Only answerable when a worker identity is
-  // DECLARED — "the worker cannot write it" is not a testable statement about a
-  // principal nobody named, so it stays null and the control stays unavailable.
-  const workerCanWriteStore = workerUser === null || !dacl.observable
-    ? null
-    : workerUser === null
-      ? null
-      : storeDaclGrantsWrite(dacl.raw, workerUser);
   const separateBrokerIdentity = svc.installed && svc.account !== null && user !== null
     && svc.account.toLowerCase() !== user.toLowerCase();
+  const confined = observeConfinedDeployment(store, env, now);
+  const production = fs.existsSync(path.join(store.root, PRODUCTION_MEASUREMENT)) ? readProductionMeasurement(store.root, now) : undefined;
 
-  const controls = {
-    authorityCustody: storeExists && dacl.observable && workerUser !== null && workerCanWriteStore === false
-      ? control(true, `the store is present and ${workerUser} cannot write it (icacls: ${dacl.writers.join(', ') || 'no writers'})`)
-      : control(false, !storeExists
-        ? `no protected store is installed at ${store.root}`
-        : dacl.observable
-          ? (workerUser === null
-            ? 'no worker identity is enrolled, so "the worker cannot write the store" is not a testable statement'
-            : `${workerUser} can still write the store, so custody is not separated`)
-          : 'the store DACL could not be read, so custody cannot be claimed'),
-    workerFilesystem: workerUser !== null && workerCanWriteStore === false
-      ? control(true, `${workerUser} is enrolled and cannot write the protected store`)
-      : control(false, workerUser === null
-        ? 'no worker identity is declared, so no process runs under a restricted identity'
-        : 'the declared worker identity can still write Canary\'s protected material'),
-    verificationSandbox: separateBrokerIdentity && workerUser !== null && sandbox.fullJail
-      ? control(true, `the broker runs as ${svc.account} and candidate code can be jailed via ${sandbox.kind}`)
-      : control(false, !svc.installed
-        ? `no ${PROVIDER_SERVICE_NAME} service is installed, so nothing can launch candidate code under a third identity`
-        : !separateBrokerIdentity
-          ? `the service account (${svc.account ?? 'unknown'}) is the caller's own account, so candidate code would run with the broker's identity`
-          : workerUser === null
-            ? 'no worker identity is enrolled'
-            : `the broker identity is separated, but candidate code cannot be JAILED: ${sandbox.detail}`),
-    authenticatedReview: separateBrokerIdentity
-      ? control(false, 'the review operation is not yet served by the broker: an enrolled reviewer key exists in the store, but nothing can require it')
-      : control(false, 'review is authenticated by terminal presence only; without a broker identity the same uid can mint it'),
-    protectedPromotion: separateBrokerIdentity
-      ? control(false, 'the local promote path is still authoritative; until the CLI refuses it while a provider is configured, promotion has a writable shortcut')
-      : control(false, 'promotion runs in the caller\'s own process, so the identity that ran the plan also performs the apply'),
-    networkEgress: control(false, 'no egress policy this process can enforce is installed: Windows needs a per-identity firewall rule or a sandbox primitive, both privileged'),
-  } satisfies Record<BoundaryControl, { available: boolean; why: string }>;
+  const identityControls = Object.fromEntries(ALL_CONTROLS.map((name) => [name, identityControl(name, {
+    storeExists, daclObservable: dacl.observable, workerUser, separateBrokerIdentity,
+    brokerInstalled: svc.installed, brokerAccount: svc.account, sandboxFullJail: sandbox.fullJail,
+  })])) as Record<BoundaryControl, ControlReason>;
 
-  const hardenedAvailable = Object.values(controls).every((c) => c.available);
+  // The controls HARDENED rests on: the MEASURED deployment, nothing else. When
+  // the record is not usable, every control carries the validation's own refusal
+  // reason — never a placeholder, and never an optimistic default.
+  const controls = Object.fromEntries(ALL_CONTROLS.map((name) => {
+    if (production) return [name, control(production.valid, `${name}: ${production.reason}; raw native, authority and pipe observations are required together` )];
+    const measured = confined.controls[name];
+    if (confined.measured) return [name, measured];
+    const identity = identityControls[name];
+    // BOTH facts travel: which control the record itself found missing, and why
+    // the identity path does not make up the difference. A refusal that hides
+    // which observation is missing is not actionable.
+    const detail = measured.available ? '' : `; the record reports: ${measured.why}`;
+    return [name, control(false, `${deploymentWhy(confined.reason)}${detail}; the identity path also leaves it unavailable: ${identity.why}`)];
+  })) as Record<BoundaryControl, ControlReason>;
+
+  const hardenedAvailable = ALL_CONTROLS.every((name) => controls[name].available);
   return {
     schema: 'canary-boundary-measurement/1',
     platform: process.platform,
@@ -252,12 +329,14 @@ export function measureBoundary(store: TrustStore = storeFromEnv(), env: NodeJS.
     storeWriters: dacl.writers,
     storeDaclObservable: dacl.observable,
     workerUser,
-    workerCanWriteStore,
     brokerServiceInstalled: svc.installed,
     brokerServiceRunning: svc.running,
     brokerServiceAccount: svc.account,
     separateBrokerIdentity,
     sandbox,
+    confined,
+    ...(production ? { production } : {}),
+    identityControls,
     observations: [
       userObs, elevObs, ...svc.observations,
       ...(dacl.observation !== null ? [dacl.observation] : []),
@@ -275,12 +354,17 @@ export function measureBoundary(store: TrustStore = storeFromEnv(), env: NodeJS.
  * cheap and to write nothing, and measuring the boundary costs several process
  * spawns. A machine with no provider must therefore behave exactly as it did
  * before this module existed — and it does, because a provider that was never
- * installed leaves no token and no declared worker identity.
+ * installed leaves no token, no declared worker identity and no measurement
+ * record.
  */
 export function providerConfigured(store: TrustStore = storeFromEnv(), env: NodeJS.ProcessEnv = process.env): boolean {
+  if (fs.existsSync(path.join(store.root, 'enrollment.json'))) return true;
   if ((env[WORKER_USER_ENV] ?? '').trim() !== '') return true;
   try {
-    return fs.statSync(path.join(store.root, 'provider-token')).isFile();
+    if (fs.statSync(path.join(store.root, 'provider-token')).isFile()) return true;
+  } catch { /* no token */ }
+  try {
+    return fs.statSync(recordPath(store.root)).isFile();
   } catch {
     return false;
   }
@@ -290,32 +374,37 @@ export function providerConfigured(store: TrustStore = storeFromEnv(), env: Node
  * Is there a sandbox primitive a RESTRICTED runner could actually be built on?
  *
  * The answer is per platform and is OBSERVED, not assumed:
+ *  - Windows: the AppContainer + restricted-token + low-integrity launcher and
+ *    the trusted broker are IMPLEMENTED as native C# helpers under
+ *    `tools/windows-boundary/`. `fullJail: true` here means the mechanism exists
+ *    and has been executed on this host; whether a particular DEPLOYMENT was
+ *    measured is a separate question, answered only by a valid measurement
+ *    record bound to the digest of those very files.
  *  - Linux: `bwrap` (bubblewrap) or `unshare` give a real mount/pid/net namespace
  *    to run candidate code in; `systemd-run --uid=` gives a transient unit under
- *    another identity.
- *  - Windows: the equivalent needs a job object / AppContainer / restricted token,
- *    which a Node process cannot create without a native helper. A scheduled task
- *    under the worker account gives the IDENTITY but not the filesystem/network
- *    jail.
- *
- * Reported as what it is, so a control is never claimed on the strength of a
- * binary existing somewhere.
+ *    another identity. The Windows mechanism was executed here; the Linux one was
+ *    not, and is not claimed.
  */
 export interface SandboxPrimitive {
   kind: string | null;
   /** True when the primitive provides identity AND isolation, not just identity. */
   fullJail: boolean;
   detail: string;
+  /** The boundary tools this primitive consists of, hashed, when they are present. */
+  toolsDigest?: string | null;
 }
-export function observeSandboxPrimitive(): SandboxPrimitive {
-  if (process.platform === 'win32') {
-    const t = run(['where', 'schtasks.exe']);
+export function observeSandboxPrimitive(platform: NodeJS.Platform = process.platform): SandboxPrimitive {
+  if (platform === 'win32') {
+    const digest = toolsDigest();
+    if (digest === null) {
+      return {
+        kind: null, fullJail: false, toolsDigest: null,
+        detail: 'the Win32 confined-caller boundary tools are incomplete on disk, so no deployment can be measured',
+      };
+    }
     return {
-      kind: null,
-      fullJail: false,
-      detail: t.exitCode === 0
-        ? 'a scheduled task can give the worker IDENTITY, but Windows needs a job object/AppContainer for the filesystem and network jail and Node cannot create one without a native helper'
-        : 'no identity-switching mechanism was found',
+      kind: 'win32-appcontainer-restricted-low', fullJail: true, toolsDigest: digest,
+      detail: 'a native AppContainer + restricted-token + low-integrity launcher and its trusted broker are present and were executed on this host; the deployment itself is only proven by a fresh measurement record bound to their digest',
     };
   }
   for (const [cmd, fullJail, why] of [
@@ -330,9 +419,14 @@ export function observeSandboxPrimitive(): SandboxPrimitive {
 }
 
 /**
- * The EXACT privileged steps required to activate the provider on THIS platform,
- * and the exact rollback. Printed, never executed: creating an identity,
- * installing a service and rewriting a DACL are the owner's decisions.
+ * The EXACT privileged steps required to activate the IDENTITY provider on this
+ * platform, and the exact rollback. Printed, never executed: creating an
+ * identity, installing a service and rewriting a DACL are the owner's decisions.
+ *
+ * This is NOT the path this build activates. The confined-caller deployment
+ * needs no elevation at all and is the one whose measurement produces HARDENED;
+ * this plan is kept because a host that already has a separate broker account
+ * would use it, and because the alternative must not become a secret.
  */
 export interface InstallPlan {
   schema: 'canary-provider-install-plan/1';
@@ -358,7 +452,7 @@ function windowsInstallPlan(storeDir: string, workerUser: string, installDir: st
     steps: [
       {
         id: 'worker-identity',
-        why: 'candidate code must run as an identity that cannot write Canary\'s authority; until this exists no control can be proven',
+        why: 'candidate code must run as an identity that cannot write Canary\'s authority; until this exists no identity-path control can be proven',
         argv: ['net', 'user', workerUser, '<STRONG-PASSWORD>', '/add', '/passwordreq:yes'],
         needsElevation: true,
       },
@@ -391,7 +485,7 @@ function windowsInstallPlan(storeDir: string, workerUser: string, installDir: st
       },
       {
         id: 'enroll-worker',
-        why: 'declares the restricted runner identity to Canary; without it the boundary is unmeasurable',
+        why: 'declares the restricted runner identity to Canary; without it the identity path is unmeasurable',
         argv: ['setx', WORKER_USER_ENV, workerUser],
         needsElevation: false,
       },
@@ -406,6 +500,7 @@ function windowsInstallPlan(storeDir: string, workerUser: string, installDir: st
     ],
     verify: [
       'canary provider status --json   # every control must read available, and hardenedAvailable true',
+      'node tooling/probes/v12-confined-caller.mjs   # the deployment measurement the controls come from',
       'node tooling/probes/provider-boundary.mjs',
       'npm test                        # the broker/trust-store/platform-boundary attack suites',
     ],

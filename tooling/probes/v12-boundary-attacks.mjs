@@ -21,8 +21,8 @@
  * writes one word to an evidence file; the file is the evidence.
  *
  * Usage: node tooling/probes/v12-boundary-attacks.mjs [--level low|untrusted] [--json]
- * Exit:  0 when every executed attack was blocked; 1 when any executed attack SUCCEEDED against
- *        the boundary (a real finding, which must be reported, not hidden).
+ * Exit: 0 only when all eight required write attacks are executed and blocked and both controls
+ * pass. Missing primitives, missing evidence and inconclusive results fail closed.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -55,7 +55,7 @@ const evidenceDir = path.join(root, 'evidence');
  */
 const ACT = `
 const fs = require('node:fs');
-const [action, target, evidence] = process.argv.slice(2);
+const [action, target, evidence] = process.argv.slice(1);
 let word;
 try {
   if (action === 'read') { fs.readFileSync(target, 'utf8'); word = 'OK'; }
@@ -78,7 +78,13 @@ function act(action, target, confined) {
   seq += 1;
   const evidence = path.join(evidenceDir, `evidence-${seq}.txt`);
   if (confined) {
-    const r = containedRun(LEVEL, ACT, evidence, 45_000, primitive);
+    // containedRun deliberately exposes only one argv slot (the evidence file). Bind the attack
+    // inputs into this disposable operation script so the worker cannot choose a second target.
+    const operation = ACT.replace(
+      'const [action, target, evidence] = process.argv.slice(1);',
+      `const action=${JSON.stringify(action)}; const target=${JSON.stringify(target)}; const evidence=process.argv[1];`,
+    );
+    const r = containedRun(LEVEL, operation, evidence, 45_000, primitive);
     if (!r.ran) return 'NO-EVIDENCE';
     return r.result;
   }
@@ -96,14 +102,21 @@ function attack({ id, description, expectedBoundary, action, target, notAddresse
   if (notAddressed !== undefined) {
     outcome = { blocked: false, addressed: false, control: null, confined: null, detail: notAddressed };
   } else {
+    const before = fs.existsSync(target) ? fs.readFileSync(target) : null;
     const control = act(action, target, false);
+    // Both arms must attack the same initial bytes. In particular, deleting in the control
+    // must not turn the restricted attempt into ENOENT and a false security pass.
+    if (before !== null) fs.writeFileSync(target, before);
+    else if (fs.existsSync(target)) fs.unlinkSync(target);
     const confined = act(action, target, true);
     if (control !== 'OK') {
       outcome = { blocked: false, addressed: true, control, confined, detail: `INCONCLUSIVE — the unrestricted control did not succeed (${control}), so this case proves nothing` };
     } else if (confined === 'OK') {
       outcome = { blocked: false, addressed: true, control, confined, detail: 'THE ATTACK SUCCEEDED UNDER THE BOUNDARY' };
-    } else {
+    } else if (/^DENIED:(EPERM|EACCES)$/.test(confined)) {
       outcome = { blocked: true, addressed: true, control, confined, detail: `refused by the OS (${confined})` };
+    } else {
+      outcome = { blocked: false, addressed: true, control, confined, detail: `INCONCLUSIVE — no access-denied observation (${confined})` };
     }
   }
   results.push({ id, description, expectedBoundary, ...outcome });
@@ -117,6 +130,8 @@ try {
   fs.mkdirSync(authorityDir, { recursive: true });
   fs.mkdirSync(workerScratch, { recursive: true });
   fs.mkdirSync(evidenceDir, { recursive: true });
+  applyAuthorityLabel(workerScratch, 'low');
+  applyAuthorityLabel(evidenceDir, 'low');
   fs.writeFileSync(authorityFile, JSON.stringify({ schema: 'canary-plan-seal/1', plan: ['test'] }));
   fs.writeFileSync(authorityBin, "process.stdout.write('authority')");
   fs.mkdirSync(path.join(authorityDir, 'evidence'), { recursive: true });
@@ -124,21 +139,21 @@ try {
   fs.writeFileSync(path.join(authorityDir, 'frozen-bindings.json'), '{"frozen":true}');
 
   console.log(`hardened attack battery — worker level=${LEVEL}, authority level=medium`);
-  console.log(`primitive: ${primitive.available ? `AVAILABLE (icacls + runas ${LEVEL})` : `UNAVAILABLE (${String(primitive.reason)})`}`);
+  console.log(`primitive: ${primitive.available ? `AVAILABLE (${primitive.launchers.find(l => l.level === LEVEL)?.kind})` : `UNAVAILABLE (${String(primitive.reason)})`}`);
   for (const o of primitive.observations) console.log(`  observed: ${o}`);
   console.log('');
 
   if (!primitive.available) {
     console.log('The host cannot establish an integrity boundary, so NO attack was executed.');
     console.log('ATTACKS BLOCKED: 0/0 — nothing is claimed: a boundary that could not be established protects nothing.');
-    process.exit(0);
+    throw new Error('integrity primitive unavailable; zero attacks credited');
   }
 
   const label = applyAuthorityLabel(authorityDir, 'medium');
   if (!label.applied) {
     console.log(`could not apply the authority label: ${label.command} -> ${String(label.exitCode)} ${label.stderr}`);
     console.log('ATTACKS BLOCKED: 0/0 — the boundary could not be established, so nothing is claimed.');
-    process.exit(0);
+    throw new Error('authority label unavailable; zero attacks credited');
   }
   console.log(`authority tree labelled medium: ${label.command}`);
 
@@ -272,7 +287,7 @@ try {
   console.log('');
   console.log(`ATTACKS BLOCKED: ${blocked.length}/${addressed.length} (${notAddressed.length} not addressed by this boundary, ${controlsOk ? 2 : 0}/2 controls)`);
   if (inconclusive.length > 0) console.log(`  INCONCLUSIVE (control did not succeed): ${inconclusive.map((r) => r.id).join(', ')}`);
-  if (failed.length > 0) console.log(`  SUCCEEDED AGAINST THE BOUNDARY: ${failed.map((r) => r.id).join(', ')}`);
+  if (failed.some(r => r.confined === 'OK')) console.log(`  SUCCEEDED AGAINST THE BOUNDARY: ${failed.filter(r => r.confined === 'OK').map((r) => r.id).join(', ')}`);
   console.log(`  not addressed here: ${notAddressed.map((r) => r.id).join(', ')}`);
 
   const record = {
@@ -287,9 +302,7 @@ try {
   fs.writeFileSync(path.join(os.tmpdir(), 'canary-boundary-attacks.json'), JSON.stringify(record, null, 2));
   if (AS_JSON) console.log(JSON.stringify(record, null, 2));
 
-  // Fail loudly if an executed attack beat the boundary. An inconclusive case is not a pass, but
-  // it is also not a false claim, so it is printed rather than failed.
-  process.exit(failed.length === 0 && controlsOk ? 0 : 1);
+  process.exitCode = addressed.length === 8 && failed.length === 0 && controlsOk ? 0 : 1;
 } finally {
   try { applyAuthorityLabel(authorityDir, 'medium'); } catch { /* best effort */ }
   fs.rmSync(root, { recursive: true, force: true });

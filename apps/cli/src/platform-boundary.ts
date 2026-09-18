@@ -24,13 +24,21 @@ export function requireAuthorizationLevel(level: unknown): void {
 }
 
 /**
- * The MEASURED capability report (v1.1 Phase 3).
+ * The MEASURED capability report (v1.1 Phase 3; v1.2 Mission 3).
  *
  * This is the only place a `HARDENED` level can be produced, and it produces it
  * from a provider measurement — never from configuration, a claim, or the mere
  * existence of an interface. `HARDENED` requires EVERY boundary control to be
  * observed as available; one missing control means the level stays where the
  * local store puts it.
+ *
+ * v1.2 Mission 3 narrowed what "observed" means: the production controls now come
+ * from a VALIDATED confined-caller deployment measurement
+ * (`provider/production-measurement.ts` — fresh, host- and tool-bound, signed with
+ * the anchored producer key, live-broker checked, and carrying raw evidence including
+ * an unrestricted positive control and a real restricted attack). This function
+ * is unchanged in what it accepts: a control that reads `available: false`, for
+ * any reason, keeps `HARDENED` unreachable.
  *
  * The input is STRUCTURAL on purpose: this module is one of the five the P0
  * mutation probe copies into a scratch tree, so it must not import the provider

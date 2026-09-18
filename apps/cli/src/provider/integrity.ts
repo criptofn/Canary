@@ -1,7 +1,8 @@
 /**
  * THE INTEGRITY BOUNDARY — an attempt at a real, non-privileged worker/authority separation.
  *
- * STATUS: MEASURED UNAVAILABLE ON THE DEVELOPMENT HOST. Nothing here protects anything today.
+ * STATUS: Win32 restricted LOW child execution is measured available on this host.
+ * This is write integrity only, not a production HARDENED provider.
  *
  * WHY THIS IS A DIFFERENT MECHANISM FROM `boundary.ts`:
  *
@@ -17,7 +18,7 @@
  *   - and then the KERNEL — not Canary, not a check, not a convention — refuses that process
  *     write access to the higher-integrity objects.
  *
- * WHAT WAS ACTUALLY MEASURED (`tooling/probes/v12-integrity-boundary.mjs`, which writes its record
+ * WHAT WAS HISTORICALLY MEASURED BEFORE THE WIN32 HELPER (`tooling/probes/v12-integrity-boundary.mjs`, which writes its record
  * to the OS temp dir):
  *
  *   - applying the label WORKS: `icacls /setintegritylevel` succeeds on a directory this user owns;
@@ -34,10 +35,9 @@
  * the content, and reports a child that never ran as "not evidence of a boundary" rather than as
  * protection. See the audit trail in `docs/V1.2-PLAN.md`.
  *
- * WHAT THIS MODULE IS STILL GOOD FOR: it is the measurement half of the boundary answer, and it is
- * correct about the one thing it can observe — whether the host can establish confinement at all.
- * On a host where `runas /trustlevel` works it reports `available: true`, and the attack battery
- * then executes every attack in BOTH directions and reports a real `ATTACKS BLOCKED: X/Y`.
+ * CURRENT MEASUREMENT: the Win32 helper is tried before the historical runas fallback.
+ * Its low child executes; the corrected attack battery measures 8/8 denied writes and 2/2
+ * useful-work controls. Missing child evidence and ENOENT are never credited as protection.
  *
  * It is deliberately NOT wired into the product's decision path: `provider/boundary.ts` still owns
  * the six controls and `measuredCapabilities` is still the only producer of `HARDENED`. Importing
@@ -54,7 +54,7 @@ export type IntegrityLevel = 'untrusted' | 'low' | 'medium';
 /** How to start a process at a level, per platform. `argvPrefix` is prepended to a command. */
 export interface LevelLauncher {
   level: IntegrityLevel;
-  kind: 'runas-trustlevel' | 'bwrap' | 'unshare';
+  kind: 'runas-trustlevel' | 'powershell-win32-restricted' | 'bwrap' | 'unshare';
   argvPrefix: string[];
 }
 
@@ -91,6 +91,15 @@ const WIN_TRUSTLEVEL: Record<string, string> = {
   medium: '/trustlevel:0x100000',
 };
 
+function windowsHelper(): string | null {
+  if (process.platform !== 'win32') return null;
+  const p = path.resolve(import.meta.dirname, '../../../../../tools/windows-boundary/restricted-runner.ps1');
+  return fs.existsSync(p) ? p : null;
+}
+function quoteArg(value: string): string {
+  return value === '' || /[\s"]/.test(value) ? `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1')}"` : value;
+}
+
 /**
  * Start a contained process and WAIT for it, then report what it did.
  *
@@ -120,9 +129,14 @@ export function containedRun(
   const p = primitive ?? observeIntegrityPrimitive();
   const launcher = p.launchers.find((l) => l.level === level);
   if (launcher === undefined) return { ran: false, result: 'NO-LAUNCHER', exitCode: null, output: '' };
+  // A low-integrity child cannot write a normal medium-integrity temp directory. Make only the
+  // launch-evidence parent low-integrity; it is disposable observation plumbing, never authority.
+  if (process.platform === 'win32') applyAuthorityLabel(path.dirname(launchEvidencePath), 'low');
 
   const args = ['-e', script, launchEvidencePath];
-  const argv = [...launcher.argvPrefix, process.execPath, ...args];
+  const argv = launcher.kind === 'powershell-win32-restricted'
+    ? [...launcher.argvPrefix, '-Integrity', level, '-CommandLine', [process.execPath, ...args].map(quoteArg).join(' ')]
+    : [...launcher.argvPrefix, process.execPath, ...args];
   const r = spawnSync(argv[0] as string, argv.slice(1), { timeout: timeoutMs, windowsHide: true, encoding: 'utf8' });
 
   let result: string;
@@ -194,9 +208,21 @@ export function observeIntegrityPrimitive(platform: NodeJS.Platform = process.pl
     observations.push(`icacls: ${hasIcacls ? 'present' : 'MISSING'}`);
 
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-il-observe-'));
+    applyAuthorityLabel(scratch, 'low');
     const launchers: LevelLauncher[] = [];
     try {
+      const helper = windowsHelper();
       for (const level of ['untrusted', 'low'] as const) {
+        if (helper !== null) {
+          const evidence = path.join(scratch, `ran-${level}.txt`);
+          const argv = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', helper,
+            '-Integrity', level, '-CommandLine', [process.execPath, '-e', 'require("node:fs").writeFileSync(process.argv[1], "ran")', evidence].map(quoteArg).join(' ')];
+          const r = spawnSync(argv[0]!, argv.slice(1), { timeout: 45_000, windowsHide: true, encoding: 'utf8' });
+          const ran = fs.existsSync(evidence);
+          observations.push(`Win32 restricted ${level}: ran=${ran} (launcher exit ${String(r.status ?? null)}, stderr=${(r.stderr ?? '').trim()})`);
+          if (ran) launchers.push({ level, kind: 'powershell-win32-restricted', argvPrefix: ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', helper] });
+          continue;
+        }
         const token = WIN_TRUSTLEVEL[level];
         if (token === undefined) continue;
         const evidence = path.join(scratch, `ran-${level}.txt`);
@@ -218,7 +244,7 @@ export function observeIntegrityPrimitive(platform: NodeJS.Platform = process.pl
       launchers,
       observations,
       reason: hasIcacls
-        ? (launchers.length > 0 ? null : 'runas /trustlevel could not START a process at any lowered level on this host')
+        ? (launchers.length > 0 ? null : 'the Win32 restricted-token helper and runas /trustlevel could not START a lowered process on this host')
         : 'icacls is not available, so an integrity label cannot be applied',
     };
   }
@@ -276,6 +302,7 @@ export function confinedArgv(level: IntegrityLevel, command: string, args: strin
   const launcher = p.launchers.find((l) => l.level === level);
   if (launcher === undefined) return null;
   if (launcher.kind === 'runas-trustlevel') return [...launcher.argvPrefix, command, ...args];
+  if (launcher.kind === 'powershell-win32-restricted') return [...launcher.argvPrefix, '-Integrity', level, '-CommandLine', [command, ...args].map(quoteArg).join(' ')];
   return [...launcher.argvPrefix, command, ...args];
 }
 

@@ -20,6 +20,9 @@ import {
   providerServe, providerStatus, providerUninstallPlan,
 } from './service.js';
 import type { WorkerOperation } from './ipc.js';
+import { enrollProduction, serveProduction, productionAuthority, launchProductionCaller } from './production.js';
+import { beginProductionMeasurement } from './production-measurement.js';
+import { measureProductionAttacks } from './production-attacks.js';
 
 function hasFlag(args: readonly string[], f: string): boolean { return args.includes(f); }
 
@@ -30,6 +33,46 @@ export async function cmdProvider(rawArgs: string[]): Promise<number> {
   const out = (s: string): void => { if (json) console.error(s); else console.log(s); };
 
   switch (sub) {
+    case 'measurement-begin': {
+      if (rest.length !== 2) throw new Error('usage: canary provider measurement-begin <store>');
+      console.log(JSON.stringify({ challenge: beginProductionMeasurement(rest[1]!) })); return 0;
+    }
+    case 'measure-production': {
+      if (rest.length !== 2) throw new Error('usage: canary provider measure-production <store>');
+      await measureProductionAttacks(rest[1]!);
+      console.log('production measurement recorded'); return 0;
+    }
+    case 'enroll': {
+      if (rest.length !== 3) throw new Error('usage: canary provider enroll <trusted-base> <new-deployment-store>');
+      console.log(JSON.stringify(await enrollProduction(rest[1]!, rest[2]!)));
+      return 0;
+    }
+    case 'serve-production': {
+      if (rest.length !== 2) throw new Error('usage: canary provider serve-production <deployment-store>');
+      return serveProduction(rest[1]!);
+    }
+    case 'launch': {
+      // Operator-only launch; the OS token, not this verb's spelling, is custody.
+      const [, store, cwd, ...argv] = rawArgs;
+      if (!store || !cwd || !argv.length) throw new Error('usage: canary provider launch <store> <work> <program> [args...]');
+      return launchProductionCaller(store, cwd, argv);
+    }
+    case 'authority': {
+      if (rest.length !== 2) return 2;
+      let input = '';
+      for await (const chunk of process.stdin) {
+        input += String(chunk);
+        if (input.length > 4 * 1024 * 1024) return 2;
+      }
+      const log = console.log;
+      console.log = (...args: unknown[]) => console.error(...args);
+      try {
+        const result = await productionAuthority(rest[1]!, JSON.parse(input));
+        log(JSON.stringify(result)); return 0;
+      } catch (e) {
+        log(JSON.stringify({ status: 403, detail: String((e as Error).message) })); return 0;
+      } finally { console.log = log; }
+    }
     case 'status': {
       const status = providerStatus();
       const measured = measuredCapabilities(status.boundary);
@@ -42,25 +85,38 @@ export async function cmdProvider(rawArgs: string[]): Promise<number> {
           status: measured.level === 'HARDENED' ? 'READY' : 'NOT CONNECTED',
           exitCode: measured.level === 'HARDENED' ? 0 : 2,
           problems: status.unavailable,
+          security: { level: measured.level, reasons: Object.values(status.boundary.controls).map(c => c.why) },
           next: measured.level === 'HARDENED'
             ? 'the boundary is established; canary provider serve is what the OS starts'
             : 'run: canary provider install-plan (privileged steps, owner authorization required)',
         });
       }
-      console.log(`provider: ${PROVIDER_SERVICE_NAME}  pipe: ${status.pipe}`);
-      console.log(`platform: ${status.boundary.platform}  user: ${status.boundary.currentUser ?? 'unknown'}  elevated: ${status.boundary.elevated}`);
-      console.log(`store:    ${status.boundary.storeDir} (${status.boundary.storeExists ? 'present' : 'absent'})`);
-      console.log(`service:  installed=${status.boundary.brokerServiceInstalled} running=${status.boundary.brokerServiceRunning} account=${status.boundary.brokerServiceAccount ?? 'n/a'}`);
-      console.log(`worker:   ${status.boundary.workerUser ?? 'not enrolled'}  canWriteStore=${String(status.boundary.workerCanWriteStore)}`);
-      console.log('boundary controls:');
-      for (const [name, c] of Object.entries(status.boundary.controls)) {
-        console.log(`  ${c.available ? 'AVAILABLE  ' : 'UNAVAILABLE'} ${name}${c.available ? '' : ` — ${c.why}`}`);
+      out(`provider: ${PROVIDER_SERVICE_NAME}  pipe: ${status.pipe}`);
+      out(`platform: ${status.boundary.platform}  user: ${status.boundary.currentUser ?? 'unknown'}  elevated: ${status.boundary.elevated}`);
+      out(`store:    ${status.boundary.storeDir} (${status.boundary.storeExists ? 'present' : 'absent'})`);
+      const d = status.boundary.confined;
+      if (status.boundary.production) {
+        const p = status.boundary.production;
+        out(`production: ${p.valid ? 'MEASURED + LIVE BROKER VERIFIED' : 'NOT MEASURED'} — ${p.reason}`);
+        if (p.payload) out(`deployment=${p.payload.deployment} generation=${p.payload.nonce}`);
+      } else if (d.measured) {
+        out(`confined: MEASURED  package=${d.callerPackage ?? 'n/a'} at=${d.measuredAt ?? 'n/a'} age=${d.ageMs === null ? 'n/a' : `${(d.ageMs / 60_000).toFixed(1)} min`} signature=${d.signatureVerified ? 'verified' : 'NOT VERIFIED'}`);
+        out(`          tools digest ${d.toolsDigest ?? 'n/a'}  record ${d.recordPath}`);
+      } else {
+        out(`confined: NOT MEASURED — ${d.reason}`);
       }
-      console.log(`\n${measured.level === 'HARDENED'
+      out(`identity: service installed=${status.boundary.brokerServiceInstalled} running=${status.boundary.brokerServiceRunning} account=${status.boundary.brokerServiceAccount ?? 'n/a'}  worker=${status.boundary.workerUser ?? 'not enrolled'}`);
+      out(`sandbox:  ${status.boundary.sandbox.kind ?? 'none'}  ${status.boundary.sandbox.detail}`);
+      out('boundary controls (the measured confined-caller deployment):');
+      for (const [name, c] of Object.entries(status.boundary.controls)) {
+        out(`  ${c.available ? 'AVAILABLE  ' : 'UNAVAILABLE'} ${name}${c.available ? '' : ` — ${c.why}`}`);
+      }
+      out(`\n${measured.level === 'HARDENED'
         ? 'HARDENED — every boundary control is measured available on this host.'
         : `${measured.level} — HARDENED is NOT available: ${status.unavailable.length} control(s) missing.`}`);
       if (measured.level !== 'HARDENED') {
-        console.log('next: canary provider install-plan   (prints the exact privileged steps; nothing is executed)');
+        out('next: node tooling/probes/v12-confined-caller.mjs   (measures the confined-caller deployment; nothing is elevated)');
+        out('      canary provider install-plan                  (prints the privileged identity-path steps; nothing is executed)');
       }
       return measured.level === 'HARDENED' ? 0 : 2;
     }
