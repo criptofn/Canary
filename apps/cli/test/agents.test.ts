@@ -32,10 +32,16 @@ const project = (name: string): string => {
 };
 
 describe('1.1 agents: the capability table is honest by construction', () => {
-  it('exactly one integration may claim GATED, and every other says ADVISORY', () => {
+  it('exactly one integration may claim GATED, and every other labels itself honestly', () => {
     assert.deepEqual(AGENT_INTEGRATIONS.filter((a) => a.gating).map((a) => a.id), ['claude-code']);
     for (const a of AGENT_INTEGRATIONS.filter((x) => !x.gating)) {
-      assert.match(a.summary, /ADVISORY/, `${a.id} must label itself advisory`);
+      // v1.3 §E — a non-gating integration must say WHICH KIND of not-gating it is: the agent is told
+      // and may ignore it (ADVISORY), or the vendor documents a mechanism this project has NOT
+      // reproduced (UNMEASURED). The invariant is unchanged and in fact sharpened — an integration may
+      // never claim protection, and an unmeasured mechanism may not be quietly called either a yes or
+      // a no. Silence, "GATED", and a bare "ADVISORY" over an unmeasured mechanism would all be claims.
+      assert.match(a.summary, a.gatingMeasured === false ? /UNMEASURED/ : /ADVISORY/,
+        `${a.id} must label itself honestly`);
     }
   });
 
@@ -57,12 +63,27 @@ describe('1.1 agents: the capability table is honest by construction', () => {
   it('agents --json lists the integrations with their real capability', () => {
     const root = project('listing');
     const r = canary(['agents', '--json', root]);
-    const env = JSON.parse(r.stdout) as { schema: string; command: string; integrations: Array<{ id: string; gating: boolean; detected: boolean }> };
+    const env = JSON.parse(r.stdout) as { schema: string; command: string; integrations: Array<{ id: string; gating: boolean; gatingMeasured?: boolean; detected: boolean }> };
     assert.equal(env.schema, 'canary-status/1');
     assert.equal(env.command, 'agents');
-    assert.deepEqual(env.integrations.map((i) => `${i.id}:${i.gating ? 'GATED' : 'ADVISORY'}`),
-      ['claude-code:GATED', 'codex:ADVISORY', 'generic:ADVISORY']);
+    const label = (i: { gating: boolean; gatingMeasured?: boolean }) =>
+      i.gating ? 'GATED' : i.gatingMeasured === false ? 'UNMEASURED' : 'ADVISORY';
+    assert.deepEqual(env.integrations.map((i) => `${i.id}:${label(i)}`),
+      ['claude-code:GATED', 'codex:ADVISORY', 'cursor:UNMEASURED', 'generic:ADVISORY']);
     for (const i of env.integrations) assert.equal(typeof i.detected, 'boolean');
+  });
+
+  it('v1.3: Cursor is reported as UNMEASURED, never as protection', () => {
+    // MEASURED context for this claim: Cursor's own documentation says it imports Claude Code hooks
+    // (including Stop) and documents no way to remove its native tools. This project has NOT
+    // reproduced the import on a real Cursor install, so the completion-gate question is answered
+    // "unmeasured" — and the row must never read as protection.
+    const root = project('cursor-here');
+    fs.mkdirSync(path.join(root, '.cursor'), { recursive: true });
+    const r = canary(['agents', root]);
+    assert.match(r.stdout, /UNMEASURED Cursor — detected/);
+    assert.match(r.stdout, /whether this harness honours it is UNMEASURED/);
+    assert.doesNotMatch(r.stdout, /GATED\s+Cursor/, 'Cursor must never be reported as gated');
   });
 });
 

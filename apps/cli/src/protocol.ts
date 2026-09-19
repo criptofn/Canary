@@ -55,6 +55,11 @@ export interface ProtocolIntegration {
   id: string;
   label: string;
   gating: boolean;
+  /** v1.3 §E: is the `gating` answer MEASURED or merely documented by the vendor? Absent means
+   *  measured (every integration that existed before this field did). `false` means a mechanism the
+   *  vendor documents has NOT been reproduced on a real install here, and the integration is reported
+   *  as UNMEASURED rather than folded into a yes or a no — both of which would be claims. */
+  gatingMeasured?: boolean;
   detected: boolean;
   /** For advisory integrations: is the AGENTS.md block currently installed? */
   advisoryInstalled?: boolean;

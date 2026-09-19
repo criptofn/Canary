@@ -34,6 +34,16 @@ export interface AgentIntegration {
   label: string;
   /** Can this integration BLOCK a completion, or only advise? */
   gating: boolean;
+  /**
+   * v1.3 §E — is the `gating` answer MEASURED, or merely documented?
+   *
+   * Absent means measured (every integration that existed before this field did). `false` means the
+   * harness documents a mechanism that would gate, and this project has NOT reproduced it on a real
+   * install — so it is reported as UNMEASURED rather than folded into either "yes" or "no". Both of
+   * those would be claims: "yes" would assert protection nobody observed, and "no" would deny a
+   * mechanism the vendor documents.
+   */
+  gatingMeasured?: boolean;
   /** Files whose presence means "this agent works here" (root-relative). */
   detectFiles: readonly string[];
   /** Executables that mean the same, looked for in the same trusted way the
@@ -59,6 +69,27 @@ export const AGENT_INTEGRATIONS: readonly AgentIntegration[] = [
     detectFiles: ['.codex', 'AGENTS.md'],
     detectExe: ['codex'],
     summary: 'ADVISORY only — no completion hook exists to gate, so Canary instructs the agent (marked block in AGENTS.md) and answers it with `canary result --json`',
+  },
+  {
+    // v1.3 §E — CURSOR, reported as UNMEASURED rather than as anything stronger or weaker.
+    //
+    // What Cursor's own documentation says: it loads Claude Code hooks from `.claude/settings.json`
+    // (including `Stop` → `stop`, honoured as an automatic follow-up) with third-party imports on by
+    // default, which WOULD make the hook Canary already installs a completion gate. It also documents
+    // no way to remove its native tools, so Canary cannot put Cursor's own edits inside a boundary.
+    //
+    // What this project has NOT done: reproduced the hook import on a real Cursor install. Cursor's
+    // `stop` input is documented as `{status, loop_count}` — Canary derives the repository from
+    // `input.cwd` and keys its one-repair guard on `stop_hook_active`, and whether Cursor synthesises
+    // those for imported Claude hooks is undocumented. So the completion-gate question is answered
+    // "unmeasured", and the confinement question is answered "no, and not claimed".
+    id: 'cursor',
+    label: 'Cursor',
+    gating: false,
+    gatingMeasured: false,
+    detectFiles: ['.cursor'],
+    detectExe: ['cursor'],
+    summary: 'UNMEASURED completion gate — Cursor documents importing Claude Code hooks (including Stop), which would make the hook Canary installs effective there, but this project has not reproduced that on a real Cursor install, so it is NOT claimed. Cursor also documents no way to remove its native tools, so Canary cannot confine Cursor\'s own edits.',
   },
   {
     id: 'generic',

@@ -323,6 +323,15 @@ What Canary does **not** claim is as much a part of the product as what it does.
 - **Canary sends nothing anywhere.** There is no telemetry and no network
   dependency; the only measurements are local ones you can read
   (`CANARY_METRICS=<file>` writes one local record per invocation).
+- **Cursor is not a claimed integration.** Cursor documents importing Claude Code
+  hooks — including `Stop`, honoured as an automatic follow-up — which would make
+  the hook `setup` installs effective there. This project has **not reproduced
+  that on a real Cursor install**, so `canary agents` reports Cursor as
+  **`UNMEASURED`** rather than as protection. Cursor also documents no way to
+  remove its native tools, so Canary cannot put Cursor's own edits inside an OS
+  boundary. Reading the table: `GATED` means measured and blocking, `ADVISORY`
+  means the agent is told and may ignore it, `UNMEASURED` means the mechanism is
+  documented and nobody here has checked it.
 
 Full list: [`docs/RELEASE-1.1.md`](docs/RELEASE-1.1.md) ·
 [`docs/V1.3-PRODUCT-AUDIT.md`](docs/V1.3-PRODUCT-AUDIT.md).

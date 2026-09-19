@@ -171,6 +171,14 @@ export function detectHarnesses(root: string): { found: HarnessInfo[]; integrabl
     // integration would fake protection we cannot enforce, so we don't ship it.
     found.push({ name: 'codex', label: 'OpenAI Codex CLI', supported: false, action: 'detected, NOT integrated — no reliable blocking hook exists yet' });
   }
+  // v1.3 §E: Cursor is DETECTED so the capability table can report it honestly. `supported: false`
+  // because nothing about it is measured here — Cursor documents importing Claude Code hooks, which
+  // would make the hook Canary installs effective, and documents no way to remove its native tools.
+  // Detection is not a claim; the table entry carries what is and is not known.
+  const cursor = fs.existsSync(path.join(root, '.cursor')) || hasExe('cursor');
+  if (cursor) {
+    found.push({ name: 'cursor', label: 'Cursor', supported: false, action: 'detected, completion-gate mechanism documented by the vendor but UNMEASURED by Canary' });
+  }
   const cc = found.find((h) => h.name === 'claude-code') ?? null;
   return { found, integrable: cc };
 }
@@ -3497,8 +3505,9 @@ export function cmdAgents(rawArgs: string[]): number {
     id: a.id,
     label: a.label,
     gating: a.gating,
+    ...(a.gatingMeasured === undefined ? {} : { gatingMeasured: a.gatingMeasured }),
     detected: a.id === 'generic' ? true : found.has(a.id),
-    ...(a.gating ? {} : { advisoryInstalled: advisory }),
+    ...(a.gating || a.gatingMeasured === false ? {} : { advisoryInstalled: advisory }),
     summary: a.summary,
   }));
   o.context({ integrations, agent: agentCapability(root) });
@@ -3534,15 +3543,27 @@ export function cmdAgents(rawArgs: string[]): number {
       return doc !== null && hasMcpEntry(doc, new Set(cfgForTools.mcpArgSignatures ?? []));
     })();
   for (const i of integrations) {
+    // v1.3 §E: three states, not two. GATED (a hook is installed and can block), UNMEASURED (the
+    // harness documents a mechanism this project has not reproduced — claimed as neither), ADVISORY
+    // (the agent is told and may ignore it).
+    const unmeasured = i.gatingMeasured === false;
+    const word = i.gating ? 'GATED   ' : unmeasured ? 'UNMEASURED' : 'ADVISORY';
     const extra = i.gating
       ? ` [${wired ? 'hook installed here' : 'hook NOT installed here'}${wired && toolsRegistered ? ', agent tools registered' : ''}]`
-      : ` [AGENTS.md block ${advisory ? 'installed' : 'not installed'}]`;
-    o.say(`  ${i.gating ? 'GATED   ' : 'ADVISORY'} ${i.label} — ${i.detected ? 'detected' : 'not detected'}${extra}`);
+      : unmeasured
+        ? ` [Canary's completion hook is ${wired ? 'installed here' : 'NOT installed here'} — whether this harness honours it is UNMEASURED]`
+        : ` [AGENTS.md block ${advisory ? 'installed' : 'not installed'}]`;
+    o.say(`  ${word} ${i.label} — ${i.detected ? 'detected' : 'not detected'}${extra}`);
     o.detail(i.summary);
   }
   const gated = integrations.filter((i) => i.gating && i.detected);
   if (gated.length === 0) {
-    o.verdict('NEEDS ATTENTION', 'no agent here can be GATED today — a completion can be checked, but nothing can block it.', 'any agent can use the protocol directly: canary result --json');
+    const unmeasured = integrations.filter((i) => i.gatingMeasured === false && i.detected);
+    o.verdict('NEEDS ATTENTION',
+      unmeasured.length > 0
+        ? `${unmeasured.map((i) => i.label).join(', ')} is installed here and documents a completion-hook mechanism Canary has NOT measured — so nothing here can be reported as gated. Detecting an agent is not protecting the repository.`
+        : 'no agent here can be GATED today — a completion can be checked, but nothing can block it.',
+      'any agent can use the protocol directly: canary result --json');
     return 2;
   }
   if (!wired) {
