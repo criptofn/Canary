@@ -248,6 +248,13 @@ const STEPS = [
   // a corpus size that had moved. Each was caught by hand, one at a time, by someone already
   // suspicious. This turns that into a command.
   ['doc consistency (do the release documents still match the repository?)', process.execPath, ['tooling/probes/v12-doc-consistency.mjs'], {}],
+  // v1.3: the everyday journey, measured end to end — the completion gate's real decisions, the
+  // agent-tool registration and its containment, and what the ordinary path refuses to hand a worker.
+  ['v1.3 the everyday journey (setup -> completion gate -> agent tools)', process.execPath, ['tooling/probes/v13-journey-baseline.mjs'], {}],
+  // v1.3: the AGENT side of the integration — `claude mcp list` proves the agent reads Canary's entry
+  // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
+  // SKIP is never a pass.
+  ['v1.3 agent integration (the agent reads what setup wrote)', process.execPath, ['tooling/probes/v13-agent-integration.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],

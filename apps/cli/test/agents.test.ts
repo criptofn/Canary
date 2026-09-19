@@ -186,5 +186,12 @@ describe('v1.3 agents: a detected agent is not a gated repository', () => {
     assert.match(r.stdout, /CONNECTED/);
     const env = JSON.parse(canary(['agents', '--json', root]).stdout) as { agent: { hooked: boolean } };
     assert.equal(env.agent.hooked, true);
+    // v1.3 §C/§E — the tool registration is announced WITH the one interactive step the harness owns.
+    // MEASURED with the real agent CLI: `claude mcp list` reports Canary's entry as "Pending approval"
+    // until a human approves the project's MCP server, so both surfaces must say so. Without this a
+    // user sees a registered server whose tools never appear and concludes the integration is broken.
+    assert.match(s.stdout, /agent tools: registered in \.mcp\.json/);
+    assert.match(s.stdout, /approve a project's MCP server once/);
+    assert.match(r.stdout, /pending approval/);
   });
 });

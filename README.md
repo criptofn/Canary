@@ -32,6 +32,15 @@ already do.
 There is no Canary command in the ordinary loop, and you do not have to learn
 Canary's vocabulary to use it.
 
+> **One interactive step, and it is the harness's, not Canary's.** Claude Code
+> holds a *project-scoped* MCP server at `Pending approval` until a human approves
+> it once. Measured with the real CLI: `claude mcp list` reports
+> `canary: …\main.js mcp - ⏸ Pending approval (run \`claude\` to approve)`. So run
+> `claude` in the repository once and approve it — after that the tools are there.
+> Canary says the same thing at the end of `setup`, and
+> [`tooling/probes/v13-agent-integration.mjs`](tooling/probes/v13-agent-integration.mjs)
+> measures it rather than assuming it.
+
 **Why isn't this just "run the tests"?**
 
 | A green suite can be green because… | Canary's answer |
@@ -107,6 +116,7 @@ harness: Claude Code — hook installed into this project
 harness: OpenAI Codex CLI — detected, NOT integrated — no reliable blocking hook exists yet
 Claude Code will run Canary automatically when the agent finishes a turn here.
 agent tools: registered in .mcp.json — your agent can now ask Canary whether it is done, instead of guessing. Your other MCP servers are untouched; `canary uninstall` removes exactly this entry.
+  Claude Code asks you to approve a project's MCP server once — run `claude` there and approve it; until then the server is listed but its tools are not available.
 
 smoke test (running your own project scripts):
 ✓ tests: npm run test (exit 0)

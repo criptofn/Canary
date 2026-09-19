@@ -2401,6 +2401,11 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // v1.3 §C: say plainly that a SECOND file was written, and what the agent gets from it. Silence
   // about a file Canary just added to someone's repository would be the wrong kind of invisible.
   o.say(`agent tools: registered in ${rel(root, mcpConfigPath(root))} — your agent can now ask Canary whether it is done, instead of guessing. Your other MCP servers are untouched; \`canary uninstall\` removes exactly this entry.`);
+  // v1.3 §E, MEASURED with the real agent CLI (`claude mcp list` reports our entry as
+  // "Pending approval"): the harness holds a project-scoped MCP server until a human approves it once.
+  // That is one interactive step Canary cannot take for you, so it is named here rather than left to
+  // look like a broken integration.
+  o.say(`  Claude Code asks you to approve a project's MCP server once — run \`claude\` there and approve it; until then the server is listed but its tools are not available.`);
   o.detail('authority sealed: the plan and the exact text of every script it runs — candidate edits to the verification surface block completion until setup is deliberately re-run.');
   const level = probeTrustLevel(store);
   o.detail(`sealed authority copy: ${store.root} (project ${projectId}) — level ${level.level}: ${level.reasons.join(' ')}`);
@@ -3545,6 +3550,11 @@ export function cmdAgents(rawArgs: string[]): number {
       `${gated.map((i) => i.label).join(', ')} is installed here, but Canary's completion hook is NOT — nothing runs automatically, so nothing can block a completion. Detecting the agent is not protecting the repository.`,
       'to install the hook: canary setup --yes');
     return 2;
+  }
+  // v1.3 §E: the tools are registered but the harness holds them at its own consent gate. Saying so
+  // is the difference between a user who approves once and a user who concludes the tools are broken.
+  if (toolsRegistered) {
+    o.say('note: Claude Code holds a project MCP server at "pending approval" until you approve it once in an interactive session — the entry is written; the tools appear after you approve.');
   }
   o.verdict('CONNECTED', `${gated.map((i) => i.label).join(', ')} can gate completions here — the hook is installed in this repository.`, 'to confirm end to end: canary doctor');
   return 0;
