@@ -84,7 +84,7 @@ jobs:
       - name: Checksum the artifact
         run: |
           set -euo pipefail
-          cd pack
+          cd pack/npm
           ls -l
           sha256sum ./*.tgz > "$(basename "$(ls ./*.tgz)").sha256"
           cat ./*.sha256
@@ -94,7 +94,7 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
-          subject-path: pack/*.tgz
+          subject-path: pack/npm/*.tgz
 
       - name: Publish the GitHub release
         if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
@@ -102,7 +102,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ASSETS=(pack/*.tgz pack/*.tgz.sha256)
+          ASSETS=(pack/npm/*.tgz pack/npm/*.tgz.sha256)
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "release $GITHUB_REF_NAME exists â€” updating assets"
             gh release upload "$GITHUB_REF_NAME" "${ASSETS[@]}" --clobber
@@ -121,4 +121,4 @@ jobs:
         if: ${{ github.event_name == 'push' && env.NPM_TOKEN != '' }}
         env:
           NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
-        run: npm publish ./pack/*.tgz --provenance --access public
+        run: npm publish ./pack/npm/*.tgz --provenance --access public
