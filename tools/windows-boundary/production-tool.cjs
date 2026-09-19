@@ -30,6 +30,32 @@ function apply(op, index) {
     case 'list': return fs.readdirSync(op.path || '.', { withFileTypes: true }).map(e => ({ name: e.name, directory: e.isDirectory() }));
     case 'read': return fs.readFileSync(op.path, 'utf8');
     case 'write': fs.writeFileSync(op.path, op.text); return 'written';
+    // v1.3 §D — CHANGE an existing file by sending only the part that changes.
+    //
+    // WHY THIS EXISTS, measured: the model's own output is ~70% of the confined arm's token cost on a long
+    // task, and the dominant term is that the previous tool set had no way to express a change — only
+    // `write`, which re-emits the WHOLE file body inside the assistant message, where it is then re-read on
+    // every later turn. Measured on the stateful fixture: `src/api.js` (979 B on disk) written NINE times.
+    //
+    // SAFETY: this grants NOTHING. `write` already accepted arbitrary content for the same path, so `edit`
+    // can produce no byte `write` could not; the path handling, the containment and the OS token are
+    // identical. It is the same mutation, expressed smaller.
+    //
+    // The anchor must occur EXACTLY ONCE. An ambiguous anchor is REFUSED rather than resolved by guessing —
+    // a tool that silently edits the wrong occurrence is worse than one that makes the caller be specific,
+    // and "the first match" is exactly the kind of quiet wrong-place mutation that is invisible in a diff.
+    case 'edit': {
+      if (typeof op.replace !== 'string') throw new Error('replace (a string) is required');
+      if (typeof op.find !== 'string') throw new Error('find (a string) is required — use "" to replace the whole file');
+      const text = fs.readFileSync(op.path, 'utf8');
+      if (op.find === '') { fs.writeFileSync(op.path, op.replace); return 'edited'; }
+      if (op.find === op.replace) throw new Error('find and replace are identical — nothing to do');
+      const first = text.indexOf(op.find);
+      if (first < 0) throw new Error('find does not occur in the file');
+      if (text.indexOf(op.find, first + op.find.length) >= 0) throw new Error('find occurs more than once — extend it until it is unique');
+      fs.writeFileSync(op.path, text.slice(0, first) + op.replace + text.slice(first + op.find.length));
+      return 'edited';
+    }
     case 'exec': {
       if (!Array.isArray(op.argv) || !op.argv.length || !op.argv.every(x => typeof x === 'string')) throw new Error('argv required');
       // A unique pair of files per operation: two execs in one call must not collide.

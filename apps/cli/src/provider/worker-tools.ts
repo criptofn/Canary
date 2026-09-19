@@ -17,10 +17,19 @@ export async function workerTools(store: string, work: string): Promise<number> 
         // ONE shape, deliberately: a call carries an ordered list of operations. The
         // one-operation-at-a-time form is not offered, because every model round trip
         // re-reads the whole conversation and the session is spent on round trips.
-        // Authority is unchanged: the same four primitives, the same confined paths.
+        // Authority is unchanged: the same primitives, the same confined paths.
+        //
+        // v1.3 §D: `edit` is described in terms of the cost it removes, because the cost is the
+        // model's OWN output — every byte it sends is re-read on every later turn, and the measured
+        // dominant term for a long task was whole-file `write` re-emissions (src/api.js, 979 B on
+        // disk, written nine times). A description that only lists verbs does not tell the caller
+        // WHY one verb is cheaper, and the caller is the one paying.
         case 'tools/list': result = { tools: [{ name: 'implement',
           description: 'Work inside the confined workspace by sending an ordered list of operations in ONE call. '
-            + 'Operations: list (a directory), read (a file), write (a file), exec (run argv). '
+            + 'Operations: list (a directory), read (a file), write (CREATE a file), edit (CHANGE an existing file), exec (run argv). '
+            + 'To change an existing file use `edit` with `find` (an exact snippet that occurs EXACTLY ONCE) and `replace` '
+            + '(the text that takes its place; "find":"" replaces the whole file). Every byte you send stays in this '
+            + 'conversation and is re-read on every later turn, so send the part that changes, not the file. '
             + 'Send every operation you already know together — they run in order in one confined process — and make a '
             + 'further call only for what genuinely depends on an earlier result. '
             + 'A non-zero exit status is a normal result; a refused operation stops the list and says which one. '
@@ -29,7 +38,8 @@ export async function workerTools(store: string, work: string): Promise<number> 
             type: 'object',
             properties: {
               operations: { type: 'array', minItems: 1, maxItems: 64, items: { type: 'object',
-                properties: { op: { enum: ['list', 'read', 'write', 'exec'] }, path: { type: 'string' }, text: { type: 'string' },
+                properties: { op: { enum: ['list', 'read', 'write', 'edit', 'exec'] }, path: { type: 'string' }, text: { type: 'string' },
+                  find: { type: 'string' }, replace: { type: 'string' },
                   argv: { type: 'array', items: { type: 'string' } } }, required: ['op'], additionalProperties: false } },
             },
             required: ['operations'], additionalProperties: false,
