@@ -124,7 +124,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { controllerExecution } from './provider/execution.js';
-import { digest, canonicalTask, taskWeakening, subjectDigest, type TaskIdentity, type AuthorizationSubject } from './authorization.js';
+import { digest, canonicalTask, taskWeakening, subjectDigest, TASK_KINDS, type TaskIdentity, type AuthorizationSubject } from './authorization.js';
 
 import {
   ACCEPTANCE_SUBDIR, CLI_ENTRY, CONFIG_DIR, ENV_POLICY, EVIDENCE_DIR, Out, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
@@ -698,8 +698,29 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
      * further work in this session can change it.
      */
     const WORKER_CLOSABLE = new Set(['regression-evidence', 'tests-green', 'coverage-loss']);
-    const byWorker = unproven.filter((x) => WORKER_CLOSABLE.has(x.id) || (x.mode === 'objective' && !x.id.startsWith('target-')));
-    const byOperator = unproven.filter((x) => !byWorker.includes(x));
+    /**
+     * v1.3, slice 1 — `task-authority` was falling through the clause below into `byWorker`, so Canary
+     * told the model: "YOU can close … task-authority — make it real (a check that fails without your
+     * change), commit in the candidate, then run finish again."
+     *
+     * MEASURED (tooling/probes/v13-journey-baseline.mjs): that instruction is impossible to carry out.
+     * The duty records that NO KIND WAS FROZEN when the candidate was opened — a fact about how the
+     * candidate was created, not about its contents. No edit, test or commit inside the candidate can
+     * change it, and the run ends at exit 2 with the base untouched however long the model works. The
+     * whole point of this block (see the comment above) is to stop exactly that waste; it was undone
+     * for the one duty that is always unrepairable, so it is now named separately and first.
+     */
+    const AUTHORITY_ONLY = new Set(['task-authority']);
+    const byAuthority = unproven.filter((x) => AUTHORITY_ONLY.has(x.id));
+    const rest = unproven.filter((x) => !AUTHORITY_ONLY.has(x.id));
+    const byWorker = rest.filter((x) => WORKER_CLOSABLE.has(x.id) || (x.mode === 'objective' && !x.id.startsWith('target-')));
+    const byOperator = rest.filter((x) => !byWorker.includes(x));
+    if (byAuthority.length > 0) {
+      o.say('next: task-authority is NOT CLOSABLE FROM THIS CANDIDATE — no work in it can change it.');
+      o.say('  It records that the task froze no KIND when this candidate was opened, which is a fact about how the candidate was created, not about anything in it. Editing tests, adding checks or committing more cannot move it.');
+      o.say(`  the recovery is a FRESH candidate, opened from a task that names its kind: canary work <new-name> "<intent>" --kind <${TASK_KINDS.join('|')}>`);
+      o.say('  nothing was promoted and the trusted base was not touched. Report this state and stop.');
+    }
     if (byWorker.length > 0) {
       o.say(`next: YOU can close ${byWorker.length} of these, with evidence in the candidate: ${byWorker.map((x) => x.id).join(', ')} — make it real (a check that fails without your change), commit in the candidate, then run finish again.`);
     }

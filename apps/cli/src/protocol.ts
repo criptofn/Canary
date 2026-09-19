@@ -39,7 +39,11 @@ export interface ProtocolSecurity {
 
 export interface ProtocolAgent {
   /** Which harnesses were found, and whether each can actually gate an agent's
-   *  completion. `hooked: false` means: do not claim protection from it. */
+   *  completion. `gated: true` and `hooked: true` are DIFFERENT facts: `gated`
+   *  is a capability of the integration ("this agent's completions could be
+   *  blocked"), `hooked` is a fact about THIS repository ("Canary's hook is
+   *  installed here"). `hooked: false` means: do not claim protection from it —
+   *  a detected agent is not a protected repository. */
   harnesses: Array<{ id: string; label: string; gated: boolean; reason: string }>;
   hooked: boolean;
 }

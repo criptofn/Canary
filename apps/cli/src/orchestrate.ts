@@ -26,7 +26,8 @@
  *     instead of pretending a green plan was enough.
  */
 import { cmdIsolate } from './candidate.js';
-import { cmdTask, findRepoRoot, Out, parseGlobals, readConfig, unboundRequirements } from './onboarding.js';
+import { TASK_KINDS } from './authorization.js';
+import { cmdTask, findRepoRoot, Out, parseGlobals, readConfig, readTaskRecord, unboundRequirements } from './onboarding.js';
 
 /** Flags the delegated primitive needs, minus the ones that shape OUR output:
  *  forwarding `--json` would make two commands each print an envelope, and a
@@ -107,6 +108,40 @@ export async function cmdWork(rawArgs: string[]): Promise<number> {
         'bind each digest to a script the sealed plan runs, then re-seal: package.json "canary": { "proofs": { "<digest>": "<script>" } } → canary setup');
       return 2;
     }
+  }
+
+  /**
+   * 1c. REFUSE TO HAND A WORKER A TASK THAT NOTHING COULD EVER JUDGE (v1.3, slice 1).
+   *
+   * MEASURED (tooling/probes/v13-journey-baseline.mjs, three fixtures differing only in the WORDING of
+   * the intent): `work task1 "Reject empty names in greeting()"` exited 0, opened the candidate, and
+   * printed `next: ... canary finish task1`. The worker then delivered a correct, tested, discriminating
+   * fix — and `finish` refused it, exit 2, `obligation [task-authority] UNPROVEN`, base untouched. The
+   * SAME change completed (`finish` exit 0, bytes promoted) when the intent happened to contain "fix".
+   *
+   * So completion depended on whether prose matched a keyword regex. The gate itself is right and stays
+   * exactly as it is: `candidate.ts` freezes the task's kinds as the authority to judge a candidate at
+   * all, and an authority-free candidate is precisely how §10 was bypassed. What was wrong is that
+   * Canary KNEW at handoff — it even printed "NOTICE: no obligation could be derived from this intent"
+   * — and still handed the worker a task whose completion was already impossible, with a success-shaped
+   * `next:` line. That is the same defect class as REQUIREMENT UNBOUND one level up: a duty the worker
+   * cannot close, discovered after its budget is gone instead of before a single token is spent.
+   *
+   * The precondition is knowable here for free, so it is answered here. Nothing is opened, no worker is
+   * launched, no model token is spent, and the ONE thing a human has to supply is named.
+   */
+  const registered = readTaskRecord(root);
+  if (registered === null || registered.kinds.length === 0) {
+    o.say('CANNOT BE JUDGED — worker execution was NOT started and no candidate was opened.');
+    o.say('  The task as stated named no kind of work, so no obligation is derived from it — and a');
+    o.say('  candidate freezes its kinds at isolation as the authority to judge it at all. Whatever the');
+    o.say('  worker delivered, that candidate could never be completed. Saying so here costs nothing;');
+    o.say('  discovering it at the end costs the whole session (measured: that is what v1.2 shipped).');
+    o.say(`  kinds Canary can derive an obligation from: ${TASK_KINDS.join(', ')}`);
+    o.verdict('NEEDS ATTENTION',
+      'CANNOT BE JUDGED — the task states no kind of work, so nothing it delivers could be proven complete. No candidate was opened and no worker was started.',
+      `say what kind of work this is, or what must be provable: canary work <name> "<intent>" --kind <${TASK_KINDS.join('|')}>   (or --requirement "<a behaviour someone could measure>")`);
+    return 2;
   }
 
   // 2. the candidate, from the trusted base, with that intent frozen into it

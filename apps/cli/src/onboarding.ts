@@ -1018,7 +1018,24 @@ export interface BundleProvenance {
  */
 
 const KIND_PATTERNS: Array<[RegExp, TaskKind]> = [
-  [/\b(bug|fix|broken|crash|regress\w*|defect)\b/i, 'bugfix'],
+  /**
+   * v1.3 — the ORDINARY ways a developer states a defect, not only the jargon.
+   *
+   * MEASURED (tooling/probes/v13-journey-baseline.mjs; and this repository's own benchmark fixture
+   * `bug-sum`, whose task statement is "This small Node project has a test suite (npm test) that is
+   * currently failing."): the previous vocabulary — bug/fix/broken/crash/regress/defect — inferred
+   * NOTHING from the most common way a failing task is described. `work` then froze an EMPTY kind set
+   * and `finish` refused a correct, tested, discriminating fix with `task-authority UNPROVEN`, after
+   * the whole session had been spent. Canary knew at handoff; this is the cheap half of the repair.
+   *
+   * The words added here all ASSERT brokenness rather than mention a topic. That distinction is the
+   * whole safety argument: a `bugfix` kind adds ONE duty — a measured base-vs-candidate discrimination
+   * — and unlike "error handling" (a feature that merely contains the word "error"), every phrase
+   * below describes behaviour that is wrong, so the duty it adds is one the change can discharge.
+   * A mislabel still only ever ADDS work; nothing here can remove a duty.
+   */
+  [/\b(bug|fix|broken|crash|regress\w*|defect|wrong|incorrect|failing|fails?|misbehav\w*)\b/i, 'bugfix'],
+  [/\b(?:does\s?n[o']?t|do(?:es)?\s+not|don'?t|not|never)\s+work(?:ing|s|ed)?\b/i, 'bugfix'],
   [/\b(refactor\w*|restructure|extract (a |the )?(method|function|class)|clean[- ]up)\b/i, 'refactor'],
   [/\b(dependenc\w+|lockfile|upgrade .{0,20}package|bump .{0,20}version|npm (install|update|add))\b/i, 'dependency'],
   [/\b(performance|benchmark|faster|slower|latency|throughput|speed up|slow\w* down|memory usage|optimi[sz]\w+)\b/i, 'performance'],
@@ -2439,8 +2456,40 @@ export function agentCapability(root: string): { harnesses: Array<{ id: string; 
   const { found, integrable } = detectHarnesses(root);
   return {
     harnesses: found.map((h) => ({ id: h.name, label: h.label, gated: h.supported, reason: h.action })),
-    hooked: integrable !== null,
+    // v1.3, slice 1: `hooked` means A HOOK IS INSTALLED HERE — not "an agent we could hook is present".
+    // Detection is a different question and it was answering this one; see gatingHookInstalled.
+    hooked: integrable !== null && gatingHookInstalled(root),
   };
+}
+
+/**
+ * v1.3, slice 1 — IS THE COMPLETION HOOK ACTUALLY INSTALLED IN THIS REPOSITORY?
+ *
+ * MEASURED (tooling/probes/v13-journey-baseline.mjs): on a repository whose `.claude/` directory held
+ * nothing but a skill file — no `settings.json`, no hook — `canary agents` printed
+ * "CONNECTED — Claude Code can gate completions here." and exited 0, while `canary status` on the
+ * SAME bytes said "NOT CONNECTED … no config, no hooks, no proof" and exited 2. Two commands
+ * contradicted each other, and the optimistic one was the successful one.
+ *
+ * The cause is a question substitution: detection answers "is this agent present?", for which
+ * `.claude/` existing is enough — and on any machine with Claude Code installed, `~/.claude` exists,
+ * so it is effectively always true — while the verdict was phrased as a claim that a completion can be
+ * BLOCKED. Only the second question is a protection claim, and it has a definite answer that
+ * `status`/`readOnlyProblems` already compute from the config and the settings files.
+ *
+ * This is that same evidence, exposed for the callers that phrase a verdict. It is READ-ONLY: no
+ * spawn, no write, no verdict of its own — it reports whether Canary's own hook entry is present in a
+ * settings file Canary manages, under a config Canary still trusts.
+ */
+export function gatingHookInstalled(root: string): boolean {
+  const cfg = readConfig(root);
+  if (cfg === null || cfg === 'corrupt') return false;
+  if (untrustedConfigReason(root, cfg)) return false;
+  return cfg.touched.some((t) => {
+    if (!fs.existsSync(t.path)) return false;
+    const doc = parseJsonOrNull(t.path);
+    return doc !== null && hasCanaryEntry(doc, new Set(cfg.hookCommands));
+  });
 }
 
 /** The checks as an agent needs them: what, which ecosystem, where, and the
@@ -3298,8 +3347,14 @@ export function cmdAgents(rawArgs: string[]): number {
 
   o.say(`repo: ${root}`);
   o.say('agent integrations (GATED = can block a completion; ADVISORY = the agent is told and may ignore it):');
+  // v1.3, slice 1: "detected" answers "is this agent here?", which is NOT a protection claim. A GATED
+  // integration is only protection once its hook is actually installed in THIS repository, so the row
+  // says which of the two it is and the verdict below is decided by wiring, not by presence.
+  const wired = gatingHookInstalled(root);
   for (const i of integrations) {
-    const extra = i.gating ? '' : ` [AGENTS.md block ${advisory ? 'installed' : 'not installed'}]`;
+    const extra = i.gating
+      ? ` [${wired ? 'hook installed here' : 'hook NOT installed here'}]`
+      : ` [AGENTS.md block ${advisory ? 'installed' : 'not installed'}]`;
     o.say(`  ${i.gating ? 'GATED   ' : 'ADVISORY'} ${i.label} — ${i.detected ? 'detected' : 'not detected'}${extra}`);
     o.detail(i.summary);
   }
@@ -3308,6 +3363,12 @@ export function cmdAgents(rawArgs: string[]): number {
     o.verdict('NEEDS ATTENTION', 'no agent here can be GATED today — a completion can be checked, but nothing can block it.', 'any agent can use the protocol directly: canary result --json');
     return 2;
   }
-  o.verdict('CONNECTED', `${gated.map((i) => i.label).join(', ')} can gate completions here.`, 'to confirm end to end: canary doctor');
+  if (!wired) {
+    o.verdict('NEEDS ATTENTION',
+      `${gated.map((i) => i.label).join(', ')} is installed here, but Canary's completion hook is NOT — nothing runs automatically, so nothing can block a completion. Detecting the agent is not protecting the repository.`,
+      'to install the hook: canary setup --yes');
+    return 2;
+  }
+  o.verdict('CONNECTED', `${gated.map((i) => i.label).join(', ')} can gate completions here — the hook is installed in this repository.`, 'to confirm end to end: canary doctor');
   return 0;
 }
