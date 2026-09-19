@@ -41,6 +41,8 @@ public static class CanaryConfined {
   }
   [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern uint QueryDosDeviceW(string name, StringBuilder target, uint size);
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool DefineDosDeviceW(uint flags, string name, string target);
   [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr p, uint access, out IntPtr token);
   [DllImport("advapi32.dll", SetLastError = true)] static extern bool GetTokenInformation(IntPtr t, int kind, IntPtr info, int size, out int needed);
   [DllImport("advapi32.dll", SetLastError = true)] static extern bool CreateRestrictedToken(IntPtr t, uint flags, uint ds, IntPtr s, uint dp, IntPtr p, uint rs, IntPtr r, out IntPtr result);
@@ -154,6 +156,9 @@ public static class CanaryConfined {
     return Run(command, directory, sideChannel, packageSid, deleteProfile, null);
   }
   public static int Run(string command, string directory, string sideChannel, string packageSid, bool deleteProfile, string profileDirectory) {
+    return Run(command, directory, sideChannel, packageSid, deleteProfile, profileDirectory, false);
+  }
+  public static int Run(string command, string directory, string sideChannel, string packageSid, bool deleteProfile, string profileDirectory, bool gitDirectoryAlias) {
     directory = Path.GetFullPath(directory);
     if (!Directory.Exists(directory)) throw new ArgumentException("sandbox must already exist");
     string temp = Path.GetTempPath();
@@ -170,7 +175,27 @@ public static class CanaryConfined {
     IntPtr current = IntPtr.Zero, restricted = IntPtr.Zero, low = IntPtr.Zero, package = IntPtr.Zero;
     IntPtr attributes = IntPtr.Zero, environment = IntPtr.Zero, job = IntPtr.Zero;
     PI child = new PI(); bool initialized = false; FileSystemAccessRule grant = null;
+    string alias = null;
+    Mutex aliasLock = null; bool ownsAliasLock = false;
     try {
+      // Session-local name for this sandbox ONLY. No DOS-device or filesystem ACL
+      // changes: Git's GetLongPathName fallback can resolve this root directly.
+      // Never overwrite an existing device; absence or allocation failure is fatal.
+      if (gitDirectoryAlias) {
+        // Serialize Canary allocations across stores in this logon session.
+        // A contended/unavailable namespace fails closed, never uses a real cwd.
+        aliasLock = new Mutex(false, "Local\\Canary.SandboxDrive." + WindowsIdentity.GetCurrent().User.Value);
+        try { ownsAliasLock = aliasLock.WaitOne(10000); }
+        catch (AbandonedMutexException) { ownsAliasLock = true; }
+        if (!ownsAliasLock) throw new InvalidOperationException("sandbox drive allocation busy; no fallback");
+        for (char drive = 'Z'; drive >= 'D'; drive--) {
+          string candidate = drive + ":";
+          if (QueryDosDeviceW(candidate, new StringBuilder(32768), 32768) != 0 || Marshal.GetLastWin32Error() != 2) continue;
+          Check(DefineDosDeviceW(9, candidate, "\\??\\" + directory), "create sandbox drive alias");
+          alias = candidate; break;
+        }
+        if (alias == null) throw new InvalidOperationException("no sandbox drive alias available; no fallback");
+      }
       // Identity is provisioned once by `identity` and reused, so the store ACL, the pipe
       // ACL and the launched caller all speak about the SAME AppContainer SID.
       if (String.IsNullOrEmpty(packageSid)) throw new ArgumentException("a provisioned package SID is required");
@@ -207,7 +232,7 @@ public static class CanaryConfined {
       if (!String.IsNullOrEmpty(record))
         File.WriteAllText(record, "cwd=" + directory + "\ncmd=" + command + "\n");
       Check(CreateProcessAsUserW(restricted, null, new StringBuilder(command), IntPtr.Zero, IntPtr.Zero, false,
-        0x80000 | 0x400 | 0x4, environment, directory, ref startup, out child), "CreateProcessAsUser AppContainer suspended");
+        0x80000 | 0x400 | 0x4, environment, alias == null ? directory : alias + "\\", ref startup, out child), "CreateProcessAsUser AppContainer suspended");
       Check(AssignProcessToJobObject(job, child.process), "AssignProcessToJobObject");
       var measured = Measure(child.process, child.pid);
       // Fail closed: no caller proceeds on a boundary that was not observed.
@@ -232,6 +257,7 @@ public static class CanaryConfined {
         File.AppendAllText(sideChannel, "\n{\"sideChannel\":false,\"pid\":" + measured.pid + ",\"exit\":" + unchecked((int)returnCode) + "}");
       return unchecked((int)returnCode);
     } finally {
+      try {
       if (child.process != IntPtr.Zero) TerminateProcess(child.process, 125);
       if (job != IntPtr.Zero) {
         try {
@@ -257,6 +283,13 @@ public static class CanaryConfined {
       if (grant != null) { var acl = Directory.GetAccessControl(directory); acl.RemoveAccessRuleSpecific(grant); Directory.SetAccessControl(directory, acl); }
       if (package != IntPtr.Zero) FreeSid(package);
       if (deleteProfile) { try { Marshal.ThrowExceptionForHR(DeleteAppContainerProfile(name)); } catch { } }
+      } finally {
+        try { if (alias != null) Check(DefineDosDeviceW(15, alias, "\\??\\" + directory), "remove exact sandbox drive alias"); }
+        finally {
+          if (ownsAliasLock) aliasLock.ReleaseMutex();
+          if (aliasLock != null) aliasLock.Dispose();
+        }
+      }
     }
   }
 

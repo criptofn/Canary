@@ -38,8 +38,15 @@ try {
   git(['init']); git(['config','user.name','Canary fixture']); git(['config','user.email','canary@localhost']);
   git(['add','.']); git(['commit','-m','base']);
   canary(['setup','--yes',base]);
-  command(process.execPath,[cli,'task','Handle numeric string operands','--kind','bugfix'],base);
   git(['add','.']); git(['commit','--allow-empty','-m','operator setup artifacts']);
+  command(process.execPath,[cli,'bind','test','--requirement','Handle numeric string operands','--reseal'],base);
+  command(process.execPath,[cli,'task','Handle numeric string operands','--kind','bugfix','--requirement','Handle numeric string operands'],base);
+  const operatorPackage = JSON.parse(fs.readFileSync(path.join(base,'package.json'),'utf8'));
+  const operatorProofs = operatorPackage.canary.proofs;
+  const sealed = JSON.parse(fs.readFileSync(path.join(base,'.canary','canary.local.json'),'utf8'));
+  check('trusted-binding-seal-control',Object.keys(operatorProofs).length===1 &&
+    JSON.stringify(sealed.planAuthority.proofBindings)===JSON.stringify(operatorProofs),
+    'operator bind --reseal creates the legitimate frozen binding before enrollment');
   enrollment = JSON.parse(canary(['provider','enroll',base,store]));
   const { challenge } = JSON.parse(canary(['provider','measurement-begin',store]));
   broker = spawn(process.execPath,[cli,'provider','serve-production',store],{cwd:root,windowsHide:true,stdio:['ignore','pipe','pipe']});
@@ -52,10 +59,29 @@ try {
     if(!ready) await new Promise(r=>setTimeout(r,100));
   }
   if(!ready) throw new Error(`production broker unavailable: ${brokerLog}`);
-  const files = {
+  const intendedFiles = {
     'index.cjs': Buffer.from('module.exports = (a,b) => Number(a)+Number(b);\n').toString('base64'),
     'sum.test.cjs': Buffer.from("const assert=require('node:assert/strict'); const sum=require('./index.cjs'); assert.equal(sum(1,2),3); assert.equal(sum('1','2'),3);\n").toString('base64'),
   };
+  // Trusted preflight creates an independent implementation repository. No
+  // linked worktree, borrowed object store, or authority metadata is exposed.
+  command('C:\\Program Files\\Git\\cmd\\git.exe',['init'],work);
+  for (const file of ['package.json','index.cjs','sum.test.cjs'])
+    fs.copyFileSync(path.join(base,file),path.join(work,file));
+  command('C:\\Program Files\\Git\\cmd\\git.exe',['add','.'],work);
+  command('C:\\Program Files\\Git\\cmd\\git.exe',['-c','user.name=Worker baseline','-c','user.email=baseline@localhost','commit','-m','trusted starting bytes'],work);
+  const {productionTool}=await import('../../apps/cli/dist/src/provider/production.js');
+  for (const [file,body] of Object.entries(intendedFiles)) {
+    const edit=productionTool(store,work,{op:'write',path:file,text:Buffer.from(body,'base64').toString()});
+    check('confined-implementation-'+file,edit.output?.result==='written' && edit.observation[0].package===enrollment.package,'real production tool execution');
+  }
+  for (const args of [['rev-parse','--show-toplevel'],['status','--porcelain'],['diff'],['diff','--cached'],['add','--','index.cjs','sum.test.cjs']]) {
+    const result=productionTool(store,work,{op:'exec',argv:['C:\\Program Files\\Git\\cmd\\git.exe',...args]});
+    check('confined-git-'+args.join('-'),result.output?.result?.status===0,JSON.stringify(result.output));
+  }
+  // Broker receives the actual implementation bytes, not the test's desired
+  // output. Existing review, promotion and independent readback assertions follow.
+  const files=Object.fromEntries(Object.keys(intendedFiles).map(file=>[file,fs.readFileSync(path.join(work,file)).toString('base64')]));
   const output=path.join(work,'output.json');
   const forgedClient={identity:enrollment.owner,appContainer:false};
   const forgedRequest={verb:'heartbeat',project:enrollment.project,deployment:enrollment.id,nonce:'a'.repeat(64)};
@@ -70,6 +96,17 @@ try {
     {id:'framing-injection',raw:injected},
     {id:'direct-apply',write:path.join(base,'index.cjs'),body:'not-reviewed'},
     {id:'enrollment-bypass',request:{verb:'enroll',base:work}},
+    // A separate challenge keeps these focused binding attacks separate from
+    // the existing fixed measurement transcript; none is activation evidence.
+    {id:'binding-create',request:{verb:'review',challenge:'binding-audit',files:{'package.json':Buffer.from(JSON.stringify({...operatorPackage,
+      canary:{proofs:{...operatorProofs,['b'.repeat(64)]:'test'}}})).toString('base64')}}},
+    {id:'binding-modify',request:{verb:'review',challenge:'binding-audit',files:{'package.json':Buffer.from(JSON.stringify({...operatorPackage,
+      canary:{proofs:Object.fromEntries(Object.keys(operatorProofs).map(d=>[d,'other']))}})).toString('base64')}}},
+    {id:'binding-setup-seal',request:{verb:'setup',challenge:'binding-audit'}},
+    {id:'binding-source-write',write:path.join(base,'package.json'),body:'worker-owned binding source'},
+    {id:'binding-source-substitution',request:{verb:'review',challenge:'binding-audit',files:{'canary.project.json':Buffer.from(JSON.stringify({proofs:operatorProofs})).toString('base64')}}},
+    {id:'binding-alternate-api',request:{verb:'bind',challenge:'binding-audit',proofs:operatorProofs}},
+    {id:'binding-repository-alias',request:{verb:'review',challenge:'binding-audit',files:{'PACKAGE.JSON':Buffer.from(JSON.stringify({scripts:operatorPackage.scripts})).toString('base64')}}},
     {id:'unreviewed',request:{verb:'promote',receipt:'forged',digest:'0'.repeat(64)}},
     {id:'review',request:{verb:'review',files}},
     {id:'post-review-mutation',write:path.join(os.tmpdir(),`canary-production-${enrollment.id}-fix`,'index.cjs'),body:'not-reviewed'},
@@ -101,7 +138,7 @@ try {
   if(!reviewed) console.log(fs.readFileSync(path.join(store,'controller.log'),'utf8'));
   check('promoted-byte-readback',fs.readFileSync(path.join(base,'index.cjs'),'utf8')===Buffer.from(files['index.cjs'],'base64').toString(),git(['rev-parse','HEAD']).trim());
   // Paired unrestricted writes to these exact files, restored immediately.
-  for(const file of [path.join(base,'index.cjs'),path.join(os.tmpdir(),`canary-production-${enrollment.id}-fix`,'index.cjs')]) {
+  for(const file of [path.join(base,'index.cjs'),path.join(base,'package.json'),path.join(os.tmpdir(),`canary-production-${enrollment.id}-fix`,'index.cjs')]) {
     const original=fs.readFileSync(file);
     try { fs.writeFileSync(file,'unrestricted-write-control'); check('write-control',fs.readFileSync(file,'utf8')==='unrestricted-write-control',file); }
     finally { fs.writeFileSync(file,original); }

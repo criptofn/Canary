@@ -75,7 +75,11 @@ try {
     files: ['dist/main.js', 'tools/windows-boundary', 'tooling/test-support/fixtures'],
   };
   fs.writeFileSync(path.join(STAGE, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
-  for (const name of ['CanaryConfinedLauncher.cs', 'CanaryBroker.cs', 'production-native.ps1', 'production-child.cjs', 'production-host.ps1', 'production-heartbeat.ps1']) {
+  // Apache-2.0 §4(a): a recipient of this artifact must receive a copy of the License.
+  // The manifest's `license` field is a declaration, not the license text, so the file
+  // itself ships in the tarball and is asserted by the cleanroom probe.
+  fs.copyFileSync(path.join(CANARY, 'LICENSE'), path.join(STAGE, 'LICENSE'));
+  for (const name of ['CanaryConfinedLauncher.cs', 'CanaryBroker.cs', 'production-native.ps1', 'production-child.cjs', 'production-tool.cjs', 'production-host.ps1', 'production-heartbeat.ps1']) {
     const relative = path.join('tools/windows-boundary', name);
     fs.mkdirSync(path.dirname(path.join(STAGE, relative)), { recursive: true });
     fs.copyFileSync(path.join(CANARY, relative), path.join(STAGE, relative));

@@ -70,8 +70,8 @@ check(2, 'tgz parses as a ustar archive with files', entries.length >= 2, JSON.s
 console.log('  entries: ' + JSON.stringify(entries));
 const stripped = entries.map((e) => e.replace(/^package\//, ''));
 check(2, 'every entry lives under package/', entries.every((e) => e.startsWith('package/')));
-const expected = ['package.json', 'dist/main.js',
-  ...['CanaryConfinedLauncher.cs', 'CanaryBroker.cs', 'production-native.ps1', 'production-child.cjs', 'production-host.ps1', 'production-heartbeat.ps1'].map(f => `tools/windows-boundary/${f}`),
+const expected = ['package.json', 'dist/main.js', 'LICENSE',
+  ...['CanaryConfinedLauncher.cs', 'CanaryBroker.cs', 'production-native.ps1', 'production-child.cjs', 'production-tool.cjs', 'production-host.ps1', 'production-heartbeat.ps1'].map(f => `tools/windows-boundary/${f}`),
   ...['boundary-native-child.cs', 'boundary-native-parent.cs', 'boundary-native-run.ps1', 'confined-listener.cjs', 'confined-caller.cjs', 'medium-pipe.ps1'].map(f => `tooling/test-support/fixtures/${f}`)];
 check(2, 'exact allowlist: bundle, manifest, native runtime and measured attack programs',
   stripped.length === expected.length && expected.every(f => stripped.includes(f)));

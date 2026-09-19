@@ -23,6 +23,9 @@ import type { WorkerOperation } from './ipc.js';
 import { enrollProduction, serveProduction, productionAuthority, launchProductionCaller } from './production.js';
 import { beginProductionMeasurement } from './production-measurement.js';
 import { measureProductionAttacks } from './production-attacks.js';
+import { workerTools } from './worker-tools.js';
+import { modelTransport } from './model-transport.js';
+import fs from 'node:fs';
 
 function hasFlag(args: readonly string[], f: string): boolean { return args.includes(f); }
 
@@ -33,6 +36,14 @@ export async function cmdProvider(rawArgs: string[]): Promise<number> {
   const out = (s: string): void => { if (json) console.error(s); else console.log(s); };
 
   switch (sub) {
+    case 'model-transport': {
+      if (rest.length !== 6) throw new Error('usage: canary provider model-transport <store> <work> <prompt-file> <model> <absolute-claude-executable>');
+      return modelTransport(rest[1]!, rest[2]!, fs.readFileSync(rest[3]!, 'utf8'), rest[4]!, rest[5]!);
+    }
+    case 'worker-tools': {
+      if (rest.length !== 3) throw new Error('usage: canary provider worker-tools <store> <work>');
+      return workerTools(rest[1]!, rest[2]!);
+    }
     case 'measurement-begin': {
       if (rest.length !== 2) throw new Error('usage: canary provider measurement-begin <store>');
       console.log(JSON.stringify({ challenge: beginProductionMeasurement(rest[1]!) })); return 0;

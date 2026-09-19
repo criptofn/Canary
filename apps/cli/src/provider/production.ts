@@ -157,7 +157,7 @@ export async function enrollProduction(baseArg: string, storeArg: string): Promi
   fs.mkdirSync(runtime);
   fs.copyFileSync(process.execPath, path.join(runtime, 'node.exe'));
   fs.cpSync(path.join(path.dirname(process.execPath), 'node_modules', 'npm'), path.join(runtime, 'node_modules', 'npm'), { recursive: true });
-  const grant = spawnSync('C:\\Windows\\System32\\icacls.exe', [runtime, '/grant', `*${e.verifier}:(OI)(CI)(RX)`], { encoding: 'utf8', windowsHide: true });
+  const grant = spawnSync('C:\\Windows\\System32\\icacls.exe', [runtime, '/grant', `*${e.verifier}:(OI)(CI)(RX)`, `*${e.package}:(OI)(CI)(RX)`], { encoding: 'utf8', windowsHide: true });
   if (grant.status !== 0) throw new Error('read-only verifier runtime grant unavailable');
   const keys = crypto.generateKeyPairSync('ed25519');
   fs.writeFileSync(path.join(store, 'producer.key'), keys.privateKey.export({ type: 'pkcs8', format: 'pem' }), { flag: 'wx' });
@@ -209,6 +209,64 @@ function proposal(value: unknown): Record<string, string | null> {
   }
   return Object.fromEntries(entries.sort(([a], [b]) => a.localeCompare(b))) as Record<string, string | null>;
 }
+/** Trusted transport entry: model data is never executed in this process.
+ * No fallback. Hold the same launch lock while staging and reading the call;
+ * a live worker must not race trusted writes through a substituted link. */
+export function productionTool(store: string, cwd: string, request: unknown): unknown {
+  const e = enrollment(store);
+  noLinks(cwd);
+  const work = fs.realpathSync(cwd).toLowerCase();
+  for (const authority of [e.base, e.store, path.resolve(nativeRoot, '../..')]) {
+    const protectedPath = path.resolve(authority).toLowerCase();
+    if (work === protectedPath || work.startsWith(protectedPath + path.sep) || protectedPath.startsWith(work + path.sep))
+      throw new Error('worker overlaps authority');
+  }
+  const payload = JSON.stringify(request);
+  if (!payload || payload.length > 1024 * 1024) throw new Error('tool request size refused');
+  const lock = path.join(store, 'caller.lock'), handle = fs.openSync(lock, 'wx');
+  let call: string | undefined;
+  try {
+    call = fs.mkdtempSync(path.join(cwd, 'canary-tool-'));
+    const script = path.join(call, 'tool.cjs'), side = path.join(store, `${crypto.randomUUID()}.tool-token.jsonl`);
+    fs.copyFileSync(path.join(nativeRoot, 'production-tool.cjs'), script);
+    fs.writeFileSync(path.join(call, 'request.json'), JSON.stringify({ request, runtime: path.join(e.store, 'runtime') }), { flag: 'wx' });
+    const launched = native(store, { mode: 'run', command: [process.execPath, '--preserve-symlinks-main', script].map(quote).join(' '),
+      cwd, side, package: e.package, gitDirectoryAlias: true });
+    if (launched.error || launched.status !== 0) throw new Error(`confined tool launch failed; no fallback: ${launched.stderr}`);
+    const facts = plainFile(side).toString('utf8').trim().split(/\r?\n/).map(x => JSON.parse(x));
+    if (launched.error || launched.status !== 0 || facts.length !== 2 || facts[0].package !== e.package ||
+        facts[0].appContainer !== true || facts[0].restricted !== true || facts[0].capabilities !== 0 ||
+        facts[0].integrity !== 'S-1-16-4096' || facts[1].pid !== facts[0].pid || facts[1].exit !== 0)
+      throw new Error('confined tool execution unproven; no fallback');
+    // The output is untrusted model context, NEVER a verification verdict.
+    return { observation: facts, output: read<unknown>(path.join(call, 'result.json')) };
+  } finally {
+    try { if (call) { noLinks(call); fs.rmSync(call, { recursive: true, force: true }); } }
+    finally { fs.closeSync(handle); fs.unlinkSync(lock); }
+  }
+}
+/** A builder may propose implementation bytes, never a new binding source for
+ * a future operator seal. Check both declaration surfaces, even the one not
+ * currently selected by discovery, and Windows case aliases. */
+export function unchangedBindingSources(base: string, files: Record<string, string | null>): void {
+  for (const [file, bytes] of Object.entries(files)) {
+    const name = file.toLowerCase();
+    if (name !== 'package.json' && name !== 'canary.project.json') continue;
+    const source = path.join(base, name);
+    const extract = (text: string | null): string => {
+      if (text === null) return '{}';
+      const value = JSON.parse(text);
+      const proofs = name === 'package.json' ? value?.canary?.proofs : value?.proofs;
+      if (proofs === undefined) return '{}';
+      if (!proofs || typeof proofs !== 'object' || Array.isArray(proofs) ||
+          !Object.values(proofs).every(v => typeof v === 'string')) throw new Error('invalid binding source');
+      return JSON.stringify(Object.fromEntries(Object.entries(proofs).sort(([a], [b]) => a.localeCompare(b))));
+    };
+    const original = fs.existsSync(source) ? plainFile(source).toString('utf8') : null;
+    if (extract(original) !== extract(bytes === null ? null : Buffer.from(bytes, 'base64').toString('utf8')))
+      throw new Error('builder cannot create, replace or remove operator binding declarations');
+  }
+}
 export async function productionAuthority(store: string, envelope: unknown): Promise<unknown> {
   const e = enrollment(store);
   const { client, request: req } = envelope as { client: Record<string, unknown>; request: Record<string, unknown> };
@@ -229,6 +287,7 @@ export async function productionAuthority(store: string, envelope: unknown): Pro
       if (Object.keys(req).some(k => !['verb', 'project', 'deployment', 'candidate', 'files', 'challenge'].includes(k))) throw new Error('unexpected review field');
       if (fs.existsSync(record)) throw new Error('candidate already enrolled');
       const files = proposal(req.files), proposalDigest = sha(JSON.stringify(files));
+      unchangedBindingSources(e.base, files);
       const baseHead = candidateIdentity(e.base).head;
       if (!baseHead) throw new Error('base identity unavailable');
       const work = path.join(os.tmpdir(), `canary-production-${e.id}-${name}`);

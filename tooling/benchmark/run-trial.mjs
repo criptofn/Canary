@@ -71,6 +71,11 @@ const registerRequirements = arg('register-requirements', false) === true;
  */
 const variant = String(arg('variant', 'normal'));
 const outFile = arg('out', path.join(BENCH, 'results', `${label}.json`));
+// Evidence is immutable: a retry needs a new label, never a rewritten baseline.
+if (fs.existsSync(outFile)) {
+  console.error(`refusing to overwrite existing benchmark evidence: ${outFile}`);
+  process.exit(2);
+}
 if (typeof task !== 'string' || typeof arm !== 'string' || !['plain', 'canary', 'invisible', 'workflow', 'guarded'].includes(arm)) {
   console.error('usage: node tooling/benchmark/run-trial.mjs --task <name> --arm plain|guarded|invisible|canary|workflow [--variant normal|adversarial] [--label l] [--out f] [--timeout-min n] [--keep]');
   process.exit(2);
@@ -391,6 +396,36 @@ const readCheckpoint = () => {
   try { return JSON.parse(fs.readFileSync(checkpointPath, 'utf8')); } catch { return null; }
 };
 const checkpointBefore = readCheckpoint();
+
+// Trusted preflight runs OUTSIDE the worker, using the real product gate. Never
+// infer bindings from task prose or the hidden oracle. Refusals have a separate
+// schema and no agentResult/hidden verdict, so they cannot masquerade as delivery.
+if (arm === 'workflow') {
+  const reqs = Array.isArray(fixtureMeta.requirements) ? fixtureMeta.requirements : [];
+  const intent = fixtureMeta.intent ?? taskText.split('\n').map(s => s.trim()).find(s => s && !s.startsWith('#')) ?? task;
+  const preflight = run(process.execPath, [CLI, 'work', 'benchmark', intent,
+    ...reqs.flatMap(r => ['--requirement', r])], { cwd: projectDir, timeout: 240_000 });
+  const unbound = preflight.status === 2 && preflight.stdout.includes('REQUIREMENT UNBOUND');
+  const reason = unbound ? 'REQUIREMENT_UNBOUND' : preflight.status !== 0
+    ? 'PREFLIGHT_FAILED' : 'CONFINED_WORKER_INTEGRATION_UNAVAILABLE';
+  // The old spawn below has filesystem/shell access as the sealing operator.
+  // A successful work gate does NOT authorize that unsafe worker launch. Do not
+  // add an opt-out, environment "worker" flag, or prompt-only identity check.
+  const refusal = {
+    schema: 'canary-benchmark-preflight/1', label, task, arm, instrument: record.instrument,
+    startedAt: record.startedAt, finishedAt: new Date().toISOString(),
+    outcome: 'REFUSED', reason, stratum: unbound ? 'B-unbound' : preflight.status === 0 ? 'A-executable' : 'unknown',
+    worker: { calls: 0, tokens: 0, turns: 0 }, deliveredCorrectness: null,
+    authority: 'local-operator-preflight; not a HARDENED worker measurement',
+    preflight: { exitCode: preflight.status, stdout: preflight.stdout, stderr: preflight.stderr },
+    ...(keep ? { runRoot } : {}),
+  };
+  fs.mkdirSync(path.dirname(outFile), { recursive: true });
+  fs.writeFileSync(outFile, `${JSON.stringify(refusal, null, 2)}\n`, { flag: 'wx' });
+  if (!keep) fs.rmSync(runRoot, { recursive: true, force: true });
+  console.error(`${label}: ${reason}; worker calls=0, tokens=0; NOT delivered. Record: ${outFile}`);
+  process.exit(2);
+}
 
 // ─────────────────────────── run the agent ───────────────────────────
 // The SAME task text in every arm: in real use the agent simply sees a repository, and

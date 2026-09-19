@@ -8,7 +8,7 @@ switch ($requestData.mode) {
   }
   'run' {
     $runProfile = if ($requestData.profile) { [string]$requestData.profile } else { $null }
-    exit [CanaryConfined]::Run($requestData.command, $requestData.cwd, $requestData.side, $requestData.package, $false, $runProfile)
+    exit [CanaryConfined]::Run($requestData.command, $requestData.cwd, $requestData.side, $requestData.package, $false, $runProfile, [bool]$requestData.gitDirectoryAlias)
   }
   'broker' {
     Add-Type -Path (Join-Path $PSScriptRoot 'CanaryBroker.cs')
