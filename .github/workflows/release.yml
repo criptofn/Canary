@@ -9,7 +9,7 @@ name: canary-release
 #
 # Division of labour: VERIFICATION is canary-ci's job, and canary-ci already runs
 # on tag pushes. This workflow does not re-run the unit suite, so a tag cut from
-# an unverified tree can still be packaged — that residual is stated rather than
+# an unverified tree can still be packaged â€” that residual is stated rather than
 # hidden. In practice: confirm canary-ci is green for the tagged commit first.
 
 on:
@@ -32,10 +32,10 @@ jobs:
     name: pack, attest, release
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Secrets may NOT be referenced directly inside an `if:` expression: GitHub
-    # rejects that, and the workflow then registers as a failed run with zero
-    # jobs ("No jobs were run"). The supported pattern is to expose the secret as
-    # job-level env and test the env value instead. Nothing here prints it.
+    # Secrets may NOT be referenced directly inside an `if:` expression.
+    # GitHub rejects that, and the workflow then registers as a failed run
+    # with zero jobs ("No jobs were run"). The supported pattern is to
+    # expose the secret as job-level env and test the env value instead.
     env:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
@@ -104,7 +104,7 @@ jobs:
           set -euo pipefail
           ASSETS=(pack/*.tgz pack/*.tgz.sha256)
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "release $GITHUB_REF_NAME exists — updating assets"
+            echo "release $GITHUB_REF_NAME exists â€” updating assets"
             gh release upload "$GITHUB_REF_NAME" "${ASSETS[@]}" --clobber
           else
             gh release create "$GITHUB_REF_NAME" "${ASSETS[@]}" \
@@ -114,7 +114,7 @@ jobs:
       # Registry publishing is optional and fails closed on its own precondition:
       # it needs a repository secret NPM_TOKEN whose account owns the npm scope
       # used by tooling/pack.mjs (@canary-rn). If that scope does not exist on
-      # npm, publishing fails with an authorization error — pick the final
+      # npm, publishing fails with an authorization error â€” pick the final
       # package name there and in tooling/pack.mjs before enabling this.
       # --provenance is what binds the published bytes to this workflow run.
       - name: Publish to npm (only when NPM_TOKEN is configured)
