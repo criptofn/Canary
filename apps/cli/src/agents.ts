@@ -92,6 +92,21 @@ export function advisoryBlock(): string {
     'the files the envelope names — do not paste logs into the conversation.',
     'A `PASS`-like statement is only meaningful when it comes from those commands.',
     '',
+    // v1.3 §A — the instruction that was MEASURED. The `guarded` arm (agent works
+    // normally, told that verification is automatic and that it will be told what to fix) is the only
+    // recorded Canary configuration CHEAPER than working without Canary: 92.7% of plain over the three
+    // token fixtures, equal correctness, no false done — while the ceremony arm (`canary work` →
+    // `finish`) cost 177.8%. The reliability half is deliberate and comes from the repository's own
+    // measurement: the AGGRESSIVE variant ("do not run the checks yourself") produced a false done and
+    // a false green, so the model keeps the decision to verify and only loses the repetition.
+    '**Verification here is AUTOMATIC.** Finish when you believe the work is done:',
+    'the sealed checks run for you and you will be told exactly what to fix. So do',
+    'not re-read output you have already seen, and do not repeat a check you have just run.',
+    'Ask `canary doctor` for the verdict instead of re-deriving it yourself.',
+    'You may and should still check when you are unsure, when you changed behaviour',
+    'the existing checks may not cover, or before finishing a change you cannot',
+    'fully reason about: being right matters more than being quick.',
+    '',
     ADVISORY_END,
   ].join('\n');
 }

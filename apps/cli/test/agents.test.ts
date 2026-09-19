@@ -45,6 +45,13 @@ describe('1.1 agents: the capability table is honest by construction', () => {
     assert.match(block, /canary doctor --json/);
     assert.ok(block.startsWith(ADVISORY_BEGIN), 'the block must be marked from its first byte');
     assert.ok(block.trimEnd().endsWith(ADVISORY_END), 'the block must be closed by its marker');
+    // v1.3 §A — the instruction that was MEASURED to matter: the `guarded` shape is the only recorded
+    // Canary configuration cheaper than plain (92.7 %), while the ceremony shape cost 177.8 %, at equal
+    // correctness. Both halves are asserted, because the aggressive half alone is the variant that
+    // produced a false done and a false green.
+    assert.match(block, /Verification here is AUTOMATIC/);
+    assert.match(block, /do not repeat a check you have just run/);
+    assert.match(block, /may and should still check/, 'the model keeps the decision to verify');
   });
 
   it('agents --json lists the integrations with their real capability', () => {

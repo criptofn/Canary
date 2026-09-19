@@ -113,6 +113,14 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.match(instructions, /cannot mint a PASS/i);
     assert.match(instructions, /terminal gate/i);
     assert.match(instructions, /SUBJECTIVE/i);
+    // v1.3 §A — the measured instruction. The `guarded` arm (agent works normally, told verification is
+    // automatic and that it will be told what to fix) is the only recorded Canary configuration cheaper
+    // than working without Canary: 92.7 % of plain, equal correctness, no false done. The RELIABILITY
+    // half is deliberate — the aggressive variant that FORBADE self-verification produced a false done
+    // and a false green — so the model keeps the decision to check and only loses the repetition.
+    assert.match(instructions, /verification in this repository is AUTOMATIC/i);
+    assert.match(instructions, /do not repeat a check you have just run/i);
+    assert.match(instructions, /may, and should, call canary_doctor/i);
   });
 
   it('honours an unknown protocol revision by answering with its own', () => {
