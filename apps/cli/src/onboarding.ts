@@ -118,12 +118,19 @@ export const TASK_FILE = path.join('task', 'current.json');
 /** bundles kept before the oldest are pruned — evidence must not grow unbounded */
 const EVIDENCE_KEEP = 10;
 const RAW_CAP = 256 * 1024;
-export interface TouchedFile { path: string; created: boolean }
+/** A file Canary wrote into the repository, and WHICH KIND of entry it owns there. The kind decides
+ *  how uninstall prunes it: hook entries are matched by command string, MCP server entries by their
+ *  argv signature. Legacy configs carry no kind and are hooks by construction. */
+export interface TouchedFile { path: string; created: boolean; kind?: 'hooks' | 'mcp' }
 export interface CanaryConfig {
   version: string; installedAt: string; pm: string; plan: PlanStep[];
   cliPath: string; hookCommand: string;
   /** every command string ever installed here — uninstall matches exactly these */
   hookCommands: string[];
+  /** v1.3: every MCP server argv signature ever written here, serialized — uninstall and re-setup
+   *  match exactly these, so a key Canary did not write is never pruned or replaced. Absent on
+   *  configs written before v1.3, which simply means "no MCP entry is owned here". */
+  mcpArgSignatures?: string[];
   touched: TouchedFile[];
   /** M4 baseline: repo identity stamped by Canary at setup time — "state when
    *  Canary was wired". Optional: configs written before M4 have no provable
@@ -208,7 +215,12 @@ function validConfigShape(v: unknown): v is CanaryConfig {
       return true;
     })
     && Array.isArray(c.hookCommands) && c.hookCommands.every(isStr)
-    && Array.isArray(c.touched) && c.touched.every((t) => t && typeof t === 'object' && isStr((t as TouchedFile).path) && typeof (t as TouchedFile).created === 'boolean')
+    && Array.isArray(c.touched) && c.touched.every((t) => t && typeof t === 'object' && isStr((t as TouchedFile).path) && typeof (t as TouchedFile).created === 'boolean'
+      // v1.3 §C: the kind decides HOW uninstall prunes. An unrecognised value is corrupt rather than
+      // silently treated as 'hooks' — pruning the wrong way could leave an entry behind while
+      // reporting success, which is the one outcome uninstall may never produce.
+      && ((t as TouchedFile).kind === undefined || (t as TouchedFile).kind === 'hooks' || (t as TouchedFile).kind === 'mcp')
+      && (c.touched as TouchedFile[]).filter((x) => x.kind === 'mcp').length <= 1)
     // 1.1 §1: a config may only name a REGISTERED adapter — an unknown id is
     // 'corrupt' (the documented self-heal path fires), never a silent fallback
     // that would run the Node pipeline against a foreign project.
@@ -434,9 +446,126 @@ export function hasCanaryEntry(doc: Record<string, unknown>, owned: Set<string>)
     && (g as { hooks: Array<{ command?: string }> }).hooks.some((h) => owned.has(String(h?.command ?? ''))));
 }
 
+// ---------- v1.3 §C: the MCP server, wired by setup instead of by hand ----------
+//
+// WHY THIS IS INSTALLED AND NOT MERELY DOCUMENTED. The completion gate already tells the agent, at the
+// END, that a green suite which cannot discriminate the change proves nothing (measured: the everyday
+// Stop hook BLOCKS it). What the agent cannot do is ASK. So it runs its own tests instead — measured
+// on the long fixture, ~36 of 57 confined execs were the model re-running its own checks and building
+// a fuzz/mutation rig as whole-file writes, which is ~70% of that arm's token cost and is the single
+// largest reason a long task costs more than the unguarded arm.
+//
+// `canary mcp` already exists, already refuses `accept` deliberately, and already exposes only thin
+// argv templates over operations the CLI had before it (mcp.ts:67-164). The missing piece was that a
+// user had to discover and configure an MCP client by hand. This closes that gap with the same
+// discipline as the Stop hook: parse first, refuse to write through a link, back up, prune only our
+// OWN prior entry, write atomically, and record exactly what we touched so `uninstall` can undo it.
+//
+// It grants NO new authority: the server can only REQUEST `result`/`status`/`agents`/`doctor`/`work`/
+// `finish`, each of which runs the same CLI and is judged by the same gates.
+const MCP_SERVER_KEY = 'canary';
+const MCP_CONFIG_BASENAME = '.mcp.json';
+
+export function mcpConfigPath(root: string): string { return path.join(root, MCP_CONFIG_BASENAME); }
+
+/** The exact program a client should run: this Canary, serving MCP.
+ *
+ *  Deliberately PINNED to the Node that is running setup, unlike the hook command, which spells bare
+ *  `node` and therefore depends on the harness's PATH. That difference is intentional: a completion
+ *  hook is executed BY a shell, so PATH is its native mechanism and is already required; an MCP server
+ *  is spawned DIRECTLY by the editor, and a GUI-launched editor routinely has a different PATH than
+ *  the user's terminal. Pinning removes a whole class of "the server never started" reports that would
+ *  otherwise be blamed on Canary. */
+export function mcpServerCommand(cliPath: string): string { return sea.isSea() ? cliPath : process.execPath; }
+export function mcpServerArgs(cliPath: string): string[] { return sea.isSea() ? ['mcp'] : [cliPath, 'mcp']; }
+export const mcpArgSignature = (args: readonly string[]): string => JSON.stringify([...args]);
+
+/** Is OUR entry present — matched by argv signature, never by the key alone? */
+export function hasMcpEntry(doc: Record<string, unknown>, owned: Set<string>): boolean {
+  const servers = doc.mcpServers;
+  if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return false;
+  const entry = (servers as Record<string, unknown>)[MCP_SERVER_KEY];
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+  const args = (entry as { args?: unknown }).args;
+  return Array.isArray(args) && owned.has(mcpArgSignature(args.map(String)));
+}
+
+/** Remove ONLY entries this installation wrote, matched by argv signature. Anything else under the
+ *  key — a stranger's `canary` server, a hand-written one — is left exactly as it was. */
+export function pruneOwnedMcp(doc: Record<string, unknown>, owned: Set<string>): number {
+  const servers = doc.mcpServers;
+  if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return 0;
+  const map = servers as Record<string, unknown>;
+  const entry = map[MCP_SERVER_KEY];
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return 0;
+  const args = (entry as { args?: unknown }).args;
+  if (!Array.isArray(args) || !owned.has(mcpArgSignature(args.map(String)))) return 0;
+  delete map[MCP_SERVER_KEY];
+  if (Object.keys(map).length === 0) delete doc.mcpServers;
+  return 1;
+}
+
+/**
+ * Install the Canary MCP server into <root>/.mcp.json.
+ *
+ * Refusals are plain and Nothing Is Changed: a symlinked file, invalid JSON, a `mcpServers` that is
+ * not an object, or a `canary` key that exists but was NOT written by this installation. That last
+ * one is the confused-deputy guard — Canary will not silently replace a server it did not create.
+ */
+export function installMcpServer(
+  root: string, cliPath: string, priorSignatures: Set<string>, backupsDir: string,
+): { ok: boolean; touched?: TouchedFile; problem?: string } {
+  const file = mcpConfigPath(root);
+  try { assertPlainTarget(file); } catch {
+    return { ok: false, problem: `${rel(root, file)} is a symbolic link — Canary will not write through links. Replace it with a real file, then run setup again. Nothing was changed.` };
+  }
+  const existed = fs.existsSync(file);
+  let doc: Record<string, unknown> = {};
+  if (existed) {
+    const parsed = parseJsonOrNull(file);
+    if (!parsed) return { ok: false, problem: `${rel(root, file)} is not valid JSON — fix it and re-run setup. Nothing was changed.` };
+    doc = parsed;
+  }
+  if (doc.mcpServers !== undefined && (typeof doc.mcpServers !== 'object' || doc.mcpServers === null || Array.isArray(doc.mcpServers))) {
+    return { ok: false, problem: `${rel(root, file)} has an "mcpServers" section that is not an object — fix it and re-run setup. Nothing was changed.` };
+  }
+  const args = mcpServerArgs(cliPath);
+  const signature = mcpArgSignature(args);
+  const owned = new Set([signature, ...priorSignatures]);
+  const existing = (doc.mcpServers as Record<string, unknown> | undefined)?.[MCP_SERVER_KEY];
+  if (existing !== undefined && !hasMcpEntry(doc, owned)) {
+    return {
+      ok: false,
+      problem: `${rel(root, file)} already defines an MCP server named "${MCP_SERVER_KEY}" that Canary did not write. Canary will not replace a server it does not own — rename or remove that entry (or point it elsewhere), then run setup again. Nothing was changed.`,
+    };
+  }
+  pruneOwnedMcp(doc, owned);
+  // RE-ACQUIRE the map: pruning the last server deletes `mcpServers` itself, so a reference taken
+  // before the prune would write our entry into a detached object and silently produce a file with no
+  // servers at all. (A test caught exactly that: a re-run left the document empty.)
+  const map = (doc.mcpServers ??= {}) as Record<string, unknown>;
+  map[MCP_SERVER_KEY] = { command: mcpServerCommand(cliPath), args };
+
+  if (existed) {
+    fs.mkdirSync(backupsDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dest = path.join(backupsDir, `${stamp}-mcp.json`);
+    try { assertPlainTarget(dest); fs.copyFileSync(file, dest); } catch (e) {
+      return { ok: false, problem: `could not back up ${rel(root, file)} (${String(e).slice(0, 140)}) — nothing was changed.` };
+    }
+  }
+  try {
+    writeFileAtomic(file, JSON.stringify(doc, null, 2) + '\n');
+  } catch (e) {
+    return { ok: false, problem: `could not update ${rel(root, file)} (${String(e).slice(0, 140)}) — ${existed ? 'your file was left exactly as it was, and the backup is in place' : 'nothing was created'}. Re-run setup.` };
+  }
+  return { ok: true, touched: { path: file, created: !existed, kind: 'mcp' } };
+}
+
 /** Remove Canary entries from every touched settings file. Returns problems[]. */
 export function uninstallHooks(root: string, cfg: CanaryConfig): { removed: number; problems: string[] } {
   const owned = new Set(cfg.hookCommands.length ? cfg.hookCommands : [cfg.hookCommand]);
+  const ownedMcp = new Set(cfg.mcpArgSignatures ?? []);
   const problems: string[] = [];
   let removed = 0;
   for (const t of cfg.touched) {
@@ -452,7 +581,9 @@ export function uninstallHooks(root: string, cfg: CanaryConfig): { removed: numb
     if (!doc) { problems.push(`${rel(root, t.path)} is not valid JSON — left untouched. Repair it, then re-run uninstall.`); continue; }
     let pruned = 0;
     try {
-      pruned = pruneOwned(doc, owned);
+      // v1.3 §C: an MCP entry is owned by its argv signature, not by a command string, so the two
+      // kinds prune differently. A legacy touched entry (no kind) is a hooks file by construction.
+      pruned = t.kind === 'mcp' ? pruneOwnedMcp(doc, ownedMcp) : pruneOwned(doc, owned);
       if (fs.existsSync(t.path)) {
         if (Object.keys(doc).length === 0 && t.created) fs.rmSync(t.path);
         else writeFileAtomic(t.path, JSON.stringify(doc, null, 2) + '\n');
@@ -1269,7 +1400,12 @@ export interface Obligation { id: string; mode: 'objective' | 'non-objective'; s
  */
 const isCanaryOwnArtifact = (p: string): boolean =>
   p === '.claude' || p.startsWith('.claude/')
-  || p === CONFIG_DIR || p.startsWith(`${CONFIG_DIR}/`);
+  || p === CONFIG_DIR || p.startsWith(`${CONFIG_DIR}/`)
+  // v1.3 §C: setup now writes the MCP server entry itself. Without this the freshly written
+  // `.mcp.json` would count as "the change", `planDiscrimination` would find the sealed checks green
+  // on the base too, and EVERY repo would report NOT PROVEN the moment it was wired — the verifier's
+  // own file mistaken for the author's work, which is the same measurement error this list exists for.
+  || p === MCP_CONFIG_BASENAME;
 
 /**
  * Paths whose change cannot alter the product's BEHAVIOUR, so there is nothing for a regression check
@@ -2184,6 +2320,12 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
 
   const res = installStopHook(root, hookCommand, priorCommands, backupsDir);
   if (!res.ok) { o.verdict('NEEDS ATTENTION', `could not configure Claude Code safely: ${res.problem}`, 'fix that file, then run setup again'); return 2; }
+  // v1.3 §C: the same agent should be able to ASK Canary instead of guessing. This is what turns
+  // "the gate speaks at the end" into "the agent can check while it works", with the same write
+  // discipline as the hook above and no new authority (mcp.ts exposes only request tools).
+  const priorMcp = new Set<string>(prevUsable ? ((prev as CanaryConfig).mcpArgSignatures ?? []) : []);
+  const mcp = installMcpServer(root, CLI_ENTRY, priorMcp, backupsDir);
+  if (!mcp.ok) { o.verdict('NEEDS ATTENTION', `could not register Canary's tools for your agent safely: ${mcp.problem}`, 'fix that file, then run setup again'); return 2; }
   // M4 baseline: stamped NOW by Canary's own probes. Honest label — "state when
   // Canary was wired", not a claim about the agent's past. `dirty` measures
   // WORKER residue, so the one file Canary itself just wrote (its managed
@@ -2193,7 +2335,8 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // Identity itself stays untouched (M4-pinned semantics for bundles).
   const baselineId = candidateIdentity(root);
   const ownSettings = rel(root, settingsPath(root)).split(path.sep).join('/');
-  const baselineStatus = gitWithinRoot(root, ['status', '--porcelain', '--', '.', `:(exclude)${ownSettings}`]);
+  const ownMcp = rel(root, mcpConfigPath(root)).split(path.sep).join('/');
+  const baselineStatus = gitWithinRoot(root, ['status', '--porcelain', '--', '.', `:(exclude)${ownSettings}`, `:(exclude)${ownMcp}`]);
   // M5: whatever plan and script texts are on disk RIGHT NOW are what the
   // setup run is now sealing — they become the sealed authority.
 
@@ -2222,7 +2365,8 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     planAuthority: reuse?.planAuthority ?? seal,
     cliPath: CLI_ENTRY, hookCommand,
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
-    touched: [res.touched!],
+    mcpArgSignatures: [...new Set([mcpArgSignature(mcpServerArgs(CLI_ENTRY)), ...priorMcp])],
+    touched: [res.touched!, mcp.touched!],
   };
   // 1.1 P0 — the authority gets a SEALED COPY outside the repo before any repo
   // write of this run lands: a store that cannot mint means no config, so the
@@ -2254,6 +2398,9 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // config write threw above, quarantine stands (fail-closed).
   try { fs.rmSync(path.join(root, CONFIG_DIR, QUARANTINE_FILE), { force: true }); } catch { /* absent is the common case */ }
   o.say(`Claude Code will run Canary automatically when the agent finishes a turn here.${prev && prev !== 'corrupt' ? ' (re-run: existing Canary hook refreshed, no duplicates)' : ''}`);
+  // v1.3 §C: say plainly that a SECOND file was written, and what the agent gets from it. Silence
+  // about a file Canary just added to someone's repository would be the wrong kind of invisible.
+  o.say(`agent tools: registered in ${rel(root, mcpConfigPath(root))} — your agent can now ask Canary whether it is done, instead of guessing. Your other MCP servers are untouched; \`canary uninstall\` removes exactly this entry.`);
   o.detail('authority sealed: the plan and the exact text of every script it runs — candidate edits to the verification surface block completion until setup is deliberately re-run.');
   const level = probeTrustLevel(store);
   o.detail(`sealed authority copy: ${store.root} (project ${projectId}) — level ${level.level}: ${level.reasons.join(' ')}`);
@@ -2396,8 +2543,15 @@ function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean)
     if (!fs.existsSync(t.path)) { problems.push(`${rel(root, t.path)} is missing — the harness hook is NOT registered, so nothing runs automatically`); continue; }
     const doc = parseJsonOrNull(t.path);
     if (!doc) { problems.push(`${rel(root, t.path)} is not valid JSON — fix it`); continue; }
-    if (!hasCanaryEntry(doc, new Set(cfg.hookCommands))) {
-      problems.push(`Canary's hook is no longer registered in ${rel(root, t.path)} — nothing will run automatically; re-run: canary setup`);
+    // v1.3 §C: an MCP entry is ours by argv signature, not by a command string; a file that is fine
+    // for the hook check is not evidence about the server entry, so each kind asks its own question.
+    const present = t.kind === 'mcp'
+      ? hasMcpEntry(doc, new Set(cfg.mcpArgSignatures ?? []))
+      : hasCanaryEntry(doc, new Set(cfg.hookCommands));
+    if (!present) {
+      problems.push(t.kind === 'mcp'
+        ? `Canary's agent tools are no longer registered in ${rel(root, t.path)} — the agent cannot ask Canary whether it is done; re-run: canary setup`
+        : `Canary's hook is no longer registered in ${rel(root, t.path)} — nothing will run automatically; re-run: canary setup`);
     }
   }
   return problems;
@@ -2486,6 +2640,9 @@ export function gatingHookInstalled(root: string): boolean {
   if (cfg === null || cfg === 'corrupt') return false;
   if (untrustedConfigReason(root, cfg)) return false;
   return cfg.touched.some((t) => {
+    // v1.3 §C: an MCP server entry is not a completion hook; asking the hook question of that file
+    // would be a category error, and the answer would be a false negative.
+    if (t.kind === 'mcp') return false;
     if (!fs.existsSync(t.path)) return false;
     const doc = parseJsonOrNull(t.path);
     return doc !== null && hasCanaryEntry(doc, new Set(cfg.hookCommands));
@@ -3126,8 +3283,9 @@ export async function cmdBind(rawArgs: string[]): Promise<number> {
  * 1. NOTHING ELSE MAY BE DIRTY. A sealed base must be exactly what the operator reviewed; a commit
  *    that swept unrelated work in would make the base something else while looking like a binding.
  *    Canary's OWN files are excluded, for the reason `setup` excludes them from its baseline:
- *    `.canary/**` is self-ignored, and the managed `.claude/settings.json` entry is written by setup
- *    itself — refusing on Canary's own act would block the command with no operator fix available.
+ *    `.canary/**` is self-ignored, and the managed harness files (`settings.json`, `.mcp.json`) are
+ *    written by setup itself — refusing on Canary's own act would block the command with no operator
+ *    fix available. The excluded set is read from `cfg.touched`, never hard-coded.
  * 2. THE COMMIT CARRIES ONLY THE DECLARATION FILE (`git commit -- <path>`), so a staged, unrelated
  *    change stays staged and uncommitted instead of riding along.
  * 3. IF THAT FILE IS ALREADY COMMITTED, nothing is committed: re-running the act is idempotent
@@ -3148,18 +3306,29 @@ async function resealAfterBind(
   }
   const ownSettings = rel(root, settingsPath(root)).split(path.sep).join('/');
   /**
-   * What counts as "unrelated work"? Not Canary's own surface: `.canary/**` is self-ignored, and the
-   * `.claude/` directory holds the managed hook entry that THIS TOOL wrote. MEASURED while writing
-   * this: `git status --porcelain` reports an untracked directory as `dir/` — NOT as each file inside
-   * it — so matching the settings PATH alone let `.claude/` through as "another change" and refused
-   * every `--reseal` on a project whose harness dir is not committed. The check therefore accepts the
-   * directory entry that CONTAINS the managed settings file, which is the same surface `setup`
-   * already excludes from its baseline.
+   * What counts as "unrelated work"? Not Canary's own surface.
+   *
+   * MEASURED while writing this: `git status --porcelain` reports an untracked directory as `dir/` —
+   * NOT as each file inside it — so matching the settings PATH alone let `.claude/` through as
+   * "another change" and refused every `--reseal` on a project whose harness dir is not committed.
+   * The check therefore accepts the directory entry that CONTAINS a managed file.
+   *
+   * MEASURED AGAIN, and this is why the list is derived rather than spelled: v1.3 taught `setup` to
+   * write `.mcp.json` as well, and a hard-coded settings path then refused every `--reseal` on a
+   * freshly wired repository — the operator was told their working tree had "other changes" that
+   * Canary itself had just made, with no fix available except committing Canary's own file. The set
+   * of files Canary manages is exactly what `setup` records in `cfg.touched` (the same list it
+   * already excludes from its baseline), so it is read from there and stays correct as the managed
+   * surface grows.
    */
+  const cfgForOwn = readConfig(root);
+  const ownPaths = cfgForOwn !== null && cfgForOwn !== 'corrupt'
+    ? cfgForOwn.touched.map((t) => rel(root, t.path).split(path.sep).join('/'))
+    : [ownSettings];
   const isCanaryOwned = (p: string): boolean => {
     if (p === '.canary' || p.startsWith('.canary/')) return true;
-    if (p === ownSettings) return true;
-    return p.endsWith('/') && ownSettings.startsWith(p);
+    if (ownPaths.includes(p)) return true;
+    return p.endsWith('/') && ownPaths.some((own) => own.startsWith(p));
   };
   const changed = porcelain.split('\n').map(porcelainPath).filter((p): p is string => p !== null);
   const others = changed.filter((p) => p !== declRel && !isCanaryOwned(p));
@@ -3351,9 +3520,17 @@ export function cmdAgents(rawArgs: string[]): number {
   // integration is only protection once its hook is actually installed in THIS repository, so the row
   // says which of the two it is and the verdict below is decided by wiring, not by presence.
   const wired = gatingHookInstalled(root);
+  // v1.3 §C: whether the agent can also ASK is a separate, useful fact on the "am I protected?"
+  // command. Reported from the same signature-matched evidence the rest of Canary uses.
+  const cfgForTools = readConfig(root);
+  const toolsRegistered = cfgForTools !== null && cfgForTools !== 'corrupt'
+    && (() => {
+      const doc = parseJsonOrNull(mcpConfigPath(root));
+      return doc !== null && hasMcpEntry(doc, new Set(cfgForTools.mcpArgSignatures ?? []));
+    })();
   for (const i of integrations) {
     const extra = i.gating
-      ? ` [${wired ? 'hook installed here' : 'hook NOT installed here'}]`
+      ? ` [${wired ? 'hook installed here' : 'hook NOT installed here'}${wired && toolsRegistered ? ', agent tools registered' : ''}]`
       : ` [AGENTS.md block ${advisory ? 'installed' : 'not installed'}]`;
     o.say(`  ${i.gating ? 'GATED   ' : 'ADVISORY'} ${i.label} — ${i.detected ? 'detected' : 'not detected'}${extra}`);
     o.detail(i.summary);

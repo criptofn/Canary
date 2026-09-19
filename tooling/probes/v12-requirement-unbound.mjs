@@ -178,8 +178,23 @@ const REQ = 'the CLI must exit 2 when the config is invalid';
     const status = git('status', '--porcelain').stdout.trim().split('\n').filter(Boolean)
       .map((l) => l.slice(3).trim());
     // The declaration must no longer be dirty, and nothing else may have been touched. Canary's own
-    // surface may legitimately remain untracked: `setup` wrote `.claude/` after the fixture's commit.
-    const canaryOwned = (p) => p === '.canary' || p.startsWith('.canary/') || p === '.claude' || p.startsWith('.claude/');
+    // surface may legitimately remain untracked: `setup` writes `.claude/settings.json` and, since
+    // v1.3, `.mcp.json`.
+    //
+    // The owned set is DERIVED from the config the product wrote (`touched[]` is exactly the list
+    // `setup` records, excludes from its baseline, and `uninstall` prunes) rather than spelled here.
+    // A hard-coded list is what made this probe fail the moment Canary's managed surface grew — and a
+    // probe that has to be edited whenever the product changes is a probe that will eventually be
+    // edited in the wrong direction. This cannot weaken the property that matters: that `--reseal`
+    // sweeps no unrelated work into the commit is asserted separately, on the commit's own contents.
+    const owned = ['.canary'];
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(project, '.canary', 'canary.local.json'), 'utf8'));
+      for (const t of cfg.touched ?? []) {
+        owned.push(path.relative(project, t.path).split(path.sep).join('/'));
+      }
+    } catch { /* no config: only the self-ignored store is Canary's */ }
+    const canaryOwned = (p) => owned.some((o) => p === o || p.startsWith(`${o}/`) || (p.endsWith('/') && o.startsWith(p)));
     check('E: the declaration is committed and nothing else was touched',
       status.every(canaryOwned), status.join(', ') || '(clean)');
     // The outcome that matters: the requirement is no longer unbound, so the worker is handed the duty.

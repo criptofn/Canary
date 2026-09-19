@@ -38,8 +38,8 @@ const finding = (name, detail) => {
 };
 
 const env = { ...process.env, CANARY_TRUST_STORE: path.join(temp, 'local-trust') };
-const run = (exe, args, cwd, expect = 0) => {
-  const r = spawnSync(exe, args, { cwd, env, encoding: 'utf8', windowsHide: true, timeout: 300000 });
+const run = (exe, args, cwd, expect = 0, input) => {
+  const r = spawnSync(exe, args, { cwd, env, encoding: 'utf8', windowsHide: true, timeout: 300000, ...(input === undefined ? {} : { input }) });
   if (expect !== null && r.status !== expect) {
     console.log(`  !! ${exe} ${args.join(' ')} -> exit ${r.status} (expected ${expect})`);
     console.log(`  stdout: ${(r.stdout ?? '').split('\n').slice(0, 6).join(' | ')}`);
@@ -193,14 +193,26 @@ try {
   const dirty = run('git', ['status', '--porcelain'], naive, 0).stdout.trim();
   check('the-naive-direct-edit-leaves-the-base-dirty', dirty.length > 0,
     `${dirty.split('\n').length} path(s) changed and uncommitted`);
-  // THE CENTRAL v1.3 PRODUCT GAP, recorded rather than asserted. A normal agent edits the working
-  // tree with its own tools; Canary's Stop hook then runs the project's checks and, because they pass,
-  // says READY. Nothing isolates the change, nothing binds a requirement, nothing proves the work as a
-  // deliverable — and the answer LOOKS stronger than the one the ordinary path gives (which is a
-  // refusal when the task names no kind). Inverted incentives: the unverified route is the quiet one.
-  // The repair is architectural (route the agent's own tools through the boundary), not a message.
-  finding('doctor-reports-READY-for-an-unisolated-direct-edit',
+  /**
+   * MEASURED CORRECTION to an earlier version of this probe.
+   *
+   * That version recorded `doctor` answering READY here as an OPEN FINDING — "an agent that edits the
+   * base directly is told READY while the candidate route can refuse", i.e. a false-acceptance hole on
+   * the default path. The OBSERVATION was accurate; the INFERENCE was not, and section F is what
+   * settles it. This fixture changed BOTH the source and the test, so the sealed plan genuinely
+   * discriminates the change (the overlay runs the edited test against the base code and it fails) —
+   * the READY is EARNED. Section F2 measures the case that would make the inference true — a
+   * behaviour change no declared check can see — and there the gate BLOCKS with NOT PROVEN.
+   *
+   * What survives is narrower, and it is a product gap rather than a trust hole: the everyday path
+   * does not isolate the change or promote exact verified bytes. For a user editing their own
+   * repository that is largely not needed, which is why the correction matters — the honest remaining
+   * item is the missing candidate LIFECYCLE, not an unbounded acceptance.
+   */
+  check('a-direct-edit-whose-checks-discriminate-earns-its-READY', /READY/.test(naiveText),
     (naiveText.match(/^.*(READY|NOT PROVEN|NEEDS ATTENTION|UNSUPPORTED).*$/m) ?? ['(none)'])[0].trim().slice(0, 120));
+  finding('the-everyday-path-does-not-isolate-or-promote (no candidate, no frozen task authority)',
+    'covered for false acceptance by the discrimination gate (F2); the missing piece is the invisible lifecycle, not a verdict');
 
   // ────────────────────── D. `canary agents` when `.claude/` exists but NO hook is installed ──
   const noHook = path.join(temp, 'claude-no-hook');
@@ -225,6 +237,151 @@ try {
   console.log(JSON.stringify(vocab, null, 2));
   console.log(`distinct internal terms: ${Object.keys(vocab).length}   occurrences: ${Object.values(vocab).reduce((a, b) => a + b, 0)}`);
   console.log('===== end vocabulary =====\n');
+
+  // ─────────────── F. WHAT THE COMPLETION GATE ACTUALLY DECIDES ON THE EVERYDAY PATH ──
+  // The everyday path is: the agent edits the working tree with its own tools, and the Stop hook runs
+  // `canary checkpoint`. Nothing here is isolated and nothing is promoted, so the only question that
+  // matters is what the gate DECIDES. Measured, not inferred: the hook is invoked exactly as the
+  // harness invokes it — the CLI with the hook JSON on stdin.
+  const hookVerdict = (root) => {
+    const r = run(process.execPath, [cli, 'checkpoint'], root, 0, JSON.stringify({ stop_hook_active: false }));
+    let env = null;
+    try { env = JSON.parse((r.stdout ?? '').trim()); } catch { env = null; }
+    return { env, raw: r.stdout ?? '' };
+  };
+  /** A wired fixture whose declared check is green on the starting bytes. */
+  function hookFixture(label) {
+    const root = path.join(temp, label);
+    makeProject(root, label);
+    canary(['setup', '--yes'], root, 0);
+    run('git', ['add', '.'], root);
+    run('git', ['-c', 'user.name=Op', '-c', 'user.email=op@localhost', 'commit', '-m', 'wiring'], root);
+    return root;
+  }
+  const describeVerdict = (v) => v.env === null
+    ? (v.raw.trim() === '' ? 'ALLOW (silence — the documented "nothing needed" signal)' : `unparseable stdout (${JSON.stringify(v.raw.slice(0, 80))})`)
+    : (v.env.decision === 'block' ? `BLOCK: ${String(v.env.reason ?? '').split('\n')[0].slice(0, 150)}`
+      : `allow${v.env.systemMessage ? ` + message: ${String(v.env.systemMessage).slice(0, 150)}` : ' (silence)'}`);
+  /** The hook's contract: no JSON and no output at all means ALLOW. An absent envelope is not an
+   *  absent decision, so both cases are read as "not blocked" — never as "unmeasured". */
+  const allowed = (v) => v.env === null ? v.raw.trim() === '' : v.env.decision !== 'block';
+
+  // F1 — a behaviour change WITH a check the plan can discriminate: the honest ending is "allowed".
+  const f1 = hookFixture('f1-discriminated');
+  fs.writeFileSync(path.join(f1, 'greeting.cjs'),
+    'module.exports = (name) => `Hello, ${String(name).trim()}!`;\n');
+  fs.writeFileSync(path.join(f1, 'greeting.test.cjs'),
+    "const assert = require('node:assert/strict');\n" +
+    "const greeting = require('./greeting.cjs');\n" +
+    "assert.equal(greeting('Ada'), 'Hello, Ada!');\n" +
+    "assert.equal(greeting('  Ada  '), 'Hello, Ada!');\n" +
+    "console.log('greeting OK');\n");
+  const v1h = hookVerdict(f1);
+
+  // F2 — a behaviour change NO declared check can see (the suite is green on both sides).
+  const f2 = hookFixture('f2-undiscriminated');
+  fs.appendFileSync(path.join(f2, 'greeting.cjs'),
+    'module.exports.farewell = (name) => `Bye, ${name}!`;\n');
+  const v2h = hookVerdict(f2);
+
+  // F3 — a docs-only change: no behaviour moved, so no comparison duty applies.
+  const f3 = hookFixture('f3-docs-only');
+  fs.writeFileSync(path.join(f3, 'NOTES.md'), '# notes\n\nNothing behavioural here.\n');
+  const v3h = hookVerdict(f3);
+
+  console.log('===== F. the completion gate on the everyday path (direct edits, no candidate) =====');
+  console.log(`F1 behaviour change + a discriminating check  -> ${describeVerdict(v1h)}`);
+  console.log(`F2 behaviour change NO declared check can see  -> ${describeVerdict(v2h)}`);
+  console.log(`F3 docs-only change (no behaviour moved)      -> ${describeVerdict(v3h)}`);
+  console.log('===== end completion gate =====\n');
+
+  check('F1-a-change-the-sealed-checks-can-discriminate-is-allowed', allowed(v1h), describeVerdict(v1h));
+  // THE INVARIANT THAT MATTERS: a green suite that cannot tell the change from the base is NOT
+  // evidence about the change. MEASURED: the gate BLOCKS it. This is the everyday path — the one
+  // every ordinary user is on — so it is the product's most important single behaviour.
+  check('F2-a-green-suite-that-cannot-discriminate-the-change-is-NOT-accepted-as-done',
+    v2h.env !== null && v2h.env.decision === 'block', describeVerdict(v2h));
+  check('F3-a-docs-only-change-is-not-asked-for-behavioural-evidence', allowed(v3h), describeVerdict(v3h));
+
+  // ─────────── G. THE AGENT'S TOOLS: `setup` wires the MCP server, and nothing else moves ──
+  // The point of installing it is that the agent can ASK Canary whether it is done instead of
+  // authoring its own verification campaign. The risk of installing it is that it becomes a second
+  // file Canary writes into a user's repository, so every property the hook already has must hold:
+  // merge (never overwrite a stranger's entry), refuse rather than clobber, survive re-setup,
+  // be exactly removable, and NOT turn the verifier's own file into "the change".
+  const foreign = path.join(temp, 'g-mcp');
+  makeProject(foreign, 'g-mcp');
+  fs.writeFileSync(path.join(foreign, '.mcp.json'), JSON.stringify({
+    mcpServers: { someoneelse: { command: 'node', args: ['their-server.js'] } },
+  }, null, 2) + '\n');
+  run('git', ['add', '.'], foreign);
+  run('git', ['-c', 'user.name=Op', '-c', 'user.email=op@localhost', 'commit', '-m', 'foreign mcp'], foreign);
+  canary(['setup', '--yes'], foreign, 0);
+
+  const mcpDoc = () => JSON.parse(fs.readFileSync(path.join(foreign, '.mcp.json'), 'utf8'));
+  const g1 = mcpDoc();
+  console.log('===== G. the MCP entry setup wrote =====');
+  console.log(JSON.stringify(g1, null, 2));
+  console.log('===== end mcp =====\n');
+
+  check('G1-setup-registers-canary-as-an-mcp-server', !!g1.mcpServers?.canary?.args?.includes('mcp'),
+    JSON.stringify(g1.mcpServers?.canary ?? null));
+  check('G2-a-stranger-s-entry-is-preserved-byte-for-byte',
+    JSON.stringify(g1.mcpServers?.someoneelse) === JSON.stringify({ command: 'node', args: ['their-server.js'] }),
+    JSON.stringify(g1.mcpServers?.someoneelse ?? null));
+
+  // THE REGRESSION THAT WOULD BREAK EVERY USER: setup's own file must not read as "the change".
+  // If `.mcp.json` were counted, the sealed checks would be green on the base too and EVERY freshly
+  // wired repository would report NOT PROVEN.
+  const gStatus = canary(['status'], foreign, null);
+  check('G3-writing-the-mcp-entry-does-not-make-the-repo-look-changed', /CONNECTED/.test(out(gStatus)) && !/NOT CONNECTED/.test(out(gStatus)),
+    out(gStatus).split('\n').filter(Boolean)[0]?.slice(0, 140));
+  const gHook = hookVerdict(foreign);
+  check('G4-the-completion-gate-still-allows-a-wired-repo-with-no-change', allowed(gHook), describeVerdict(gHook));
+
+  // Re-setup is idempotent, and a foreign entry under OUR key is refused rather than replaced.
+  const before = fs.readFileSync(path.join(foreign, '.mcp.json'), 'utf8');
+  canary(['setup', '--yes'], foreign, 0);
+  check('G5-re-running-setup-is-byte-identical', fs.readFileSync(path.join(foreign, '.mcp.json'), 'utf8') === before,
+    `${before.length} bytes before and after`);
+
+  const squatter = path.join(temp, 'g-squatter');
+  makeProject(squatter, 'g-squatter');
+  fs.writeFileSync(path.join(squatter, '.mcp.json'), JSON.stringify({
+    mcpServers: { canary: { command: 'node', args: ['not-ours.js'] } },
+  }, null, 2) + '\n');
+  const squat = canary(['setup', '--yes'], squatter, null);
+  const squatDoc = JSON.parse(fs.readFileSync(path.join(squatter, '.mcp.json'), 'utf8'));
+  check('G6-a-foreign-server-under-our-key-is-REFUSED-not-replaced',
+    squat.status === 2 && /did not write/.test(out(squat))
+    && JSON.stringify(squatDoc.mcpServers.canary) === JSON.stringify({ command: 'node', args: ['not-ours.js'] }),
+    { exit: squat.status, entry: squatDoc.mcpServers.canary, unchanged: true });
+
+  // The server must actually answer a real MCP handshake, or "wired" means nothing.
+  const rpc = [
+    JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'v13-probe', version: '1' } } }),
+    JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+    JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+    '',
+  ].join('\n');
+  const srv = run(process.execPath, [cli, 'mcp'], foreign, null, rpc);
+  const replies = (srv.stdout ?? '').split('\n').filter((l) => l.trim().startsWith('{')).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  const init = replies.find((r) => r.id === 1);
+  const list = replies.find((r) => r.id === 2);
+  const names = (list?.result?.tools ?? []).map((t) => t.name).sort();
+  check('G7-the-mcp-server-answers-a-real-handshake-and-lists-its-tools',
+    !!init?.result?.serverInfo && names.length === 6, { server: init?.result?.serverInfo?.name, tools: names });
+  check('G8-the-accept-power-is-not-exposed-as-a-tool',
+    !names.some((n) => /accept/i.test(n)), names.join(', '));
+
+  // Exactly removable: uninstall takes Canary's entry and leaves the stranger's.
+  const un = canary(['uninstall'], foreign, null);
+  const afterDoc = fs.existsSync(path.join(foreign, '.mcp.json'))
+    ? JSON.parse(fs.readFileSync(path.join(foreign, '.mcp.json'), 'utf8')) : {};
+  check('G9-uninstall-removes-exactly-our-entry-and-keeps-the-stranger-s',
+    un.status === 0 && afterDoc.mcpServers?.canary === undefined
+    && JSON.stringify(afterDoc.mcpServers?.someoneelse) === JSON.stringify({ command: 'node', args: ['their-server.js'] }),
+    { exit: un.status, remaining: Object.keys(afterDoc.mcpServers ?? {}) });
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${failed.length === 0 ? 'PASS' : 'FAIL'} v13 journey baseline — ${results.length - failed.length}/${results.length} observations held`);
