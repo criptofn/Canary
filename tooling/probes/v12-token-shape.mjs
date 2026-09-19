@@ -31,7 +31,13 @@ for (const file of files) {
     const content = e.message?.content;
     if (!Array.isArray(content)) continue;
     for (const block of content) {
-      if (block.type === 'tool_use') calls.push({ name: block.name, op: block.input?.op ?? null, bytes: JSON.stringify(block.input ?? {}).length });
+      if (block.type === 'tool_use') {
+        // The model-facing contract carries a list of operations per call; the legacy
+        // one-operation form is summarised the same way so the two are comparable.
+        const carried = Array.isArray(block.input?.operations) ? block.input.operations.length : 1;
+        const kinds = Array.isArray(block.input?.operations) ? block.input.operations.map(o => o?.op) : [block.input?.op ?? null];
+        calls.push({ name: block.name, op: kinds.length === 1 ? kinds[0] : 'batch', carried, bytes: JSON.stringify(block.input ?? {}).length });
+      }
       if (block.type === 'tool_result') {
         const body = Array.isArray(block.content) ? block.content.map(c => c.text ?? '').join('') : String(block.content ?? '');
         results.push({ bytes: body.length, head: body.slice(0, 80).replace(/\s+/g, ' ') });
@@ -45,6 +51,8 @@ for (const file of files) {
   console.log(`turns=${turns} toolCalls=${calls.length} totalTokens=${total} (in ${u.input_tokens ?? 0} / out ${u.output_tokens ?? 0} / cacheRead ${u.cache_read_input_tokens ?? 0} / cacheWrite ${u.cache_creation_input_tokens ?? 0})`);
   console.log(`cacheRead per turn ~${turns ? Math.round((u.cache_read_input_tokens ?? 0) / turns) : '?'}; output per turn ~${turns ? Math.round((u.output_tokens ?? 0) / turns) : '?'}`);
   console.log(`tool ops: ${JSON.stringify(ops)}`);
+  const carriedTotal = calls.reduce((a, c) => a + (c.carried ?? 1), 0);
+  console.log(`round trips (model tool calls)=${calls.length} operations carried=${carriedTotal} operations per call=${calls.length ? (carriedTotal / calls.length).toFixed(2) : '?'}`);
   console.log(`tool RESULTS: n=${results.length} bytes=${sum} max=${sizes[0] ?? 0} p50=${sizes[Math.floor(sizes.length / 2)] ?? 0}`);
   console.log(`largest results: ${JSON.stringify(results.slice().sort((a, b) => b.bytes - a.bytes).slice(0, 5).map(r => ({ bytes: r.bytes, head: r.head.slice(0, 60) })))}`);
   // Cost accounting: how much of the total is re-reading accumulated context?

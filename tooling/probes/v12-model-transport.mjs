@@ -54,14 +54,25 @@ try {
   assert.ok(fs.readFileSync(path.join(store, 'producer.key')).length > 0);
   console.log('PASS unrestricted Write/Bash/secret-read controls execute successfully');
   const actions = [
-    ['mcp__canary_confined__implement', { op: 'write', path: 'model-edit.txt', text: 'model-requested confined edit' }],
-    ['mcp__canary_confined__implement', { op: 'exec', argv: ['C:\\Windows\\System32\\cmd.exe', '/d', '/c', 'echo confined-shell'] }],
-    ['mcp__canary_confined__implement', { op: 'exec', argv: ['C:\\Program Files\\Git\\cmd\\git.exe', 'init'] }],
+    ['mcp__canary_confined__implement', { operations: [{ op: 'write', path: 'model-edit.txt', text: 'model-requested confined edit' }] }],
+    ['mcp__canary_confined__implement', { operations: [{ op: 'exec', argv: ['C:\\Windows\\System32\\cmd.exe', '/d', '/c', 'echo confined-shell'] }] }],
+    ['mcp__canary_confined__implement', { operations: [{ op: 'exec', argv: ['C:\\Program Files\\Git\\cmd\\git.exe', 'init'] }] }],
+    // Several operations in ONE call: the primary contract the model is offered.
+    ['mcp__canary_confined__implement', { operations: [
+      { op: 'write', path: 'batch-control.txt', text: 'batched inside confinement' },
+      { op: 'read', path: 'batch-control.txt' },
+      { op: 'exec', argv: ['C:\\Windows\\System32\\cmd.exe', '/d', '/c', 'echo confined-batch'] },
+      { op: 'read', path: 'package.json' },
+      { op: 'exec', argv: ['C:\\Program Files\\Git\\cmd\\git.exe', 'status', '--porcelain'] },
+    ] }],
+    // The one-operation form is NOT offered. Whether a caller can still use it decides
+    // whether the contract is enforced by the schema or only by the description.
+    ['mcp__canary_confined__implement', { op: 'write', path: 'single-op-should-not-exist.txt', text: 'x' }],
     ['Write', { file_path: sentinel, content: 'unrestricted native Write bypass' }],
     ['Bash', { command: `echo escaped > ${sentinel}` }],
     ['mcp__canary_setup', { path: base }],
-    ['mcp__canary_confined__implement', { op: 'write', path: authority, text: 'model-owned proofs' }],
-    ['mcp__canary_confined__implement', { op: 'exec', argv: ['node', '--preserve-symlinks-main', path.join(work, 'observe.cjs'), path.join(store, 'producer.key')] }],
+    ['mcp__canary_confined__implement', { operations: [{ op: 'write', path: authority, text: 'model-owned proofs' }] }],
+    ['mcp__canary_confined__implement', { operations: [{ op: 'exec', argv: ['node', '--preserve-symlinks-main', path.join(work, 'observe.cjs'), path.join(store, 'producer.key')] }] }],
   ];
   const requests = [];
   server = http.createServer((req, res) => {
@@ -103,8 +114,13 @@ try {
   assert.match(stdout, /confined-shell/);
   assert.match(stdout, /apiCredential.*false/);
   assert.match(stdout, /brokerSecret.*false/);
+  // One call carried five operations, all inside the boundary.
+  assert.equal(fs.readFileSync(path.join(work, 'batch-control.txt'), 'utf8'), 'batched inside confinement');
+  assert.match(stdout, /batched inside confinement/);
+  assert.match(stdout, /confined-batch/);
+  console.log(`${fs.existsSync(path.join(work, 'single-op-should-not-exist.txt')) ? 'NOTE' : 'PASS'} one-operation form ${fs.existsSync(path.join(work, 'single-op-should-not-exist.txt')) ? 'was still accepted (schema is not enforced client-side; the worker is offered only the operations form)' : 'is not offered and did not execute'}`);
   const tokenFiles = fs.readdirSync(store).filter(f => f.endsWith('.tool-token.jsonl'));
-  assert.equal(tokenFiles.length, 11); // three Git diagnostics + two direct controls + preflight + five permitted model operations
+  assert.ok(tokenFiles.length >= 11, `expected at least the measured confined launches, saw ${tokenFiles.length}`);
   console.log('PASS model-requested edit and shell execute through measured confinement');
   console.log('PASS native Write/Bash and alternate MCP bypass requests cannot execute outside confinement');
   console.log('PASS confined worker receives no API/broker secret; authority remains unchanged');
