@@ -79,12 +79,12 @@ not "installation away", and it is not marketed as established isolation.
 
 1. **Install Canary** (Node.js 22 or newer):
 
-   Download `canary-rn-cli-1.1.0.tgz` from the
-   [v1.1.0 release](https://github.com/criptofn/Canary/releases/tag/v1.1.0), then:
+   Download `canary-rn-cli-1.2.0.tgz` from the
+   [v1.2.0 release](https://github.com/criptofn/Canary/releases/tag/v1.2.0), then:
 
    ```bash
-   npm install -g ./canary-rn-cli-1.1.0.tgz
-   canary --version        # canary 1.1.0
+   npm install -g ./canary-rn-cli-1.2.0.tgz
+   canary --version        # canary 1.2.0
    ```
 
    The package is ONE self-contained bundle with **zero runtime dependencies**
@@ -462,7 +462,7 @@ Three ways to get it, in increasing order of what you must already have:
 
 | You have | Use | Result |
 |---|---|---|
-| A Node.js 22+ installation | install `canary-rn-cli-1.1.0.tgz` from the [v1.1.0 release](https://github.com/criptofn/Canary/releases/tag/v1.1.0) (check it against the published `.sha256`), or build it yourself with `node tooling/pack.mjs`, or run straight from a checkout with `node apps/cli/dist/src/main.js` | one self-contained bundle, zero runtime dependencies |
+| A Node.js 22+ installation | install `canary-rn-cli-1.2.0.tgz` from the [v1.2.0 release](https://github.com/criptofn/Canary/releases/tag/v1.2.0) (check it against the published `.sha256`), or build it yourself with `node tooling/pack.mjs`, or run straight from a checkout with `node apps/cli/dist/src/main.js` | one self-contained bundle, zero runtime dependencies |
 | No Node.js, and a supported host | `npm run standalone` (see `tooling/standalone.mjs`) | ONE executable with Node embedded |
 | A source checkout | `npm ci && npm run build` | the development tree |
 

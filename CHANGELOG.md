@@ -10,7 +10,7 @@ changed*; the evidence ledgers record *what was observed*.
 
 ## [Unreleased]
 
-## [1.2.0] — unreleased, on `feat/v1.2`
+## [1.2.0] — 2026-09-19
 
 Canary v1.2 makes the requirement workflow fail **early** instead of expensively, benchmarks
 the false-done question honestly, and states plainly what it could not establish.
@@ -107,6 +107,53 @@ arm — the one that actually drives `canary work` → candidate → `finish` �
 against `plain` on `bound-requirements`, the corpus's only fixture whose stated requirements are
 **bound**: both arms produced correct work, **zero false dones**, and the workflow arm cost
 **+50.5%** tokens. That is the same negative result on the arm the claim is about.
+
+### Added — the confined worker (v1.2 production trust repair)
+
+- **The model's only capability is a confined executor.** `canary provider model-transport` runs
+  the real Claude CLI with native tools, skills, hooks, project settings discovery and Chrome
+  integration disabled, and advertises exactly one tool. Every file edit, shell command and Git
+  operation crosses a restricted, low-integrity AppContainer with **zero capabilities**: measured
+  `appContainer=true, restricted=true, capabilities=0, credentials absent`, no API or broker
+  secret in the worker's environment, and **no host-side fallback** — removing the enrollment
+  refuses before any model request.
+- **The worker's tool carries an ordered LIST of operations in one call** (`{operations:[…]}`),
+  and the one-operation form is not offered to it. Same four primitives, same confined paths,
+  fewer model round trips.
+- **Confined Git works.** The AppContainer could not resolve a DOS drive path
+  (`QueryDosDevice("C:")` denied), so `git init` died with `unable to get current working
+  directory`; a session-local, per-run drive alias now maps the sandbox root only, with no global
+  ACL, no machine-wide mapping and no admin. Measured: `rev-parse`, `status`, `diff`,
+  `diff --cached`, `add`, and a trusted-side readback of the worker's staged index.
+- **The broker owns review and promotion, and refuses worker-authored proof authority.** A
+  proposal that creates, replaces, modifies or removes proof-binding declarations in
+  `package.json` or `canary.project.json` — including Windows case aliases — is refused (403),
+  and the worker cannot write the authority source or the sealed plan (EPERM).
+
+### Measured token effect (the honest number)
+
+v1.2 substantially reduces workflow token overhead **versus the earlier implementation**, and it
+does **not** make the workflow universally cheaper. In the Qwen 3.8 Flash executable benchmark —
+same model, same fixtures, same starting bytes, same hidden oracle, the CLI's own token
+accounting — **two of three fixtures used 61–84% fewer tokens than Plain, while the stateful
+workload remained more expensive: aggregate token use was +54.4% at equal measured correctness**
+(bound-requirements −83.9%, bug-sum −61.5%, stateful-replay +175.1%; 12/12, 15/15 and 406/406
+correctness in both arms). **Canary does not generally save tokens**, and nothing here claims it
+does. Carrying several operations per call is what produced the reduction (stateful-replay:
+45 → 22 model turns, 917,504 → 585,337 tokens).
+
+### Fixed — packaging
+
+- **The released artifact now ships its licence.** `canary-rn-cli-*.tgz` declared
+  `"license": "Apache-2.0"` but contained no licence text; `LICENSE` is now staged into the
+  tarball and asserted by the cleanroom packaging probe, which installs the exact artifact and
+  exercises it end to end.
+
+### Unbound requirements fail before any worker runs
+
+`canary work` refuses a declared requirement that no sealed check measures **before** launching a
+worker: measured **0 worker launches and 0 worker tokens**, and the refusal is a separate record
+schema with no delivery verdict, so it can never read as completed work.
 
 ## [1.1.0] — 2026-09-13
 
