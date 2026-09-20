@@ -25,11 +25,41 @@ process.env.NODE_OPTIONS = '--preserve-symlinks-main --preserve-symlinks';
 const MAX_OPERATIONS = 64;
 
 /** One primitive. Throws on refusal; the caller decides whether that ends the call. */
-function apply(op, index) {
+/** Is this path inside the workspace this tool was launched in? Used ONLY to decide whether the
+ *  create-only workflow rule applies — never as a containment check. Containment is the OS boundary's
+ *  job, and when this cannot tell, it answers false so the write proceeds to the boundary instead. */
+function insideWorkspace(p) {
+  try {
+    if (typeof p !== 'string' || p === '') return false;
+    const root = path.resolve(process.cwd());
+    const target = path.resolve(p);
+    return target === root || target.startsWith(root + path.sep);
+  } catch { return false; }
+}
+
+function apply(op, index, createOnly) {
   switch (op?.op) {
     case 'list': return fs.readdirSync(op.path || '.', { withFileTypes: true }).map(e => ({ name: e.name, directory: e.isDirectory() }));
     case 'read': return fs.readFileSync(op.path, 'utf8');
-    case 'write': fs.writeFileSync(op.path, op.text); return 'written';
+    case 'write': {
+      // v1.3 §25 — `write` is documented TO THE MODEL as "CREATE a file", and until now it overwrote
+      // silently. MEASURED: the dominant term in the confined arm's cost was whole-file re-emission
+      // (`src/api.js`, 979 B on disk, written NINE times) — the model using `write` to CHANGE files because
+      // nothing stopped it, with every byte staying in the context for the rest of the run. So this is a
+      // correctness fix first: the tool now does what its own contract says.
+      //
+      // SCOPED TWICE, deliberately, so this workflow rule can never take credit for a CONTAINMENT refusal:
+      //   * `createOnly` is false for the bare one-operation form that trusted callers and the security
+      //     probes use;
+      //   * and it applies only to paths INSIDE the workspace. A write aimed outside it is a containment
+      //     question, and if this guard refused it first, an attack battery could report "blocked" for the
+      //     wrong reason and hide a real containment regression.
+      if (createOnly && insideWorkspace(op.path) && fs.existsSync(op.path)) {
+        throw new Error('write CREATES a file and this path already exists — use edit: set "find" to a snippet '
+          + 'occurring exactly once, or to "" to replace the whole file');
+      }
+      fs.writeFileSync(op.path, op.text); return 'written';
+    }
     // v1.3 §D — CHANGE an existing file by sending only the part that changes.
     //
     // WHY THIS EXISTS, measured: the model's own output is ~70% of the confined arm's token cost on a long
@@ -109,7 +139,7 @@ try {
     let stopped = null;
     for (let index = 0; index < request.operations.length; index++) {
       if (stopped) { outcomes.push({ index, op: request.operations[index]?.op ?? null, skipped: true, because: stopped }); continue; }
-      try { outcomes.push({ index, op: request.operations[index]?.op ?? null, result: apply(request.operations[index], index) }); }
+      try { outcomes.push({ index, op: request.operations[index]?.op ?? null, result: apply(request.operations[index], index, true) }); }
       catch (e) { stopped = `operation ${index} (${request.operations[index]?.op ?? 'unknown'}) failed: ${e.code || e.message}`; outcomes.push({ index, op: request.operations[index]?.op ?? null, error: e.code || e.message }); }
     }
     result = stopped ? { operations: outcomes, failed: stopped } : { operations: outcomes };
@@ -123,7 +153,7 @@ try {
   } else {
     // Trusted callers and the security probes keep the exact one-operation contract and
     // report shape they were verified against: { result } or { error }.
-    result = apply(request, 0);
+    result = apply(request, 0, false);
   }
 } catch (e) {
   failure = e.code || e.message;
