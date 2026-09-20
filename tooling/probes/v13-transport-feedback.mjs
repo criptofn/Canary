@@ -219,6 +219,31 @@ check('C1-the-per-batch-check-HALVED-the-long-task-with-correctness-intact', () 
   console.log(`INFO   correctness intact: broker ${treated.broker.review}/${treated.broker.promote}, hidden ${treated.promoted.hidden.passing}/${treated.promoted.hidden.total}, deliveredCorrect`);
 });
 
+check('A5-the-pilot-record-says-whether-a-model-session-ACTUALLY-happened', () => {
+  // The confined transport refuses on an unbound requirement BEFORE spawning (model-transport.ts:27), which
+  // exits 3 with no result event and ZERO tokens. The pilot used to hardcode `workerLaunches: 1` for that,
+  // so an UNBOUND fixture — where no worker ever ran — read as a worker that ran and failed. That is a
+  // different fact, and the wrong one: unbound fixtures get 0 launches, 0 worker tokens and no
+  // delivered-correctness credit. Pinned at the SOURCE so it holds on a fresh clone, where the (untracked)
+  // session evidence this probe otherwise reads is absent.
+  const pilot = fs.readFileSync(path.join(repo, 'tooling/probes/v12-token-pilot.mjs'), 'utf8');
+  // Strip comments first. MEASURED (this check failed on its first run): the explanatory comment that
+  // documents the old behaviour contains the literal `workerLaunches: 1`, so a naive source grep matched the
+  // documentation ABOUT the bug and reported the bug. Assertions about code must read code.
+  const pilotCode = pilot.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+  assert(!/workerLaunches:\s*1\b/.test(pilotCode),
+    'v12-token-pilot.mjs hardcodes workerLaunches: 1 again. A refused fixture (0 tokens, no model call) '
+    + 'would then be recorded as a worker launch, and an aggregator could score it as a Canary correctness '
+    + 'failure rather than as a fixture outside confined mode\'s coverage');
+  assert(/workerLaunches:\s*workerRan\s*\?\s*1\s*:\s*0/.test(pilotCode),
+    'the pilot no longer derives workerLaunches from whether a model session really happened');
+  assert(/refusedBeforeModel/.test(pilotCode),
+    'the pilot no longer records WHY there was no launch, so a refused record cannot be told from a silent '
+    + 'failure without re-deriving it from the token count');
+  console.log('INFO   the pilot derives workerLaunches from an actual model session, and says why when there was none');
+});
+
 console.log('\n--- what this means for the slice ---');
 console.log('INFO TWO designs are ruled out by measurement:');
 console.log('INFO   a description sentence  (A2 — it would be false: nothing tells the worker anything)');
