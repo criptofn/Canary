@@ -72,6 +72,35 @@ check('A2-the-tool-description-makes-NO-promise-the-transport-cannot-keep', () =
   assert(/edit/i.test(src), 'worker-tools.ts no longer offers `edit`');
 });
 
+check('A3-the-confined-tool-surface-cannot-initiate-verification', () => {
+  // The feedback loop must NOT be built inside this handler, and this is the assertion that says so.
+  // model-transport.ts registers this server INSIDE the confined launch (`--bare --restricted --tools ''`
+  // with `--mcp-config`), so the handler runs under the very confinement it confines the worker with: it
+  // cannot reach the trusted environment, trusted directories, sanitized env or the pre-gates that the
+  // real verification owner uses. A "verify here" call added inside it would be the worker's own process
+  // judging the worker's own workspace — a second, weaker gate. The loop belongs at the DRIVER.
+  const transport = fs.readFileSync(path.join(repo, 'apps/cli/src/provider/model-transport.ts'), 'utf8');
+  const launchLine = transport.split('\n').find((l) => l.includes('--restricted')) ?? '';
+  assert(launchLine.includes('--restricted') && launchLine.includes('--mcp-config'),
+    'model-transport.ts no longer registers the worker tool server inside a restricted launch; the reason '
+    + 'verification cannot live in the tool handler has changed, so re-derive MEASURED UPDATE 4');
+  assert(transport.includes("'--tools'") && /'--tools',\s*''/.test(transport),
+    'the confined launch no longer empties the native tool set, so the worker may have tools outside this '
+    + 'surface and the cost diagnosis no longer describes what the worker can do');
+
+  const src = fs.readFileSync(path.join(repo, 'apps/cli/src/provider/worker-tools.ts'), 'utf8');
+  assert(/No authority operations/i.test(src),
+    'worker-tools.ts no longer states that authority operations are unavailable there');
+  const enumLine = src.split('\n').find((l) => l.includes("enum:")) ?? '';
+  assert(enumLine.includes("'list'") && enumLine.includes("'edit'"),
+    `the confined op enum changed unexpectedly: ${enumLine.trim()}`);
+  for (const verb of ['isolate', 'promote', 'accept', 'verify']) {
+    assert(!new RegExp(`case '${verb}'`, 'i').test(src),
+      `worker-tools.ts handles a '${verb}' case — verification must not be initiable from inside the `
+      + 'confined handler; put the feedback loop at the driver instead');
+  }
+});
+
 if (plain && records.length > 0) {
   const c = records[0].doc.agentResult?.usage ?? {};
   const p = plain.agentResult?.usage ?? {};
