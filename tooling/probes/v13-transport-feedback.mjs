@@ -182,13 +182,14 @@ check('B2-the-long-run-is-already-near-the-transport-WALL-CLOCK-ceiling', () => 
 });
 
 console.log('\n--- what this means for the slice ---');
-console.log('INFO Three designs are now ruled out BY MEASUREMENT, not by taste:');
+console.log('INFO TWO designs are ruled out by measurement:');
 console.log('INFO   a description sentence  (A2 — it would be false: nothing tells the worker anything)');
 console.log('INFO   a re-launch loop        (A4 — nothing failed, so it would never have fired)');
-console.log('INFO   per-batch suite runs    (B2 — 1.22 min of headroom; it would time the run out, not slow it)');
-console.log('INFO What survives: the cost is one long single-context run, expensive in tokens (quadratic in turns)');
-console.log('INFO AND near its own wall clock. Partitioning a run into shorter ones with fresh context attacks');
-console.log('INFO both terms, and needs the task to be decomposable — which is NOT established. Not proposed.');
+console.log('INFO A THIRD was withdrawn here and then REOPENED, and B2 must not be read as closing it:');
+console.log('INFO   per-batch suite runs — B2 shows the run sits at 92% of its ceiling, but the cost of the');
+console.log('INFO   check itself is 45 ms (v13-transport-suite-cost.mjs), so running it after all 23 requests');
+console.log('INFO   costs ~1 s against 90 s of headroom. The objection was an assumption, not a measurement.');
+console.log('INFO   What remains unknown is the TOKEN benefit, which only the one permitted pilot can settle.');
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} v1.3 transport feedback — the worker is never told a verdict, and nothing claims otherwise`);
 process.exit(failures === 0 ? 0 : 1);

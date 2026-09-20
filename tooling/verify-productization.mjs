@@ -280,6 +280,9 @@ const STEPS = [
   // told what to fix" instruction may not be added there, and why its long-task cost explodes. Pins the
   // fact AND the cost shape, so the diagnosis cannot drift.
   ['v1.3 transport feedback (can the confined worker learn a verdict?)', process.execPath, ['tooling/probes/v13-transport-feedback.mjs'], {}],
+  // v1.3: what the project's own check actually costs to run — the input that decides whether returning
+  // its result after each batch is affordable, measured rather than assumed.
+  ['v1.3 transport suite cost (what does the check cost to run?)', process.execPath, ['tooling/probes/v13-transport-suite-cost.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
