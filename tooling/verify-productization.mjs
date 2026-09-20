@@ -258,6 +258,12 @@ const STEPS = [
   // v1.3: how much internal vocabulary the ORDINARY path speaks, as a ratchet — with the other
   // direction checked too, so the default cannot be made quieter by deleting what --verbose explains.
   ['v1.3 everyday vocabulary (a ratchet on the words a user must decode)', process.execPath, ['tooling/probes/v13-everyday-vocabulary.mjs'], {}],
+  // v1.3: what Canary costs on EVERY turn, whether or not it is used — the MCP instructions and tool
+  // definitions a client re-sends each request — and which shape the benchmark's arms actually measure.
+  ['v1.3 standing context (what Canary advertises per turn)', process.execPath, ['tooling/probes/v13-standing-context.mjs'], {}],
+  // v1.3: can the harness's own consent gate be satisfied without a human? Measured with four settings
+  // forms and two independent views of the answer. Host-bound: an explicit SKIP where no CLI exists.
+  ['v1.3 mcp consent (is the harness gate closable without a human?)', process.execPath, ['tooling/probes/v13-mcp-consent.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
