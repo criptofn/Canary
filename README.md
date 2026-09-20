@@ -298,13 +298,19 @@ understated the result: the `plain` arm was never gated.)
 
 Read it this way, because it is the only reading the numbers support:
 
-- **The everyday shape — install once, then use your agent normally — used 7.3 %
-  fewer model tokens than Plain in aggregate (92.7 % of Plain) at equal measured
-  correctness, with no false done.** Per task the measured range is **17.1 % lower
-  to essentially parity (+0.02 %)**: bug-sum was 100.02 % of Plain, i.e. technically
+- **HISTORICAL MEASUREMENT (v1.3, one recorded run per cell): the everyday shape — install once,
+  then use your agent normally — used 7.3 % fewer model tokens than Plain in aggregate (92.7 % of
+  Plain) at equal measured correctness, with no false done.** Per task the measured range is
+  **17.1 % lower to essentially parity (+0.02 %)**: bug-sum was 100.02 % of Plain, i.e. technically
   0.02 % *above* it. The saving is not uniform and this README does not claim it is.
-  The long stateful task does **not** explode on this shape (17 turns, 96.1 % of
-  Plain).
+  The long stateful task does **not** explode on this shape (17 turns, 96.1 % of Plain).
+  **KNOWN LIMITATION — part of this claim, not a footnote to it:** that measurement launched the
+  agent **without** the MCP server, so it excludes a standing payload of **5,726 bytes per turn**
+  (the next-but-one bullet measures it). **The true current everyday footprint is therefore somewhat
+  worse than 92.7 %, and "7.3 % fewer tokens" must not be quoted as the current, complete everyday
+  result.** No replacement percentage is stated here, because producing one would require a new fair
+  measurement that **has not been run** — and inventing a number without it is the one thing this
+  project does not do.
 - **The ceremony costs more than it saves** (+77.8 %) with identical correctness,
   which is why it is documented here as expert mode rather than the ordinary path.
 - **The confined transport is a trade, not a win**: 2–6× cheaper on short,

@@ -24,7 +24,8 @@ these bytes.
 
 ## The token position (read this before quoting any number)
 
-**The everyday token result is roughly parity with a modest saving, and that is the whole claim.**
+**HISTORICAL MEASUREMENT (v1.3, one recorded run per cell) — not a current, complete number.** The
+everyday result is roughly parity with a modest saving, and that is the whole claim.
 
 | | model tokens |
 |---|---|
@@ -37,11 +38,15 @@ false done in either arm. **This release does not claim the everyday path is nev
 on any task**, and it does not claim any correctness advantage — none was demonstrated, because the
 untreated arm was already correct.
 
-**The previous 7.3 % figure excluded a real cost, and that is now stated rather than left in an
-appendix.** It was measured with the agent launched *without* the MCP server, so it omits a standing
-payload paid **every turn**: 5,726 bytes (1,475 B of instructions + 4,251 B of tool definitions), of
-which 1,923 B (33.6 %) is expert-only ceremony an everyday user never calls. **The real everyday
-footprint is therefore somewhat worse than 92.7 %, not better.**
+**KNOWN LIMITATION — this is part of the measurement, not a footnote to it.** The figure above was
+measured with the agent launched *without* the MCP server, so it omits a standing payload paid
+**every turn**: 5,726 bytes (1,475 B of instructions + 4,251 B of tool definitions), of which
+1,923 B (33.6 %) is expert-only ceremony an everyday user never calls. **The true current everyday
+footprint is therefore somewhat worse than 92.7 %, and "7.3 % fewer tokens" must not be quoted as
+the current complete everyday result.** No replacement percentage appears in this document: stating
+one would require a new fair measurement of the everyday path *with* the standing payload included,
+which has not been run. Reconstructing a number from the pieces would be a derived estimate dressed
+as a measurement, and this project does not do that.
 
 **There is no ≤ 75 % claim and no ≥ 25 % claim.** The token-optimisation target was **rejected with
 evidence**, not deferred: two independent routes to a lower number were measured before this

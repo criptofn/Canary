@@ -39,12 +39,16 @@ position are in [`docs/RELEASE-1.4.md`](docs/RELEASE-1.4.md).
 
 ### Changed
 
-- **The published everyday token claim now states what it excludes.** The 92.7 % figure was
-  measured with the agent launched **without** the MCP server, so it omits a standing cost paid
-  **every turn**: 5,726 bytes (1,475 B instructions + 4,251 B tool definitions), of which 1,923 B
-  is expert-only ceremony. `README.md` now says plainly that **the real everyday footprint is
-  somewhat worse than 92.7 %, not better**, and that removing Canary's entire standing footprint
-  would return about 2 points — which is why ≤ 75 % is not claimed.
+- **The published everyday token claim is now labelled for what it is.** It is a **historical
+  measurement** (v1.3, one recorded run per cell): 92.7 % of Plain, −7.3 % in aggregate. And it
+  carries a **known limitation as part of the claim rather than as a footnote**: it was measured
+  with the agent launched **without** the MCP server, so it omits a standing cost paid **every
+  turn** — 5,726 bytes (1,475 B instructions + 4,251 B tool definitions), of which 1,923 B is
+  expert-only ceremony. `README.md` now says plainly that **the true current everyday footprint is
+  somewhat worse than 92.7 %**, that **"7.3 % fewer tokens" must not be quoted as the current
+  complete result**, and that removing Canary's entire standing footprint would return about
+  2 points — which is why ≤ 75 % is not claimed. **No replacement percentage is offered**, because
+  stating one requires a new fair measurement that has not been run.
 - **Everyday-path messages are translated, not weakened.** `setup`'s trust-store refusal, its
   seal refusal and `result` no longer open with internal vocabulary (`REFUSED — <raw throw>`,
   "sealed in the trust store", "no sealed checks, no proof"); the last-resort handler no longer
