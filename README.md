@@ -32,14 +32,35 @@ already do.
 There is no Canary command in the ordinary loop, and you do not have to learn
 Canary's vocabulary to use it.
 
-> **One interactive step, and it is the harness's, not Canary's.** Claude Code
-> holds a *project-scoped* MCP server at `Pending approval` until a human approves
-> it once. Measured with the real CLI: `claude mcp list` reports
-> `canary: …\main.js mcp - ⏸ Pending approval (run \`claude\` to approve)`. So run
-> `claude` in the repository once and approve it — after that the tools are there.
-> Canary says the same thing at the end of `setup`, and
-> [`tooling/probes/v13-agent-integration.mjs`](tooling/probes/v13-agent-integration.mjs)
-> measures it rather than assuming it.
+> **Why you may see one approval prompt — and how to skip it.** Canary registers its
+> agent tools at *project* scope, i.e. a `.mcp.json` in this repository. That is what
+> triggers the prompt: a project-scoped server arrives from a file that a clone or a
+> branch can change without you acting, so Claude Code holds it at `Pending approval`
+> until you approve it once — `claude mcp list` reports
+> `canary: …\main.js mcp - ⏸ Pending approval (run \`claude\` to approve)`. Approve it
+> once and the tools are there. Canary says the same thing at the end of `setup`.
+>
+> **The prompt is about the optional tool server, not about verification.** The
+> completion gate is the `Stop` hook in `.claude/settings.json`, which `setup` installs
+> and which decides every completion; the MCP entry is what lets the agent *ask* Canary
+> a question. So an unapproved entry never means an ungated repository.
+>
+> If you would rather have **no prompt at all**, register the same server at *local*
+> scope instead: it lives in your own Claude Code configuration, which nobody else can
+> write, so no consent gate applies.
+>
+> ```sh
+> claude mcp remove canary -s project
+> claude mcp add -s local canary -- canary mcp
+> ```
+>
+> Both scopes are measured with the real CLI
+> ([`tooling/probes/v13-mcp-scope.mjs`](tooling/probes/v13-mcp-scope.mjs)): project →
+> `pending-approval`, local → `connected`. The trade-off is real: project scope gives a
+> teammate the tools from a clone (each of them approves once), while local scope means
+> each developer runs `canary setup --yes` themselves — which is the documented model
+> anyway. [`tooling/probes/v13-agent-integration.mjs`](tooling/probes/v13-agent-integration.mjs)
+> measures the state rather than assuming it.
 
 **Why isn't this just "run the tests"?**
 

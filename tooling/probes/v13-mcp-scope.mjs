@@ -131,9 +131,37 @@ try {
     assert(localState !== 'not-listed', 'the local-scope server was not listed at all, so its state is unknown');
   });
 
+  // ── C: CANARY'S OWN server, at local scope ──
+  // A and B used a dummy server, which measures the SCOPE but not the claim the README makes. This
+  // section registers the real `canary mcp` server at local scope, so the instruction a user is given
+  // ("claude mcp add -s local canary -- canary mcp") rests on a measurement of Canary rather than of a
+  // stand-in. `pending-approval` here would mean the README is wrong; `failed-to-connect` would mean the
+  // server cannot start under a locally-scoped entry.
+  const realCli = path.resolve(import.meta.dirname, '../../apps/cli/dist/src/main.js');
+  const REAL = 'canary-scope-probe-real';
+  let realState = 'not-measured';
+  if (fs.existsSync(realCli)) {
+    run(claude, ['mcp', 'remove', REAL, '-s', 'local'], temp);
+    const addReal = run(claude, ['mcp', 'add', '-s', 'local', REAL, '--', process.execPath, realCli, 'mcp'], temp);
+    if (addReal.status === 0) created.push({ scope: 'local', name: REAL });
+    const listedReal = run(claude, ['mcp', 'list'], temp);
+    realState = stateOf(`${listedReal.stdout}${listedReal.stderr}`, REAL);
+    console.log(`INFO Canary's own server at local scope: ${realState} (add exit ${addReal.status})`);
+
+    check('C1-CANARY-ITSELF-connects-at-local-scope-with-no-approval', () => {
+      assert(realState !== 'pending-approval',
+        'registering Canary\'s own server at local scope produced "pending-approval", so the README '
+        + 'instruction is wrong and the seamlessness claim does not hold');
+      assert(realState === 'connected',
+        `expected "connected" for Canary's own server at local scope, got "${realState}" — a scope that `
+        + 'skips the gate but cannot actually start the server would trade one failure for another');
+    });
+  } else {
+    console.log(`INFO skipped section C: no built CLI at ${realCli} (run the build first)`);
+  }
+
   const avoidsGate = localState !== 'pending-approval';
-  console.log(`\nINFO CONCLUSION: local scope ${avoidsGate ? 'AVOIDS the approval gate' : 'ALSO requires approval'}`);
-  console.log('INFO Project scope is a file in the repository, so requiring consent is CORRECT there — a clone or');
+  console.log(`\nINFO CONCLUSION: local scope ${avoidsGate ? 'AVOIDS the approval gate' : 'ALSO requires approval'}`);  console.log('INFO Project scope is a file in the repository, so requiring consent is CORRECT there — a clone or');
   console.log('INFO a branch can change it without the user acting. Local scope is the user\'s own configuration,');
   console.log('INFO which is why it plausibly needs no gate. Choosing between them is a product decision: project');
   console.log('INFO scope gives a teammate the tools from a clone (each must approve); local scope means each');
