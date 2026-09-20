@@ -84,12 +84,13 @@ it against the published `.sha256`. It is ONE self-contained bundle with **zero
 runtime dependencies**.
 
 > **Honest version note.** `v1.2.0` is the newest *published* artifact. This
-> document describes the **source tree**, which is ahead of it — so a few
-> behaviours below (the agent-facing instruction, the tool registration, the
-> `edit` primitive in the confined worker) are in this repository and not in that
-> tarball. Build from source for exactly what is described here:
-> `npm ci && npm run build`, then `node apps/cli/dist/src/main.js`. No v1.3
-> artifact has been published.
+> document describes the **source tree**, which is the `v1.3.0` release candidate:
+> built here, `canary --version` prints `1.3.0`. **No `v1.3.0` artifact has been
+> published** — there is no tarball, tag or GitHub release for it yet, so do not
+> expect the download above to contain every behaviour described below. Build from
+> source for exactly what is described here: `npm ci && npm run build`, then
+> `node apps/cli/dist/src/main.js`. Those bytes are described, with their measured
+> numbers and their known limitations, in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
 
 ## Use your coding agent normally
 
@@ -281,6 +282,14 @@ it beats the target in **all six replicated runs** (**13.1-36.5 %** and **54.0-7
 long stateful cell is the whole reason the aggregate stays above it (120-260 %). Both numbers are stated
 because either one alone hides the other.
 
+> **Where the confined numbers come from, and how far they may be quoted.** All three benchmark fixtures
+> declare `benchmarkConfig: {"arm": "guarded"}`, so every `plain` and confined run above is — in the
+> benchmark harness's own printed words — *"an experiment outside the configuration the fixture was
+> authored and validated for; do not present it as that fixture's measurement."* That applies to **both**
+> arms equally, so the ratios are like-for-like, but no absolute confined figure here is a fixture's
+> validated measurement. The everyday/`guarded` numbers are the exception: `guarded` **is** the arm those
+> fixtures were authored for, which is why the 92.7 % is the stronger of the two measurements.
+
 Short version, with the full ledgers linked below — and stated the way the
 evidence supports it:
 
@@ -336,6 +345,13 @@ What Canary does **not** claim is as much a part of the product as what it does.
   semantic truth.** Binding a requirement to a sealed check says the plan
   measures something for it; Canary does not thereby *understand* the
   requirement.
+- **Confined mode can only run work whose requirements are bound.** Of the **20**
+  benchmark fixtures this repository maintains, only **5** have every declared
+  requirement bound to a sealed check (`bound-requirements`, `bug-sum`,
+  `impossible-test`, `stateful-replay`, `version-bump`). The other 15 are
+  **refused before any model is started** — measured **0** worker launches,
+  **0** worker tokens spent, and **no** delivered-correctness credit. A refusal is
+  not a result, and no binding was invented to raise the count.
 - Canary does **not** claim to "never fail open" universally, nor that every
   promoted change is independently **semantically** proven.
 - Claim strength is tiered: only the observed runners (`mocha`, `node --test`,
