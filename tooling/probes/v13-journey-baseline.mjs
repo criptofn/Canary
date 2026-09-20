@@ -212,7 +212,11 @@ try {
   check('a-direct-edit-whose-checks-discriminate-earns-its-READY', /READY/.test(naiveText),
     (naiveText.match(/^.*(READY|NOT PROVEN|NEEDS ATTENTION|UNSUPPORTED).*$/m) ?? ['(none)'])[0].trim().slice(0, 120));
   finding('the-everyday-path-does-not-isolate-or-promote (no candidate, no frozen task authority)',
-    'covered for false acceptance by the discrimination gate (F2); the missing piece is the invisible lifecycle, not a verdict');
+    'covered for false acceptance by the discrimination gate (F2); the missing piece is the invisible '
+    + 'lifecycle, not a verdict. The GUARANTEE that lifecycle exists to provide is measured separately and '
+    + 'holds: tooling/probes/v13-verified-bytes.mjs plants a checkpoint record byte-identical to a real '
+    + 'green run on a repository whose checks FAIL, and the completion is still refused — with controls '
+    + 'either side, so the result is not an always-blocking gate');
 
   // ────────────────────── D. `canary agents` when `.claude/` exists but NO hook is installed ──
   const noHook = path.join(temp, 'claude-no-hook');

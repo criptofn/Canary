@@ -270,6 +270,9 @@ const STEPS = [
   // v1.3: the docs describe the SIMPLER product — the everyday path leads, and the candidate path is
   // never presented without its measured cost (177.8% vs 92.7%).
   ['v1.3 doc first path (do the docs still lead with the everyday path?)', process.execPath, ['tooling/probes/v13-doc-first-path.mjs'], {}],
+  // v1.3: the property the invisible candidate/promotion lifecycle exists to provide, attacked directly —
+  // a forged green checkpoint record on a repository whose checks fail must not allow a completion.
+  ['v1.3 verified bytes (no stored record can produce a pass)', process.execPath, ['tooling/probes/v13-verified-bytes.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
