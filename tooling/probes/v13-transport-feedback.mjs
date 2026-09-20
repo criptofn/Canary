@@ -181,6 +181,44 @@ check('B2-the-long-run-is-already-near-the-transport-WALL-CLOCK-ceiling', () => 
     + 'design in MEASURED UPDATE 4 should be reconsidered rather than inherited as settled');
 });
 
+check('C1-the-per-batch-check-HALVED-the-long-task-with-correctness-intact', () => {
+  // The measured outcome of the one permitted pilot, pinned so the audit's headline stays checkable rather
+  // than becoming a number nobody can reproduce. The record is a historical artifact, so it does not drift;
+  // a REGRESSION in the feature is caught behaviourally by v13-confin-check.mjs, not here.
+  const treated = read('v13check-stateful-replay-canary-1.json');
+  if (!treated) {
+    console.log('INFO the per-batch treatment record is absent: C1 reports rather than asserts');
+    return;
+  }
+  const baselines = [
+    read('v13edit-stateful-replay-canary-1.json'),
+    read('v12p4-forced-stateful-replay-canary-1.json'),
+  ].filter(Boolean);
+  assert(baselines.length > 0, 'no confined baseline record to compare the treatment against');
+
+  const totalOf = (d) => d.agentResult?.usage?.totalTokens ?? null;
+  const t = totalOf(treated);
+  assert(typeof t === 'number' && t > 0, 'the treatment record carries no usable total');
+  for (const b of baselines) {
+    const base = totalOf(b);
+    assert(typeof base === 'number',
+      `baseline ${b.label} carries no total, so the comparison would be vacuous`);
+    const cut = 100 * (base - t) / base;
+    console.log(`INFO   ${b.label}: ${base.toLocaleString('en-US')} -> ${t.toLocaleString('en-US')} = ${cut.toFixed(1)}% lower`);
+    assert(cut > 25,
+      `the treatment is only ${cut.toFixed(1)}% below ${b.label}. If the effect has shrunk this far, the `
+      + 'mechanism no longer explains the result and MEASURED UPDATE 4 must be re-derived');
+  }
+  // Correctness is the whole point: a cheaper run that stopped being right is not a win. The trusted steps
+  // must all still be where they were.
+  assert(treated.deliveredCorrect === true, 'the treatment run did not deliver correct');
+  assert(treated.broker?.review === 200 && treated.broker?.promote === 200,
+    `the trusted broker steps did not both pass (review=${treated.broker?.review}, promote=${treated.broker?.promote})`);
+  assert(treated.promoted?.hidden?.passing === treated.promoted?.hidden?.total && treated.promoted?.hidden?.total > 0,
+    'the promoted bytes did not pass the hidden oracle in full');
+  console.log(`INFO   correctness intact: broker ${treated.broker.review}/${treated.broker.promote}, hidden ${treated.promoted.hidden.passing}/${treated.promoted.hidden.total}, deliveredCorrect`);
+});
+
 console.log('\n--- what this means for the slice ---');
 console.log('INFO TWO designs are ruled out by measurement:');
 console.log('INFO   a description sentence  (A2 — it would be false: nothing tells the worker anything)');
@@ -189,7 +227,9 @@ console.log('INFO A THIRD was withdrawn here and then REOPENED, and B2 must not 
 console.log('INFO   per-batch suite runs — B2 shows the run sits at 92% of its ceiling, but the cost of the');
 console.log('INFO   check itself is 45 ms (v13-transport-suite-cost.mjs), so running it after all 23 requests');
 console.log('INFO   costs ~1 s against 90 s of headroom. The objection was an assumption, not a measurement.');
-console.log('INFO   What remains unknown is the TOKEN benefit, which only the one permitted pilot can settle.');
+console.log('INFO The pilot has since SETTLED it (C1): 595,419 -> 288,942 tokens, -51.5%, correctness intact,');
+console.log('INFO and wall clock 13.50 -> 6.94 min (92% -> 46% of the ceiling). Still above the 75% target in');
+console.log('INFO aggregate (82.1%), and what remains is the worker\'s own OUTPUT (2.9x plain), not its round trips.');
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} v1.3 transport feedback — the worker is never told a verdict, and nothing claims otherwise`);
 process.exit(failures === 0 ? 0 : 1);
