@@ -264,6 +264,9 @@ const STEPS = [
   // v1.3: can the harness's own consent gate be satisfied without a human? Measured with four settings
   // forms and two independent views of the answer. Host-bound: an explicit SKIP where no CLI exists.
   ['v1.3 mcp consent (is the harness gate closable without a human?)', process.execPath, ['tooling/probes/v13-mcp-consent.mjs'], {}],
+  // v1.3: the block rate of the completion gate, read from the stored corpus — the decisive number for
+  // whether the <=75% token target is reachable by removing turns. Costs no model tokens.
+  ['v1.3 gate cost (how often does the gate refuse, and what would removing it save?)', process.execPath, ['tooling/probes/v13-gate-cost.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
