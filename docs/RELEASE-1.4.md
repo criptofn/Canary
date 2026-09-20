@@ -181,6 +181,30 @@ Unchanged from v1.3 except as noted:
 - **New:** the GitHub-hosted Windows CI leg stalls on a handful of pipeline tests; classified a host
   limitation with its measured profile documented in the workflow.
 
+## The release candidate artifact
+
+| | |
+|---|---|
+| file | `canary-rn-cli-1.4.0.tgz` |
+| size | **208,136 bytes** |
+| SHA-256 | `aafff076686241cb9a35945766d808522e3a823bb74041d25f9b811e3e46d54d` |
+| entries | **16** — exactly the pack allowlist (`dist/main.js`, `tools/windows-boundary` ×7, `tooling/test-support/fixtures` ×6, `package.json`, `LICENSE`) |
+| runtime dependencies | **none** (the manifest declares no `dependencies`, `peerDependencies` or `optionalDependencies`) |
+| licence | `package/LICENSE` ships in the tarball (Apache-2.0 §4(a)) |
+
+Verified on the artifact itself, not on the source tree: it installs into a prefix whose path
+**contains spaces**, `canary --version` prints `canary 1.4.0`, and the whole everyday journey runs
+from the installed bytes — `setup --yes` → `READY`, `doctor` → `READY`, a green completion allowed
+**silently**, a failing completion blocked with a JSON decision that names the failing check and
+points at the evidence file, `stop_hook_active` preventing a second block, the Codex `Stop` handler
+written and drivable, and `uninstall` removing Canary's entries while the user's own hook,
+permissions and MCP server survive. Upgrading an existing **v1.3.0** installation to this artifact
+in the same prefix duplicates neither the hook nor the MCP entry and leaves setup idempotent
+(`tooling/probes/v14-rc-artifact-journey.mjs`, 41 checks, 0 failures).
+
+The bundle was scanned for local paths, developer identity, benchmark scratch and secret-shaped
+strings: **zero matches**.
+
 ## The release report
 
 The frozen-bytes audit — branch, commit, battery result, unit counts, artifact digest, clean-install
