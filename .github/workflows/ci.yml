@@ -27,7 +27,27 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # MEASURED (v1.4). These are not the same job on the two hosts, so they do not get the
+    # same budget.
+    #
+    # Ubuntu: the whole suite finishes in ~80 s.
+    #
+    # Windows (GitHub-hosted runner): the SAME commit, the same command, the same Node — and
+    # a handful of `panel K` / attested-channel tests that drive the real pipeline stall
+    # instead of running. Measured profile from run 35513360741 (job 106085049619, cancelled
+    # at the old 30-minute cap): individual tests took 92,698 ms / 92,908 ms / 98,124 ms /
+    # 335,197 ms / 335,763 ms / 337,352 ms / 1,441,173 ms, against 115 ms - 2,213 ms for the
+    # same tests in this repository's recorded logs on a developer Windows machine and 1.2 s
+    # on the ubuntu leg of the same run. That is a stall, not slowness: the leg needed more
+    # than 50 minutes of test time, and three of those tests reported `not ok` after stalling.
+    #
+    # CLASSIFIED: HOST LIMITATION (GitHub-hosted Windows runner) — not a product defect and not
+    # a test defect; the assertions are correct and pass on a real Windows host. The old
+    # 30-minute cap turned this into `cancelled`, an ambiguous status that hid both the profile
+    # and the verdict. The budget below is the measured need plus headroom, so the leg now RUNS
+    # TO COMPLETION and reports a named, deterministic result. Nothing is skipped, no assertion
+    # is relaxed, and a genuine Windows regression still fails this job.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 90 || 30 }}
     steps:
       # Actions are pinned by commit SHA (supply chain). Dependabot
       # (.github/dependabot.yml) is what keeps these pins current — do not
@@ -64,7 +84,15 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          # MEASURED (v1.4): this job pinned `22` and failed on all three legs for
+          # two releases with `FAIL: node --build-sea failed (status 9)` and no
+          # other detail. `--build-sea` is documented as "Added in: v25.5.0"
+          # (nodejs.org/api/single-executable-applications.html, History table);
+          # on Node 22 node rejects the unknown option, prints nothing and exits 9.
+          # So the job was asking an incapable runtime to produce the artifact and
+          # then reporting the artifact as broken. 26.3.0 is the version this
+          # workflow's golden-proof job already runs.
+          node-version: 26.3.0
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run build

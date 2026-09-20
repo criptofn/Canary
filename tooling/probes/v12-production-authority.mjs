@@ -31,6 +31,10 @@ const canary = args => command(process.execPath,[cli,...args]);
 const git = args => command('C:\\Program Files\\Git\\cmd\\git.exe',args,base);
 try {
   fs.mkdirSync(base); fs.mkdirSync(work);
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(base, '.claude'), { recursive: true });
   // A sealed ordinary Node assertion program; no unmeasured test-runner IPC dependency.
   fs.writeFileSync(path.join(base,'package.json'),JSON.stringify({name:'production-authority-test',version:'1.0.0',scripts:{test:'node sum.test.cjs'}}));
   fs.writeFileSync(path.join(base,'index.cjs'),'module.exports = (a,b) => a+b;\n');

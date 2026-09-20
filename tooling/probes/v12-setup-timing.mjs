@@ -37,6 +37,10 @@ function copyDir(from, to) {
 const root = fs.mkdtempSync(path.join(os.tmpdir(), `canary-timing-${TASK}-`));
 const project = path.join(root, 'project');
 copyDir(path.join(FIX, 'project'), project);
+// v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+// `<root>/.claude` or the operator's `~/.claude`, so without this the timing run measured a
+// setup that only succeeds on a machine with Claude Code installed.
+fs.mkdirSync(path.join(project, '.claude'), { recursive: true });
 
 const steps = [];
 const time = (label, fn) => {

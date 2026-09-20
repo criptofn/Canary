@@ -53,6 +53,10 @@ const canary = (root, args) => spawnSync(process.execPath, [CLI, ...args], { cwd
 /** A minimal sealed Node project: one real check, so `canary bind` has a plan script to point at. */
 function makeProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-intake-'));
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(root, 'ok.js'), "'use strict';\nprocess.exit(0);\n");
   fs.writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({
     name: 'intake-probe', version: '1.0.0', private: true, scripts: { test: 'node ok.js' },

@@ -102,7 +102,12 @@ describe('1.1 P0 trust-store wiring', () => {
       const r = canary(['setup', '--yes'], root);
       assert.equal(r.status, 2);
       assert.match(r.stdout, /NEEDS ATTENTION/);
-      assert.match(r.stdout, /could not be sealed/);
+      // v1.4 §E: translated for the everyday path — same refusal, same exit code, and it still names
+      // the actionable thing (the store path / CANARY_TRUST_STORE). The raw reason is behind
+      // --verbose. The property this test exists for — setup fails CLOSED and writes no config — is
+      // asserted on the next line and is unchanged.
+      assert.match(r.stdout, /could not store its verification record/);
+      assert.match(r.stdout, /CANARY_TRUST_STORE/);
       assert.ok(!fs.existsSync(cfgFile(root)), 'a failed seal must leave no half-wired config');
     } finally {
       process.env.CANARY_TRUST_STORE = STORE_ROOT;

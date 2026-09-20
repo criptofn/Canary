@@ -27,6 +27,10 @@ after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 function makeProject(name: string): string {
   const root = path.join(TMP, name);
   fs.mkdirSync(path.join(root, '.git'), { recursive: true }); // findRepoRoot needs .git presence
+  // v1.4 — declare the harness in the FIXTURE. `setup` correctly refuses (exit 2) when no
+  // supported harness is detected, and detection reads `<root>/.claude` or `~/.claude`. This
+  // fixture relied on the operator's home directory, so it passed locally and failed on CI.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, scripts: { test: 'node x.js' } }, null, 2));
   return root;
 }

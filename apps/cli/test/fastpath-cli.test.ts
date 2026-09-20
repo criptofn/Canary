@@ -161,8 +161,15 @@ describe('1.1 fast path: sealed declaration, opt-in skipping', () => {
 
     const setup = canary(['setup', '--yes'], root);
     assert.equal(setup.status, 2, setup.stdout);
-    assert.match(setup.stdout, /REFUSED/);
-    assert.match(setup.stdout, /not a check in the sealed plan/);
+    // v1.4 §E: the everyday message is translated — it says what happened and what to do — and the
+    // precise internal reason moved behind --verbose. BOTH halves are asserted below, so neither the
+    // translation nor the detail can disappear silently, and the refusal itself is unchanged.
+    assert.match(setup.stdout, /NEEDS ATTENTION/);
+    assert.match(setup.stdout, /could not record which checks to run/);
+    assert.match(setup.stdout, /canary setup --verbose/);
+    const verbose = canary(['setup', '--yes', '--verbose'], root);
+    assert.equal(verbose.status, 2, verbose.stdout);
+    assert.match(verbose.stdout, /not a check in the sealed plan/);
     assert.ok(!fs.existsSync(path.join(root, '.canary', 'canary.local.json')), 'a refused seal must write no config');
   });
 });

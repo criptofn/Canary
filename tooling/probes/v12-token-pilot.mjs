@@ -53,6 +53,10 @@ const taskText = fs.readFileSync(path.join(fixtures, task, 'TASK.md'), 'utf8');
 try {
   // ── the trusted starting bytes: the fixture project, committed ──
   fs.cpSync(path.join(fixtures, task, 'project'), base, { recursive: true });
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the trusted base was only ever
+  // sealed on a machine that has Claude Code installed.
+  fs.mkdirSync(path.join(base, '.claude'), { recursive: true });
   run(gitExe, ['init', '-b', 'main']); run(gitExe, ['config', 'user.name', 'Pilot']); run(gitExe, ['config', 'user.email', 'pilot@localhost']);
   run(gitExe, ['add', '-A']); run(gitExe, ['commit', '-m', 'baseline']);
   const startingBytes = run(gitExe, ['rev-parse', 'HEAD']).stdout.trim();

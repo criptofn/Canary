@@ -42,6 +42,10 @@ const canary = (args, cwd = REPO) => spawnSync(process.execPath, [CLI, ...args],
 function stage(name) {
   const dest = path.join(TMP, name);
   fs.cpSync(path.join(EXAMPLES, name), dest, { recursive: true });
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the documented example only
+  // onboarded on a machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(dest, '.claude'), { recursive: true });
   const git = (args) => spawnSync('git', args, { cwd: dest, encoding: 'utf8' });
   if (git(['init', '-b', 'main']).status !== 0) return null;
   git(['config', 'user.email', 'examples@canary.local']);

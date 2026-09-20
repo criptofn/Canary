@@ -87,6 +87,11 @@ if (wantTarget !== undefined && wantTarget !== TARGET) {
     + 'or distribute the npm tarball (node tooling/pack.mjs), which is platform-neutral but needs Node 22+.');
 }
 
+if (!seaCapable()) {
+  // WHAT / WHY / WHAT TO DO. The v1.3 failure was `status 9` and nothing else.
+  fail(seaRequirement());
+}
+
 /** PATH with every Node directory removed — the "no Node installed" posture the
  *  standalone build exists to serve. */
 function pathWithoutNode() {

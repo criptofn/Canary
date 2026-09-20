@@ -74,23 +74,24 @@ Canary's vocabulary to use it.
 ## Install
 
 ```bash
-npm install -g ./canary-rn-cli-1.2.0.tgz     # Node.js 22 or newer
-canary --version                             # canary 1.2.0
+npm install -g ./canary-rn-cli-1.3.0.tgz     # Node.js 22 or newer
+canary --version                             # canary 1.3.0
 ```
 
 Download that tarball from the
-[v1.2.0 release](https://github.com/criptofn/Canary/releases/tag/v1.2.0) and check
+[v1.3.0 release](https://github.com/criptofn/Canary/releases/tag/v1.3.0) and check
 it against the published `.sha256`. It is ONE self-contained bundle with **zero
 runtime dependencies**.
 
-> **Honest version note.** `v1.2.0` is the newest *published* artifact. This
-> document describes the **source tree**, which is the `v1.3.0` release candidate:
-> built here, `canary --version` prints `1.3.0`. **No `v1.3.0` artifact has been
-> published** — there is no tarball, tag or GitHub release for it yet, so do not
-> expect the download above to contain every behaviour described below. Build from
-> source for exactly what is described here: `npm ci && npm run build`, then
-> `node apps/cli/dist/src/main.js`. Those bytes are described, with their measured
-> numbers and their known limitations, in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
+> **Honest version note.** `v1.3.0` is the newest *published* artifact: the tag,
+> the GitHub release and the tarball below were all verified against it on
+> 2026-09-20. This document describes the **source tree**, which is the `v1.4.0`
+> candidate; build from source for exactly what is described here:
+> `npm ci && npm run build`, then `node apps/cli/dist/src/main.js`. **No `v1.4.0`
+> artifact has been published** — there is no tarball, tag or GitHub release for
+> it, so the download above does not contain every behaviour described below.
+> v1.3's own bytes are described, with their measured numbers and their known
+> limitations, in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
 
 ## Use your coding agent normally
 
@@ -135,8 +136,11 @@ package manager: npm (package-lock.json found)
 verification plan (from what this project already declares — Canary runs only your own checks; change them in their own files):
   ✓ tests: npm run test
 harness: Claude Code — hook installed into this project
-harness: OpenAI Codex CLI — detected, NOT integrated — no reliable blocking hook exists yet
+harness: OpenAI Codex CLI — Stop hook installed into this project (.codex/hooks.json) — Codex runs a project hook only after you review and trust it once (/hooks), so an untrusted hook gates nothing
 Claude Code will run Canary automatically when the agent finishes a turn here.
+OpenAI Codex CLI will run Canary when a turn ends here — the Stop hook is in .codex/hooks.json.
+  Codex will NOT run it until you review and trust it once: run `codex` in this project, then `/hooks`, and trust the Canary Stop hook. Until you do, a Codex completion is NOT gated.
+both harnesses are wired here: Claude Code gates completions as soon as this setup ends; Codex gates them once you trust the hook above.
 agent tools: registered in .mcp.json — your agent can now ask Canary whether it is done, instead of guessing. Your other MCP servers are untouched; `canary uninstall` removes exactly this entry.
   Claude Code asks you to approve a project's MCP server once — run `claude` there and approve it; until then the server is listed but its tools are not available.
 
@@ -223,7 +227,8 @@ Agents are reported by what they can actually do, not by what we wish they could
 | Agent | Capability |
 |---|---|
 | Claude Code | **GATED** — `canary setup` installs a completion hook, so a failing check blocks the agent |
-| Codex, and any command-line agent | **ADVISORY** — `canary agents install codex` adds a marked, removable block to `AGENTS.md` telling the agent to consult `canary result --json`; it cannot block anything, and it says so |
+| OpenAI Codex CLI | **GATED, after one trust step you take** — `canary setup` installs a `Stop` hook into this project's `.codex/hooks.json` that runs the same checks; Codex runs a project hook only once you have reviewed and trusted it (`/hooks`), so until then the file is written and gates nothing |
+| Any other command-line agent | **ADVISORY** — the machine-readable protocol (`canary result --json`, `canary doctor --json`) tells the agent what Canary knows, and cannot block it. `canary agents install <id>` adds a marked, removable block to `AGENTS.md` saying so |
 
 `canary agents` prints that table for the repository in front of you. Security
 capability is reported the same way: **`LOCAL`** is what this build can honestly
@@ -264,6 +269,15 @@ claims.
 >   makes no such claim;
 > - per task, the everyday saving ranges from **17.1 % lower to essentially parity (+0.02 %)** — it is
 >   not uniform.
+> - **the 92.7 % does not include one recurring cost, and that is stated here rather than left in an
+>   appendix.** The tool server `setup` registers is re-advertised on **every turn** — measured from
+>   the real server over the real transport at **5,726 bytes per turn** (1,475 B of instructions +
+>   4,251 B of tool definitions), of which **1,923 B (33.6 %) is expert-only ceremony**
+>   (`canary_work` / `canary_finish`) that an everyday user never calls
+>   ([`tooling/probes/v13-standing-context.mjs`](tooling/probes/v13-standing-context.mjs)). The
+>   benchmark harness launches the agent without the MCP server, so **the real everyday footprint is
+>   somewhat worse than 92.7 %, not better.** Removing Canary's entire standing footprint would return
+>   about **2 points**, which is why ≤ 75 % is neither claimed nor reachable by trimming Canary itself.
 
 **The arm map — which Canary *shape* costs what.** Same three fixtures, same
 model, same starting bytes, same hidden oracle. **`plain` means not using Canary at

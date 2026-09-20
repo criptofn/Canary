@@ -88,7 +88,7 @@ refused at setup with a message naming it; it is never silently skipped.
 | Agent | Capability | How | Verified by |
 |---|---|---|---|
 | **Claude Code** | **GATED** — a completion can be blocked | `Stop` hook installed by `canary setup`, merged into `.claude/settings.json` without clobbering user entries | the onboarding contract suites (install, idempotent re-setup, uninstall, malformed settings, merged foreign hooks) |
-| **OpenAI Codex CLI** | **ADVISORY** — the agent is told and may ignore it | `canary agents install codex` writes a marked, removable block into the project's `AGENTS.md`; the agent is told to consult `canary result --json` / `canary doctor --json` and never to restate its own test output as proof | `apps/cli/test/agents.test.ts` (idempotency, exact removal, foreign content preserved, refusal to write through a link) |
+| **OpenAI Codex CLI** | **GATED**, after one trust step you take | `Stop` hook installed by `canary setup` into this project's `.codex/hooks.json` (merged, never clobbering user entries), running the same `checkpoint` entry point; **Codex runs a project hook only after you review and trust it once (`/hooks`)**, so until then the hook is written and gates nothing — and that step is printed by `setup` and by `canary agents` rather than left implicit | `tooling/probes/v14-codex-stop-hook.mjs` (wiring, idempotence, merge, removal, the hook contract on stdin/stdout, and a real `codex exec` session), plus `apps/cli/test/codex-wiring.test.ts` |
 | **Any command-line agent** | **ADVISORY** | the machine-readable protocol: `canary result --json`, `canary doctor --json`, and the expert commands | `apps/cli/test/protocol.test.ts` (one JSON object on stdout, prose on stderr, exit code and status identical without `--json`) |
 | **Any CI system** | **ADVISORY** (a non-agent gate) | run `canary doctor` as a build step; it exits non-zero when the sealed checks fail | covered by the `doctor` contract tests |
 
@@ -117,6 +117,33 @@ Two facts a reader should not have to rediscover: the reason reaches the model, 
 this version, not of Canary's payload. `continue:false` looks like the documented alternative and is
 not one here: it neither repairs nor explains. The probe prints the whole table and asserts the
 properties, so it can be re-run when the harness changes rather than trusted from this text.
+
+### The second GATED row, measured the same way
+
+Codex CLI's `Stop` event carries the same contract, so `tooling/probes/v14-codex-stop-hook.mjs`
+measures it the same way, and adds one arm the Claude Code probe does not need: a REAL bounded
+`codex exec` session (measured here on codex-cli 0.154.0). Recorded by that probe:
+
+- the hook command from `.codex/hooks.json` is spawned with the documented `Stop` event on stdin;
+  a passing sealed plan exits 0 with no output (silent allow), a failing one exits 0 with
+  `{"decision":"block","reason":…}` (parsed, and the reason names the FAILING CHECK rather than an
+  authority error), and `stop_hook_active: true` does not block again (the loop guard);
+- in the real session, Canary's hook ran **twice** — once blocking, once with
+  `stop_hook_active: true` — and the harness continued the turn on the first decision, which is the
+  second `Stop` and the reason the model then read the evidence log Canary's reason named.
+
+Two trust layers, both named rather than hidden: the PROJECT must be trusted or Codex does not load
+the project `.codex/` layer at all, and the HOOK itself needs its one-time review (`/hooks`). The
+probe asserts project trust in an isolated `CODEX_HOME` (a temp copy of the operator's credentials —
+nothing the operator owns is modified) and uses `--dangerously-bypass-hook-trust` for the per-hook
+record, the flag's documented purpose. The interactive trust UX stays a human step Canary does not
+perform and does not claim.
+
+One operational fact worth knowing before hand-editing that file: MEASURED, Codex rejects the WHOLE
+`hooks.json` when it carries a top-level field it does not know (`unknown field …`), so every hook in
+it — Canary's included — silently does not exist. Canary writes only `hooks`, preserves whatever else
+it finds (a file it did not author is not Canary's to prune), and `canary doctor` reports when its own
+handler is missing.
 
 ## Commands
 

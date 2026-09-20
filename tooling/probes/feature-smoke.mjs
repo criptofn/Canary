@@ -56,6 +56,11 @@ const commit = (dir, msg) => { git(dir, 'add', '-A'); git(dir, 'commit', '-m', m
 function mk(name, files) {
   const root = path.join(TMP, name);
   fs.mkdirSync(root, { recursive: true });
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this every fixture here that
+  // expects setup to SUCCEED passed only on a machine with Claude Code installed, and the
+  // fixtures that expect a refusal could be refused for the wrong reason on a CI runner.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   for (const [f, text] of Object.entries(files)) {
     const p = path.join(root, f);
     fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -221,17 +226,46 @@ feature('Claude integration: reported as GATED, never as advisory', () => {
   return { note: 'canary agents reports the real table for this repository' };
 });
 
-feature('Codex capability: advisory block written and removable', () => {
+feature('Codex integration: reported as GATED, wired by setup, never as advisory', () => {
+  // v1.4 §C — this feature used to assert the ADVISORY AGENTS.md block for Codex, because
+  // `agents.ts` said "no completion hook exists to gate". That was measured false (codex-cli
+  // 0.154.0: `hooks stable true`, a `Stop` event with the same stdin/stdout contract, and
+  // `v14-codex-stop-hook.mjs` drives it). The assertions are therefore about the STRONGER claim, and
+  // the advisory path is still asserted below for an integration that really is advisory.
   const root = nodeRepo('codex-int');
+  // Declare the harness IN THE FIXTURE: `setup` reads `<root>/.codex` or the operator's `~/.codex`,
+  // so without this the feature would depend on whose machine runs the probe.
+  fs.mkdirSync(path.join(root, '.codex'), { recursive: true });
   assert(canary(['setup', '--yes'], root).status === 0, 'setup must succeed');
-  const i = canary(['agents', 'install', 'codex'], root);
+  const hooksFile = path.join(root, '.codex', 'hooks.json');
+  assert(fs.existsSync(hooksFile), 'setup must install the Codex Stop hook');
+  const handlers = (JSON.parse(fs.readFileSync(hooksFile, 'utf8')).hooks?.Stop ?? []).flatMap((g) => g.hooks ?? []);
+  assert(handlers.filter((h) => /checkpoint$/.test(String(h.command))).length === 1,
+    `expected exactly one Canary Stop handler, got ${JSON.stringify(handlers)}`);
+  const a = canary(['agents'], root);
+  assertMatch(a.stdout, /GATED\s+OpenAI Codex CLI/, 'Codex must be reported with its real capability');
+  assertMatch(a.stdout, /hook installed here/, 'and the hook must be reported as installed HERE');
+  // The one step Canary does not own: an untrusted hook does not run. A GATED row without it would
+  // be a written file read as protection.
+  assertMatch(a.stdout, /one-time review and trust/, 'the trust step must be on the row');
+  const advisory = canary(['agents', 'install', 'codex'], root);
+  assert(advisory.status === 2, 'a GATING integration is installed by setup, not by an advisory command');
+  return { note: 'Stop hook installed into .codex/hooks.json; GATED once trusted; advisory command refused' };
+});
+
+feature('Advisory capability: the marked AGENTS.md block is written and removable', () => {
+  // The advisory mechanism itself still exists and is still exercised — through an integration that
+  // is genuinely advisory, so the claim and the mechanism stay matched.
+  const root = nodeRepo('advisory-int');
+  assert(canary(['setup', '--yes'], root).status === 0, 'setup must succeed');
+  const i = canary(['agents', 'install', 'generic'], root);
   assert(i.status === 0, `install failed:\n${i.stdout}${i.stderr}`);
   const agentsMd = path.join(root, 'AGENTS.md');
   assert(fs.existsSync(agentsMd), 'the advisory block must land in AGENTS.md');
   const text = fs.readFileSync(agentsMd, 'utf8');
   assert(/canary/i.test(text), 'the block must tell the agent to consult Canary');
   assert(/result --json|doctor/i.test(text), 'and name the real commands');
-  const u = canary(['agents', 'uninstall', 'codex'], root);
+  const u = canary(['agents', 'uninstall', 'generic'], root);
   assert(u.status === 0, `uninstall failed:\n${u.stdout}${u.stderr}`);
   assert(!/canary/i.test(fs.readFileSync(agentsMd, 'utf8')), 'uninstall must remove exactly its own block');
   return { note: 'marked, removable, advisory-only — it cannot gate' };

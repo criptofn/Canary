@@ -79,6 +79,10 @@ function measure(name, meta) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-fixture-cfg-'));
   try {
     fs.cpSync(project, root, { recursive: true, filter: (src) => path.basename(src) !== '.git' });
+    // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+    // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+    // machine that has Claude Code installed and failed on every CI runner.
+    fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
     git(root, ['init', '-b', 'main']);
     git(root, ['config', 'user.email', 'fixture-config@canary.local']);
     git(root, ['config', 'user.name', 'Fixture Configuration Probe']);

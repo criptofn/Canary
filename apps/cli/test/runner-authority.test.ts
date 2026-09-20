@@ -49,6 +49,10 @@ after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 function pythonProject(name: string): string {
   const root = path.join(TMP, name);
   fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+  // v1.4 — declare the harness IN THE FIXTURE. `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
   fs.writeFileSync(path.join(root, 'pytest.ini'), '[pytest]\n');
   fs.writeFileSync(path.join(root, 'tests', 'test_ok.py'), 'def test_ok():\n    assert True\n');

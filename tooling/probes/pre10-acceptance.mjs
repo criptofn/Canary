@@ -63,6 +63,10 @@ const acceptPty = (cwd, args, input) => TERMINAL.run(cwd, args, input);
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-accept-'));
 function makeRepo(name) {
   const root = path.join(TMP, name);
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'app.js'), 'module.exports = 1;\n');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, private: true, scripts: TWO }, null, 2) + '\n');

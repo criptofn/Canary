@@ -8,12 +8,103 @@ Numbers quoted here come from executed reporter output, per
 [`docs/TEST-COUNTING.md`](docs/TEST-COUNTING.md): this file records *what
 changed*; the evidence ledgers record *what was observed*.
 
-## [Unreleased]
+## [1.4.0] — release candidate, NOT published
+
+**CANARY v1.4.0 — "last known-gaps release".** Candidate bytes frozen on branch
+`codex/v14-last-known-gaps`. **NOT published:** no tag, no GitHub release, no push.
+The release closes the concrete product gaps that were already known on 2026-09-20; it invents no
+new roadmap. Every gap and its classification is in
+[`docs/V1.4-GAP-AUDIT.md`](docs/V1.4-GAP-AUDIT.md); the frozen-bytes audit and the honest token
+position are in [`docs/RELEASE-1.4.md`](docs/RELEASE-1.4.md).
+
+### Added
+
+- **OpenAI Codex CLI is a MEASURED second completion gate.** `canary setup` now writes a `Stop`
+  hook into the project's `.codex/hooks.json` that runs the same `checkpoint` implementation
+  Claude Code uses — one implementation, no fork, no new authority. This is the first evidence
+  that Canary is a safety engine with thin adapters rather than a Claude Code product: a real
+  `codex exec` session (`codex-cli 0.154.0`) executed the hook **twice** — once blocking
+  (`{"decision":"block","reason":…}`, exit 0), then, with `stop_hook_active:true`, allowing, with
+  the harness **continuing the turn** on Canary's reason. Measured by
+  `tooling/probes/v14-codex-stop-hook.mjs` (15/15 observations). Two measured caveats travel with
+  it: Codex runs a project hook only after a **one-time review and trust** (`/hooks`), so an
+  untrusted hook is written and **gates nothing** — stated on the capability row itself — and
+  Codex **rejects an entire `hooks.json` that carries an unknown top-level field**, so Canary's
+  writer emits only `hooks` and preserves everything else.
+- **`tooling/sea-capability.mjs`** — the single-executable build now knows, before spawning,
+  whether the running Node can perform it, and refuses with WHAT/WHY/WHAT TO DO instead of the
+  bare `status 9` that hid a CI defect for two releases.
+- **`docs/TROUBLESHOOTING.md`** and a **bug-report issue template** that asks for the four
+  JSON-envelope commands rather than logs, so a report is diagnosable without pasting source.
+
+### Changed
+
+- **The published everyday token claim now states what it excludes.** The 92.7 % figure was
+  measured with the agent launched **without** the MCP server, so it omits a standing cost paid
+  **every turn**: 5,726 bytes (1,475 B instructions + 4,251 B tool definitions), of which 1,923 B
+  is expert-only ceremony. `README.md` now says plainly that **the real everyday footprint is
+  somewhat worse than 92.7 %, not better**, and that removing Canary's entire standing footprint
+  would return about 2 points — which is why ≤ 75 % is not claimed.
+- **Everyday-path messages are translated, not weakened.** `setup`'s trust-store refusal, its
+  seal refusal and `result` no longer open with internal vocabulary (`REFUSED — <raw throw>`,
+  "sealed in the trust store", "no sealed checks, no proof"); the last-resort handler no longer
+  prints a bare `ERROR:`. Every message keeps its **exact exit code**, its factual content and its
+  actionable next step, and the internal detail moved behind `--verbose`. On the paths where a
+  test or an operator workflow parses the text (`unbound: <digest>`, `available to bind:`), the
+  lines are deliberately left byte-exact.
+- **Discovery now says what it did.** When the universal adapter finds two equally-anchored checks
+  it deliberately refuses to choose and returns one clarification line; `setup` used to discard
+  that line and print a generic refusal. It is printed before the verdict now, and both no-check
+  refusals name the **universal contract** (Makefile / Taskfile / Justfile, a shipped `gradlew` or
+  `mvnw`, configured CMake/Meson/Zig/Swift/Elixir/Crystal/Rake/Composer/PHPUnit, or a check the
+  project's CI already runs) instead of understating what Canary reads. **Discovery still declares;
+  authority still does not move** — binding remains an operator act in `package.json` `canary`.
+
+### Fixed
+
+- **CI: five distinct defects, root-caused, four fixed and one made explicit.**
+  - `standalone` failed on all three OSes with `node --build-sea failed (status 9)` because the job
+    pinned **`node-version: 22`** and `--build-sea` was **added in Node v25.5.0** (Node's own
+    History table). The job was asking an incapable runtime to build the artifact and then
+    reporting the artifact as broken. Pinned to 26.3.0 — the version this workflow's `golden-proof`
+    job already runs.
+  - Three test files asserted `canary setup` exits 0 while their fixtures never declared a harness;
+    `detectHarnesses` reads `<root>/.claude` **or the operator's `~/.claude`**, so they passed on a
+    developer machine and failed on every runner. **The same defect was in the benchmark harness
+    and 32 probe files.** All fixtures now declare their own harness, and the fix was verified
+    against a **discrimination control**: with only the `.claude` line removed, the same suites fail
+    with "no supported AI harness detected"; with it, they pass — in both a normal and an empty
+    `HOME`.
+  - `confined-activation` failed all five of its suites (~50 red lines) off Windows because a
+    top-level `before` hook asserted `process.platform === 'win32'`. It is now an explicit
+    `{ skip }` carrying the same reason string: node:test reports it as **skipped, never passed**,
+    the guard is kept so the suite still fails loudly if the skip is ever removed, and no assertion
+    changed.
+  - `universal-project` expected `gradlew test` where the product correctly returns `./gradlew test`
+    on POSIX (`universal.ts:451`); `provider.test.ts` asserted the Windows privileged-step ids
+    against the **host's** plan (and threw on Linux, where the Linux lifecycle has no
+    `enroll-worker`). Both now assert the host-correct values, and the provider test covers the
+    Linux `egress-policy` step it previously did not.
+  - The **Windows core leg** was cancelled by its 30-minute cap on every push. Measured: the same
+    commit and command take ~80 s on ubuntu, while on the GitHub-hosted Windows runner individual
+    tests stalled for **92 s – 24 min** against **115 ms – 2.2 s** for the same tests on a developer
+    Windows machine. Classified **HOST LIMITATION** (not a product or test defect), documented in
+    the workflow with that profile, and given a budget that lets the leg **run to completion and
+    report a named verdict** instead of being cancelled. No assertion was skipped to make it green.
+- **Two stale public statements that had become false.** `README.md` still told readers that
+  `v1.2.0` was the newest published artifact and that **no `v1.3.0` artifact existed** — v1.3.0 was
+  tagged, released and verified on 2026-09-20; the Install block now points at
+  `canary-rn-cli-1.3.0.tgz` and the release note says what is true. `AGENTS.md` and
+  `apps/cli/src/agents.ts` described Codex as having **"no reliable blocking hook exists yet"** —
+  stale prose that hid a mechanism which exists, and a stale apology is as wrong as an overclaim.
 
 ## [1.3.0] — 2026-09-20
 
-**Prepared, not published.** The bytes below are the release candidate; nothing is tagged,
-pushed or published until the repository owner authorizes it.
+**Published 2026-09-20.** Tag `v1.3.0` → `540393a8d3d964102aa4b2859445a1623abac9a2`, with the
+GitHub release [`v1.3.0`](https://github.com/criptofn/Canary/releases/tag/v1.3.0) carrying
+`canary-rn-cli-1.3.0.tgz` and its `.sha256`. (This note replaces the pre-release wording
+"Prepared, not published", which stopped being true when the release was cut; the numbers below
+are unchanged.)
 
 Canary v1.3 makes the everyday path the ordinary way to use Canary: set it up **once**, then
 work normally and let the completion gate run itself. It adds no authority to any worker,

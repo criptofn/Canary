@@ -57,6 +57,10 @@ const stateOf = (text, name) => {
 };
 
 try {
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(temp, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(temp, 'package.json'), JSON.stringify({
     name: 'mcp-consent', private: true, scripts: { test: 'node greeting.test.cjs' },
   }, null, 2) + '\n');

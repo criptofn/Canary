@@ -251,6 +251,14 @@ const STEPS = [
   // v1.3: the everyday journey, measured end to end — the completion gate's real decisions, the
   // agent-tool registration and its containment, and what the ordinary path refuses to hand a worker.
   ['v1.3 the everyday journey (setup -> completion gate -> agent tools)', process.execPath, ['tooling/probes/v13-journey-baseline.mjs'], {}],
+  // v1.4 Gap C: the SECOND gating adapter, measured rather than documented — the Codex `Stop` hook
+  // written by setup, the hook contract driven exactly as the vendor documents it (stdin event ->
+  // stdout decision, pass -> silent allow, fail -> parsed block, loop guard), and one real bounded
+  // `codex exec` session in which Codex executes the hook and continues the turn on its decision.
+  // SKIP-aware: a host with no codex CLI, or with no Codex credentials, cannot run the last arm and
+  // says so with explicit SKIP lines — a SKIP is never a PASS, and `gatingMeasured` in the capability
+  // table is exactly what that arm is evidence for.
+  ['v1.4 codex stop hook (a second measured completion gate)', process.execPath, ['tooling/probes/v14-codex-stop-hook.mjs'], {}],
   // v1.3: the AGENT side of the integration — `claude mcp list` proves the agent reads Canary's entry
   // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
   // SKIP is never a pass.
@@ -462,6 +470,10 @@ const SKIP_AWARE = new Set([
   // text-grammar half is still covered by the comparator unit tests.
   'probe: pytest observation channel (shipped plugin bytes, real run)',
   '1.1 Phase 2 pytest channel WIRING (real recorder round path)',
+  // v1.4: the Codex end-to-end arm needs a runnable, AUTHENTICATED codex CLI (and
+  // the wired/protocol arms run regardless). Where either is absent the probe prints
+  // explicit SKIP lines and exits 3 — the host bound is named, never counted as PASS.
+  'v1.4 codex stop hook (a second measured completion gate)',
 ]);
 const results = []; // [label, 'PASS'|'SKIP'|'FAIL', note]
 for (const [label, cmd, args] of STEPS) {

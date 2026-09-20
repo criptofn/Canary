@@ -238,6 +238,10 @@ try {
   }
 
   // ── trusted fixture: a sealed project, a confined workspace, an outside target ──
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the trusted base was sealed
+  // only on a machine that has Claude Code installed and the whole audit failed on a CI runner.
+  fs.mkdirSync(path.join(base, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(base, 'package.json'), JSON.stringify({ name: 'git-audit', scripts: { test: 'node test.cjs' } }));
   fs.writeFileSync(path.join(base, 'test.cjs'), 'require("node:assert/strict").equal(1,1);');
   for (const cwd of [base, outside]) {

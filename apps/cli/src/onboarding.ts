@@ -109,6 +109,22 @@ export function selfArgv(args: readonly string[]): string[] {
 export const CONFIG_DIR = '.canary';
 const CONFIG_FILE = 'canary.local.json';
 const CHECKPOINT_FILE = 'last-checkpoint.json';
+/**
+ * v1.4 Gap C — the project-local Codex hook layer.
+ *
+ * The vendor reference (learn.chatgpt.com/docs/hooks, read 2026-09-20) documents hooks at
+ * `<repo>/.codex/hooks.json` (or inline `[hooks]` in `<repo>/.codex/config.toml`), with the SAME
+ * three-level shape Claude Code uses (event → matcher group → handlers) and the SAME `Stop`
+ * contract Canary already implements: JSON on stdout, `{"decision":"block","reason"}` keeps the
+ * agent going, exit 0 with no output is success, and `stop_hook_active` says whether this turn was
+ * already continued. So the wiring — not the verification — is what this adds.
+ */
+const CODEX_DIR = '.codex';
+const CODEX_HOOKS_FILE = 'hooks.json';
+/** Codex shows this while the hook runs; it must say what is happening in plain words. */
+const CODEX_STATUS_MESSAGE = "Canary is running this project's sealed checks";
+/** Same 30-minute ceiling as the Claude Code Stop hook: a slow project suite must not be cut off. */
+const CODEX_HOOK_TIMEOUT_SECONDS = 1800;
 /** M9: exported — evidence storage is protected authority bytes (§9). */
 export const EVIDENCE_DIR = 'evidence';
 const CLAIMS_FILE = path.join('claims', 'latest.json');
@@ -120,13 +136,19 @@ const EVIDENCE_KEEP = 10;
 const RAW_CAP = 256 * 1024;
 /** A file Canary wrote into the repository, and WHICH KIND of entry it owns there. The kind decides
  *  how uninstall prunes it: hook entries are matched by command string, MCP server entries by their
- *  argv signature. Legacy configs carry no kind and are hooks by construction. */
-export interface TouchedFile { path: string; created: boolean; kind?: 'hooks' | 'mcp' }
+ *  argv signature, and a Codex hook by the command strings recorded for ITS file specifically.
+ *  Legacy configs carry no kind and are Claude Code hooks by construction. */
+export interface TouchedFile { path: string; created: boolean; kind?: 'hooks' | 'mcp' | 'codex-hooks' }
 export interface CanaryConfig {
   version: string; installedAt: string; pm: string; plan: PlanStep[];
   cliPath: string; hookCommand: string;
   /** every command string ever installed here — uninstall matches exactly these */
   hookCommands: string[];
+  /** v1.4 §C: every command string ever installed into THIS project's `.codex/hooks.json`.
+   *  Deliberately a SEPARATE list from `hookCommands`: the two harnesses are wired into two
+   *  different files, and a file may only be pruned by the record that names it. Absent on configs
+   *  written before v1.4, which simply means "no Codex entry is owned here". */
+  codexHookCommands?: string[];
   /** v1.3: every MCP server argv signature ever written here, serialized — uninstall and re-setup
    *  match exactly these, so a key Canary did not write is never pruned or replaced. Absent on
    *  configs written before v1.3, which simply means "no MCP entry is owned here". */
@@ -159,17 +181,38 @@ export function findRepoRoot(startDir: string): string | null {
 }
 
 export interface HarnessInfo { name: string; label: string; supported: boolean; action: string }
-export function detectHarnesses(root: string): { found: HarnessInfo[]; integrable: HarnessInfo | null } {
+export function detectHarnesses(root: string): { found: HarnessInfo[]; integrable: HarnessInfo | null; integrables: HarnessInfo[] } {
   const found: HarnessInfo[] = [];
   const claudeDir = fs.existsSync(path.join(root, '.claude')) || fs.existsSync(path.join(os.homedir(), '.claude'));
   if (claudeDir) {
     found.push({ name: 'claude-code', label: 'Claude Code', supported: true, action: 'hook installed into this project' });
   }
-  const codex = fs.existsSync(path.join(os.homedir(), '.codex')) || hasExe('codex');
+  /**
+   * v1.4 Gap C — CODEX IS A REAL GATING ADAPTER NOW, and this line used to say the opposite.
+   *
+   * MEASURED (this host, 2026-09-20): `codex --version` → `codex-cli 0.154.0`; `codex features list`
+   * → `hooks  stable  true`; the CLI exposes `--dangerously-bypass-hook-trust`; and the vendor's hook
+   * reference documents a `Stop` event whose contract is the SAME one Canary already implements for
+   * Claude Code — JSON on stdout, `exit 0` with no output means "continue", `{"decision":"block",
+   * "reason":…}` makes the harness CONTINUE the turn with that reason as the next prompt, and
+   * `stop_hook_active` says whether this turn was already continued by `Stop` (the loop guard).
+   * The previous wording here ("no reliable blocking hook exists yet") was therefore stale prose, and
+   * a stale apology is just as wrong as an overclaim: it hid a mechanism that exists.
+   *
+   * Detection: the user layer (`~/.codex`), the CLI on a trusted directory, or a PROJECT `.codex/`
+   * layer — the last one is exactly the "project-local hooks" source the vendor documents, and it is
+   * what makes a fixture with a `.codex/hooks.json` a Codex project on ANY host.
+   *
+   * The action string carries the one thing a user must know BEFORE trusting the word "gated":
+   * Codex runs a non-managed hook only after that exact hook definition has been reviewed and
+   * trusted (`/hooks`), so a freshly written hook gates nothing until then.
+   */
+  const codex = fs.existsSync(path.join(root, CODEX_DIR)) || fs.existsSync(path.join(os.homedir(), '.codex')) || hasExe('codex');
   if (codex) {
-    // No reliable block-at-completion hook surface today; an observe-only
-    // integration would fake protection we cannot enforce, so we don't ship it.
-    found.push({ name: 'codex', label: 'OpenAI Codex CLI', supported: false, action: 'detected, NOT integrated — no reliable blocking hook exists yet' });
+    found.push({
+      name: 'codex', label: 'OpenAI Codex CLI', supported: true,
+      action: `Stop hook installed into this project (${CODEX_DIR}/${CODEX_HOOKS_FILE}) — Codex runs a project hook only after you review and trust it once (/hooks), so an untrusted hook gates nothing`,
+    });
   }
   // v1.3 §E: Cursor is DETECTED so the capability table can report it honestly. `supported: false`
   // because nothing about it is measured here — Cursor documents importing Claude Code hooks, which
@@ -180,7 +223,11 @@ export function detectHarnesses(root: string): { found: HarnessInfo[]; integrabl
     found.push({ name: 'cursor', label: 'Cursor', supported: false, action: 'detected, completion-gate mechanism documented by the vendor but UNMEASURED by Canary' });
   }
   const cc = found.find((h) => h.name === 'claude-code') ?? null;
-  return { found, integrable: cc };
+  const cx = found.find((h) => h.name === 'codex') ?? null;
+  // `integrable` stays the FIRST gating-capable harness (Claude Code preferred) so every existing
+  // caller keeps its meaning; `integrables` is the full set, which is what setup needs when both
+  // harnesses are present (`setup` wires every one of them, and says so).
+  return { found, integrable: cc ?? cx, integrables: [cc, cx].filter((h): h is HarnessInfo => h !== null) };
 }
 
 function hasExe(name: string): boolean {
@@ -223,12 +270,18 @@ function validConfigShape(v: unknown): v is CanaryConfig {
       return true;
     })
     && Array.isArray(c.hookCommands) && c.hookCommands.every(isStr)
+    // v1.4 §C: the Codex ownership record is shape-checked here too, so a hand-edited config with a
+    // malformed list is 'corrupt' (the documented self-heal path) rather than a TypeError mid-uninstall.
+    && (c.codexHookCommands === undefined || (Array.isArray(c.codexHookCommands) && c.codexHookCommands.every(isStr)))
     && Array.isArray(c.touched) && c.touched.every((t) => t && typeof t === 'object' && isStr((t as TouchedFile).path) && typeof (t as TouchedFile).created === 'boolean'
       // v1.3 §C: the kind decides HOW uninstall prunes. An unrecognised value is corrupt rather than
       // silently treated as 'hooks' — pruning the wrong way could leave an entry behind while
       // reporting success, which is the one outcome uninstall may never produce.
-      && ((t as TouchedFile).kind === undefined || (t as TouchedFile).kind === 'hooks' || (t as TouchedFile).kind === 'mcp')
-      && (c.touched as TouchedFile[]).filter((x) => x.kind === 'mcp').length <= 1)
+      && ((t as TouchedFile).kind === undefined || (t as TouchedFile).kind === 'hooks' || (t as TouchedFile).kind === 'mcp' || (t as TouchedFile).kind === 'codex-hooks')
+      && (c.touched as TouchedFile[]).filter((x) => x.kind === 'mcp').length <= 1
+      // one Codex hooks file per repository, for the same reason: a second record would be a file
+      // that setup never wrote, and uninstall must not be talked into pruning an unowned one.
+      && (c.touched as TouchedFile[]).filter((x) => x.kind === 'codex-hooks').length <= 1)
     // 1.1 §1: a config may only name a REGISTERED adapter — an unknown id is
     // 'corrupt' (the documented self-heal path fires), never a silent fallback
     // that would run the Node pipeline against a foreign project.
@@ -454,6 +507,97 @@ export function hasCanaryEntry(doc: Record<string, unknown>, owned: Set<string>)
     && (g as { hooks: Array<{ command?: string }> }).hooks.some((h) => owned.has(String(h?.command ?? ''))));
 }
 
+// ---------- v1.4 §C: OpenAI Codex CLI, a SECOND measured completion gate ----------
+//
+// WHY THIS FILE IS WRITTEN AND NOT MERELY DESCRIBED. `apps/cli/src/agents.ts` said Codex was
+// advisory because "no completion hook exists to gate". MEASURED on this host (codex-cli 0.154.0,
+// `codex features list` → `hooks  stable  true`): that is false. Codex's `Stop` hook takes the SAME
+// contract Canary already implements for Claude Code — one JSON object on stdin (`cwd`,
+// `stop_hook_active`, `hook_event_name: "Stop"`, …), JSON on stdout, `{"decision":"block","reason"}`
+// to keep the agent going, exit 0 with no output to let it stop. So this is WIRING, not a second
+// verification implementation: it runs the SAME `checkpoint` entry point, built by the SAME
+// `buildHookCommand`, and it grants no new authority — `cmdCheckpoint` can only report.
+//
+// The same discipline as `installStopHook`, plus two things that file does not need:
+//   - the PROJECT LAYER is containment-checked, not only the file: a linked `.codex/` directory
+//     would otherwise be a landing pad that writes `hooks.json` outside the repository;
+//   - the handler carries a `statusMessage`, because Codex shows one in its UI while a hook runs.
+//
+// TRUST IS THE HARNESS'S, AND CANARY DOES NOT PRETEND TO OWN IT. Codex runs a non-managed hook only
+// after that exact definition has been reviewed and trusted (`/hooks`), and it records trust against
+// the hook's current hash. Canary cannot mint that trust and does not try; `setup` and `canary
+// agents` say so in plain words, because a written-but-untrusted hook gates nothing.
+
+export function codexHooksPath(root: string): string { return path.join(root, CODEX_DIR, CODEX_HOOKS_FILE); }
+
+/**
+ * Install the Stop hook into <root>/.codex/hooks.json.
+ *
+ * Merge, never overwrite: every other event, matcher group, handler and top-level key a user already
+ * has is preserved, and only Canary's OWN previously-recorded commands are pruned first (so a re-run
+ * is idempotent and never stacks). Backs up before any write; refuses on a symlinked file, a linked
+ * project layer, a non-directory `.codex`, invalid JSON, or an unmergeable `hooks` shape — in every
+ * case with the file byte-unchanged.
+ */
+export function installCodexStopHook(
+  root: string, command: string, priorCommands: Set<string>, backupsDir: string,
+): { ok: boolean; touched?: TouchedFile; problem?: string } {
+  const dir = path.join(root, CODEX_DIR);
+  // The file is not the whole story: `.codex` itself can be a junction/symlink to somewhere else.
+  if (containedRealPath(root, dir) === null) {
+    return { ok: false, problem: `${rel(root, dir)} resolves outside this repository (a link?) — Canary will not write the Codex hook through it. Nothing was changed.` };
+  }
+  try {
+    if (fs.existsSync(dir) && !fs.statSync(dir).isDirectory()) {
+      return { ok: false, problem: `${rel(root, dir)} exists but is not a directory — Canary will not replace it. Nothing was changed.` };
+    }
+  } catch (e) {
+    return { ok: false, problem: `could not examine ${rel(root, dir)} (${String(e).slice(0, 140)}) — nothing was changed.` };
+  }
+  const file = codexHooksPath(root);
+  try { assertPlainTarget(file); } catch {
+    return { ok: false, problem: `${rel(root, file)} is a symbolic link — Canary will not write through links. Replace it with a real file, then run setup again. Nothing was changed.` };
+  }
+  const existed = fs.existsSync(file);
+  let doc: Record<string, unknown> = {};
+  if (existed) {
+    const parsed = parseJsonOrNull(file);
+    if (!parsed) return { ok: false, problem: `${rel(root, file)} is not valid JSON — fix it and re-run setup. Nothing was changed.` };
+    doc = parsed;
+  }
+  pruneOwned(doc, new Set([command, ...priorCommands]));
+  // Same refusals as the Claude path: valid JSON with an unmergeable shape is reported in plain
+  // words, never overwritten and never a TypeError.
+  if (doc.hooks !== undefined && (typeof doc.hooks !== 'object' || doc.hooks === null || Array.isArray(doc.hooks))) {
+    return { ok: false, problem: `${rel(root, file)} has a "hooks" section that is not an object — fix it and re-run setup. Nothing was changed.` };
+  }
+  if (doc.hooks !== undefined && (doc.hooks as Record<string, unknown>).Stop !== undefined && !Array.isArray((doc.hooks as Record<string, unknown>).Stop)) {
+    return { ok: false, problem: `${rel(root, file)} has a "hooks.Stop" that is not a list of hook groups — fix it and re-run setup. Nothing was changed.` };
+  }
+  const hooks = (doc.hooks ??= {}) as Record<string, unknown[]>;
+  const stop = (hooks.Stop ??= []) as Array<{ hooks: unknown[] }>;
+  // `timeout` is SECONDS in Codex's schema (default 600). No `matcher`: the vendor ignores one on
+  // `Stop`, and writing a field that means nothing would be decoration.
+  stop.push({ hooks: [{ type: 'command', command, timeout: CODEX_HOOK_TIMEOUT_SECONDS, statusMessage: CODEX_STATUS_MESSAGE }] });
+
+  if (existed) {
+    fs.mkdirSync(backupsDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dest = path.join(backupsDir, `${stamp}-${CODEX_HOOKS_FILE}`);
+    try { assertPlainTarget(dest); fs.copyFileSync(file, dest); } catch (e) {
+      return { ok: false, problem: `could not back up ${rel(root, file)} (${String(e).slice(0, 140)}) — nothing was changed.` };
+    }
+  } else {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  try {
+    writeFileAtomic(file, JSON.stringify(doc, null, 2) + '\n');
+  } catch (e) {
+    return { ok: false, problem: `could not update ${rel(root, file)} (${String(e).slice(0, 140)}) — ${existed ? 'your file was left exactly as it was, and the backup is in place' : 'nothing was created'}; a momentarily locked file (AV/indexer) is the usual cause. Re-run setup.` };
+  }
+  return { ok: true, touched: { path: file, created: !existed, kind: 'codex-hooks' } };
+}
+
 // ---------- v1.3 §C: the MCP server, wired by setup instead of by hand ----------
 //
 // WHY THIS IS INSTALLED AND NOT MERELY DOCUMENTED. The completion gate already tells the agent, at the
@@ -570,9 +714,19 @@ export function installMcpServer(
   return { ok: true, touched: { path: file, created: !existed, kind: 'mcp' } };
 }
 
+/** The command strings Canary owns in ONE kind of hooks file.
+ *
+ *  Two harnesses, two files, two records: `.claude/settings.json` is pruned by the Claude ownership
+ *  list and `.codex/hooks.json` by the Codex one, so a file is only ever stripped of commands this
+ *  installation recorded for THAT file. `hookCommand` (singular) is the pre-`hookCommands` legacy
+ *  field; an MCP entry is owned by its argv signature instead and never reaches here. */
+export function ownedCommandsFor(cfg: CanaryConfig, kind: TouchedFile['kind']): Set<string> {
+  if (kind === 'codex-hooks') return new Set(cfg.codexHookCommands ?? []);
+  return new Set(cfg.hookCommands.length ? cfg.hookCommands : [cfg.hookCommand]);
+}
+
 /** Remove Canary entries from every touched settings file. Returns problems[]. */
 export function uninstallHooks(root: string, cfg: CanaryConfig): { removed: number; problems: string[] } {
-  const owned = new Set(cfg.hookCommands.length ? cfg.hookCommands : [cfg.hookCommand]);
   const ownedMcp = new Set(cfg.mcpArgSignatures ?? []);
   const problems: string[] = [];
   let removed = 0;
@@ -590,9 +744,12 @@ export function uninstallHooks(root: string, cfg: CanaryConfig): { removed: numb
     let pruned = 0;
     try {
       // v1.3 §C: an MCP entry is owned by its argv signature, not by a command string, so the two
-      // kinds prune differently. A legacy touched entry (no kind) is a hooks file by construction.
-      pruned = t.kind === 'mcp' ? pruneOwnedMcp(doc, ownedMcp) : pruneOwned(doc, owned);
+      // kinds prune differently. v1.4 §C: a Codex hooks file has the Claude SHAPE but its own
+      // ownership list. A legacy touched entry (no kind) is a Claude Code hooks file by construction.
+      pruned = t.kind === 'mcp' ? pruneOwnedMcp(doc, ownedMcp) : pruneOwned(doc, ownedCommandsFor(cfg, t.kind));
       if (fs.existsSync(t.path)) {
+        // Deleted only when Canary's entry was the LAST thing in a file Canary created. A file the
+        // user already had — even one that held nothing but our handler — keeps its place on disk.
         if (Object.keys(doc).length === 0 && t.created) fs.rmSync(t.path);
         else writeFileAtomic(t.path, JSON.stringify(doc, null, 2) + '\n');
       }
@@ -1413,7 +1570,17 @@ const isCanaryOwnArtifact = (p: string): boolean =>
   // `.mcp.json` would count as "the change", `planDiscrimination` would find the sealed checks green
   // on the base too, and EVERY repo would report NOT PROVEN the moment it was wired — the verifier's
   // own file mistaken for the author's work, which is the same measurement error this list exists for.
-  || p === MCP_CONFIG_BASENAME;
+  || p === MCP_CONFIG_BASENAME
+  /**
+   * v1.4 §C: setup now writes `.codex/hooks.json` as well, and MEASURED with git here: while that
+   * file is the only untracked thing in the layer, `git status --porcelain` collapses the entry to
+   * `?? .codex/` — the same shape `.claude` has. So the Codex layer is excluded the same way and for
+   * the same measured reason (a freshly wired repository must not read as "the agent changed
+   * something" just because Canary wrote its hook). The ceiling is the one `.claude` already carries:
+   * an edit a worker makes INSIDE the harness layer is harness configuration, not product behaviour,
+   * and it is not counted here.
+   */
+  || p === CODEX_DIR || p.startsWith(`${CODEX_DIR}/`);
 
 /**
  * Paths whose change cannot alter the product's BEHAVIOUR, so there is nothing for a regression check
@@ -2291,25 +2458,50 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     const canaryBlock = rootDisc?.source.canary as { proofs?: unknown; paths?: unknown } | undefined;
     seal = sealPlanAuthority(plan, (rootDisc?.source.scripts ?? {}) as Record<string, unknown>,
       canaryBlock?.proofs, canaryBlock?.paths);
-  } catch (e) { o.say(`REFUSED — ${(e as Error).message}`); return 2; }
+  } catch (e) {
+    // v1.4 §E — this used to be `REFUSED — <raw internal throw>`, which is not a sentence a
+    // person can act on. The refusal, its reason and its exit code are unchanged; the internal
+    // text moves behind --verbose, where the detail belongs.
+    o.detail(`the declaration was refused: ${(e as Error).message}`);
+    o.verdict('NEEDS ATTENTION', 'Canary could not record which checks to run here, so it will not wire this repository. Nothing was changed.', 'run: canary setup --verbose to see the exact declaration that was refused'); return 2;
+  }
 
   o.say(`repo: ${root}`);
   o.say(`package manager: ${pm} (${note})`);
   if (!plan.length) {
-    // The message names REAL accepted declarations per ecosystem; the old text
-    // claimed only test/typecheck/build, which the Node detector never actually
-    // honored (it also accepts bench and e2e).
-    o.verdict('NEEDS ATTENTION', 'this project declares no check Canary recognizes (Node: test / typecheck / type-check / build / bench / e2e scripts; Python: pytest, tox, unittest, or mypy / pyright / ruff; Rust: a Cargo.toml; Go: a go.mod or go.work).', 'declare a check for your stack, then run setup again'); return 2;
+    // v1.4 §D — TWO fixes here, both disclosure, neither discovery.
+    //
+    // (1) The old message listed only Node/Python/Rust/Go and so UNDERSTATED what Canary reads:
+    //     the universal contract (Makefile / Taskfile / Justfile target, a shipped gradlew or
+    //     mvnw wrapper, a configured CMake / Meson / Zig / Swift / Elixir / Crystal / Rake /
+    //     Composer / PHPUnit project, or a check the project's CI already runs) is real
+    //     discovery (universal.ts:404-565). A repository using it must not be told it declares
+    //     nothing recognizable.
+    //
+    // (2) When the universal adapter finds two EQUALLY-anchored checks for one kind it returns
+    //     ZERO checks plus the single line that resolves the situation — it refuses to choose
+    //     (universal.ts:554). That line arrives here as `composed.empty`, and this early return
+    //     used to discard it, leaving the user with a generic refusal and no way to act. It is
+    //     printed first now. Nothing about discovery or authority changes: this only says out
+    //     loud what Canary already knew.
+    for (const e of composed.empty) o.say(`  · declared no checks — ${e}`);
+    o.verdict('NEEDS ATTENTION',
+      'this project declares no check Canary recognizes — a statement about what is DECLARED here, not about your stack. Canary reads: Node package.json scripts (test / typecheck / type-check / build / bench / benchmark / e2e / test:e2e); Python (pytest, tox, unittest, or mypy / pyright / ruff); Rust (Cargo.toml); Go (go.mod / go.work); and the universal contract — a Makefile, Taskfile or Justfile target, a shipped gradlew or mvnw wrapper, a configured CMake, Meson, Zig, Swift, Elixir, Crystal, Rake, Composer or PHPUnit project, or a check your CI configuration already runs.',
+      'point Canary at a check you already have (or declare one for your stack), then run setup again'); return 2;
   }
   o.say('verification plan (from what this project already declares — Canary runs only your own checks; change them in their own files):');
   for (const s of plan) o.say(`  ✓ ${s.kind}: ${stepDisplay(pm, s)}`);
   for (const e of composed.empty) o.say(`  · declared no checks — ${e}`);
 
-  const { found, integrable } = detectHarnesses(root);
+  const { found, integrable, integrables } = detectHarnesses(root);
   for (const h of found) o.say(`harness: ${h.label} — ${h.action}`);
   if (!integrable) {
-    o.verdict('NEEDS ATTENTION', 'no supported AI harness detected (Claude Code is supported today; others get an explicit message, not a fake integration).', 'install Claude Code (or open the project inside it), then run setup again'); return 2;
+    o.verdict('NEEDS ATTENTION', 'no supported AI harness detected (Claude Code and OpenAI Codex CLI are supported today; others get an explicit message, not a fake integration).', 'install Claude Code or OpenAI Codex CLI (or open the project inside one), then run setup again'); return 2;
   }
+  // v1.4 §C: EVERY integrable harness present is wired, not just the first. Both of them run the
+  // same `checkpoint`, so this is two pieces of wiring over one verification implementation.
+  const wantsClaude = integrables.some((h) => h.name === 'claude-code');
+  const wantsCodex = integrables.some((h) => h.name === 'codex');
 
   const hookCommand = buildHookCommand(CLI_ENTRY);
   if (!hookCommand) {
@@ -2323,11 +2515,16 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // config must never teach setup which user entries to strip (S1)
   const prevUsable = !!prev && prev !== 'corrupt' && !untrustedConfigReason(root, prev);
   const priorCommands = new Set<string>(prevUsable ? [...(prev as CanaryConfig).hookCommands, (prev as CanaryConfig).hookCommand] : []);
+  // The Codex ownership record is separate on purpose: `.codex/hooks.json` may only be pruned by
+  // the commands this installation recorded for THAT file.
+  const priorCodexCommands = new Set<string>(prevUsable ? ((prev as CanaryConfig).codexHookCommands ?? []) : []);
   const backupsDir = path.join(root, CONFIG_DIR, 'backups');
   try { ensureCanarySelfIgnore(root); } catch { /* writeConfig below reports a real failure; the stamp just measures what it can */ }
 
-  const res = installStopHook(root, hookCommand, priorCommands, backupsDir);
-  if (!res.ok) { o.verdict('NEEDS ATTENTION', `could not configure Claude Code safely: ${res.problem}`, 'fix that file, then run setup again'); return 2; }
+  const res = wantsClaude ? installStopHook(root, hookCommand, priorCommands, backupsDir) : null;
+  if (res && !res.ok) { o.verdict('NEEDS ATTENTION', `could not configure Claude Code safely: ${res.problem}`, 'fix that file, then run setup again'); return 2; }
+  const codex = wantsCodex ? installCodexStopHook(root, hookCommand, priorCodexCommands, backupsDir) : null;
+  if (codex && !codex.ok) { o.verdict('NEEDS ATTENTION', `could not configure OpenAI Codex CLI safely: ${codex.problem}`, 'fix that file, then run setup again'); return 2; }
   // v1.3 §C: the same agent should be able to ASK Canary instead of guessing. This is what turns
   // "the gate speaks at the end" into "the agent can check while it works", with the same write
   // discipline as the hook above and no new authority (mcp.ts exposes only request tools).
@@ -2344,7 +2541,15 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const baselineId = candidateIdentity(root);
   const ownSettings = rel(root, settingsPath(root)).split(path.sep).join('/');
   const ownMcp = rel(root, mcpConfigPath(root)).split(path.sep).join('/');
-  const baselineStatus = gitWithinRoot(root, ['status', '--porcelain', '--', '.', `:(exclude)${ownSettings}`, `:(exclude)${ownMcp}`]);
+  // v1.4 §C: a Codex hook file Canary just wrote is Canary's own wiring too, so it is excluded from
+  // the stamp for exactly the same reason — otherwise wiring a second harness would mark every repo
+  // dirty at setup and permanently blind the later deletion blame. Excluded only when it was written
+  // in THIS run: a `.codex/hooks.json` the user authored is theirs, and the stamp must see it.
+  const baselineExcludes = [
+    `:(exclude)${ownSettings}`, `:(exclude)${ownMcp}`,
+    ...(codex?.touched ? [`:(exclude)${rel(root, codexHooksPath(root)).split(path.sep).join('/')}`] : []),
+  ];
+  const baselineStatus = gitWithinRoot(root, ['status', '--porcelain', '--', '.', ...baselineExcludes]);
   // M5: whatever plan and script texts are on disk RIGHT NOW are what the
   // setup run is now sealing — they become the sealed authority.
 
@@ -2373,8 +2578,10 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     planAuthority: reuse?.planAuthority ?? seal,
     cliPath: CLI_ENTRY, hookCommand,
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
+    // Absent when Codex is not wired here, so a Claude-only setup keeps writing byte-identical config.
+    ...(codex?.touched ? { codexHookCommands: [...new Set([hookCommand, ...priorCodexCommands])] } : {}),
     mcpArgSignatures: [...new Set([mcpArgSignature(mcpServerArgs(CLI_ENTRY)), ...priorMcp])],
-    touched: [res.touched!, mcp.touched!],
+    touched: [...(res?.touched ? [res.touched] : []), ...(codex?.touched ? [codex.touched] : []), mcp.touched!],
   };
   // 1.1 P0 — the authority gets a SEALED COPY outside the repo before any repo
   // write of this run lands: a store that cannot mint means no config, so the
@@ -2388,7 +2595,11 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     sealRecord(store, { projectId, kind: 'registration', canaryVersion: CANARY_VERSION, payload: { root: fs.realpathSync(root), pm, adapter: composed.scopes.map((s) => s.adapter.id).join('+') } });
     sealRecord(store, { projectId, kind: 'plan-seal', canaryVersion: CANARY_VERSION, payload: cfg.planAuthority });
   } catch (e) {
-    o.verdict('NEEDS ATTENTION', `authority could not be sealed in the trust store (${String((e as Error).message ?? e).slice(0, 140)}) — Canary will not finish wiring a project whose sealed copy it cannot mint. The .canary config was not written.`, `fix the store at ${store.root} (writable by this user, or point CANARY_TRUST_STORE at an empty directory), then run setup again`);
+    // v1.4 §E — translated for the everyday path. Same refusal, same exit code, same actionable
+    // next step; the ordinary user is no longer asked to know what "sealing authority" means.
+    // The raw reason moves behind --verbose, where the detail belongs.
+    o.detail(`the trust store refused the record: ${String((e as Error).message ?? e).slice(0, 140)}`);
+    o.verdict('NEEDS ATTENTION', 'Canary could not store its verification record on this machine, so it will not finish setting this repository up. Nothing was written to the repository.', `make ${store.root} writable by you (or point CANARY_TRUST_STORE at an empty directory), then run setup again`);
     return 2;
   }
   try {
@@ -2405,7 +2616,20 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // deliberately re-sealed, so the marker's debt is paid. Cleared only on success: if the
   // config write threw above, quarantine stands (fail-closed).
   try { fs.rmSync(path.join(root, CONFIG_DIR, QUARANTINE_FILE), { force: true }); } catch { /* absent is the common case */ }
-  o.say(`Claude Code will run Canary automatically when the agent finishes a turn here.${prev && prev !== 'corrupt' ? ' (re-run: existing Canary hook refreshed, no duplicates)' : ''}`);
+  if (wantsClaude) o.say(`Claude Code will run Canary automatically when the agent finishes a turn here.${prev && prev !== 'corrupt' ? ' (re-run: existing Canary hook refreshed, no duplicates)' : ''}`);
+  if (codex?.touched) {
+    /**
+     * v1.4 §C — THE TRUST REQUIREMENT IS SAID OUT LOUD, because it is the difference between a file
+     * that gates and a file that sits there. Codex runs a non-managed hook only after the exact hook
+     * definition has been reviewed and trusted (`/hooks`), and it records that trust against the
+     * hook's current hash — so a freshly written hook does NOT gate anything yet, and Canary cannot
+     * take that step for the user. Saying nothing here would let "setup succeeded" read as
+     * "completions are gated in Codex", which is exactly the overclaim this project exists to prevent.
+     */
+    o.say(`OpenAI Codex CLI will run Canary when a turn ends here — the Stop hook is in ${rel(root, codexHooksPath(root))}.`);
+    o.say('  Codex will NOT run it until you review and trust it once: run `codex` in this project, then `/hooks`, and trust the Canary Stop hook. Until you do, a Codex completion is NOT gated.');
+  }
+  if (wantsClaude && codex?.touched) o.say('both harnesses are wired here: Claude Code gates completions as soon as this setup ends; Codex gates them once you trust the hook above.');
   // v1.3 §C: say plainly that a SECOND file was written, and what the agent gets from it. Silence
   // about a file Canary just added to someone's repository would be the wrong kind of invisible.
   o.say(`agent tools: registered in ${rel(root, mcpConfigPath(root))} — your agent can now ask Canary whether it is done, instead of guessing. Your other MCP servers are untouched; \`canary uninstall\` removes exactly this entry.`);
@@ -2471,7 +2695,12 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
      */
     const unbound = unboundRequirements(root, cfg);
     if (unbound.unbound.length > 0 && !unbound.subjective) {
-      o.say(`note: ${unbound.unbound.length} registered requirement(s) have NO sealed proof, so the checks above cannot measure them.`);
+      // v1.4 §E — the summary sentence is translated for the everyday path (same fact, same exit
+      // code 0, same operator decision). The two lines BELOW it are left byte-exact on purpose:
+      // `unbound: <digest>` and `available to bind:` are parsed by
+      // tooling/probes/v12-requirement-unbound.mjs, and a message an operator workflow reads is a
+      // contract, not prose.
+      o.say(`note: you registered ${unbound.unbound.length} requirement(s) that no check here measures yet, so finishing will be reported as NOT PROVEN until one does.`);
       for (const req of unbound.unbound) o.say(`  unbound: ${req.digest}`);
       o.say(`  sealed plan script(s) available to bind: ${unbound.planScripts.length > 0 ? unbound.planScripts.join(', ') : '(none)'}`);
       o.say('  the wiring here is ready, but the TASK is not: bind each digest (package.json "canary" proofs) and re-run setup. Until then `canary doctor` will say NOT PROVEN — that is the same fact, not a second problem.');
@@ -2558,13 +2787,16 @@ function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean)
     if (!doc) { problems.push(`${rel(root, t.path)} is not valid JSON — fix it`); continue; }
     // v1.3 §C: an MCP entry is ours by argv signature, not by a command string; a file that is fine
     // for the hook check is not evidence about the server entry, so each kind asks its own question.
+    // v1.4 §C: the Codex hooks file has the same SHAPE as the Claude one but its own ownership list.
     const present = t.kind === 'mcp'
       ? hasMcpEntry(doc, new Set(cfg.mcpArgSignatures ?? []))
-      : hasCanaryEntry(doc, new Set(cfg.hookCommands));
+      : hasCanaryEntry(doc, ownedCommandsFor(cfg, t.kind));
     if (!present) {
       problems.push(t.kind === 'mcp'
         ? `Canary's agent tools are no longer registered in ${rel(root, t.path)} — the agent cannot ask Canary whether it is done; re-run: canary setup`
-        : `Canary's hook is no longer registered in ${rel(root, t.path)} — nothing will run automatically; re-run: canary setup`);
+        : t.kind === 'codex-hooks'
+          ? `Canary's Codex Stop hook is no longer registered in ${rel(root, t.path)} — Codex completions are not gated; re-run: canary setup`
+          : `Canary's hook is no longer registered in ${rel(root, t.path)} — nothing will run automatically; re-run: canary setup`);
     }
   }
   return problems;
@@ -2658,7 +2890,7 @@ export function gatingHookInstalled(root: string): boolean {
     if (t.kind === 'mcp') return false;
     if (!fs.existsSync(t.path)) return false;
     const doc = parseJsonOrNull(t.path);
-    return doc !== null && hasCanaryEntry(doc, new Set(cfg.hookCommands));
+    return doc !== null && hasCanaryEntry(doc, ownedCommandsFor(cfg, t.kind));
   });
 }
 
@@ -3446,7 +3678,7 @@ export function cmdResult(rawArgs: string[]): number {
   o.context({ root });
   const cfg = readConfig(root);
   if (cfg === 'corrupt') { o.verdict('NOT CONNECTED', "Canary's local config (.canary/canary.local.json) is unreadable, so nothing here can be reported as its state.", 'run: canary setup --yes (rewrites it; your other settings are untouched)'); return 2; }
-  if (!cfg) { o.verdict('NOT CONNECTED', `${root} is a git repository but Canary was never set up here — no sealed checks, no proof, no result.`, 'when you want protection here: canary setup --yes'); return 2; }
+  if (!cfg) { o.verdict('NOT CONNECTED', `${root} is a git repository, but Canary is not set up here yet — so there is nothing to report and nothing has been checked.`, 'when you want verification here: canary setup --yes'); return 2; }
   const distrust = untrustedConfigReason(root, cfg);
   if (distrust) { o.verdict('NOT CONNECTED', `Canary found a local config it does not trust (${distrust}) — it will not report results from it.`, 'run: canary setup --yes (rewrites it as this machine\'s own)'); return 2; }
   const problems = readOnlyProblems(root, cfg, false); // state only: no commands, no liveness spawn
@@ -3501,11 +3733,17 @@ export function cmdAgents(rawArgs: string[]): number {
 
   const found = new Set(detectHarnesses(root).found.map((h) => h.name));
   const advisory = hasAdvisory(root);
+  // v1.3, slice 1 — "is Canary's hook installed HERE?" is a different question from "is the agent
+  // present?", and it is the one a protection claim needs. Computed once, used by the rows below.
+  const wired = gatingHookInstalled(root);
   const integrations: ProtocolIntegration[] = AGENT_INTEGRATIONS.map((a) => ({
     id: a.id,
     label: a.label,
     gating: a.gating,
     ...(a.gatingMeasured === undefined ? {} : { gatingMeasured: a.gatingMeasured }),
+    // v1.4 §C: the trust step is reported on the SAME row as the capability, and only while the hook
+    // is actually installed here (before that there is nothing to trust, and the row already says so).
+    ...(a.gatingNeedsTrust !== undefined && wired ? { gatingNeedsTrust: a.gatingNeedsTrust } : {}),
     detected: a.id === 'generic' ? true : found.has(a.id),
     ...(a.gating || a.gatingMeasured === false ? {} : { advisoryInstalled: advisory }),
     summary: a.summary,
@@ -3514,7 +3752,7 @@ export function cmdAgents(rawArgs: string[]): number {
 
   if (mode !== null) {
     const advisoryIds = AGENT_INTEGRATIONS.filter((a) => !a.gating).map((a) => a.id).join(', ');
-    if (id === undefined) { o.verdict('NEEDS ATTENTION', `agents ${mode} needs an integration id.`, `advisory integrations: ${advisoryIds} (example: canary agents ${mode} codex)`); return 2; }
+    if (id === undefined) { o.verdict('NEEDS ATTENTION', `agents ${mode} needs an integration id.`, `advisory integrations: ${advisoryIds} (example: canary agents ${mode} generic)`); return 2; }
     const integration = AGENT_INTEGRATIONS.find((a) => a.id === id);
     if (!integration) { o.verdict('NEEDS ATTENTION', `"${id}" is not an agent integration Canary knows.`, `known: ${AGENT_INTEGRATIONS.map((a) => a.id).join(', ')}`); return 2; }
     if (integration.gating) { o.verdict('NEEDS ATTENTION', `${integration.label} is a GATING integration — it is installed by setup, not by an advisory command, so its hook keeps one owner.`, 'run: canary setup --yes'); return 2; }
@@ -3524,16 +3762,12 @@ export function cmdAgents(rawArgs: string[]): number {
       res.changed
         ? `advisory integration ${mode === 'install' ? 'installed' : 'removed'} in ${rel(root, res.file)} — it tells the agent to consult Canary before claiming completion, and it is ADVISORY: it cannot block anything.`
         : `nothing changed — the advisory block was already ${mode === 'install' ? 'present' : 'absent'} in ${rel(root, res.file)}.`,
-      mode === 'install' ? 'to confirm the checks run: canary doctor' : 'to reinstall: canary agents install codex');
+      mode === 'install' ? 'to confirm the checks run: canary doctor' : `to reinstall: canary agents install ${integration.id}`);
     return 0;
   }
 
   o.say(`repo: ${root}`);
   o.say('agent integrations (GATED = can block a completion; ADVISORY = the agent is told and may ignore it):');
-  // v1.3, slice 1: "detected" answers "is this agent here?", which is NOT a protection claim. A GATED
-  // integration is only protection once its hook is actually installed in THIS repository, so the row
-  // says which of the two it is and the verdict below is decided by wiring, not by presence.
-  const wired = gatingHookInstalled(root);
   // v1.3 §C: whether the agent can also ASK is a separate, useful fact on the "am I protected?"
   // command. Reported from the same signature-matched evidence the rest of Canary uses.
   const cfgForTools = readConfig(root);
@@ -3548,8 +3782,11 @@ export function cmdAgents(rawArgs: string[]): number {
     // (the agent is told and may ignore it).
     const unmeasured = i.gatingMeasured === false;
     const word = i.gating ? 'GATED   ' : unmeasured ? 'UNMEASURED' : 'ADVISORY';
+    // v1.4 §C: a GATED row whose harness still holds the hook at its own trust gate says so ON THE
+    // ROW. "GATED" with the one remaining human step unstated is how a written file gets read as
+    // protection.
     const extra = i.gating
-      ? ` [${wired ? 'hook installed here' : 'hook NOT installed here'}${wired && toolsRegistered ? ', agent tools registered' : ''}]`
+      ? ` [${wired ? 'hook installed here' : 'hook NOT installed here'}${wired && toolsRegistered ? ', agent tools registered' : ''}${wired && i.gatingNeedsTrust !== undefined ? `; ${i.gatingNeedsTrust}` : ''}]`
       : unmeasured
         ? ` [Canary's completion hook is ${wired ? 'installed here' : 'NOT installed here'} — whether this harness honours it is UNMEASURED]`
         : ` [AGENTS.md block ${advisory ? 'installed' : 'not installed'}]`;
@@ -3577,6 +3814,10 @@ export function cmdAgents(rawArgs: string[]): number {
   if (toolsRegistered) {
     o.say('note: Claude Code holds a project MCP server at "pending approval" until you approve it once in an interactive session — the entry is written; the tools appear after you approve.');
   }
-  o.verdict('CONNECTED', `${gated.map((i) => i.label).join(', ')} can gate completions here — the hook is installed in this repository.`, 'to confirm end to end: canary doctor');
+  // v1.4 §C: the hook is written, and the harness still holds it at ITS gate. This is the one step
+  // Canary cannot take for the user, so CONNECTED is printed with it rather than after it.
+  const trustPending = gated.filter((i) => i.gatingNeedsTrust !== undefined);
+  for (const i of trustPending) o.say(`note: ${i.label} — ${i.gatingNeedsTrust}.`);
+  o.verdict('CONNECTED', `${gated.map((i) => i.label).join(', ')} can gate completions here — the hook is installed in this repository.${trustPending.length > 0 ? ` (${trustPending.map((i) => i.label).join(', ')} gates once the hook is trusted.)` : ''}`, 'to confirm end to end: canary doctor');
   return 0;
 }

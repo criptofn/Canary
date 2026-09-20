@@ -67,6 +67,10 @@ const SOURCE = [
 try {
   fs.mkdirSync(base, { recursive: true });
   fs.mkdirSync(outside, { recursive: true });
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(base, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(outside, 'secret.txt'), 'trusted bytes outside the boundary\n');
   fs.writeFileSync(path.join(base, 'package.json'), JSON.stringify({ name: 'edit-probe', private: true, scripts: { test: 'node -e "process.exit(0)"' } }, null, 2) + '\n');
   run(git, ['init', '-b', 'main', base]);

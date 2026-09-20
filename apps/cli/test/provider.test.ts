@@ -153,11 +153,27 @@ describe('the install lifecycle is explicit, privileged and reversible', () => {
   it('names elevation for exactly the privileged steps and provides a rollback', () => {
     const plan = installPlan({ root: path.join(TMP, 'plan-store') });
     const ids = plan.steps.map((s) => s.id);
-    for (const id of ['worker-identity', 'broker-identity', 'protected-store', 'install-service', 'start-service']) {
+    // v1.4 — `installPlan({root})` builds the plan for THIS HOST, and the two lifecycles are
+    // different: `windowsInstallPlan` (boundary.ts:446) has install-service/start-service and one
+    // step that needs no elevation (enroll-worker), while the Linux plan (boundary.ts:538) has
+    // install-unit/enable-service and NO unprivileged step at all. This test asserted the Windows
+    // ids — including `enroll-worker`, which the Linux plan does not contain — so on Linux it
+    // failed the id check and then threw on the missing step (`undefined.needsElevation`). Every
+    // Linux push was red for a host difference, not a defect.
+    //
+    // The property is now asserted against the lifecycle actually returned, which is strictly more
+    // coverage than before: the privileged set is checked for whichever plan this host builds.
+    const privileged = plan.platform === 'win32'
+      ? ['worker-identity', 'broker-identity', 'protected-store', 'install-service', 'start-service']
+      : ['worker-identity', 'broker-identity', 'protected-store', 'install-unit', 'enable-service', 'egress-policy'];
+    for (const id of privileged) {
       assert.ok(ids.includes(id), `plan must contain ${id}`);
       assert.equal(plan.steps.find((s) => s.id === id)!.needsElevation, true, `${id} must be marked privileged`);
     }
-    assert.equal(plan.steps.find((s) => s.id === 'enroll-worker')!.needsElevation, false);
+    // Where the lifecycle HAS an unprivileged step, it must stay unmarked.
+    if (plan.platform === 'win32') {
+      assert.equal(plan.steps.find((s) => s.id === 'enroll-worker')!.needsElevation, false);
+    }
     assert.ok(plan.rollback.length >= 4, 'a plan without a rollback is not a plan');
     assert.ok(plan.verify.length >= 2);
     assert.ok(plan.postState.some((p) => /hardenedAvailable/.test(p)));

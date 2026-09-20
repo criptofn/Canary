@@ -61,6 +61,10 @@ const record = (id, passed, evidence) => {
 function deployment(name) {
   const dir = path.join(root, name), base = path.join(dir, 'base'), work = path.join(dir, 'work'), store = path.join(dir, 'store');
   fs.mkdirSync(base, { recursive: true }); fs.mkdirSync(work);
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(base, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(base, 'package.json'), JSON.stringify({ name: `alias-${name}`, scripts: { test: 'node test.cjs' } }));
   fs.writeFileSync(path.join(base, 'test.cjs'), 'require("node:assert/strict").equal(1,1);');
   run(git, ['init'], base); run(git, ['config', 'user.name', 'Alias audit'], base);

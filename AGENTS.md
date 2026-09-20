@@ -229,8 +229,9 @@ generated files.
 | Harness | Automatic wiring today | Neutral path |
 |---|---|---|
 | Claude Code | `canary setup` installs a `Stop` hook — a completion can be **blocked** | `AGENTS.md` |
-| OpenAI Codex CLI | detected; **advisory** — `canary agents install codex` writes a marked, removable block into this project's `AGENTS.md` | `AGENTS.md` |
-| Any command-line agent | **advisory** via the machine-readable protocol | `AGENTS.md`, `canary result --json`, `canary doctor --json` |
+| OpenAI Codex CLI | `canary setup` installs a `Stop` hook into this project's `.codex/hooks.json` running the same checks — a completion can be **blocked** once you review and trust that hook (`/hooks`); until then it is written and gates nothing | `AGENTS.md` |
+| Any other command-line agent | **advisory** via the machine-readable protocol | `AGENTS.md`, `canary result --json`, `canary doctor --json` |
 
 `canary agents` prints the real table for the repository in front of you, and
-never reports an advisory integration as if it could gate.
+never reports an advisory integration as if it could gate — nor a gating one
+whose one remaining human step (Codex's hook trust) is still outstanding.

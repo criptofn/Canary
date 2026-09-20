@@ -51,6 +51,10 @@ after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 function project(name: string, files: Record<string, string>): string {
   const root = path.join(TMP, name);
   fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+  // v1.4 — declare the harness IN THE FIXTURE. `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   for (const [rel, text] of Object.entries(files)) {
     const p = path.join(root, ...rel.split('/'));
     fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -211,8 +215,15 @@ describe('the universal contract — discovery is anchored, never conventional-b
   it('a shipped wrapper is DECLARED evidence, a bare build file is only CONVENTION', () => {
     const withWrapper = project('gradle-wrapper', { gradlew: '#!/bin/sh\nexec gradle "$@"\n', 'build.gradle': 'plugins {}\n' });
     const a = discoverUniversalChecks(withWrapper);
+    // v1.4 — the spelling of argv[0] is a HOST fact, not a product fact: a wrapper is
+    // invoked as `./gradlew` on POSIX (there is no `.` on PATH) and as `gradlew` on
+    // Windows (`universal.ts:451`). The Windows spelling used to be hard-coded here, so
+    // this assertion failed on Linux for every push. What the test MEANS is: the command
+    // is the repository's own shipped wrapper plus `test`, and it is anchored DECLARED
+    // rather than CONVENTION — which is what it now asserts, on either host.
+    const wrapper = process.platform === 'win32' ? 'gradlew' : './gradlew';
     assert.deepEqual(a.checks.filter((c) => c.kind === 'tests').map((c) => [c.argv.join(' '), c.anchor]),
-      [['gradlew test', 'declared']], 'the repository ships the wrapper, so it states the command');
+      [[`${wrapper} test`, 'declared']], 'the repository ships the wrapper, so it states the command');
 
     const noWrapper = project('gradle-bare', { 'build.gradle': 'plugins {}\n' });
     const b = discoverUniversalChecks(noWrapper);
