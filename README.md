@@ -273,11 +273,13 @@ Read it this way, because it is the only reading the numbers support:
   above is measured WITHOUT the opt-in per-batch check; see the full benchmark
   below for what that flag does.)
 
-**No configuration here reached the ≤75 % token target.** The best measured shape
-is 92.7 %. A full benchmark of the confined path with the per-batch check enabled
-(replicated on both sides of the cell that dominates its cost) puts it at **95.3 %
-of plain by median, 119.7 % by mean** — about parity, not a saving — with equal
-correctness on every cell that could run at all.
+**The ≤75 % token target is not met in aggregate — but it IS met on two cells, replicated.** The everyday
+shape's best is 92.7 %. A full benchmark of the confined path with the opt-in per-batch check puts it at
+**86.8 % of plain by median, 110.5 % by mean** — about parity, not a saving — with equal correctness on every
+cell that could run at all. Per cell the picture is sharper and more favourable: on the two short bound cells
+it beats the target in **all six replicated runs** (**13.1-36.5 %** and **54.0-73.3 %** of plain), and the
+long stateful cell is the whole reason the aggregate stays above it (120-260 %). Both numbers are stated
+because either one alone hides the other.
 
 Short version, with the full ledgers linked below — and stated the way the
 evidence supports it:
