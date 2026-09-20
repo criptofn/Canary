@@ -273,6 +273,9 @@ const STEPS = [
   // v1.3: the property the invisible candidate/promotion lifecycle exists to provide, attacked directly —
   // a forged green checkpoint record on a repository whose checks fail must not allow a completion.
   ['v1.3 verified bytes (no stored record can produce a pass)', process.execPath, ['tooling/probes/v13-verified-bytes.mjs'], {}],
+  // v1.3: which MCP scope avoids the harness's approval gate — the last measured obstacle to a genuinely
+  // seamless integration. Host-bound: an explicit SKIP where no CLI exists.
+  ['v1.3 mcp scope (which scope avoids the harness approval gate?)', process.execPath, ['tooling/probes/v13-mcp-scope.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
