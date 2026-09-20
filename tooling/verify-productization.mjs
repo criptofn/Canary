@@ -286,6 +286,9 @@ const STEPS = [
   // v1.3: the opt-in per-batch check feedback — runs after a mutating batch, bounded, and never presented
   // as a verdict; and stays out of the way on read-only batches and when nothing is declared.
   ['v1.3 confined check feedback (does the per-batch check behave?)', process.execPath, ['tooling/probes/v13-confin-check.mjs'], {}],
+  // v1.3: can the EVERYDAY path hand the agent its project's check result mid-task? A documented hook field
+  // is not evidence it is delivered, so this measures it with the real CLI. Host-bound: explicit SKIP.
+  ['v1.3 posttool feedback (can the agent be told mid-task?)', process.execPath, ['tooling/probes/v13-posttool-feedback.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
