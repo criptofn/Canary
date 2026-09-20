@@ -23,6 +23,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const claude = path.join(os.homedir(), '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude');
+const repoRoot = path.resolve(import.meta.dirname, '../..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-posttool-'));
 const MARKER = 'CANARY-MIDTASK-MARKER';
 let failures = 0;
@@ -145,6 +146,56 @@ try {
     assert(/expected two, got one/i.test(haystack),
       'the marker arrived but the check\'s own failure text did not, so the model was told "something happened" '
       + 'rather than what failed — which is the part that saves the round trip');
+  });
+
+  // ── D: how much is there to remove on the everyday path? (answered from records, free) ──
+  // The mechanism working is not the same as the mechanism mattering. Before building an everyday feedback
+  // hook, the recorded everyday trials say how much self-checking there is to remove: `stream.commands.checks`
+  // is the number of check commands the MODEL ran itself. If that is small, the lever's ceiling is small.
+  const evidence = path.join(repoRoot, 'tooling/benchmark/results/session-evidence');
+  const guarded = fs.existsSync(evidence)
+    ? fs.readdirSync(evidence).filter((n) => /^v12tok-guarded-.+-guarded-\d+\.json$/.test(n))
+    : [];
+  const rows = [];
+  for (const n of guarded) {
+    try {
+      const d = JSON.parse(fs.readFileSync(path.join(evidence, n), 'utf8'));
+      const turns = d.stream?.turns ?? d.agentResult?.numTurns ?? null;
+      const checks = d.stream?.commands?.checks ?? null;
+      const canary = d.stream?.commands?.canary ?? null;
+      if (typeof turns === 'number' && typeof checks === 'number') rows.push({ n, turns, checks, canary });
+    } catch { /* a malformed record is not this probe's question */ }
+  }
+  console.log(`\nINFO everyday (guarded) records with a usable command ledger: ${rows.length}`);
+  for (const r of rows) console.log(`INFO   ${r.n.replace(/^v12tok-guarded-|\.json$/g, '')}: turns=${r.turns} modelRunChecks=${r.checks} canaryCommands=${r.canary}`);
+
+  check('D1-the-everyday-path-has-little-self-checking-left-to-remove', () => {
+    assert(rows.length > 0,
+      'no guarded record carried stream.commands.checks, so the ceiling of the mid-task lever cannot be '
+      + 'read from the corpus — report it rather than assuming the lever is small');
+    const turns = rows.reduce((a, r) => a + r.turns, 0);
+    const checks = rows.reduce((a, r) => a + r.checks, 0);
+    const share = 100 * checks / turns;
+    console.log(`INFO   ${checks} self-run checks over ${turns} turns = ${share.toFixed(1)}% of turns (the lever's CEILING)`);
+    assert(share < 15,
+      `the everyday agent now runs ${share.toFixed(1)}% of its turns as self-checks. If that has grown, the `
+      + 'mid-task feedback lever has become worth building after all — MEASURED UPDATE 5 closed it at ~8%, '
+      + 'and that conclusion must be re-derived rather than inherited');
+    console.log('INFO   consistent with MEASURED UPDATE 5: mid-task feedback cannot close the gap on this shape');
+  });
+
+  check('D2-no-recorded-everyday-run-called-a-canary-tool', () => {
+    // Second, independent confirmation of the standing-context OPEN finding: the measured everyday arms had
+    // NO MCP server (`--strict-mcp-config` with no `--mcp-config`), so the tool surface's token cost is
+    // UNMEASURED rather than zero.
+    const withLedger = rows.filter((r) => typeof r.canary === 'number');
+    assert(withLedger.length > 0, 'no record carried a canary command count');
+    const called = withLedger.filter((r) => r.canary > 0);
+    assert(called.length === 0,
+      `${called.length} everyday record(s) now call Canary tools (${called.map((c) => c.n).join(', ')}). That `
+      + 'means the measured arms DO load an MCP server, the 92.7% figure now includes the tool surface, and '
+      + 'both the standing-context OPEN finding and the audit must be re-derived');
+    console.log(`INFO   canary commands = 0 across all ${withLedger.length} everyday records — the tool surface is not in that figure`);
   });
 
   console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} v1.3 posttool feedback — mid-task check delivery ${failures === 0 ? 'WORKS' : 'does NOT hold'} on this host`);
