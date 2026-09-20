@@ -51,10 +51,11 @@ npm run verify:productization         # the whole productization surface, ONE co
   process-spawning tests timed out across two runs (`lifecycle`'s descendant sweep ~34 s, the
   `node:test` executor wiring ~33 s, `provenance`'s pristine run 161 s against its own 120 s round
   budget, returning `INFRASTRUCTURE_FAILURE` rather than a verdict). Each of those files passes
-  standalone in seconds, and at concurrency 8 the whole suite is **1095 tests, 1091 pass, 0 fail, 4
-  skipped**. The pin changes scheduling only — never an assertion, a timeout or a threshold — so do
-  not remove it to save CI time; a random red in the release battery is the false-red failure this
-  project exists to prevent.
+  standalone in seconds, and at concurrency 8 the whole suite is **1191 tests, 1187 pass, 0 fail, 4
+  skipped** (measured 2026-09-20 at the v1.3 release candidate; a written-down count goes stale the
+  moment a test is added, so re-measure it rather than trusting this line). The pin changes scheduling
+  only — never an assertion, a timeout or a threshold — so do not remove it to save CI time; a random
+  red in the release battery is the false-red failure this project exists to prevent.
 
 ## Verification workflow authoring (binding for every agent)
 

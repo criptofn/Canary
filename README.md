@@ -431,7 +431,7 @@ Reproduce it:
 ```bash
 npm ci            # lockfile-exact, reproducible install
 npm run build
-npm test          # 1072 tests / 0 failures (offline; symlink-dependent tests skip only when the OS denies link creation)
+npm test          # 1191 tests / 0 failures, 4 host-bound skips (measured 2026-09-20; a skip is never a pass)
 npm run prove     # fresh end-to-end run; PASS requires the committed proof host (36 assertions
                   # executed, zero skips). On any other runtime it honestly exits 2 (INCOMPLETE):
                   # the 22 portable assertions must all hold, the 6 host-exact ones are skipped,
