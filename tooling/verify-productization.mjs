@@ -276,6 +276,10 @@ const STEPS = [
   // v1.3: which MCP scope avoids the harness's approval gate — the last measured obstacle to a genuinely
   // seamless integration. Host-bound: an explicit SKIP where no CLI exists.
   ['v1.3 mcp scope (which scope avoids the harness approval gate?)', process.execPath, ['tooling/probes/v13-mcp-scope.mjs'], {}],
+  // v1.3: the confined worker is launched ONCE and never told a verdict — which is why the "you will be
+  // told what to fix" instruction may not be added there, and why its long-task cost explodes. Pins the
+  // fact AND the cost shape, so the diagnosis cannot drift.
+  ['v1.3 transport feedback (can the confined worker learn a verdict?)', process.execPath, ['tooling/probes/v13-transport-feedback.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],

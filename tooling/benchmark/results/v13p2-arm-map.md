@@ -4,9 +4,15 @@
 the confined transport as *the* Canary arm and never compared the shapes against each other. Doing that
 comparison changes what v1.3 should build, so it is recorded here before anything else is measured.
 
-All three arms run the same fixture, the same model, the same starting bytes and the same hidden oracle,
-with `canary setup --yes` executed for **every** arm (`run-trial.mjs:255`) — so Canary is wired in all of
-them and the difference between `plain` and `guarded` is **one paragraph of instruction**, not wiring.
+All three arms run the same fixture, the same model, the same starting bytes and the same hidden oracle.
+**CORRECTION (v1.3 §22): this file originally said `canary setup --yes` runs for EVERY arm
+(`run-trial.mjs:255`), "so Canary is wired in all of them and the difference between `plain` and `guarded`
+is one paragraph of instruction, not wiring". That is FALSE** — the setup block at `run-trial.mjs:254`
+lists the protected arms and `plain` is not among them (`run-trial.mjs:803` says so again: "the plain arm
+HAS no Canary"). `plain` gets no seal, no Stop hook and no MCP entry, so the ratios below are
+**Canary versus genuinely not using Canary** — which is the comparison the token target asks for. The
+correction strengthens the result and removes an explanation: `plain` was never gated, so "no false done in
+any arm" cannot be credited to a gate that was present everywhere.
 
 | task | `plain` | `guarded` | `workflow` | confined transport |
 |---|---|---|---|---|
