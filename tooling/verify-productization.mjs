@@ -267,6 +267,9 @@ const STEPS = [
   // v1.3: the block rate of the completion gate, read from the stored corpus — the decisive number for
   // whether the <=75% token target is reachable by removing turns. Costs no model tokens.
   ['v1.3 gate cost (how often does the gate refuse, and what would removing it save?)', process.execPath, ['tooling/probes/v13-gate-cost.mjs'], {}],
+  // v1.3: the docs describe the SIMPLER product — the everyday path leads, and the candidate path is
+  // never presented without its measured cost (177.8% vs 92.7%).
+  ['v1.3 doc first path (do the docs still lead with the everyday path?)', process.execPath, ['tooling/probes/v13-doc-first-path.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
