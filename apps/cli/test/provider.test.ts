@@ -179,7 +179,22 @@ describe('the install lifecycle is explicit, privileged and reversible', () => {
     assert.ok(plan.postState.some((p) => /hardenedAvailable/.test(p)));
     // The plan must say how the level is actually produced, so a reader does not
     // infer that running it is what makes HARDENED reachable.
-    assert.ok(plan.verify.some((v) => /v12-confined-caller\.mjs/.test(v)), 'the plan must name the measurement that produces the controls');
+    //
+    // v1.4 — this is a property of the HOST-VERIFIED lifecycle, not of both. The Windows plan
+    // (boundary.ts:501-508) names the confined-caller measurement the controls come from; the Linux
+    // plan's verify list (boundary.ts:586-590) deliberately does NOT, because that path is
+    // `IMPLEMENTED_BUT_HOST_UNVERIFIED` and naming a measured deployment there would be exactly the
+    // overclaim this project refuses. The assertion was unconditional, so it failed on Linux — the
+    // second host-hardcoded assertion in this test, and the one the real CI caught after the first
+    // was fixed. Both halves are now pinned, so the DIFFERENCE between the plans is asserted rather
+    // than assumed.
+    if (plan.platform === 'win32') {
+      assert.ok(plan.verify.some((v) => /v12-confined-caller\.mjs/.test(v)), 'the plan must name the measurement that produces the controls');
+    } else {
+      assert.equal(plan.hostVerified, false, 'the non-Windows lifecycle is host-unverified');
+      assert.ok(!plan.verify.some((v) => /v12-confined-caller\.mjs/.test(v)),
+        'a HOST-UNVERIFIED plan must NOT claim the deployment measurement that produces the controls');
+    }
   });
 
   it('uninstall keeps the sealed authority and says so', () => {

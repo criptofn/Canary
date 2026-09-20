@@ -31,6 +31,13 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+// v1.4 — the Node-capability rule lives in its own module so a deterministic test can
+// exercise it without running this build. MEASURED FAILURE: the extraction was committed
+// WITHOUT this import, so the guard below threw `ReferenceError: seaCapable is not defined`
+// on every host. Local verification missed it because the productization battery does not
+// run this script — it was the real GitHub Actions `standalone` job, on all three OSes, that
+// caught it. A rule that is tested in isolation is not the same as a rule that is WIRED.
+import { seaCapable, seaRequirement } from './sea-capability.mjs';
 
 const CANARY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY = path.join(CANARY, 'apps', 'cli', 'dist', 'src', 'main.js');
