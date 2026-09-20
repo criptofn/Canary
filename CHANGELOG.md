@@ -64,7 +64,10 @@ fixtures, one recorded run per cell, correct in every cell and with no false don
 | expert (`workflow`, candidate ceremony) | 728,564 | 177.8 % |
 
 Per cell the everyday arm was 82.9 %, 100.02 % and 96.1 % of plain — the saving is **not
-uniform**, and one cell is a wash. The **≤ 75 % aggregate target was not met**: the confined
+uniform**, and one cell was technically 0.02 % *above* plain. The exact statement is **7.3 % lower
+token use in aggregate, with individual measured tasks ranging from 17.1 % lower to essentially
+parity (+0.02 %)**; this release does not claim the everyday path is never more expensive on any
+task. The **≤ 75 % aggregate target was not met**: the confined
 replications measured 86.8 % median / 110.5 % mean, and the long stateful cell was repeatedly
 *more* expensive than plain. v1.3 therefore claims only what was measured: on the authored
 everyday benchmark Canary used 92.7 % of plain tokens at equal correctness **and** added an

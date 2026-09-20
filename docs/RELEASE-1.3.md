@@ -46,6 +46,20 @@ with-flag runs. A flag whose sign depends on the task does not become a default.
 Same model (`qwen3.8-flash`), same fixtures, same starting bytes, same hidden oracle, and the CLI's own
 token accounting. One recorded run per cell, correct in every cell, no false done in any arm.
 
+> **The positioning, with its qualification attached.**
+>
+> Canary can cut model-token use by up to **87 %**.
+>
+> On short, well-bounded confined tasks in our replicated experiments, measured savings ranged from
+> roughly **27 % to 87 %**.
+>
+> On the measured authored everyday workflow, Canary used **7.3 % fewer model tokens than Plain in
+> aggregate** at equal measured correctness, while adding independent completion verification.
+>
+> The confined measurements are **experimental** and the fixtures were authored and validated for the
+> `guarded` arm; **87 % is not typical or universal**; and **Canary does not always save tokens** — the
+> ≤75 % aggregate target was not met.
+
 | arm | what it is | model tokens | vs plain | correctness |
 |---|---|---|---|---|
 | `plain` | no Canary at all — untreated control | 409,824 | — | 12/12 · 15/15 · 406/406 |
@@ -60,8 +74,10 @@ token accounting. One recorded run per cell, correct in every cell, no false don
 | bug-sum | 70,070 | 70,083 | 100.02 % (parity) |
 | stateful-replay | 212,777 | 204,454 | 96.1 % |
 
-So the honest description of the everyday path is **parity or slightly better, never worse, plus an
-independent completion gate** — not a uniform discount.
+So the exact statement of the everyday result is **7.3 % lower token use in aggregate, with individual
+measured tasks ranging from 17.1 % lower to essentially parity (+0.02 %)** — plus an independent
+completion gate. It is *not* a uniform discount, and this release does not claim the everyday path is
+never more expensive on any task: bug-sum was 100.02 % of Plain, i.e. technically 0.02 % above it.
 
 **The ≤75 % aggregate target was NOT met.** It *is* met, replicated three times on each arm, on the two
 short bound cells confined mode can execute (13.1–36.5 % and 54.0–73.3 % of plain), but not in aggregate:

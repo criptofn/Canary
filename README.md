@@ -244,6 +244,27 @@ claims.
 
 ## What the benchmarks actually show
 
+> **What it costs, in one paragraph.** Canary can cut model-token use by up to **87 %**.
+>
+> On short, well-bounded confined tasks in our replicated experiments, measured savings ranged from
+> roughly **27 % to 87 %**.
+>
+> On the measured authored everyday workflow, Canary used **7.3 % fewer model tokens than Plain in
+> aggregate** at equal measured correctness, while adding independent completion verification.
+>
+> **The qualification, which is part of the claim, not a footnote to it:**
+>
+> - those confined measurements are **experimental** — the fixtures were authored and validated for
+>   the `guarded` (everyday) arm, so a confined run is a like-for-like experiment *outside* that
+>   configuration, which the harness itself prints on every such run (full caveat below);
+> - **87 % is not typical and not universal.** It is the best pairing in a 3×3 replication of the
+>   single most favourable cell, not an average, and the long stateful task is repeatedly *more*
+>   expensive than Plain under confined transport;
+> - **Canary does not always save tokens.** The ≤75 % aggregate target was not met, and this release
+>   makes no such claim;
+> - per task, the everyday saving ranges from **17.1 % lower to essentially parity (+0.02 %)** — it is
+>   not uniform.
+
 **The arm map — which Canary *shape* costs what.** Same three fixtures, same
 model, same starting bytes, same hidden oracle. **`plain` means not using Canary at
 all**: `canary setup` runs for the protected arms only (`run-trial.mjs:254`, and the
@@ -263,10 +284,13 @@ understated the result: the `plain` arm was never gated.)
 
 Read it this way, because it is the only reading the numbers support:
 
-- **The everyday shape — install once, then use your agent normally — is the only
-  configuration cheaper than working without Canary (92.7 %), at equal
-  correctness, with no false done.** That is the shape this README describes, and
-  the long stateful task does **not** explode on it (17 turns, 96.1 % of plain).
+- **The everyday shape — install once, then use your agent normally — used 7.3 %
+  fewer model tokens than Plain in aggregate (92.7 % of Plain) at equal measured
+  correctness, with no false done.** Per task the measured range is **17.1 % lower
+  to essentially parity (+0.02 %)**: bug-sum was 100.02 % of Plain, i.e. technically
+  0.02 % *above* it. The saving is not uniform and this README does not claim it is.
+  The long stateful task does **not** explode on this shape (17 turns, 96.1 % of
+  Plain).
 - **The ceremony costs more than it saves** (+77.8 %) with identical correctness,
   which is why it is documented here as expert mode rather than the ordinary path.
 - **The confined transport is a trade, not a win**: 2–6× cheaper on short,
