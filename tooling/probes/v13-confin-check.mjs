@@ -128,50 +128,27 @@ try {
     console.log(`INFO   noisy check: ${String(c.summary).length} chars returned, truncated=${c.truncated}`);
   });
 
-  // ── G: `write` now does what its own contract says (v1.3 §25) ──
-  // The description the model reads has always said "write (CREATE a file)", and the tool overwrote
-  // silently. MEASURED: whole-file re-emission was the dominant cost term (`src/api.js`, 979 B on disk,
-  // written NINE times) — the model changing files with the verb that was not for changing them.
+  // ── G: the `write` contract mismatch, MEASURED and REVERTED ──
+  // The description the model reads says "write (CREATE a file)"; the implementation overwrites. That
+  // mismatch was enforced in one round and then REVERTED, because enforcing it measured a 2.9x REGRESSION on
+  // the long fixture (see the record table below). This case pins the CURRENT shape so re-attempting the
+  // enforcement is a deliberate act with the number in hand, not an accident.
   const g1 = drive(project, { operations: [{ op: 'write', path: 'data.txt', text: 'clobber\n' }] }, 'g1');
-  check('G1-write-to-an-EXISTING-path-is-refused-and-names-the-verb-that-works', () => {
-    const first = g1.result?.operations?.[0];
-    assert(first?.error, `write overwrote an existing file instead of refusing: ${JSON.stringify(first)}`);
-    assert(/edit/i.test(String(first.error)),
-      `the refusal does not name \`edit\`, so a caller is told no without being told what to do instead: ${first.error}`);
-    assert(fs.readFileSync(path.join(project, 'data.txt'), 'utf8').trim() !== 'clobber',
-      'the file was changed even though the operation reported an error');
+  check('G1-write-overwrites-on-the-model-facing-path (the enforcement was REVERTED, not forgotten)', () => {
+    assert(g1.result?.operations?.[0]?.result === 'written',
+      `write to an existing path did not succeed (${JSON.stringify(g1.result?.operations?.[0])}). If the `
+      + 'create-only guard is being re-introduced, do it with a measurement: enforcing it produced '
+      + '842,597 tokens / 32 turns against 288,942 / 19 without it on stateful-replay');
+    assert(fs.readFileSync(path.join(project, 'data.txt'), 'utf8').trim() === 'clobber',
+      'write reported success but did not change the file');
+    console.log('INFO   known mismatch, deliberately unenforced: the description says CREATE, the tool overwrites');
   });
 
   const g2 = drive(project, { operations: [{ op: 'edit', path: 'data.txt', find: '', replace: 'seven\n' }] }, 'g2');
-  check('G2-no-capability-was-lost-the-whole-file-form-of-edit-still-works', () => {
+  check('G2-the-whole-file-form-of-edit-works (so whole-file changes have a cheap verb)', () => {
     assert(g2.result?.operations?.[0]?.result === 'edited', `edit with find:"" failed: ${JSON.stringify(g2.result?.operations?.[0])}`);
     assert(fs.readFileSync(path.join(project, 'data.txt'), 'utf8').trim() === 'seven',
-      'the whole-file replacement did not take effect, so the refusal above removed a capability');
-  });
-
-  const g3 = drive(project, { op: 'write', path: 'data.txt', text: 'trusted\n' }, 'g3');
-  check('G3-the-TRUSTED-one-operation-form-is-UNCHANGED (the security probes keep their meaning)', () => {
-    // If this guard also applied to the bare form, a containment attack that targets an existing path would
-    // be refused HERE first — and an attack battery could then report "blocked" for the wrong reason, hiding
-    // a containment regression. The model-facing path is the one that gets the contract.
-    assert(g3.result === 'written', `the bare trusted form was refused: ${JSON.stringify(g3.doc)}`);
-    assert(fs.readFileSync(path.join(project, 'data.txt'), 'utf8').trim() === 'trusted',
-      'the bare trusted form did not overwrite, so this guard leaked into the security-probe path');
-  });
-
-  const outside = path.join(temp, 'outside-workspace.txt');
-  fs.writeFileSync(outside, 'original\n');
-  const g4 = drive(project, { operations: [{ op: 'write', path: outside, text: 'clobbered\n' }] }, 'g4');
-  check('G4-the-guard-does-NOT-fire-outside-the-workspace (containment keeps its meaning)', () => {
-    // An attack on a path outside the workspace must be refused by the OS BOUNDARY, not by a workflow rule.
-    // If this guard fired first, an attack battery would report "blocked" for the wrong reason and could
-    // hide a containment regression. Here the tool runs unconfined, so the write simply succeeds — which is
-    // precisely the proof that this guard stayed out of the containment question.
-    const first = g4.result?.operations?.[0];
-    assert(first?.result === 'written',
-      `the create-only guard refused a path OUTSIDE the workspace (${JSON.stringify(first?.error ?? first)}). `
-      + 'Containment is the boundary\'s job; this guard must not be able to take credit for it');
-    console.log('INFO   outside-workspace write was left to the boundary, as designed');
+      'the whole-file replacement did not take effect');
   });
 
   console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} v1.3 confined check feedback — runs when it should, stays out of the way otherwise`);
