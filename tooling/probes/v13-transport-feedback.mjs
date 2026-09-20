@@ -156,12 +156,39 @@ if (plain && records.length > 0) {
   console.log('INFO no comparable plain long-task record: B1 reported, not asserted');
 }
 
+check('B2-the-long-run-is-already-near-the-transport-WALL-CLOCK-ceiling', () => {
+  // This is the assertion that killed the per-batch feedback design before it was written, and it exists
+  // so nobody re-proposes it without seeing why. model-transport.ts enforces a hard ceiling and responds
+  // to it by KILLING the run: `model transport timed out; no promotion`. It is not a soft budget — a run
+  // that exceeds it FAILS. The measured long confined runs sit at ~90% of that ceiling, so any design that
+  // adds work per batch (running the project's suite after each of ~23 requests) converts a 280%-cost run
+  // into a timed-out one. The token explosion and the time ceiling are the same problem.
+  const transport = fs.readFileSync(path.join(repo, 'apps/cli/src/provider/model-transport.ts'), 'utf8');
+  const m = /(\d+)\s*\*\s*60000/.exec(transport);
+  assert(m, 'model-transport.ts no longer expresses its timeout as <n> * 60000; re-derive the ceiling '
+    + 'before trusting the headroom below');
+  const ceilingMs = Number(m[1]) * 60000;
+  const durations = records.map((r) => r.doc.durationMs).filter((d) => typeof d === 'number');
+  assert(durations.length > 0, 'no confined record carries durationMs, so this probe would measure nothing');
+  const worst = Math.max(...durations);
+  const share = 100 * worst / ceilingMs;
+  console.log(`INFO transport ceiling ${ceilingMs / 60000} min; worst confined long run ${(worst / 60000).toFixed(2)} min = ${share.toFixed(0)}% of it`);
+  const headroomMin = (ceilingMs - worst) / 60000;
+  console.log(`INFO   headroom: ${headroomMin.toFixed(2)} min`);
+  assert(share >= 80,
+    `the worst confined long run uses only ${share.toFixed(0)}% of the ceiling. If these runs are now far `
+    + 'from the timeout, the argument that per-batch work is unaffordable no longer holds and the withdrawn '
+    + 'design in MEASURED UPDATE 4 should be reconsidered rather than inherited as settled');
+});
+
 console.log('\n--- what this means for the slice ---');
-console.log('INFO The worker cannot be told to stop verifying until something answers it DURING its run.');
-console.log('INFO Not a re-launch loop (A4: nothing failed to retry) and not a description sentence (A2: it'
-  + ' would be false). It is feedback the tool result carries: the project\'s own test result after a batch,');
-console.log('INFO which adds no capability (the worker already execs those tests) and mints no verdict.');
-console.log('INFO workerLaunches stays 1 — so A1 is not the assertion this slice will close, and A3 must keep holding.');
+console.log('INFO Three designs are now ruled out BY MEASUREMENT, not by taste:');
+console.log('INFO   a description sentence  (A2 — it would be false: nothing tells the worker anything)');
+console.log('INFO   a re-launch loop        (A4 — nothing failed, so it would never have fired)');
+console.log('INFO   per-batch suite runs    (B2 — 1.22 min of headroom; it would time the run out, not slow it)');
+console.log('INFO What survives: the cost is one long single-context run, expensive in tokens (quadratic in turns)');
+console.log('INFO AND near its own wall clock. Partitioning a run into shorter ones with fresh context attacks');
+console.log('INFO both terms, and needs the task to be decomposable — which is NOT established. Not proposed.');
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} v1.3 transport feedback — the worker is never told a verdict, and nothing claims otherwise`);
 process.exit(failures === 0 ? 0 : 1);
