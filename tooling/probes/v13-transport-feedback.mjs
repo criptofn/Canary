@@ -72,6 +72,24 @@ check('A2-the-tool-description-makes-NO-promise-the-transport-cannot-keep', () =
   assert(/edit/i.test(src), 'worker-tools.ts no longer offers `edit`');
 });
 
+check('A4-the-worker-SUCCEEDED-first-time-so-a-retry-loop-would-not-have-fired', () => {
+  // This assertion exists to stop a wrong fix being inherited. The first spec for this area proposed a
+  // driver re-launch loop: verify after a worker run, and launch again with the failure report. That is a
+  // robustness feature for FAILURES, not a cure for this explosion — and the records say there was no
+  // failure to recover from. Both long runs passed review and promotion on their single launch. A loop
+  // would have been dead code on exactly the runs whose cost it was proposed to reduce. The cost comes
+  // from verification the worker does INSIDE its one launch because nothing answers it there.
+  for (const { name, doc } of records) {
+    assert(doc.broker?.review === 200 && doc.broker?.promote === 200,
+      `${name} did not pass review+promotion on its single launch (review=${doc.broker?.review}, `
+      + `promote=${doc.broker?.promote}). If a confined run now FAILS and needs retrying, a re-launch loop `
+      + 'has become a real option — re-derive the slice before building it, and update MEASURED UPDATE 4');
+    assert(doc.deliveredCorrect === true,
+      `${name} was not delivered correct; the argument that a retry loop would not have fired does not hold`);
+  }
+  console.log('INFO   both long runs passed review+promote on their ONE launch — the cost is intra-run, not retry-driven');
+});
+
 check('A3-the-confined-tool-surface-cannot-initiate-verification', () => {
   // The feedback loop must NOT be built inside this handler, and this is the assertion that says so.
   // model-transport.ts registers this server INSIDE the confined launch (`--bare --restricted --tools ''`
@@ -138,9 +156,12 @@ if (plain && records.length > 0) {
   console.log('INFO no comparable plain long-task record: B1 reported, not asserted');
 }
 
-console.log('\n--- what this means for the feedback-loop slice ---');
-console.log('INFO The worker cannot be told to stop verifying until something actually verifies for it.');
-console.log('INFO Closing this probe means changing workerLaunches, not editing a description.');
+console.log('\n--- what this means for the slice ---');
+console.log('INFO The worker cannot be told to stop verifying until something answers it DURING its run.');
+console.log('INFO Not a re-launch loop (A4: nothing failed to retry) and not a description sentence (A2: it'
+  + ' would be false). It is feedback the tool result carries: the project\'s own test result after a batch,');
+console.log('INFO which adds no capability (the worker already execs those tests) and mints no verdict.');
+console.log('INFO workerLaunches stays 1 — so A1 is not the assertion this slice will close, and A3 must keep holding.');
 
 console.log(`\n${failures === 0 ? 'PASS' : 'FAIL'} v1.3 transport feedback — the worker is never told a verdict, and nothing claims otherwise`);
 process.exit(failures === 0 ? 0 : 1);
