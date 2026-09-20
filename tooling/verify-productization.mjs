@@ -255,6 +255,9 @@ const STEPS = [
   // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
   // SKIP is never a pass.
   ['v1.3 agent integration (the agent reads what setup wrote)', process.execPath, ['tooling/probes/v13-agent-integration.mjs'], {}],
+  // v1.3: how much internal vocabulary the ORDINARY path speaks, as a ratchet — with the other
+  // direction checked too, so the default cannot be made quieter by deleting what --verbose explains.
+  ['v1.3 everyday vocabulary (a ratchet on the words a user must decode)', process.execPath, ['tooling/probes/v13-everyday-vocabulary.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
