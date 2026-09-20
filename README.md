@@ -244,9 +244,13 @@ claims.
 ## What the benchmarks actually show
 
 **The arm map — which Canary *shape* costs what.** Same three fixtures, same
-model, same starting bytes, same hidden oracle, and `canary setup` executed for
-**every** arm (`tooling/benchmark/run-trial.mjs`), so Canary is wired in all of
-them. What differs is the shape, and one paragraph of instruction:
+model, same starting bytes, same hidden oracle. **`plain` means not using Canary at
+all**: `canary setup` runs for the protected arms only (`run-trial.mjs:254`, and the
+harness says so again at line 803 — "the plain arm HAS no Canary"), so every ratio
+below is Canary against genuine plain, not two Canary configurations differing by a
+prompt. (An earlier version of this README said setup ran for *every* arm and that
+the arms differed by "one paragraph of instruction". That was wrong, and it
+understated the result: the `plain` arm was never gated.)
 
 | task | plain agent | **everyday shape** | ceremony (`work`→`finish`) | confined transport |
 |---|---|---|---|---|
@@ -265,10 +269,15 @@ Read it this way, because it is the only reading the numbers support:
 - **The ceremony costs more than it saves** (+77.8 %) with identical correctness,
   which is why it is documented here as expert mode rather than the ordinary path.
 - **The confined transport is a trade, not a win**: 2–6× cheaper on short,
-  well-specified changes, and much more expensive on the long one.
+  well-specified changes, and much more expensive on the long one. (The column
+  above is measured WITHOUT the opt-in per-batch check; see the full benchmark
+  below for what that flag does.)
 
 **No configuration here reached the ≤75 % token target.** The best measured shape
-is 92.7 %.
+is 92.7 %. A full benchmark of the confined path with the per-batch check enabled
+(replicated on both sides of the cell that dominates its cost) puts it at **95.3 %
+of plain by median, 119.7 % by mean** — about parity, not a saving — with equal
+correctness on every cell that could run at all.
 
 Short version, with the full ledgers linked below — and stated the way the
 evidence supports it:

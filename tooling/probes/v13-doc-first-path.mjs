@@ -93,6 +93,45 @@ check('A4-the-README-labels-the-ceremony-with-its-measured-cost-too', () => {
 // ── the block Canary itself writes into OTHER projects' AGENTS.md ──
 // Same question, different file: this one is generated, so it is checked from a real install rather than
 // from the text in this repository's own AGENTS.md.
+// ── C: TOKEN-CLAIM HONESTY ──
+// Two specific falsehoods have each been written into these documents once, and a reader cannot check
+// either by inspection — one UNDERSTATED Canary's result and one would OVERSTATE it. Both are pinned.
+const DOCS = ['README.md', 'AGENTS.md'];
+const docs = DOCS.map((f) => ({ f, text: fs.readFileSync(path.join(repo, f), 'utf8') }));
+
+check('C1-no-document-claims-setup-ran-for-EVERY-arm', () => {
+  // SELF-TEST FIRST, because a guard that cannot fire is worse than no guard: this is the exact sentence the
+  // README carried until v1.3 §28, and the patterns must reject it.
+  const historical = 'Same three fixtures, same model, and `canary setup` executed for\n**every** arm '
+    + '(`tooling/benchmark/run-trial.mjs`), so Canary is wired in all of them. What differs is the shape.';
+  assert(/canary setup[\s\S]{0,140}?every\*{0,2}\s+arm/i.test(historical),
+    'the C1 pattern no longer matches the falsehood it exists to catch — the historical README sentence '
+    + 'would now pass unnoticed. Restore the pattern before trusting this check');
+  assert(/wired in all of them/i.test(historical), 'the C1 "wired in all of them" pattern has gone slack');
+
+  for (const { f, text } of docs) {
+    assert(!/canary setup[\s\S]{0,140}?every\*{0,2}\s+arm/i.test(text),
+      `${f} says \`canary setup\` ran for EVERY arm. It does not: run-trial.mjs:254 lists the protected arms `
+      + 'and `plain` is not among them (line 803 says so again — "the plain arm HAS no Canary"). The arm map '
+      + 'is therefore Canary against genuine plain, which is the STRONGER reading, and the sentence '
+      + 'understated the result while being false');
+    assert(!/wired in all of them/i.test(text),
+      `${f} says Canary is "wired in all of them"; the plain arm has no Canary at all`);
+  }
+  console.log('INFO   no document claims the plain arm was wired (and the pattern provably rejects the old text)');
+});
+
+check('C2-where-a-document-mentions-the-75-target-it-says-it-was-NOT-met', () => {
+  for (const { f, text } of docs) {
+    if (!/75\s*%/.test(text)) continue;
+    assert(/no configuration[\s\S]{0,160}?75|not (reached|met|achieved)|never reached|did not reach/i.test(text),
+      `${f} mentions the 75 % token target without stating it was NOT met. The measured position is 92.7 % `
+      + 'for the everyday shape and 95.3 % by median for confined mode with the per-batch check. A document '
+      + 'that leaves the target looking achieved is the overclaim this repository exists to prevent');
+    console.log(`INFO   ${f} states the 75 % target as not met`);
+  }
+});
+
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-doc-path-'));
 try {
   fs.writeFileSync(path.join(temp, 'package.json'), JSON.stringify({
