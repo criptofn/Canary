@@ -11,7 +11,11 @@ export const TRANSPORT_TOOL = 'mcp__canary_confined__implement';
 export function modelTransportArgs(store: string, work: string, prompt: string, model: string): string[] {
   const mcp = { mcpServers: { canary_confined: { command: process.execPath,
     args: selfArgv(['provider', 'worker-tools', store, work]),
-    env: { TEMP: os.tmpdir(), TMP: os.tmpdir(), ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '', ANTHROPIC_BASE_URL: '' } } } };
+    env: { TEMP: os.tmpdir(), TMP: os.tmpdir(), ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '', ANTHROPIC_BASE_URL: '' },
+      // v1.3 §23: opt-in per-batch check feedback. The flag must travel through this allowlist — it is the
+      // only environment the tool server receives. It selects whether the worker sees its OWN project's
+      // check output; it grants no capability and changes no authority.
+      CANARY_CONFINED_CHECK: process.env.CANARY_CONFINED_CHECK ?? '' } } };
   return ['--bare', '--restricted', '--tools', '', '--strict-mcp-config', '--mcp-config', JSON.stringify(mcp),
     '--setting-sources', '', '--disable-slash-commands', '--no-chrome', '--no-session-persistence',
     '--permission-mode', 'dontAsk', '--permission-prompts', 'none', '--allowedTools', TRANSPORT_TOOL,
