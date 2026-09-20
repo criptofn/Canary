@@ -32,10 +32,16 @@ const project = (name: string): string => {
 };
 
 describe('1.1 agents: the capability table is honest by construction', () => {
-  it('exactly one integration may claim GATED, and every other says ADVISORY', () => {
+  it('exactly one integration may claim GATED, and every other labels itself honestly', () => {
     assert.deepEqual(AGENT_INTEGRATIONS.filter((a) => a.gating).map((a) => a.id), ['claude-code']);
     for (const a of AGENT_INTEGRATIONS.filter((x) => !x.gating)) {
-      assert.match(a.summary, /ADVISORY/, `${a.id} must label itself advisory`);
+      // v1.3 §E — a non-gating integration must say WHICH KIND of not-gating it is: the agent is told
+      // and may ignore it (ADVISORY), or the vendor documents a mechanism this project has NOT
+      // reproduced (UNMEASURED). The invariant is unchanged and in fact sharpened — an integration may
+      // never claim protection, and an unmeasured mechanism may not be quietly called either a yes or
+      // a no. Silence, "GATED", and a bare "ADVISORY" over an unmeasured mechanism would all be claims.
+      assert.match(a.summary, a.gatingMeasured === false ? /UNMEASURED/ : /ADVISORY/,
+        `${a.id} must label itself honestly`);
     }
   });
 
@@ -45,17 +51,39 @@ describe('1.1 agents: the capability table is honest by construction', () => {
     assert.match(block, /canary doctor --json/);
     assert.ok(block.startsWith(ADVISORY_BEGIN), 'the block must be marked from its first byte');
     assert.ok(block.trimEnd().endsWith(ADVISORY_END), 'the block must be closed by its marker');
+    // v1.3 §A — the instruction that was MEASURED to matter: the `guarded` shape is the only recorded
+    // Canary configuration cheaper than plain (92.7 %), while the ceremony shape cost 177.8 %, at equal
+    // correctness. Both halves are asserted, because the aggressive half alone is the variant that
+    // produced a false done and a false green.
+    assert.match(block, /Verification here is AUTOMATIC/);
+    assert.match(block, /do not repeat a check you have just run/);
+    assert.match(block, /may and should still check/, 'the model keeps the decision to verify');
   });
 
   it('agents --json lists the integrations with their real capability', () => {
     const root = project('listing');
     const r = canary(['agents', '--json', root]);
-    const env = JSON.parse(r.stdout) as { schema: string; command: string; integrations: Array<{ id: string; gating: boolean; detected: boolean }> };
+    const env = JSON.parse(r.stdout) as { schema: string; command: string; integrations: Array<{ id: string; gating: boolean; gatingMeasured?: boolean; detected: boolean }> };
     assert.equal(env.schema, 'canary-status/1');
     assert.equal(env.command, 'agents');
-    assert.deepEqual(env.integrations.map((i) => `${i.id}:${i.gating ? 'GATED' : 'ADVISORY'}`),
-      ['claude-code:GATED', 'codex:ADVISORY', 'generic:ADVISORY']);
+    const label = (i: { gating: boolean; gatingMeasured?: boolean }) =>
+      i.gating ? 'GATED' : i.gatingMeasured === false ? 'UNMEASURED' : 'ADVISORY';
+    assert.deepEqual(env.integrations.map((i) => `${i.id}:${label(i)}`),
+      ['claude-code:GATED', 'codex:ADVISORY', 'cursor:UNMEASURED', 'generic:ADVISORY']);
     for (const i of env.integrations) assert.equal(typeof i.detected, 'boolean');
+  });
+
+  it('v1.3: Cursor is reported as UNMEASURED, never as protection', () => {
+    // MEASURED context for this claim: Cursor's own documentation says it imports Claude Code hooks
+    // (including Stop) and documents no way to remove its native tools. This project has NOT
+    // reproduced the import on a real Cursor install, so the completion-gate question is answered
+    // "unmeasured" — and the row must never read as protection.
+    const root = project('cursor-here');
+    fs.mkdirSync(path.join(root, '.cursor'), { recursive: true });
+    const r = canary(['agents', root]);
+    assert.match(r.stdout, /UNMEASURED Cursor — detected/);
+    assert.match(r.stdout, /whether this harness honours it is UNMEASURED/);
+    assert.doesNotMatch(r.stdout, /GATED\s+Cursor/, 'Cursor must never be reported as gated');
   });
 });
 
@@ -116,5 +144,75 @@ describe('1.1 agents: the advisory integration is marked, idempotent and exactly
     const r = canary(['agents', 'install', 'codex', root]);
     assert.equal(r.status, 2);
     assert.match(r.stdout + r.stderr, /will not write through links/);
+  });
+});
+
+/**
+ * v1.3, slice 1 — DETECTING AN AGENT IS NOT PROTECTING THE REPOSITORY.
+ *
+ * MEASURED (tooling/probes/v13-journey-baseline.mjs): a repository whose `.claude/` held nothing but a
+ * skill file — no settings.json, no hook — got "CONNECTED — Claude Code can gate completions here."
+ * at exit 0 from `agents`, while `status` on the same bytes said NOT CONNECTED and exited 2. The
+ * optimistic answer was the successful one, which is the worst possible arrangement: overclaiming
+ * protection is the failure this project exists to prevent, and detection cannot see it because
+ * `.claude/` existing — or `~/.claude`, present on any machine with Claude Code installed — was the
+ * whole test.
+ */
+describe('v1.3 agents: a detected agent is not a gated repository', () => {
+  it('does not claim a completion can be blocked when no hook is installed', () => {
+    const root = project('claude-no-hook');
+    fs.mkdirSync(path.join(root, '.claude', 'skills', 'demo'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.claude', 'skills', 'demo', 'SKILL.md'), '# a skill, not a hook\n');
+
+    const r = canary(['agents', root]);
+    assert.equal(r.status, 2, `detection alone must not be reported as protection:\n${r.stdout}`);
+    assert.match(r.stdout, /Claude Code — detected/);
+    assert.match(r.stdout, /hook NOT installed here/);
+    assert.doesNotMatch(r.stdout, /CONNECTED/, 'the word CONNECTED is a claim about wiring');
+    assert.match(r.stdout, /canary setup/);
+
+    // and it must agree with the command whose whole job is the wiring question
+    const s = canary(['status', root]);
+    assert.equal(s.status, 2);
+    assert.match(s.stdout, /NOT CONNECTED/);
+  });
+
+  it('the machine channel reports the same fact: hooked means the hook is installed', () => {
+    const root = project('claude-no-hook-json');
+    fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+    const r = canary(['agents', '--json', root]);
+    const env = JSON.parse(r.stdout) as { agent: { hooked: boolean; harnesses: Array<{ id: string; gated: boolean }> } };
+    assert.equal(r.status, 2);
+    // The integration is still GATED (a capability), but this repository is not hooked (a fact).
+    assert.ok(env.agent.harnesses.some((h) => h.id === 'claude-code' && h.gated));
+    assert.equal(env.agent.hooked, false, 'a detected agent with no hook is not a hooked repository');
+  });
+
+  it('after setup installs the hook, both the claim and the machine channel flip together', () => {
+    const root = path.join(TMP, 'claude-hooked');
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({
+      name: 'claude-hooked',
+      scripts: { test: `node "${path.join(REPO, 'tooling', 'test-support', 'fixtures', 'f-pass.js')}"` },
+    }, null, 2));
+    spawnSync('git', ['init'], { cwd: root, encoding: 'utf8' });
+    spawnSync('git', ['config', 'user.email', 'agents@canary.local'], { cwd: root });
+    spawnSync('git', ['config', 'user.name', 'Agents'], { cwd: root });
+
+    const s = canary(['setup', '--yes', root]);
+    assert.equal(s.status, 0, s.stdout + s.stderr);
+    const r = canary(['agents', root]);
+    assert.equal(r.status, 0, r.stdout);
+    assert.match(r.stdout, /hook installed here/);
+    assert.match(r.stdout, /CONNECTED/);
+    const env = JSON.parse(canary(['agents', '--json', root]).stdout) as { agent: { hooked: boolean } };
+    assert.equal(env.agent.hooked, true);
+    // v1.3 §C/§E — the tool registration is announced WITH the one interactive step the harness owns.
+    // MEASURED with the real agent CLI: `claude mcp list` reports Canary's entry as "Pending approval"
+    // until a human approves the project's MCP server, so both surfaces must say so. Without this a
+    // user sees a registered server whose tools never appear and concludes the integration is broken.
+    assert.match(s.stdout, /agent tools: registered in \.mcp\.json/);
+    assert.match(s.stdout, /approve a project's MCP server once/);
+    assert.match(r.stdout, /pending approval/);
   });
 });

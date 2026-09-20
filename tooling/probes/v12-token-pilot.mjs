@@ -141,6 +141,17 @@ try {
     cacheReadTokens: u.cache_read_input_tokens ?? 0, cacheCreationTokens: u.cache_creation_input_tokens ?? 0,
   };
   usage.totalTokens = usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheCreationTokens;
+  /**
+   * v1.3 §29 — DID A MODEL SESSION ACTUALLY HAPPEN?
+   *
+   * The confined transport refuses on an unbound requirement BEFORE spawning anything
+   * (`model-transport.ts:27`), so the CLI exits 3 with no result event and zero tokens. Recording that as
+   * `workerLaunches: 1` made an UNBOUND fixture look like a worker that ran and failed — which is a
+   * different fact, and the wrong one: the benchmark's rule is that unbound fixtures get 0 launches,
+   * 0 worker tokens and NO delivered-correctness credit. Measured across the six-fixture benchmark, the
+   * three refused cells all carry 0 tokens and ~120 ms, and the three that ran all carry >0.
+   */
+  const workerRan = resultEvent !== undefined && usage.totalTokens > 0;
   const turns = resultEvent?.num_turns ?? null;
   const toolRequests = events.filter(e => e.type === 'assistant').flatMap(e => (e.message?.content ?? []).filter(c => c.type === 'tool_use')).length;
 
@@ -184,7 +195,7 @@ try {
     schema: 'canary-token-pilot/1', label, task, arm: 'canary-confined-transport', variant: 'normal',
     model, transport: 'canary provider model-transport (real Claude CLI, real AppContainer, real model)',
     startedAt, finishedAt: new Date().toISOString(), durationMs, startingBytes,
-    requirements, workerLaunches: 1, setup: setupState,
+    requirements, workerLaunches: workerRan ? 1 : 0, refusedBeforeModel: !workerRan, setup: setupState,
     agentResult: { exitCode: code, usage, turns, toolRequests, parseFailure: resultEvent === undefined, costUsd: resultEvent?.total_cost_usd ?? null },
     candidate: { files: changed, visible: candidateVisible, hidden: candidateOracle },
     broker: { review: brokerResult?.review?.status ?? null, promote: brokerResult?.promote?.status ?? null,

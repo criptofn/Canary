@@ -4,15 +4,63 @@
 
 The agent builds. Canary verifies.
 
-Its core rule is:
-
 > **NO PROOF, NO DONE.**
 
 A coding agent saying "done" is not evidence. A green test suite is useful
-evidence — but if those checks do not prove the change, or do not cover the
-stated requirements, Canary reports **NOT PROVEN**.
+evidence — but if those checks **cannot tell your change from the code that was
+already there**, they prove nothing about it, and Canary says `NOT PROVEN`.
 
 > *"Cool diff. Prove that it actually made the project better."*
+
+## What Canary does
+
+Install it once in a repository. Then use your coding agent exactly as you
+already do.
+
+- It **finds your project's own checks** — the `test` / `typecheck` / `build`
+  scripts you already declare, or your ecosystem's own test command — and writes
+  nothing you have to maintain.
+- When the agent says it is finished, Canary **runs those checks itself**, outside
+  the agent's context.
+- If they fail — **or if they are green for a reason that has nothing to do with
+  the change** — it **blocks the completion** and hands back one short, actionable
+  message.
+- It also **answers the agent directly** (an MCP tool, registered for you) when the
+  agent wants to know whether it is done, so it does not have to re-run your suite
+  to find out.
+
+There is no Canary command in the ordinary loop, and you do not have to learn
+Canary's vocabulary to use it.
+
+> **Why you may see one approval prompt — and how to skip it.** Canary registers its
+> agent tools at *project* scope, i.e. a `.mcp.json` in this repository. That is what
+> triggers the prompt: a project-scoped server arrives from a file that a clone or a
+> branch can change without you acting, so Claude Code holds it at `Pending approval`
+> until you approve it once — `claude mcp list` reports
+> `canary: …\main.js mcp - ⏸ Pending approval (run \`claude\` to approve)`. Approve it
+> once and the tools are there. Canary says the same thing at the end of `setup`.
+>
+> **The prompt is about the optional tool server, not about verification.** The
+> completion gate is the `Stop` hook in `.claude/settings.json`, which `setup` installs
+> and which decides every completion; the MCP entry is what lets the agent *ask* Canary
+> a question. So an unapproved entry never means an ungated repository.
+>
+> If you would rather have **no prompt at all**, register the same server at *local*
+> scope instead: it lives in your own Claude Code configuration, which nobody else can
+> write, so no consent gate applies.
+>
+> ```sh
+> claude mcp remove canary -s project
+> claude mcp add -s local canary -- canary mcp
+> ```
+>
+> Both scopes are measured with the real CLI
+> ([`tooling/probes/v13-mcp-scope.mjs`](tooling/probes/v13-mcp-scope.mjs)): project →
+> `pending-approval`, local → `connected`. The trade-off is real: project scope gives a
+> teammate the tools from a clone (each of them approves once), while local scope means
+> each developer runs `canary setup --yes` themselves — which is the documented model
+> anyway. [`tooling/probes/v13-agent-integration.mjs`](tooling/probes/v13-agent-integration.mjs)
+> measures the state rather than assuming it.
 
 **Why isn't this just "run the tests"?**
 
@@ -23,99 +71,107 @@ stated requirements, Canary reports **NOT PROVEN**.
 | "prettier" / "feels faster" was never machine-checkable | subjective duties are a **separate, human act** (`canary accept`, in a terminal) — they can never become a fake technical `PASS` |
 | the only evidence is a test **the worker just wrote** | Canary says so out loud, in the verdict (worker-authored-evidence caveat) |
 
-**Canary checks coding-agent work before completion.** Setup connects your coding
-agent to the project's own checks. For isolated changes the agent registers the
-request, works in a candidate, commits it, and asks Canary to verify and promote.
-Explicitly subjective results need your review of the exact clean committed
-candidate. Acceptance never replaces objective proof.
+## Install
 
-New here? → **[`docs/RELEASE-1.1.md`](docs/RELEASE-1.1.md)** is the 2–4 minute
-overview of the current release, with links into the deep evidence.
+```bash
+npm install -g ./canary-rn-cli-1.2.0.tgz     # Node.js 22 or newer
+canary --version                             # canary 1.2.0
+```
 
-## What's new in v1.1
+Download that tarball from the
+[v1.2.0 release](https://github.com/criptofn/Canary/releases/tag/v1.2.0) and check
+it against the published `.sha256`. It is ONE self-contained bundle with **zero
+runtime dependencies**.
 
-**1 · Language / project support.** Native discovery and toolchain handling for
-**Node / JS / TS**, **Python**, **Rust** and **Go**, plus a **universal
-command-driven project contract** that verifies any other ecosystem honestly
-about what it actually proved (`canary.project.json`, or discovery from the
-commands your CI / Makefile / CMake / Gradle tree already declares).
+> **Honest version note.** `v1.2.0` is the newest *published* artifact. This
+> document describes the **source tree**, which is the `v1.3.0` release candidate:
+> built here, `canary --version` prints `1.3.0`. **No `v1.3.0` artifact has been
+> published** — there is no tarball, tag or GitHub release for it yet, so do not
+> expect the download above to contain every behaviour described below. Build from
+> source for exactly what is described here: `npm ci && npm run build`, then
+> `node apps/cli/dist/src/main.js`. Those bytes are described, with their measured
+> numbers and their known limitations, in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
 
-**2 · Proof discrimination.** The sealed plan is re-run against the **sealed base
-commit**. A check that passes on both sides is not evidence about your change —
-the verdict is `NOT PROVEN`, not `READY`. A required comparison that cannot be
-established (missing module, materialization failure, unavailable execution,
-thrown error) is **UNPROVEN — never an accidental PASS**.
+## Use your coding agent normally
 
-**3 · Requirement coverage.** `canary task --requirement "…"` prints each
-requirement's digest; the operator's `canary bind <script> --requirement "…"`
-attaches it to a check the sealed plan really runs. An objective requirement with
-no bound proof stays `NOT PROVEN` — a green plan is not a proven deliverable.
+```bash
+cd your-repo
+canary setup --yes      # detect the project, seal its checks, wire your agent
+```
 
-**4 · Candidate workflow.** `canary work` opens an **isolated candidate** from a
-frozen base; the worker commits **inside it**; `canary finish` verifies from
-outside and **promotes only when the proof holds**, applying the exact verified
-committed bytes.
+That is the whole first-use path. `setup` prints the checks it found, smoke-runs
+them once, and ends in `READY` — or tells you exactly what it could not do. It
+wires Claude Code automatically (merging with, never overwriting, your existing
+hooks), registers Canary's tools for the agent, and touches nothing else.
 
-**5 · Subjective acceptance.** Technical proof and human judgment are separate.
-Aesthetic or subjective duties cannot be laundered into a technical `PASS`, and a
-human acceptance can never close an objective gap.
+Then just ask your agent for the change. You do not run anything else.
 
-**6 · Agent support.** Claude Code is **GATED** — a completion hook can block it.
-Codex and any other command-line agent are **ADVISORY** (a marked, removable
-`AGENTS.md` block that tells the agent what to run and **cannot block anything**
-— it says so). `canary mcp` exposes the same operations over MCP for generic
-clients. Advisory integrations are never reported as a gate.
+## What Canary actually catches
 
-**7 · Machine interface.** Global `--json`, `canary result --json` (free — it
-writes nothing), and compact failure payloads that name the failing check and
-point at the full log **on disk**, so evidence stays outside the model's context.
+This is the behaviour the whole product exists for, and it is measured end to end
+by [`tooling/probes/v13-journey-baseline.mjs`](tooling/probes/v13-journey-baseline.mjs)
+(section F), which drives the real completion hook:
 
-**8 · Security level.** `LOCAL` is the honest current capability, with documented
-same-UID limits. The provider/broker architecture exists, but **`HARDENED` is
-reported only when the required OS-level controls are measured present** — it is
-not "installation away", and it is not marketed as established isolation.
+| your agent changed… | what Canary does |
+|---|---|
+| behaviour, and some check **fails without the change and passes with it** | allows the completion — the checks are evidence about this change |
+| behaviour **no declared check can see** (suite green on both sides) | **blocks** it: `Canary blocked completion: NOT PROVEN — the sealed checks pass on the base commit too, so they carry no evidence about this change (greeting.cjs)` |
+| only prose, licences or docs | allows it — no behaviour moved, so nothing is asked to discriminate itself |
 
-## 60-second quickstart
+That middle row is the point. A green suite that cannot tell your change from the
+base is not evidence about your change, and Canary will not let it be reported as
+if it were.
 
-1. **Install Canary** (Node.js 22 or newer):
+## Two minutes, end to end
 
-   Download `canary-rn-cli-1.2.0.tgz` from the
-   [v1.2.0 release](https://github.com/criptofn/Canary/releases/tag/v1.2.0), then:
+```bash
+cd your-repo
+canary setup --yes
+```
 
-   ```bash
-   npm install -g ./canary-rn-cli-1.2.0.tgz
-   canary --version        # canary 1.2.0
-   ```
+```
+repo: /home/you/your-repo
+package manager: npm (package-lock.json found)
+verification plan (from what this project already declares — Canary runs only your own checks; change them in their own files):
+  ✓ tests: npm run test
+harness: Claude Code — hook installed into this project
+harness: OpenAI Codex CLI — detected, NOT integrated — no reliable blocking hook exists yet
+Claude Code will run Canary automatically when the agent finishes a turn here.
+agent tools: registered in .mcp.json — your agent can now ask Canary whether it is done, instead of guessing. Your other MCP servers are untouched; `canary uninstall` removes exactly this entry.
+  Claude Code asks you to approve a project's MCP server once — run `claude` there and approve it; until then the server is listed but its tools are not available.
 
-   The package is ONE self-contained bundle with **zero runtime dependencies**
-   (check the download against the published `.sha256`). Prefer source?
-   `npm ci && npm run build`, then `node apps/cli/dist/src/main.js`.
+smoke test (running your own project scripts):
+✓ tests: npm run test (exit 0)
 
-2. **In your project** — any supported repo, Node or not:
+READY — Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.
+next: try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor
+```
 
-   ```bash
-   cd your-repo
-   canary setup      # detect the project + the agents, pin the toolchain, wire, smoke-run
-   canary doctor     # run your own checks NOW: READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED
-   ```
+Then ask your agent for the change, and let it finish. Three things can happen:
 
-   That is the whole first-use path. Canary detects your package manager from
-   your lockfile and infers a verification plan from the checks your project
-   **already declares** — the `test` / `typecheck` / `build` scripts in
-   `package.json`, the ecosystem's own test command for Python / Rust / Go, or
-   the commands your CI or build files anchor (showing you exactly what it
-   picked). It wires itself into Claude Code automatically — merging with, never
-   overwriting, your existing hooks — and runs your checks once right there as a
-   smoke test.
+1. **Everything is fine** → you hear nothing. Canary is silent when there is
+   nothing to say, and the agent's completion is allowed.
+2. **A check fails** → the agent is blocked once and told exactly what failed, in
+   one short message that names the check and the failing test — with the full
+   runner output left **on disk**, not pasted into your conversation.
+3. **The change is real but nothing checks it** → blocked as `NOT PROVEN`, with the
+   one thing that would prove it. See
+   [What Canary actually catches](#what-canary-actually-catches).
 
-3. **It worked if it says `READY`.** Unsure at any point later?
-   `canary doctor` answers "is Canary really protecting this repo?" with
-   READY / NEEDS ATTENTION / UNSUPPORTED and the one command that fixes it.
+At any point, `canary doctor` answers "is Canary really protecting this repo, and
+do the checks run?" with `READY` / `NOT PROVEN` / `NEEDS ATTENTION` / `UNSUPPORTED`
+and the one command that fixes it. `canary status` answers the same question about
+**state** without running anything, and `canary result --json` gives an agent the
+same answer compactly and for free.
 
-### The task-aware path (when the work must be *proven*, not just green)
+## Expert mode — when a change must be *proven*, not just green
 
-Not part of your first 30 seconds — this is what you reach for when a change
-needs evidence rather than a green suite.
+Not part of the ordinary loop, and **measured to cost more than the everyday path**
+(see [the arm map](#what-the-benchmarks-actually-show): the `work` → `finish`
+ceremony ran at **177.8 %** of a plain agent's tokens, where the everyday shape ran
+at **92.7 %**, with identical correctness). Reach for it when a change needs
+evidence rather than a green suite — for example when someone else's work must be
+verified before it reaches your branch.
 
 ```bash
 # operator, BEFORE the handoff — declare each stated requirement, then bind it
@@ -188,6 +244,76 @@ claims.
 
 ## What the benchmarks actually show
 
+> **What it costs, in one paragraph.** Canary can cut model-token use by up to **87 %**.
+>
+> On short, well-bounded confined tasks in our replicated experiments, measured savings ranged from
+> roughly **27 % to 87 %**.
+>
+> On the measured authored everyday workflow, Canary used **7.3 % fewer model tokens than Plain in
+> aggregate** at equal measured correctness, while adding independent completion verification.
+>
+> **The qualification, which is part of the claim, not a footnote to it:**
+>
+> - those confined measurements are **experimental** — the fixtures were authored and validated for
+>   the `guarded` (everyday) arm, so a confined run is a like-for-like experiment *outside* that
+>   configuration, which the harness itself prints on every such run (full caveat below);
+> - **87 % is not typical and not universal.** It is the best pairing in a 3×3 replication of the
+>   single most favourable cell, not an average, and the long stateful task is repeatedly *more*
+>   expensive than Plain under confined transport;
+> - **Canary does not always save tokens.** The ≤75 % aggregate target was not met, and this release
+>   makes no such claim;
+> - per task, the everyday saving ranges from **17.1 % lower to essentially parity (+0.02 %)** — it is
+>   not uniform.
+
+**The arm map — which Canary *shape* costs what.** Same three fixtures, same
+model, same starting bytes, same hidden oracle. **`plain` means not using Canary at
+all**: `canary setup` runs for the protected arms only (`run-trial.mjs:254`, and the
+harness says so again at line 803 — "the plain arm HAS no Canary"), so every ratio
+below is Canary against genuine plain, not two Canary configurations differing by a
+prompt. (An earlier version of this README said setup ran for *every* arm and that
+the arms differed by "one paragraph of instruction". That was wrong, and it
+understated the result: the `plain` arm was never gated.)
+
+| task | plain agent | **everyday shape** | ceremony (`work`→`finish`) | confined transport |
+|---|---|---|---|---|
+| bound-requirements | 126,977 | **105,255** | 200,565 | 20,472 |
+| bug-sum | 70,070 | **70,083** | 153,178 | 26,970 |
+| stateful-replay | 212,777 | **204,454** | 374,821 | 595,419 |
+| **total** | **409,824** | **379,792 — 92.7 %** | **728,564 — 177.8 %** | **642,861 — 156.9 %** |
+| correctness | 12/12, 15/15, 406/406 | *same* | *same* | *same* |
+
+Read it this way, because it is the only reading the numbers support:
+
+- **The everyday shape — install once, then use your agent normally — used 7.3 %
+  fewer model tokens than Plain in aggregate (92.7 % of Plain) at equal measured
+  correctness, with no false done.** Per task the measured range is **17.1 % lower
+  to essentially parity (+0.02 %)**: bug-sum was 100.02 % of Plain, i.e. technically
+  0.02 % *above* it. The saving is not uniform and this README does not claim it is.
+  The long stateful task does **not** explode on this shape (17 turns, 96.1 % of
+  Plain).
+- **The ceremony costs more than it saves** (+77.8 %) with identical correctness,
+  which is why it is documented here as expert mode rather than the ordinary path.
+- **The confined transport is a trade, not a win**: 2–6× cheaper on short,
+  well-specified changes, and much more expensive on the long one. (The column
+  above is measured WITHOUT the opt-in per-batch check; see the full benchmark
+  below for what that flag does.)
+
+**The ≤75 % token target is not met in aggregate — but it IS met on two cells, replicated.** The everyday
+shape's best is 92.7 %. A full benchmark of the confined path with the opt-in per-batch check puts it at
+**86.8 % of plain by median, 110.5 % by mean** — about parity, not a saving — with equal correctness on every
+cell that could run at all. Per cell the picture is sharper and more favourable: on the two short bound cells
+it beats the target in **all six replicated runs** (**13.1-36.5 %** and **54.0-73.3 %** of plain), and the
+long stateful cell is the whole reason the aggregate stays above it (120-260 %). Both numbers are stated
+because either one alone hides the other.
+
+> **Where the confined numbers come from, and how far they may be quoted.** All three benchmark fixtures
+> declare `benchmarkConfig: {"arm": "guarded"}`, so every `plain` and confined run above is — in the
+> benchmark harness's own printed words — *"an experiment outside the configuration the fixture was
+> authored and validated for; do not present it as that fixture's measurement."* That applies to **both**
+> arms equally, so the ratios are like-for-like, but no absolute confined figure here is a fixture's
+> validated measurement. The everyday/`guarded` numbers are the exception: `guarded` **is** the arm those
+> fixtures were authored for, which is why the 92.7 % is the stronger of the two measurements.
+
 Short version, with the full ledgers linked below — and stated the way the
 evidence supports it:
 
@@ -228,7 +354,9 @@ the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`]
 > reads FAILS THE TOKEN REQUIREMENT.** The three measured reasons the corpus cannot show an advantage,
 > and the caveats that limit each number, are in that document.
 
-## Known limitations (v1.1)
+## Known limitations
+
+What Canary does **not** claim is as much a part of the product as what it does.
 
 - **`LOCAL` is not an OS isolation boundary.** A same-UID worker can replace the
   local root of trust; those limits are documented, not papered over
@@ -241,6 +369,13 @@ the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`]
   semantic truth.** Binding a requirement to a sealed check says the plan
   measures something for it; Canary does not thereby *understand* the
   requirement.
+- **Confined mode can only run work whose requirements are bound.** Of the **20**
+  benchmark fixtures this repository maintains, only **5** have every declared
+  requirement bound to a sealed check (`bound-requirements`, `bug-sum`,
+  `impossible-test`, `stateful-replay`, `version-bump`). The other 15 are
+  **refused before any model is started** — measured **0** worker launches,
+  **0** worker tokens spent, and **no** delivered-correctness credit. A refusal is
+  not a result, and no binding was invented to raise the count.
 - Canary does **not** claim to "never fail open" universally, nor that every
   promoted change is independently **semantically** proven.
 - Claim strength is tiered: only the observed runners (`mocha`, `node --test`,
@@ -249,8 +384,29 @@ the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`]
   upgrades a verdict.
 - `NOT PROVEN`, `NEEDS ATTENTION`, `UNSUPPORTED`, `INCONCLUSIVE` and `BLOCKED`
   are first-class outcomes — and **a skip is not a pass**.
+- **On the everyday path the agent's own file edits are not confined.** Canary
+  gates the *completion* and can refuse it; it does not put Claude Code's native
+  tools inside an OS boundary. The confined executor exists (see
+  [`docs/TRUST-ARCHITECTURE.md`](docs/TRUST-ARCHITECTURE.md)) and is driven by
+  Canary itself, not by your editor.
+- **A completion is blocked at most once per stop.** Canary will not fight the
+  harness in a loop: after one repair attempt it reports honestly and lets the
+  turn end, so a stubborn failure reaches you instead of spinning.
+- **Canary sends nothing anywhere.** There is no telemetry and no network
+  dependency; the only measurements are local ones you can read
+  (`CANARY_METRICS=<file>` writes one local record per invocation).
+- **Cursor is not a claimed integration.** Cursor documents importing Claude Code
+  hooks — including `Stop`, honoured as an automatic follow-up — which would make
+  the hook `setup` installs effective there. This project has **not reproduced
+  that on a real Cursor install**, so `canary agents` reports Cursor as
+  **`UNMEASURED`** rather than as protection. Cursor also documents no way to
+  remove its native tools, so Canary cannot put Cursor's own edits inside an OS
+  boundary. Reading the table: `GATED` means measured and blocking, `ADVISORY`
+  means the agent is told and may ignore it, `UNMEASURED` means the mechanism is
+  documented and nobody here has checked it.
 
-Full list: [`docs/RELEASE-1.1.md`](docs/RELEASE-1.1.md).
+Full list: [`docs/RELEASE-1.1.md`](docs/RELEASE-1.1.md) ·
+[`docs/V1.3-PRODUCT-AUDIT.md`](docs/V1.3-PRODUCT-AUDIT.md).
 
 ---
 
@@ -299,7 +455,7 @@ Reproduce it:
 ```bash
 npm ci            # lockfile-exact, reproducible install
 npm run build
-npm test          # 1072 tests / 0 failures (offline; symlink-dependent tests skip only when the OS denies link creation)
+npm test          # 1191 tests / 0 failures, 4 host-bound skips (measured 2026-09-20; a skip is never a pass)
 npm run prove     # fresh end-to-end run; PASS requires the committed proof host (36 assertions
                   # executed, zero skips). On any other runtime it honestly exits 2 (INCOMPLETE):
                   # the 22 portable assertions must all hold, the 6 host-exact ones are skipped,
@@ -320,7 +476,7 @@ came back PASS — honestly reported, ledger in
 The two tiers share one binary; `canary` below is the linked command, or
 `node apps/cli/dist/src/main.js` straight from a checkout.
 
-Everyday automatic path (the quickstart above):
+**Everyday** — what an ordinary user actually types:
 
 ```bash
 canary setup     [--yes]     # detect the project + the agents, PIN the toolchain, wire, smoke-run
@@ -328,15 +484,25 @@ canary doctor                # runs your checks NOW: READY / NOT PROVEN / NEEDS 
 canary status                # read-only state, runs nothing: CONNECTED / NEEDS ATTENTION / NOT CONNECTED
 canary result    [--json]    # the same state as ONE compact JSON object — free, for agents and scripts
 canary agents    [install|uninstall <id>]   # which agents work here, and at what capability
-canary task "<intent>" [--requirement "…"]  # OPTIONAL: declare the parts that must be proven separately
-canary bind <script> --requirement "…"       # the OPERATOR's act: attach a stated requirement to a sealed check
-canary work <name> "<intent>"  # the ORDINARY path: register the intent + open the candidate in one step
-canary finish <name>         # verify the candidate from outside it, then promote if the proof holds
 canary mcp                   # MCP server on stdio: the same operations as tools, for any MCP client
-canary provider <sub>        # status | install-plan | uninstall-plan | serve | call — the HARDENED provider lifecycle
 canary uninstall             # remove exactly Canary's own changes (recorded strings, never guesswork)
+```
+
+**Expert** — the isolated-candidate lifecycle and the proof obligations. Measured
+to cost **more** than the everyday path (see the arm map above), and only needed
+when a change must be *proven* rather than merely green:
+
+```bash
+canary task "<intent>" [--requirement "…"]  # declare the parts that must be proven separately
+canary bind <script> --requirement "…"       # the OPERATOR's act: attach a stated requirement to a sealed check
+canary work <name> "<intent>"  # register the intent + open an ISOLATED candidate in one step
+canary finish <name>         # verify the candidate from outside it, then promote only if the proof holds
+canary accept <name>         # close a SUBJECTIVE duty — in a terminal, by a human
+canary isolate <name> [--verify|--promote|--list|--remove]   # the primitives work/finish delegate to
+canary provider <sub>        # status | install-plan | uninstall-plan | serve | call — the HARDENED provider lifecycle
 canary checkpoint            # harness-internal: runs at the agent's completion boundary (Stop hook)
 ```
+
 
 `canary provider status` MEASURES the boundary rather than asserting it: which
 account this process is, whether the store can be written by a worker identity,

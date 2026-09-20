@@ -84,6 +84,22 @@ describe('task-kind inference from prose (union — a mislabel adds work, never 
     assert.deepEqual(inferTaskKinds('defect: parser dies'), ['bugfix']);
     assert.deepEqual(inferTaskKinds('fixed the defect'), ['bugfix']);
   });
+  it('v1.3: the ORDINARY description of a defect is a bugfix, not a silent no-kind', () => {
+    // MEASURED (tooling/probes/v13-journey-baseline.mjs): before this, "work" froze an EMPTY kind set
+    // for these, so the candidate could never be completed and `finish` refused correct work. The
+    // first sentence is this repository's own benchmark fixture `bug-sum` task statement.
+    assert.deepEqual(inferTaskKinds('This small Node project has a test suite (npm test) that is currently failing.'), ['bugfix']);
+    assert.deepEqual(inferTaskKinds('the parser returns the wrong value'), ['bugfix']);
+    assert.deepEqual(inferTaskKinds('the export routine does not work'), ['bugfix']);
+    assert.deepEqual(inferTaskKinds('the numbers are incorrect'), ['bugfix']);
+  });
+  it('v1.3: the widening is about ASSERTED brokenness, not about a topic word', () => {
+    // A feature request that merely CONTAINS a defect-ish word must not become a bugfix: a `bugfix`
+    // kind adds a base-vs-candidate discrimination duty, which a feature that changes no measurable
+    // behaviour cannot discharge. A mislabel adds work — so it must not be added carelessly.
+    assert.deepEqual(inferTaskKinds('add error handling to the parser'), []);
+    assert.deepEqual(inferTaskKinds('document the failure modes in the readme'), []);
+  });
 });
 
 describe('git output parsers (-z raw bytes: no quoting to outsmart, never crash, never invent paths)', () => {

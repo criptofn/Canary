@@ -44,8 +44,9 @@ when everything passed.
   node's default (one file per core — 23 here) three different process-spawning tests timed out
   across two runs (`lifecycle`'s sweep ~34 s, the `node:test` executor wiring ~33 s, `provenance`'s
   pristine run 161 s against its own 120 s round budget → `INFRASTRUCTURE_FAILURE` instead of a
-  verdict). Each passes standalone in seconds; at 8 the suite is **1095 tests, 1091 pass, 0 fail,
-  4 skipped**. Scheduling only — never an assertion, timeout or threshold. Do not remove it to save
+  verdict). Each passes standalone in seconds; at 8 the suite is **1191 tests, 1187 pass, 0 fail,
+  4 skipped** (measured 2026-09-20 at the v1.3 release candidate — re-measure rather than trusting a
+  written-down count). Scheduling only — never an assertion, timeout or threshold. Do not remove it to save
   time: a random red in the release battery is the false red this project exists to prevent.
 
 **`REQUIREMENT UNBOUND`:** since v1.2, `canary work` refuses (exit 2) and opens **no**

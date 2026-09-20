@@ -174,9 +174,17 @@ const SERVER_INSTRUCTIONS = [
   '  exposed as a tool;',
   '- it cannot close a SUBJECTIVE duty. A model may do objective work; only a human accepts a judgement.',
   '',
-  'Working rule: call canary_result first to learn the sealed checks, work only inside the candidate',
-  'directory canary_work returns, commit there, then canary_finish. If a check fails, fix exactly what was',
-  'reported and re-run. Never restate your own test output as proof.',
+  'Working rule: verification in this repository is AUTOMATIC. Finish when you believe the work is',
+  'done and the project\'s sealed checks are run for you; if anything fails you will be told exactly',
+  'what to fix — so do not re-read output you have already seen, and do not repeat a check you have just run.',
+  'You may, and should, call canary_doctor when you are unsure, when you changed behaviour',
+  'the existing checks may not cover, or before finishing a change you cannot fully reason about:',
+  'being right matters more than being quick.',
+  '',
+  'When you want the verdict, ASK: `canary_doctor` runs the sealed checks and returns what the trusted',
+  'CLI decided. Never restate your own test output as proof, and never claim a result this server did',
+  'not report. For work that must be isolated, `canary_work` opens a candidate and `canary_finish`',
+  'verifies it and promotes only if the proof holds.',
 ].join('\n');
 
 /** Tools a client may ask for by name even though they do not exist. Saying WHY

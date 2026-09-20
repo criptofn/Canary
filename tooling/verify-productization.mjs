@@ -248,6 +248,47 @@ const STEPS = [
   // a corpus size that had moved. Each was caught by hand, one at a time, by someone already
   // suspicious. This turns that into a command.
   ['doc consistency (do the release documents still match the repository?)', process.execPath, ['tooling/probes/v12-doc-consistency.mjs'], {}],
+  // v1.3: the everyday journey, measured end to end — the completion gate's real decisions, the
+  // agent-tool registration and its containment, and what the ordinary path refuses to hand a worker.
+  ['v1.3 the everyday journey (setup -> completion gate -> agent tools)', process.execPath, ['tooling/probes/v13-journey-baseline.mjs'], {}],
+  // v1.3: the AGENT side of the integration — `claude mcp list` proves the agent reads Canary's entry
+  // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
+  // SKIP is never a pass.
+  ['v1.3 agent integration (the agent reads what setup wrote)', process.execPath, ['tooling/probes/v13-agent-integration.mjs'], {}],
+  // v1.3: how much internal vocabulary the ORDINARY path speaks, as a ratchet — with the other
+  // direction checked too, so the default cannot be made quieter by deleting what --verbose explains.
+  ['v1.3 everyday vocabulary (a ratchet on the words a user must decode)', process.execPath, ['tooling/probes/v13-everyday-vocabulary.mjs'], {}],
+  // v1.3: what Canary costs on EVERY turn, whether or not it is used — the MCP instructions and tool
+  // definitions a client re-sends each request — and which shape the benchmark's arms actually measure.
+  ['v1.3 standing context (what Canary advertises per turn)', process.execPath, ['tooling/probes/v13-standing-context.mjs'], {}],
+  // v1.3: can the harness's own consent gate be satisfied without a human? Measured with four settings
+  // forms and two independent views of the answer. Host-bound: an explicit SKIP where no CLI exists.
+  ['v1.3 mcp consent (is the harness gate closable without a human?)', process.execPath, ['tooling/probes/v13-mcp-consent.mjs'], {}],
+  // v1.3: the block rate of the completion gate, read from the stored corpus — the decisive number for
+  // whether the <=75% token target is reachable by removing turns. Costs no model tokens.
+  ['v1.3 gate cost (how often does the gate refuse, and what would removing it save?)', process.execPath, ['tooling/probes/v13-gate-cost.mjs'], {}],
+  // v1.3: the docs describe the SIMPLER product — the everyday path leads, and the candidate path is
+  // never presented without its measured cost (177.8% vs 92.7%).
+  ['v1.3 doc first path (do the docs still lead with the everyday path?)', process.execPath, ['tooling/probes/v13-doc-first-path.mjs'], {}],
+  // v1.3: the property the invisible candidate/promotion lifecycle exists to provide, attacked directly —
+  // a forged green checkpoint record on a repository whose checks fail must not allow a completion.
+  ['v1.3 verified bytes (no stored record can produce a pass)', process.execPath, ['tooling/probes/v13-verified-bytes.mjs'], {}],
+  // v1.3: which MCP scope avoids the harness's approval gate — the last measured obstacle to a genuinely
+  // seamless integration. Host-bound: an explicit SKIP where no CLI exists.
+  ['v1.3 mcp scope (which scope avoids the harness approval gate?)', process.execPath, ['tooling/probes/v13-mcp-scope.mjs'], {}],
+  // v1.3: the confined worker is launched ONCE and never told a verdict — which is why the "you will be
+  // told what to fix" instruction may not be added there, and why its long-task cost explodes. Pins the
+  // fact AND the cost shape, so the diagnosis cannot drift.
+  ['v1.3 transport feedback (can the confined worker learn a verdict?)', process.execPath, ['tooling/probes/v13-transport-feedback.mjs'], {}],
+  // v1.3: what the project's own check actually costs to run — the input that decides whether returning
+  // its result after each batch is affordable, measured rather than assumed.
+  ['v1.3 transport suite cost (what does the check cost to run?)', process.execPath, ['tooling/probes/v13-transport-suite-cost.mjs'], {}],
+  // v1.3: the opt-in per-batch check feedback — runs after a mutating batch, bounded, and never presented
+  // as a verdict; and stays out of the way on read-only batches and when nothing is declared.
+  ['v1.3 confined check feedback (does the per-batch check behave?)', process.execPath, ['tooling/probes/v13-confin-check.mjs'], {}],
+  // v1.3: can the EVERYDAY path hand the agent its project's check result mid-task? A documented hook field
+  // is not evidence it is delivered, so this measures it with the real CLI. Host-bound: explicit SKIP.
+  ['v1.3 posttool feedback (can the agent be told mid-task?)', process.execPath, ['tooling/probes/v13-posttool-feedback.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],

@@ -121,6 +121,35 @@ describe('1.1 workflow: work registers and opens in one step', () => {
   });
 });
 
+describe('v1.3: work never hands a worker a task that nothing could judge', () => {
+  it('refuses the handoff, opens nothing and spends nothing, when the task freezes no authority', () => {
+    const root = fixture('work-unjudgeable');
+    assert.equal(canary(['setup', '--yes'], root).status, 0);
+    const before = head(root);
+    // An intent that matches no kind pattern. MEASURED at v1.2: this exited 0, opened a candidate and
+    // printed `next: ... canary finish`, and the correct fix that followed was then refused with
+    // `task-authority UNPROVEN` — after the whole session. The refusal belongs BEFORE the handoff.
+    const w = canary(['work', 'fix', 'Reject empty names in greeting()'], root);
+    assert.equal(w.status, 2, `an unjudgeable task must refuse the handoff:\n${w.stdout}${w.stderr}`);
+    assert.match(w.stdout + w.stderr, /CANNOT BE JUDGED/);
+    assert.match(w.stdout + w.stderr, /--kind/, 'the refusal must name the one thing the human must supply');
+    assert.match(w.stdout + w.stderr, /NOT started/, 'it must say plainly that nothing was launched');
+    assert.ok(!fs.existsSync(path.join(root, '.canary', 'candidates', 'fix.json')),
+      'the refusal must not have opened a candidate');
+    assert.ok(!fs.existsSync(candidate(root, 'fix')), 'and no worktree may exist');
+    assert.equal(head(root), before, 'and the trusted base must not move');
+  });
+
+  it('the SAME intent is accepted once a kind is declared — the refusal names the real difference', () => {
+    const root = fixture('work-judgeable');
+    assert.equal(canary(['setup', '--yes'], root).status, 0);
+    const w = canary(['work', 'fix', 'Reject empty names in greeting()', '--kind', 'bugfix'], root);
+    assert.equal(w.status, 0, `declaring a kind must open the candidate:\n${w.stdout}${w.stderr}`);
+    const rec = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'candidates', 'fix.json'), 'utf8')) as { intent?: { task?: { kinds?: string[] } } };
+    assert.deepEqual(rec.intent?.task?.kinds, ['bugfix'], 'the declared kind is what the candidate freezes');
+  });
+});
+
 describe('1.1 workflow: finish cannot promote what was not proven', () => {
   it('an UNPROVEN objective duty blocks promotion and leaves the base untouched', () => {
     const root = fixture('finish-blocked');

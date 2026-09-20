@@ -30,6 +30,32 @@ function apply(op, index) {
     case 'list': return fs.readdirSync(op.path || '.', { withFileTypes: true }).map(e => ({ name: e.name, directory: e.isDirectory() }));
     case 'read': return fs.readFileSync(op.path, 'utf8');
     case 'write': fs.writeFileSync(op.path, op.text); return 'written';
+    // v1.3 §D — CHANGE an existing file by sending only the part that changes.
+    //
+    // WHY THIS EXISTS, measured: the model's own output is ~70% of the confined arm's token cost on a long
+    // task, and the dominant term is that the previous tool set had no way to express a change — only
+    // `write`, which re-emits the WHOLE file body inside the assistant message, where it is then re-read on
+    // every later turn. Measured on the stateful fixture: `src/api.js` (979 B on disk) written NINE times.
+    //
+    // SAFETY: this grants NOTHING. `write` already accepted arbitrary content for the same path, so `edit`
+    // can produce no byte `write` could not; the path handling, the containment and the OS token are
+    // identical. It is the same mutation, expressed smaller.
+    //
+    // The anchor must occur EXACTLY ONCE. An ambiguous anchor is REFUSED rather than resolved by guessing —
+    // a tool that silently edits the wrong occurrence is worse than one that makes the caller be specific,
+    // and "the first match" is exactly the kind of quiet wrong-place mutation that is invisible in a diff.
+    case 'edit': {
+      if (typeof op.replace !== 'string') throw new Error('replace (a string) is required');
+      if (typeof op.find !== 'string') throw new Error('find (a string) is required — use "" to replace the whole file');
+      const text = fs.readFileSync(op.path, 'utf8');
+      if (op.find === '') { fs.writeFileSync(op.path, op.replace); return 'edited'; }
+      if (op.find === op.replace) throw new Error('find and replace are identical — nothing to do');
+      const first = text.indexOf(op.find);
+      if (first < 0) throw new Error('find does not occur in the file');
+      if (text.indexOf(op.find, first + op.find.length) >= 0) throw new Error('find occurs more than once — extend it until it is unique');
+      fs.writeFileSync(op.path, text.slice(0, first) + op.replace + text.slice(first + op.find.length));
+      return 'edited';
+    }
     case 'exec': {
       if (!Array.isArray(op.argv) || !op.argv.length || !op.argv.every(x => typeof x === 'string')) throw new Error('argv required');
       // A unique pair of files per operation: two execs in one call must not collide.
@@ -47,6 +73,33 @@ function apply(op, index) {
     default: throw new Error('unknown implementation operation');
   }
 }
+/**
+ * v1.3 §23 — run the project's OWN declared check, for opt-in per-batch feedback.
+ *
+ * This is NOT verification and cannot become one: it runs the command the project already declares, in the
+ * workspace the caller already controls, and returns its output. No verdict is minted, the trusted
+ * completion gate is untouched, and the caller could have run exactly this itself (it did, ~36 times in the
+ * recorded session — each time costing a model round trip, which is the expense this removes).
+ *
+ * The output is BOUNDED and keeps a HEAD and a TAIL, because the two shapes disagree: Node prints the cause
+ * first and a version footer last, while test runners print their summary last. Keeping only one end would
+ * reliably hide the useful half for one of them. An unbounded dump would re-create the context cost this
+ * exists to remove.
+ */
+const CHECK_SEGMENT_CHARS = 220;
+function runDeclaredCheck(argv) {
+  let r;
+  try { r = apply({ op: 'exec', argv }, 'check'); }
+  catch (e) { return { ran: false, error: e.code || e.message }; }
+  const text = `${r.stdout || ''}${r.stderr || ''}`;
+  const truncated = text.length > CHECK_SEGMENT_CHARS * 2;
+  const summary = truncated
+    ? `${text.slice(0, CHECK_SEGMENT_CHARS)}\n... [${text.length - CHECK_SEGMENT_CHARS * 2} bytes omitted] ...\n${text.slice(-CHECK_SEGMENT_CHARS)}`
+    : text;
+  return { ran: true, status: r.status, truncated, summary,
+    note: 'this project\'s own check output — not a Canary verdict, and not proof that the work is done' };
+}
+
 let result, failure;
 try {
   if (Array.isArray(request.operations)) {
@@ -60,6 +113,13 @@ try {
       catch (e) { stopped = `operation ${index} (${request.operations[index]?.op ?? 'unknown'}) failed: ${e.code || e.message}`; outcomes.push({ index, op: request.operations[index]?.op ?? null, error: e.code || e.message }); }
     }
     result = stopped ? { operations: outcomes, failed: stopped } : { operations: outcomes };
+    // Only when the batch actually CHANGED something: a read-only call needs no check, and running one
+    // would spend wall clock to answer a question nobody asked.
+    if (request.check && Array.isArray(request.check.argv) && request.check.argv.length
+        && request.check.argv.every(x => typeof x === 'string')
+        && outcomes.some(o => !o.skipped && !o.error && (o.op === 'write' || o.op === 'edit'))) {
+      result.check = runDeclaredCheck(request.check.argv);
+    }
   } else {
     // Trusted callers and the security probes keep the exact one-operation contract and
     // report shape they were verified against: { result } or { error }.

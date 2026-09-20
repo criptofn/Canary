@@ -34,6 +34,16 @@ export interface AgentIntegration {
   label: string;
   /** Can this integration BLOCK a completion, or only advise? */
   gating: boolean;
+  /**
+   * v1.3 §E — is the `gating` answer MEASURED, or merely documented?
+   *
+   * Absent means measured (every integration that existed before this field did). `false` means the
+   * harness documents a mechanism that would gate, and this project has NOT reproduced it on a real
+   * install — so it is reported as UNMEASURED rather than folded into either "yes" or "no". Both of
+   * those would be claims: "yes" would assert protection nobody observed, and "no" would deny a
+   * mechanism the vendor documents.
+   */
+  gatingMeasured?: boolean;
   /** Files whose presence means "this agent works here" (root-relative). */
   detectFiles: readonly string[];
   /** Executables that mean the same, looked for in the same trusted way the
@@ -59,6 +69,27 @@ export const AGENT_INTEGRATIONS: readonly AgentIntegration[] = [
     detectFiles: ['.codex', 'AGENTS.md'],
     detectExe: ['codex'],
     summary: 'ADVISORY only — no completion hook exists to gate, so Canary instructs the agent (marked block in AGENTS.md) and answers it with `canary result --json`',
+  },
+  {
+    // v1.3 §E — CURSOR, reported as UNMEASURED rather than as anything stronger or weaker.
+    //
+    // What Cursor's own documentation says: it loads Claude Code hooks from `.claude/settings.json`
+    // (including `Stop` → `stop`, honoured as an automatic follow-up) with third-party imports on by
+    // default, which WOULD make the hook Canary already installs a completion gate. It also documents
+    // no way to remove its native tools, so Canary cannot put Cursor's own edits inside a boundary.
+    //
+    // What this project has NOT done: reproduced the hook import on a real Cursor install. Cursor's
+    // `stop` input is documented as `{status, loop_count}` — Canary derives the repository from
+    // `input.cwd` and keys its one-repair guard on `stop_hook_active`, and whether Cursor synthesises
+    // those for imported Claude hooks is undocumented. So the completion-gate question is answered
+    // "unmeasured", and the confinement question is answered "no, and not claimed".
+    id: 'cursor',
+    label: 'Cursor',
+    gating: false,
+    gatingMeasured: false,
+    detectFiles: ['.cursor'],
+    detectExe: ['cursor'],
+    summary: 'UNMEASURED completion gate — Cursor documents importing Claude Code hooks (including Stop), which would make the hook Canary installs effective there, but this project has not reproduced that on a real Cursor install, so it is NOT claimed. Cursor also documents no way to remove its native tools, so Canary cannot confine Cursor\'s own edits.',
   },
   {
     id: 'generic',
@@ -91,6 +122,21 @@ export function advisoryBlock(): string {
     'Read `status`/`problems`/`next` from the JSON envelope. Full evidence stays in',
     'the files the envelope names — do not paste logs into the conversation.',
     'A `PASS`-like statement is only meaningful when it comes from those commands.',
+    '',
+    // v1.3 §A — the instruction that was MEASURED. The `guarded` arm (agent works
+    // normally, told that verification is automatic and that it will be told what to fix) is the only
+    // recorded Canary configuration CHEAPER than working without Canary: 92.7% of plain over the three
+    // token fixtures, equal correctness, no false done — while the ceremony arm (`canary work` →
+    // `finish`) cost 177.8%. The reliability half is deliberate and comes from the repository's own
+    // measurement: the AGGRESSIVE variant ("do not run the checks yourself") produced a false done and
+    // a false green, so the model keeps the decision to verify and only loses the repetition.
+    '**Verification here is AUTOMATIC.** Finish when you believe the work is done:',
+    'the sealed checks run for you and you will be told exactly what to fix. So do',
+    'not re-read output you have already seen, and do not repeat a check you have just run.',
+    'Ask `canary doctor` for the verdict instead of re-deriving it yourself.',
+    'You may and should still check when you are unsure, when you changed behaviour',
+    'the existing checks may not cover, or before finishing a change you cannot',
+    'fully reason about: being right matters more than being quick.',
     '',
     ADVISORY_END,
   ].join('\n');

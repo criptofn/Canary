@@ -10,6 +10,88 @@ changed*; the evidence ledgers record *what was observed*.
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-09-20
+
+**Prepared, not published.** The bytes below are the release candidate; nothing is tagged,
+pushed or published until the repository owner authorizes it.
+
+Canary v1.3 makes the everyday path the ordinary way to use Canary: set it up **once**, then
+work normally and let the completion gate run itself. It adds no authority to any worker,
+weakens no gate, and states a token target it did **not** reach rather than redefining the
+target. The expert surfaces (`work` → `finish`, confined transport) are unchanged in
+semantics and are now documented as the expert surfaces they are.
+
+### Added
+
+- **The everyday path, documented first.** `canary setup --yes` once per repository seals the
+  plan and wires the Claude Code `Stop` hook; from then on a finished turn runs the sealed
+  checks itself and can **block** a completion. There is nothing to run per task and no
+  vocabulary to learn. `README.md` and `AGENTS.md` now open with this path, and the candidate
+  path (`canary work` → commit in the candidate → `canary finish`) is presented as the
+  isolation surface you choose deliberately, not the default.
+- **`CANARY_CONFINED_CHECK=1` — the per-batch check inside confined transport, OPT-IN and
+  default-off.** Measured on the two bound fixtures where it applies, it moves cost in
+  **opposite** directions: on `bound-requirements` it helps (32,362 tokens / 25.5 % of plain
+  with the flag, 51,050 / 40.2 % without) and on `bug-sum` it hurts (42,800 / 61.1 % with,
+  25,999 / 37.1 % without). A flag that helps one workload and costs another is not a default.
+  It ships opt-in, and this is the evidence printed next to it.
+
+### Changed
+
+- **The `README` token paragraph and the arm map now match the harness.** An earlier revision of
+  the release audit claimed `canary setup --yes` runs for *every* benchmark arm. It does not:
+  `tooling/benchmark/run-trial.mjs` deliberately excludes the `plain` arm from the setup block,
+  which is exactly what makes it the untreated control. The audit, the arm map and the README
+  were corrected; the plain arm's numbers were never affected, only the sentence describing them.
+
+### Fixed
+
+- **A probe could pass for the wrong reason.** `tooling/probes/v12-token-pilot.mjs` read
+  `turns` from a field the trial records do not use (`numTurns` / `stream.turns`), so the
+  computed ratio was `21587 / null` → `Infinity` and the assertion "passed". The probe now
+  resolves the field through an explicit `turnsOf()` and asserts the value it read; the
+  measured cost ratio it reports is **2.14×**. A metric that cannot fail is not a measurement.
+
+### Measured token effect (the honest number)
+
+Everyday arm (`guarded`) versus untreated `plain`, aggregate over the three bound benchmark
+fixtures, one recorded run per cell, correct in every cell and with no false done in either arm:
+
+| Arm | Model tokens | vs plain |
+|---|---|---|
+| `plain` (untreated) | 409,824 | — |
+| **everyday (`guarded`)** | **379,792** | **92.7 %** |
+| expert (`workflow`, candidate ceremony) | 728,564 | 177.8 % |
+
+Per cell the everyday arm was 82.9 %, 100.02 % and 96.1 % of plain — the saving is **not
+uniform**, and one cell was technically 0.02 % *above* plain. The exact statement is **7.3 % lower
+token use in aggregate, with individual measured tasks ranging from 17.1 % lower to essentially
+parity (+0.02 %)**; this release does not claim the everyday path is never more expensive on any
+task. The **≤ 75 % aggregate target was not met**: the confined
+replications measured 86.8 % median / 110.5 % mean, and the long stateful cell was repeatedly
+*more* expensive than plain. v1.3 therefore claims only what was measured: on the authored
+everyday benchmark Canary used 92.7 % of plain tokens at equal correctness **and** added an
+independent completion gate. It does not claim "Canary saves 25 % of tokens" or "Canary always
+saves tokens".
+
+### What v1.3 does NOT claim
+
+- **Confined coverage is partial: 5 of 20 fixtures.** For the 15 where no sealed check is bound
+  to a declared requirement, Canary **refuses before any model execution** — the recorded
+  evidence shows 0 worker launches, 0 worker tokens spent, and **no delivered-correctness
+  credit** for those cells. They are refusals, not results. No binding was invented to raise
+  the count.
+- **Confined ratios are experimental measurements.** All three benchmark fixtures declare
+  `benchmarkConfig: {"arm": "guarded"}`, so running them under confined transport is an
+  experiment outside the configuration each fixture was authored and validated for — the
+  harness prints exactly that. Absolute confined numbers are not canonical validated fixture
+  results; the everyday/`guarded` measurement is the stronger product measurement.
+- **Cursor is UNMEASURED.** No completion gating was established for it on this host, so v1.3
+  claims no protection there. The integration table says so in place.
+- **`HARDENED` remains unreachable.** It is produced by exactly one thing — a boundary
+  measurement in which every control is observed available — and the provider still lacks
+  privileged activation.
+
 ## [1.2.0] — 2026-09-19
 
 Canary v1.2 makes the requirement workflow fail **early** instead of expensively, benchmarks

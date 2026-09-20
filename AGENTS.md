@@ -51,10 +51,11 @@ npm run verify:productization         # the whole productization surface, ONE co
   process-spawning tests timed out across two runs (`lifecycle`'s descendant sweep ~34 s, the
   `node:test` executor wiring ~33 s, `provenance`'s pristine run 161 s against its own 120 s round
   budget, returning `INFRASTRUCTURE_FAILURE` rather than a verdict). Each of those files passes
-  standalone in seconds, and at concurrency 8 the whole suite is **1095 tests, 1091 pass, 0 fail, 4
-  skipped**. The pin changes scheduling only — never an assertion, a timeout or a threshold — so do
-  not remove it to save CI time; a random red in the release battery is the false-red failure this
-  project exists to prevent.
+  standalone in seconds, and at concurrency 8 the whole suite is **1191 tests, 1187 pass, 0 fail, 4
+  skipped** (measured 2026-09-20 at the v1.3 release candidate; a written-down count goes stale the
+  moment a test is added, so re-measure it rather than trusting this line). The pin changes scheduling
+  only — never an assertion, a timeout or a threshold — so do not remove it to save CI time; a random
+  red in the release battery is the false-red failure this project exists to prevent.
 
 ## Verification workflow authoring (binding for every agent)
 
@@ -104,16 +105,45 @@ Probe conventions: fixtures only under the OS temp dir (`fs.mkdtempSync`); print
 
 ## How an agent should use Canary on a project it is changing
 
+**The everyday path is one command, once.** After it you work normally, and Canary verifies your
+completion for you. There is no Canary command to run per task, and nothing to remember.
+
 ```sh
-canary result --json                      # what Canary knows here (free; writes nothing)
-canary setup --yes                        # seal the plan; prints a note if a requirement is unbound
+canary result --json      # optional, free, writes nothing: what Canary already knows here
+canary setup --yes        # ONCE per repository: seal the plan and wire the completion hook
+# ...then just do the work. When you finish a turn, Canary runs the sealed checks itself.
+```
+
+Two things can then stop a completion, and both tell you exactly what to do:
+
+- **the sealed checks fail** — you get one line naming the check and the failing test, with the
+  full runner output written to disk and its path printed;
+- **the checks cannot tell your change from the sealed base** (they pass on both sides) — the
+  verdict is `NOT PROVEN`, and you are asked for a check that FAILS without your change and passes
+  with it. A green suite that cannot discriminate your change is not evidence about it. A change
+  touching only checks, prose, licences or generated files is never asked this.
+
+`canary doctor --json` is the same gate on demand, when you want the verdict before finishing.
+
+### The candidate path — for work that must be ISOLATED
+
+Use this when the change must be proven in a copy before it touches the repository, or when a
+task's requirements must be FROZEN before the work starts. It is the expert surface, not the
+default:
+
+```sh
 canary work <name> "<intent>" \
   --requirement "<each stated requirement>"  # ONE PER REQUIREMENT the task states
 #   work only in the candidate directory printed above, then commit there
 canary finish <name>                      # verify from outside; promote only if the proof holds
-canary doctor --json                      # the completion gate: run the sealed checks now
 #   if a requirement has no sealed check, `work` REFUSES (see REQUIREMENT UNBOUND below)
 ```
+
+**This path is measured to cost MORE, and the reason to choose it is isolation, not speed.** Over the
+recorded corpus it ran at **177.8 %** of a plain run against **92.7 %** for the everyday path, with
+identical correctness and no false done in either ([`docs/V1.3-PRODUCT-AUDIT.md`](docs/V1.3-PRODUCT-AUDIT.md)).
+Take it when you need the candidate — an untrusted worker, or bytes that must be promoted only under
+proof — not as the ordinary way to use Canary.
 
 **Declare the task's requirements, one `--requirement` each.** This is not
 bookkeeping: a requirement Canary knows about becomes a DUTY that `finish` must
