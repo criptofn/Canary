@@ -96,7 +96,7 @@ check('A4-the-README-labels-the-ceremony-with-its-measured-cost-too', () => {
 // ── C: TOKEN-CLAIM HONESTY ──
 // Two specific falsehoods have each been written into these documents once, and a reader cannot check
 // either by inspection — one UNDERSTATED Canary's result and one would OVERSTATE it. Both are pinned.
-const DOCS = ['README.md', 'AGENTS.md'];
+const DOCS = ['README.md', 'AGENTS.md', 'docs/V1.3-RELEASE-AUDIT.md'];
 const docs = DOCS.map((f) => ({ f, text: fs.readFileSync(path.join(repo, f), 'utf8') }));
 
 check('C1-no-document-claims-setup-ran-for-EVERY-arm', () => {
