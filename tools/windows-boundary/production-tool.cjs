@@ -73,6 +73,33 @@ function apply(op, index) {
     default: throw new Error('unknown implementation operation');
   }
 }
+/**
+ * v1.3 §23 — run the project's OWN declared check, for opt-in per-batch feedback.
+ *
+ * This is NOT verification and cannot become one: it runs the command the project already declares, in the
+ * workspace the caller already controls, and returns its output. No verdict is minted, the trusted
+ * completion gate is untouched, and the caller could have run exactly this itself (it did, ~36 times in the
+ * recorded session — each time costing a model round trip, which is the expense this removes).
+ *
+ * The output is BOUNDED and keeps a HEAD and a TAIL, because the two shapes disagree: Node prints the cause
+ * first and a version footer last, while test runners print their summary last. Keeping only one end would
+ * reliably hide the useful half for one of them. An unbounded dump would re-create the context cost this
+ * exists to remove.
+ */
+const CHECK_SEGMENT_CHARS = 220;
+function runDeclaredCheck(argv) {
+  let r;
+  try { r = apply({ op: 'exec', argv }, 'check'); }
+  catch (e) { return { ran: false, error: e.code || e.message }; }
+  const text = `${r.stdout || ''}${r.stderr || ''}`;
+  const truncated = text.length > CHECK_SEGMENT_CHARS * 2;
+  const summary = truncated
+    ? `${text.slice(0, CHECK_SEGMENT_CHARS)}\n... [${text.length - CHECK_SEGMENT_CHARS * 2} bytes omitted] ...\n${text.slice(-CHECK_SEGMENT_CHARS)}`
+    : text;
+  return { ran: true, status: r.status, truncated, summary,
+    note: 'this project\'s own check output — not a Canary verdict, and not proof that the work is done' };
+}
+
 let result, failure;
 try {
   if (Array.isArray(request.operations)) {
@@ -86,6 +113,13 @@ try {
       catch (e) { stopped = `operation ${index} (${request.operations[index]?.op ?? 'unknown'}) failed: ${e.code || e.message}`; outcomes.push({ index, op: request.operations[index]?.op ?? null, error: e.code || e.message }); }
     }
     result = stopped ? { operations: outcomes, failed: stopped } : { operations: outcomes };
+    // Only when the batch actually CHANGED something: a read-only call needs no check, and running one
+    // would spend wall clock to answer a question nobody asked.
+    if (request.check && Array.isArray(request.check.argv) && request.check.argv.length
+        && request.check.argv.every(x => typeof x === 'string')
+        && outcomes.some(o => !o.skipped && !o.error && (o.op === 'write' || o.op === 'edit'))) {
+      result.check = runDeclaredCheck(request.check.argv);
+    }
   } else {
     // Trusted callers and the security probes keep the exact one-operation contract and
     // report shape they were verified against: { result } or { error }.

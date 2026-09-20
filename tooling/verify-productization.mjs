@@ -283,6 +283,9 @@ const STEPS = [
   // v1.3: what the project's own check actually costs to run — the input that decides whether returning
   // its result after each batch is affordable, measured rather than assumed.
   ['v1.3 transport suite cost (what does the check cost to run?)', process.execPath, ['tooling/probes/v13-transport-suite-cost.mjs'], {}],
+  // v1.3: the opt-in per-batch check feedback — runs after a mutating batch, bounded, and never presented
+  // as a verdict; and stays out of the way on read-only batches and when nothing is declared.
+  ['v1.3 confined check feedback (does the per-batch check behave?)', process.execPath, ['tooling/probes/v13-confin-check.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
