@@ -305,7 +305,12 @@ const STEPS = [
   ['v1.3 confined check feedback (does the per-batch check behave?)', process.execPath, ['tooling/probes/v13-confin-check.mjs'], {}],
   // v1.3: can the EVERYDAY path hand the agent its project's check result mid-task? A documented hook field
   // is not evidence it is delivered, so this measures it with the real CLI. Host-bound: explicit SKIP.
-  ['v1.3 posttool feedback (can the agent be told mid-task?)', process.execPath, ['tooling/probes/v13-posttool-feedback.mjs'], {}],
+  // v1.4 §11 — ROLE MADE EXPLICIT. This probe asserts two different kinds of thing: deterministic
+  // properties of the hook wiring (which gate this step) and what a LIVE MODEL SESSION did with
+  // the delivered text (which does not, because it is nondeterministic — MEASURED PASS -> FAIL ->
+  // PASS on identical bytes). A live-only non-observation exits 3 and is reported here as an
+  // explicit host-bound SKIP; a deterministic failure still exits 1 and still fails the battery.
+  ['v1.3 posttool feedback (DIAGNOSTIC live-integration; deterministic properties gate)', process.execPath, ['tooling/probes/v13-posttool-feedback.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
@@ -457,6 +462,11 @@ const STEPS = [
 // host-bound SKIPs — the headline distinguishes); 1 = any FAIL or a step
 // aborted mid-chain so later steps judged stale bytes.
 const SKIP_AWARE = new Set([
+  // v1.4 §11 — the live-integration diagnostic. Its deterministic properties exit 1 (a real
+  // failure, still reported as FAIL); a live-model-only non-observation exits 3 and is named as a
+  // host-bound SKIP, because a gate whose verdict depends on a live session must not silently
+  // decide a release. The probe prints the raw evidence either way.
+  'v1.3 posttool feedback (DIAGNOSTIC live-integration; deterministic properties gate)',
   'probe: HTG inline-interpreter corpus',
   'probe: documented examples (Node + Python, real CLI)',
   // The two acceptance batteries need a REAL pty. Where the host has no
