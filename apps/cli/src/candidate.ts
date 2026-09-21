@@ -199,7 +199,21 @@ function commonDir(root: string): string | null {
   if (out === null) return null;
   const cd = out.trim();
   if (!cd) return null;
-  try { return fs.realpathSync(path.isAbsolute(cd) ? cd : path.resolve(root, cd)); } catch { return null; }
+  try {
+    // v1.4 — same defect class as containedRealPath, found by the same investigation: the JS
+    // `fs.realpathSync` does NOT expand an 8.3 SHORT name, so on a host whose temp or repo path
+    // contains one (`C:\Users\RUNNER~1\...` on GitHub Actions Windows) git's ABSOLUTE common-dir
+    // for the worktree comes back in LONG form while the base's is resolved through the SHORT
+    // spelling. `samePath` then compares `runner~1` with `runneradmin`, and a candidate that
+    // genuinely shares the base's object store is refused with "does not share this repo's git
+    // store" — a false block.
+    //
+    // MEASURED, offline and deterministically: pointing TEMP at a short-named directory
+    // (`...\CA1E00~1`) makes apps/cli/dist/test/discrimination-completion.test.js fail 4 of 6
+    // tests with exactly that message on an ordinary Windows workstation, and pass with this
+    // fix. `realpathSync.native` uses the OS call, which returns the canonical long form.
+    return fs.realpathSync.native(path.isAbsolute(cd) ? cd : path.resolve(root, cd));
+  } catch { return null; }
 }
 
 /** F4: the base's HEAD as a sandwich token. Refs are SHARED with every
