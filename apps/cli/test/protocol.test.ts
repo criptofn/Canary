@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
-process.env.CANARY_TRUST_STORE = path.join(os.tmpdir(), `canary-trust-${process.pid}`); // 1.1 P0 isolation
+process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-')); // 1.1 P0 isolation
 
 const REPO = path.resolve(import.meta.dirname, '..', '..', '..', '..');
 const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');

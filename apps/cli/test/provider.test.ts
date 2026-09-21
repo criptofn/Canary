@@ -20,7 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
 
-process.env.CANARY_TRUST_STORE = path.join(os.tmpdir(), `canary-provider-${process.pid}`);
+process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-provider-'));
 
 import { measuredCapabilities, requireAuthorizationLevel, requireMeasuredLevel, type BoundaryControl } from '../src/platform-boundary.js';
 import { measureBoundary, parseStoreWriters, providerConfigured, installPlan, installPlanFor, observeSandboxPrimitive, storeDaclGrantsWrite } from '../src/provider/boundary.js';

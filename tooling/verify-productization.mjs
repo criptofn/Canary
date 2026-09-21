@@ -258,6 +258,11 @@ const STEPS = [
   // a step whose MEASURED runtime class exceeds its budget is an infrastructure defect that shows
   // up as a false red (and did, twice).
   ['release-gate budgets + cascade isolation (is a timeout distinguishable from a failure?)', process.execPath, ['tooling/probes/v14-battery-budget.mjs'], {}],
+  // v1.4 — MEASURED: suites passed alone and failed in the battery because a trust store derived
+  // from a RECYCLABLE pid picked up a stale, keyless store from an unrelated earlier run. This
+  // pins the isolation, that an unrelated stale store is inert, that a damaged store still refuses,
+  // and that repeated runs agree.
+  ['trust-store isolation (can stale temp state decide a test?)', process.execPath, ['tooling/probes/v14-trust-store-isolation.mjs'], {}],
   // And before anything is BELIEVED FROM THE DOCS: do their checkable numbers still match the
   // repository? This session's most persistent defect was summaries drifting from what they summarise
   // - the standings were stale twice, the README quoted a superseded token figure, a step label named

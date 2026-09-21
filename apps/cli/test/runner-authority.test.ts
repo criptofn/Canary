@@ -22,7 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
-process.env.CANARY_TRUST_STORE = path.join(os.tmpdir(), `canary-trust-authority-${process.pid}`);
+process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-authority-'));
 
 import { pytestRunnerIdentity } from '@canary-rn/executor';
 

@@ -28,7 +28,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
 
-process.env['CANARY_TRUST_STORE'] = path.join(os.tmpdir(), `canary-trust-universal-${process.pid}`);
+process.env['CANARY_TRUST_STORE'] = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-universal-'));
 
 import { Recorder } from '@canary-rn/executor';
 import { observationCapabilityFor, RUNNER_ADAPTERS } from '@canary-rn/executor';

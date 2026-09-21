@@ -39,7 +39,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-process.env.CANARY_TRUST_STORE = path.join(os.tmpdir(), `canary-trust-${process.pid}`); // 1.1 P0 isolation: sealed copies go to a per-process temp store, never the real user one
+process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-')); // 1.1 P0 isolation: sealed copies go to a per-process temp store, never the real user one
 import { candidateDiffSignals, obligationsFor, declaredTask, type TaskKind } from '../src/onboarding.js';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..', '..', '..');
