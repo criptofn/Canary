@@ -202,6 +202,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+// v1.4 release-gate budgets + cascade isolation (pure rules, pinned by
+// tooling/probes/v14-battery-budget.mjs).
+import { budgetFor, verdictFor, shouldStopAfter, restoreDist, KNOWN_RUNTIME_MS } from './step-budgets.mjs';
 import { fileURLToPath } from 'node:url';
 // In-place dist mutation must be self-healing. The mutation batteries edit the
 // built dist and restore it in `finally`; a battery KILLED mid-mutation (timeout,
@@ -251,6 +254,10 @@ const STEPS = [
   // property the release depends on: after this build path, no emitted file can hold bytes that
   // do not match the source (it injects a sentinel, re-runs the build, and requires it to be gone).
   ['dist freshness (does dist correspond to source, or can stale bytes be tested?)', process.execPath, ['tooling/probes/v14-dist-freshness.mjs'], {}],
+  // v1.4 — the gate checks its own budgets and its cascade isolation before anything slow runs:
+  // a step whose MEASURED runtime class exceeds its budget is an infrastructure defect that shows
+  // up as a false red (and did, twice).
+  ['release-gate budgets + cascade isolation (is a timeout distinguishable from a failure?)', process.execPath, ['tooling/probes/v14-battery-budget.mjs'], {}],
   // And before anything is BELIEVED FROM THE DOCS: do their checkable numbers still match the
   // repository? This session's most persistent defect was summaries drifting from what they summarise
   // - the standings were stale twice, the README quoted a superseded token figure, a step label named
@@ -494,17 +501,25 @@ const SKIP_AWARE = new Set([
   // explicit SKIP lines and exits 3 — the host bound is named, never counted as PASS.
   'v1.4 codex stop hook (a second measured completion gate)',
 ]);
-const results = []; // [label, 'PASS'|'SKIP'|'FAIL', note]
+const results = []; // [label, 'PASS'|'SKIP'|'FAIL'|'INCOMPLETE'|'NOT RUN', note]
+const runStep = (cmd, args, timeout) => spawnSync(cmd, args, { cwd: CANARY, encoding: 'utf8', shell: SH && cmd === 'npm', timeout, maxBuffer: 64 * 1024 * 1024 });
 for (const [label, cmd, args] of STEPS) {
   console.log(`\n=== ${label} ===`);
-  const r = spawnSync(cmd, args, { cwd: CANARY, encoding: 'utf8', shell: SH && cmd === 'npm', timeout: 900_000, maxBuffer: 64 * 1024 * 1024 });
+  // v1.4 — a per-step budget, because one flat timeout killed a step whose MEASURED legitimate
+  // runtime class exceeds it (master-pass: ~993 s against a 900 s cap). Finite everywhere still:
+  // a real deadlock must be caught, it just must not be confused with a slow valid workload.
+  const budget = budgetFor(label);
+  const r = runStep(cmd, args, budget);
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
   const tail = out.split(/\r?\n/).filter(Boolean).slice(-25).join('\n');
   console.log(tail);
   const skipLines = SKIP_AWARE.has(label)
     ? out.split(/\r?\n/).filter((l) => l.startsWith('SKIP')).map((l) => l.slice(0, 140))
     : [];
-  const verdict = r.status === 0 ? 'PASS' : (SKIP_AWARE.has(label) && r.status === 3 ? 'SKIP' : 'FAIL');
+  // "the assertion did not hold" and "we ran out of time" are different facts; only the first is
+  // evidence about the product. spawnSync reports the second as error.code ETIMEDOUT.
+  const timedOut = r.error?.code === 'ETIMEDOUT';
+  const verdict = verdictFor({ status: r.status, skipAware: SKIP_AWARE.has(label), timedOut });
   // M10.2 Fix 6: a SKIP that EXECUTED checks is a different fact from one that
   // ran zero because the environment is absent — the note must distinguish
   // them. Neither kind is ever counted as a PASS. The count is any `PASS <case>`
@@ -513,7 +528,24 @@ for (const [label, cmd, args] of STEPS) {
   const ran = SKIP_AWARE.has(label) ? out.split(/\r?\n/).filter((l) => /^(?:PASS|FAIL)\s+\S/.test(l)).length : 0;
   const skipNote = `host-bound: ${ran} check(s) EXECUTED, ${skipLines.length} explicit SKIP(s) — SKIP never counts as PASS` +
     (ran === 0 ? '; nothing here was accepted by execution' : '');
-  results.push([label, verdict, verdict === 'SKIP' ? skipNote : (verdict === 'FAIL' ? `(exit ${r.status}${r.error ? `: ${r.error.message}` : ''})` : '')]);
+  const known = KNOWN_RUNTIME_MS[label];
+  const note = verdict === 'SKIP' ? skipNote
+    : verdict === 'INCOMPLETE'
+      ? `DID NOT COMPLETE within its ${Math.round(budget / 1000)}s budget${known ? ` (the workload's measured legitimate class is ~${Math.round(known / 1000)}s)` : ''} — this is NOT a failed assertion, and NOT a pass`
+      : verdict === 'FAIL' ? `(exit ${r.status}${r.error ? `: ${r.error.message}` : ''})` : '';
+  results.push([label, verdict, note]);
+  // v1.4 — CASCADE ISOLATION. A step that REWRITES dist and did not finish leaves bytes this run
+  // cannot vouch for; MEASURED, one master-pass timeout manufactured FIVE later "failures". Restore
+  // trusted bytes and stop, so the summary carries the ORIGINAL finding and nothing artificial.
+  if (shouldStopAfter(label, verdict)) {
+    const restored = restoreDist((c, a) => runStep(c, a, 900_000));
+    console.log(`\nBATTERY STOPPED after "${label}" (${verdict}).`);
+    console.log('  This step REWRITES dist, so every later step would judge bytes this run cannot vouch for.');
+    console.log('  The finding above is the ONLY one to act on; the steps below were NOT RUN.');
+    console.log(`  trusted bytes restored: ${restored ? 'yes (tsc -b --force)' : 'NO — dist may be dirty, rebuild before trusting anything'}`);
+    results.push([`(all ${STEPS.length - results.length} remaining step(s) NOT RUN — a dist-rewriting step did not finish)`, 'NOT RUN', 'cascade suppressed']);
+    break;
+  }
   if (verdict === 'FAIL' && label.startsWith('build')) break; // later steps judge stale bytes — stop honestly
 }
 
@@ -522,13 +554,21 @@ for (const [label, verdict, note] of results) console.log(`${verdict}  ${label}$
 const failed = results.filter(([, v]) => v === 'FAIL').length;
 const skipped = results.filter(([, v]) => v === 'SKIP').length;
 const passed = results.filter(([, v]) => v === 'PASS').length;
-const incomplete = results.length < STEPS.length && !failed; // build aborted early
-if (failed || incomplete) {
-  console.log(`VERIFY-PRODUCTIZATION: FAIL (${failed} step(s) failed${incomplete ? '; chain aborted before all steps ran' : ''} of ${STEPS.length})`);
+const incomplete = results.filter(([, v]) => v === 'INCOMPLETE').length;
+const notRun = results.some(([, v]) => v === 'NOT RUN');
+// A chain that did not finish is not a pass, whatever the reason — but the reason is NAMED, because
+// "a step timed out" and "an assertion failed" call for different responses.
+if (failed || incomplete || notRun) {
+  const bits = [
+    failed ? `${failed} FAIL` : null,
+    incomplete ? `${incomplete} DID NOT COMPLETE (timeout, not a failed assertion)` : null,
+    notRun ? 'the chain stopped early' : null,
+  ].filter(Boolean);
+  console.log(`VERIFY-PRODUCTIZATION: NOT GREEN (${bits.join('; ')}${passed ? `; ${passed} PASS, ${skipped} SKIP` : ''})`);
 } else if (skipped) {
   const zeroExec = results.filter(([, v, n]) => v === 'SKIP' && /^host-bound: 0 check\(s\) EXECUTED/.test(n)).length;
   console.log(`VERIFY-PRODUCTIZATION: PASS WITH HOST-BOUND SKIP (${passed} PASS, ${skipped} SKIP — NOT full ${STEPS.length}/${STEPS.length} acceptance on this host; the SKIP lines above name what was not reproducible here${zeroExec ? `; ${zeroExec} SKIP step(s) EXECUTED ZERO checks — environment absent, accepted as nothing` : ''})`);
 } else {
   console.log(`VERIFY-PRODUCTIZATION: PASS (${passed}/${STEPS.length} steps green)`);
 }
-process.exit(failed || incomplete ? 1 : 0);
+process.exit(failed || incomplete || notRun ? 1 : 0);
