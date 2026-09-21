@@ -20,9 +20,10 @@
   ],
   "scripts": {
     "build": "tsc -b",
+    "build:force": "tsc -b --force",
     "clean": "tsc -b --clean",
     "typecheck": "tsc -b --pretty",
-    "test": "npm run build && node --test --test-concurrency=8 \"packages/**/dist/test/*.test.js\" \"apps/**/dist/test/*.test.js\" \"tooling/**/*.test.mjs\"",
+    "test": "npm run build:force && node --test --test-concurrency=8 \"packages/**/dist/test/*.test.js\" \"apps/**/dist/test/*.test.js\" \"tooling/**/*.test.mjs\"",
     "verify:productization": "node tooling/verify-productization.mjs",
     "bench": "node tooling/benchmark/bench.mjs",
     "bench:report": "node tooling/benchmark/bench.mjs --from",

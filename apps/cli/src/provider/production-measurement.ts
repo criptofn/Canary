@@ -3,6 +3,10 @@
  * Schema 1 is not parsed by this module and remains permanently retired. */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+// v1.4 — canonical filesystem identity (expands Windows 8.3 short names). The anchor stores the
+// store's identity and every later check compares it against a freshly read one; a short/long
+// spelling difference made a valid record read as "foreign custody" / "generation changed".
+import { canonicalPath } from '@canary-rn/support';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -49,11 +53,11 @@ export function enrollMeasurementAuthority(store: string, deployment: string, pu
   const file = anchorPath(store);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (fs.existsSync(file)) throw new Error('measurement authority already enrolled');
-  fs.writeFileSync(file, JSON.stringify({ store: fs.realpathSync(store), deployment, publicKey, nonce: crypto.randomUUID(), current: null } satisfies Anchor), { flag: 'wx' });
+  fs.writeFileSync(file, JSON.stringify({ store: canonicalPath(store), deployment, publicKey, nonce: crypto.randomUUID(), current: null } satisfies Anchor), { flag: 'wx' });
 }
 export function removeMeasurementAuthority(store: string, deployment: string): void {
   const file = anchorPath(store), anchor = read<Anchor>(file);
-  if (anchor.deployment !== deployment || anchor.store !== fs.realpathSync(store)) throw new Error('foreign custody removal refused');
+  if (anchor.deployment !== deployment || anchor.store !== canonicalPath(store)) throw new Error('foreign custody removal refused');
   fs.unlinkSync(file);
 }
 /** Begin invalidates all earlier measurements before any new attack runs. */
@@ -190,7 +194,7 @@ export function publishProductionMeasurement(store: string, nonce: string, start
   const anchorFile = anchorPath(store), anchor = read<Anchor>(anchorFile);
   const e = read<{ id: string; package: string; verifier: string; project: string; base: string }>(path.join(store, 'enrollment.json'));
   const host = productionHost();
-  if (anchor.nonce !== nonce || anchor.deployment !== e.id || anchor.store !== fs.realpathSync(store)) throw new Error('measurement generation changed');
+  if (anchor.nonce !== nonce || anchor.deployment !== e.id || anchor.store !== canonicalPath(store)) throw new Error('measurement generation changed');
   const payload: Payload = { schema: 'canary-production-measurement/2', deployment: e.id, store: anchor.store, host: host.host, user: host.user,
     tools: productionToolsDigest(store), nonce, startedAt, finishedAt: Date.now(), observations };
   checkObservations(payload, e);
@@ -205,7 +209,7 @@ export function readProductionMeasurement(store: string, now = Date.now()): { va
     const record = read<{ payload: Payload; signature: string }>(path.join(store, PRODUCTION_MEASUREMENT));
     const p = record.payload, e = read<{ id: string; package: string; verifier: string; project: string; base: string; pipe: string }>(path.join(store, 'enrollment.json'));
     const host = productionHost();
-    if (p.schema !== 'canary-production-measurement/2' || p.store !== fs.realpathSync(store) || anchor.store !== p.store ||
+    if (p.schema !== 'canary-production-measurement/2' || p.store !== canonicalPath(store) || anchor.store !== p.store ||
         p.deployment !== e.id || anchor.deployment !== e.id || p.nonce !== anchor.nonce || anchor.current !== hash(JSON.stringify(record))) throw new Error('copied, replayed or foreign deployment record');
     if (!crypto.verify(null, Buffer.from(JSON.stringify(p)), anchor.publicKey, Buffer.from(record.signature, 'base64'))) throw new Error('unauthenticated measurement producer');
     if (p.host !== host.host || p.user !== host.user) throw new Error('foreign host identity');

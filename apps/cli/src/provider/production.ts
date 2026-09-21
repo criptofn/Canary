@@ -2,6 +2,11 @@
  * The base, enrollment, receipts and private verification worktrees stay outside
  * the caller's package grant. Candidate code runs through the native runner. */
 import fs from 'node:fs';
+// v1.4 — canonical filesystem identity (expands Windows 8.3 short names). Every realpath use in
+// this file is an IDENTITY: an enrolled store compared against a freshly read one, or a base
+// persisted for later comparison. Two spellings of one directory made those comparisons refuse a
+// legitimate deployment as "foreign" (MEASURED under a short-named TEMP; see packages/support).
+import { canonicalPath } from '@canary-rn/support';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -57,7 +62,7 @@ interface Review {
 }
 export function enrollment(store: string): Enrollment {
   const e = read<Enrollment>(path.join(store, 'enrollment.json'));
-  if (e.schema !== 'canary-production/2' || e.store !== fs.realpathSync(store)) throw new Error('foreign deployment');
+  if (e.schema !== 'canary-production/2' || e.store !== canonicalPath(store)) throw new Error('foreign deployment');
   if (sha(plainFile(configPath(e.base))) !== e.configDigest ||
       sha(plainFile(path.join(e.base, '.git', 'config'))) !== e.gitConfigDigest) throw new Error('enrolled authority changed');
   noLinks(e.base);
@@ -128,7 +133,7 @@ function execution(e: Enrollment): ControllerExecution {
 }
 export async function enrollProduction(baseArg: string, storeArg: string): Promise<Enrollment> {
   if (process.platform !== 'win32') throw new Error('production native provider requires Windows');
-  const base = fs.realpathSync(baseArg), store = path.resolve(storeArg);
+  const base = canonicalPath(baseArg), store = path.resolve(storeArg);
   noLinks(base); noLinks(store);
   if (fs.existsSync(store)) throw new Error('deployment destination must be new');
   const cfg = readConfig(base);
@@ -149,7 +154,7 @@ export async function enrollProduction(baseArg: string, storeArg: string): Promi
     if (r.status !== 0) throw new Error(`identity provisioning refused: ${r.stderr}`);
     return read<{ package: string }>(result).package;
   };
-  const e: Enrollment = { schema: 'canary-production/2', id, store: fs.realpathSync(store), base,
+  const e: Enrollment = { schema: 'canary-production/2', id, store: canonicalPath(store), base,
     project: sha(base), package: identity(profile), verifier: identity(`${profile}.Verifier`),
     pipe: `canary-production-${id}`, profile, configDigest: sha(plainFile(configPath(base))),
     gitConfigDigest: sha(config), createdAt: new Date().toISOString(), owner: productionHost().user };
@@ -215,7 +220,7 @@ function proposal(value: unknown): Record<string, string | null> {
 export function productionTool(store: string, cwd: string, request: unknown): unknown {
   const e = enrollment(store);
   noLinks(cwd);
-  const work = fs.realpathSync(cwd).toLowerCase();
+  const work = canonicalPath(cwd).toLowerCase();
   for (const authority of [e.base, e.store, path.resolve(nativeRoot, '../..')]) {
     const protectedPath = path.resolve(authority).toLowerCase();
     if (work === protectedPath || work.startsWith(protectedPath + path.sep) || protectedPath.startsWith(work + path.sep))

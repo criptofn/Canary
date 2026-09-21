@@ -58,7 +58,7 @@ import { fileURLToPath } from 'node:url';
 // outside a SEA build, so this import costs nothing in the ordinary case.
 import sea from 'node:sea';
 import { buildFailurePayload } from './failure-payload.js';
-import { resolveNpmCli, sanitizedEnv } from '@canary-rn/support';
+import { resolveNpmCli, sanitizedEnv, canonicalPath } from '@canary-rn/support';
 
 // M9 §9.5 — the quarantine marker filename. authority.ts imports only node
 // builtins, so this direction adds no cycle (candidate.ts already imports it).
@@ -2614,7 +2614,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const store = storeFromEnv();
   const projectId = projectIdForRoot(root);
   try {
-    sealRecord(store, { projectId, kind: 'registration', canaryVersion: CANARY_VERSION, payload: { root: fs.realpathSync(root), pm, adapter: composed.scopes.map((s) => s.adapter.id).join('+') } });
+    sealRecord(store, { projectId, kind: 'registration', canaryVersion: CANARY_VERSION, payload: { root: canonicalPath(root), pm, adapter: composed.scopes.map((s) => s.adapter.id).join('+') } });
     sealRecord(store, { projectId, kind: 'plan-seal', canaryVersion: CANARY_VERSION, payload: cfg.planAuthority });
   } catch (e) {
     // v1.4 §E — translated for the everyday path. Same refusal, same exit code, same actionable

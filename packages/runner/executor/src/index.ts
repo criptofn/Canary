@@ -12,6 +12,8 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+// v1.4 — canonical filesystem identity (expands Windows 8.3 short names).
+import { canonicalPath } from '@canary-rn/support';
 
 import {
   runCommand, CanaryError, locateRunnerPackage, findRunnerPin,
@@ -822,7 +824,7 @@ export function isRequireToken(tok: string): boolean {
  */
 function isPhysicalAnchor(fixture: string, dir: string): boolean {
   try {
-    return path.relative(fs.realpathSync(fixture), fs.realpathSync(dir)) === path.join(...OBSERVER_MOCHA_ANCHOR_REL);
+    return path.relative(canonicalPath(fixture), canonicalPath(dir)) === path.join(...OBSERVER_MOCHA_ANCHOR_REL);
   } catch {
     return false;
   }

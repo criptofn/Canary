@@ -21,6 +21,10 @@
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+// v1.4 — canonical identity for the project id. This value is PERSISTED and compared on later runs,
+// so a short/long spelling difference would shelve one repository under two ids and read the
+// second as foreign.
+import { canonicalPath } from '@canary-rn/support';
 import os from 'node:os';
 import path from 'node:path';
 import { authorityJson, isEnvelope, RECORD_SCHEMA, signedBytes, verifySeal, type RecordEnvelope } from './authority-envelope.js';
@@ -55,7 +59,7 @@ export function storeFromEnv(env: NodeJS.ProcessEnv = process.env): TrustStore {
  *  repo root. Two checkouts of one folder share it; renames do not forge a
  *  new record shelf out of an old one (reads still bind to the sealed bytes). */
 export function projectIdForRoot(root: string): string {
-  return 'p-' + crypto.createHash('sha256').update(fs.realpathSync(root)).digest('hex').slice(0, 32);
+  return 'p-' + crypto.createHash('sha256').update(canonicalPath(root)).digest('hex').slice(0, 32);
 }
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;

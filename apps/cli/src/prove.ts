@@ -18,7 +18,7 @@ import {
 import { sha256File } from '@canary-rn/hashing';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
 import { classify, applyConfinementGuard, type ExecutionObservation, type RoundFact } from '@canary-rn/classification';
-import { sanitizedEnv, sanitizedEnvKeys, resolveNpmCli, KNOWN_RUNNER_RELEASES, type WorkspaceLayout } from '@canary-rn/support';
+import { sanitizedEnv, sanitizedEnvKeys, resolveNpmCli, KNOWN_RUNNER_RELEASES, canonicalPath, type WorkspaceLayout } from '@canary-rn/support';
 import { deriveArmTreeFacts } from './verify-tree.js';
 
 export interface SummaryExpectation { passing: number; failing?: number | undefined }
@@ -429,7 +429,7 @@ export function verifyArtifacts(artifactsDir: string, bundle: EvidenceBundle): s
   const issues: string[] = [];
   const rootAbs = path.resolve(artifactsDir);
   let rootReal = rootAbs;
-  try { rootReal = fs.realpathSync(rootAbs); } catch { /* root missing → surfaced per-file */ }
+  try { rootReal = canonicalPath(rootAbs); } catch { /* root missing → surfaced per-file */ }
 
   for (const r of bundle.rounds) {
     const at = `round ${String(r.arm)}#${String(r.round)}`;
@@ -467,7 +467,7 @@ export function verifyArtifacts(artifactsDir: string, bundle: EvidenceBundle): s
       const lex = withinDir(rootAbs, p);
       if (!lex.ok) { issues.push(`${at}: artifact ${file} escapes the artifacts directory (${lex.why})`); continue; }
       let real = p;
-      try { real = fs.realpathSync(p); } catch { /* dangling symlink; lexical already ok */ }
+      try { real = canonicalPath(p); } catch { /* dangling symlink; lexical already ok */ }
       const re = withinDir(rootReal, real);
       if (!re.ok) { issues.push(`${at}: artifact ${file} resolves outside the artifacts directory (${re.why})`); continue; }
       if (!fs.existsSync(p)) {

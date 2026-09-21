@@ -123,6 +123,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+// v1.4 — canonical filesystem identity (expands Windows 8.3 short names).
+import { canonicalPath } from '@canary-rn/support';
 import { controllerExecution } from './provider/execution.js';
 import { digest, canonicalTask, taskWeakening, subjectDigest, TASK_KINDS, type TaskIdentity, type AuthorizationSubject } from './authorization.js';
 
@@ -781,8 +783,11 @@ function authorizationContext(root: string, name: string): {
   const cd = commonDir(root);
   if (!cd || commonDir(rec.root) !== cd) return 'candidate no longer belongs to the expected Git store';
   // Recheck toplevel explicitly: git discovery must not fall back to a parent.
+  // v1.4 — canonical identity on both sides: git prints the LONG name, while rec.root may have been
+  // recorded through a SHORT 8.3 spelling. Comparing the two spellings refused a valid candidate
+  // ("candidate repository identity changed"). A genuine parent-repo answer still differs.
   const top = gitCommand(rec.root, ['rev-parse', '--show-toplevel']);
-  if (!top || top.status !== 0 || !samePath(fs.realpathSync(top.stdout.trim()), fs.realpathSync(rec.root))) return 'candidate repository identity changed';
+  if (!top || top.status !== 0 || !samePath(canonicalPath(top.stdout.trim()), canonicalPath(rec.root))) return 'candidate repository identity changed';
   const cid = candidateIdentity(rec.root);
   if (!cid.resolved || !cid.head || !cid.tree || cid.dirty !== false) return 'candidate is not a clean committed state; commit the exact state you want reviewed, then run canary accept again';
   const baseTree = gitWithinRoot(root, ['rev-parse', '--verify', `${rec.baseHead}^{tree}`])?.trim();

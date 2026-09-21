@@ -24,6 +24,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+// v1.4 — canonical filesystem identity (expands Windows 8.3 short names).
+import { canonicalPath } from '@canary-rn/support';
 
 import { sha256hex } from '@canary-rn/hashing';
 import type { EvidenceBundle, TreeSnapshotRef } from '@canary-rn/evidence-schema';
@@ -197,8 +199,11 @@ function readArtifact(artifactsDir: string, name: string): string | undefined {
     const root = path.resolve(artifactsDir);
     if (!abs.startsWith(root + path.sep)) return undefined; // confinement (audit B3)
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return undefined;
-    const real = fs.realpathSync(abs);
-    const rootReal = fs.realpathSync(root);
+    // v1.4 — canonical on BOTH sides. This is the symlink-escape gate: a short/long spelling
+    // difference must not look like an escape (false rejection), while a real escape still
+    // resolves outside the canonical root and is still refused.
+    const real = canonicalPath(abs);
+    const rootReal = canonicalPath(root);
     if (real !== rootReal && !real.startsWith(rootReal + path.sep)) return undefined; // post-sol secondary: symlink escape
     return fs.readFileSync(abs, 'utf8');
   } catch {

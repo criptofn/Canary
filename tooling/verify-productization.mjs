@@ -232,7 +232,12 @@ const STEPS = [
   // below to mean anything.
   // `npm exec`, not `npx`: the chain spawns steps without a shell, and `npx` is a shell shim that
   // `spawnSync` cannot resolve here (MEASURED: `spawnSync npx ENOENT`), while `npm` resolves.
-  ['build (tsc -b --force)', 'npm', ['exec', '--', 'tsc', '-b', 'apps/cli', '--force'], {}],
+  // v1.4 — force the WHOLE workspace, not just apps/cli. MEASURED: `tsc -b` exits 0 without
+  // re-emitting a file whose output was changed after compilation, and forcing only the CLI left
+  // every `packages/*/dist` free to be stale — so a probe could measure bytes that do not
+  // correspond to the source in front of it. The freshness probe below then proves the property
+  // rather than assuming it.
+  ['build (tsc -b --force)', 'npm', ['exec', '--', 'tsc', '-b', '--force'], {}],
   ['build (npm run build, incremental)', 'npm', ['run', 'build'], {}],
   // BEFORE anything reads the artifact: is the compiled CLI a real build, or a mutation battery's
   // leftover? MEASURED (2026-09-14): an interrupted `master-pass-mutations` run left
@@ -242,6 +247,10 @@ const STEPS = [
   // own acceptance baseline — hours spent explaining behaviour the source never had. This step turns
   // that state into a loud first failure instead of a phantom product defect.
   ['dist tripwire (is the compiled artifact mutated?)', process.execPath, ['tooling/probes/v12-dist-tripwire.mjs'], {}],
+  // v1.4 — the tripwire only looks for mutation-battery MARKERS. This proves the stronger
+  // property the release depends on: after this build path, no emitted file can hold bytes that
+  // do not match the source (it injects a sentinel, re-runs the build, and requires it to be gone).
+  ['dist freshness (does dist correspond to source, or can stale bytes be tested?)', process.execPath, ['tooling/probes/v14-dist-freshness.mjs'], {}],
   // And before anything is BELIEVED FROM THE DOCS: do their checkable numbers still match the
   // repository? This session's most persistent defect was summaries drifting from what they summarise
   // - the standings were stale twice, the README quoted a superseded token figure, a step label named
