@@ -338,11 +338,33 @@ export function untrustedConfigReason(root: string, cfg: CanaryConfig): string |
  *  to re-join once their nearest existing ancestor is contained. */
 export function containedRealPath(root: string, p: string): string | null {
   try {
-    const r = fs.realpathSync(root);
+    // v1.4 — MEASURED: this must canonicalise 8.3 SHORT names, or every containment
+    // comparison silently compares two spellings of one directory and refuses.
+    //
+    // Found on GitHub Actions Windows (run 35530519454, job 106130188538): ~119 tests failed
+    // with `isolate: the trusted base identity is unresolvable (broken .git?)`. Ground truth
+    // from the runner (probe v14-windows-identity-diag.mjs): git resolved FINE
+    // (`C:\Program Files\Git\cmd\git.exe`), but `os.tmpdir()` and `fs.realpathSync()` both
+    // returned `C:\Users\RUNNER~1\...` while `git rev-parse --show-toplevel` returned
+    // `C:/Users/runneradmin/...`. `inside()` then compared `runner~1` against `runneradmin`,
+    // concluded "not this repo", and refused an identity that was never in doubt.
+    //
+    // It is invisible on a machine whose path components all fit 8.3: `Johannes` is exactly
+    // 8 characters, so short and long forms are byte-identical there. The runner's
+    // `runneradmin` (11) becomes `RUNNER~1`, and a real user's temp or repo path can do the
+    // same. Reproduced offline and deterministically by tooling/probes/v14-shortname-repro.mjs.
+    //
+    // `realpathSync.native` is Node's OS call (`GetFinalPathNameByHandle` on Windows) and DOES
+    // expand the short form — measured: short `...\CAA02B~1\A-LONG~1` -> long
+    // `...\canary-shortname-iZPuS2\a-long-directory-name`. Symlink and junction following is
+    // unchanged, so the containment property this helper exists for is not weakened: it is
+    // now enforced against canonical paths instead of two unequally-spelled ones.
+    const canon = (q: string): string => fs.realpathSync.native(q);
+    const r = canon(root);
     const inside = (t: string) => process.platform === 'win32'
       ? (t.toLowerCase() === r.toLowerCase() || t.toLowerCase().startsWith(r.toLowerCase() + path.sep))
       : (t === r || t.startsWith(r + path.sep));
-    if (fs.existsSync(p)) return inside(fs.realpathSync(p)) ? fs.realpathSync(p) : null;
+    if (fs.existsSync(p)) return inside(canon(p)) ? canon(p) : null;
     let cur = path.resolve(p);
     const tail: string[] = [];
     while (!fs.existsSync(cur)) {
@@ -351,7 +373,7 @@ export function containedRealPath(root: string, p: string): string | null {
       if (up === cur) return null;
       cur = up;
     }
-    const anc = fs.realpathSync(cur);
+    const anc = canon(cur);
     return inside(anc) ? path.join(anc, ...tail) : null;
   } catch { return null; }
 }
