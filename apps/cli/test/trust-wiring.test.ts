@@ -55,7 +55,16 @@ describe('1.1 P0 trust-store wiring', () => {
     assert.equal(open.envelope!.seq, 1);
     const reg = openSealed(store, { projectId: pid, kind: 'registration' });
     assert.equal(reg.status, 'valid', reg.reason);
-    assert.deepEqual(reg.envelope!.payload, { root: fs.realpathSync(sealRoot), pm: 'npm', adapter: 'node' });
+    // MEASURED (v1.4, GitHub Windows run 35779803546): the registration seal
+    // records the CANONICAL spelling of the root, because that is what the
+    // trust store keys a project by. `fs.realpathSync` (JS) does NOT expand an
+    // 8.3 SHORT name, so on the runner — whose temp path is
+    // `C:\Users\RUNNER~1\…` — the expectation was the short spelling and the
+    // product's long one, and a deep-equal of two spellings of ONE directory
+    // failed on a host where nothing was wrong. Realpath resolution to identity
+    // is the product's documented behaviour (`canonicalPath`); the assertion
+    // asks for the same identity, and still requires the exact payload.
+    assert.deepEqual(reg.envelope!.payload, { root: fs.realpathSync.native(sealRoot), pm: 'npm', adapter: 'node' });
   });
 
   it('status/doctor report the sealed copy; the verdict stays the v1.0 one', () => {

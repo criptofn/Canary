@@ -45,6 +45,7 @@ const named = argv.filter((a, i) => !a.startsWith('--') && i !== tIdx + 1);
 const DEFAULT_SET = [
   'apps/cli/dist/test/prove.test.js',
   'apps/cli/dist/test/verify-tree.test.js',
+  'apps/cli/dist/test/trust-wiring.test.js',
   'apps/cli/dist/test/attested-channel.test.js',
   'apps/cli/dist/test/cli.test.js',
 ];
