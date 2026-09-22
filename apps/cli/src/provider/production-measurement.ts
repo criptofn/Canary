@@ -19,10 +19,24 @@ export const NATIVE_ATTACKS = ['inherited-file', 'inherited-process-duplicate', 
   'authority-write-0', 'authority-write-1', 'authority-write-2', 'authority-write-3', 'authority-write-4', 'descendant-read'] as const;
 export function productionHost(): { user: string; host: string; profile: string } {
   if (process.platform !== 'win32') throw new Error('native host identity unavailable');
+  // MEASURED (v1.4): this budget was 10 s, which is comfortable on an idle
+  // machine and NOT under load — the release battery failed the native
+  // confinement suite with `OS-owned host/profile binding unavailable` while the
+  // same suite passed alone in 271 s on the same bytes. The cause was this
+  // PowerShell probe being killed by its own 10 s timeout (a loaded machine
+  // starting powershell.exe plus an AppContainer lookup), and the caller could
+  // not tell that from a genuine policy refusal because the reason was dropped.
+  // A budget is not an assertion: the probe still fails closed, it now says WHY.
+  const timeoutMs = 60_000;
   const r = spawnSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
     ['-NoProfile', '-NonInteractive', '-File', path.join(repo, 'tools/windows-boundary/production-host.ps1')],
-    { encoding: 'utf8', windowsHide: true, timeout: 10000 });
-  if (r.status !== 0) throw new Error('OS-owned host/profile binding unavailable');
+    { encoding: 'utf8', windowsHide: true, timeout: timeoutMs });
+  if (r.status !== 0) {
+    const why = r.error !== undefined && r.error !== null
+      ? `the probe did not complete within ${String(timeoutMs / 1000)}s (${r.error.message})`
+      : `the probe exited ${String(r.status)}: ${(r.stderr ?? '').trim().split('\n').slice(0, 3).join(' | ').slice(0, 300)}`;
+    throw new Error(`OS-owned host/profile binding unavailable — ${why}`);
+  }
   return JSON.parse(r.stdout);
 }
 function safeRead(file: string): Buffer {
@@ -221,8 +235,16 @@ export function readProductionMeasurement(store: string, now = Date.now()): { va
     const heartbeat = spawnSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
       ['-NoProfile', '-NonInteractive', '-File', path.join(repo, 'tools/windows-boundary/production-heartbeat.ps1'),
         '-Pipe', e.pipe, '-Nonce', nonce, '-Deployment', e.id, '-Project', e.project],
-      { encoding: 'utf8', windowsHide: true, timeout: 10000 });
-    if (heartbeat.status !== 0) throw new Error('live production broker unavailable');
+      // Same budget lesson as productionHost() above: 10 s is enough when the
+      // host is idle and not when it is loaded, and the caller must be able to
+      // tell a slow host from a broker that is genuinely not there.
+      { encoding: 'utf8', windowsHide: true, timeout: 60_000 });
+    if (heartbeat.status !== 0) {
+      const why = heartbeat.error !== undefined && heartbeat.error !== null
+        ? `the heartbeat did not complete within 60s (${heartbeat.error.message})`
+        : `the heartbeat exited ${String(heartbeat.status)}: ${(heartbeat.stderr ?? '').trim().split('\n').slice(0, 3).join(' | ').slice(0, 300)}`;
+      throw new Error(`live production broker unavailable — ${why}`);
+    }
     const live = JSON.parse(heartbeat.stdout);
     if (live.status !== 200 || live.payload?.schema !== 'canary-production-heartbeat/2' || live.payload.deployment !== e.id || live.payload.nonce !== nonce ||
         live.payload.generation !== anchor.nonce || live.payload.measurement !== anchor.current ||

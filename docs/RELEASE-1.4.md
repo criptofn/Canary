@@ -209,8 +209,8 @@ Unchanged from v1.3 except as noted:
 | | |
 |---|---|
 | file | `canary-rn-cli-1.4.0.tgz` |
-| size | **208,743 bytes** |
-| SHA-256 | `6c1aa53c0909af5f7b3b8253401843f1e091d8987594fc1676cf542f45b67fbd` |
+| size | **209,117 bytes** |
+| SHA-256 | `f82203f3f7009d2e9e31d3144db28d8d46108eed76f9a87b721f13cfc4b3aca4` |
 | entries | **16** — exactly the pack allowlist (`dist/main.js`, `tools/windows-boundary` ×7, `tooling/test-support/fixtures` ×6, `package.json`, `LICENSE`) |
 | runtime dependencies | **none** (the manifest declares no `dependencies`, `peerDependencies` or `optionalDependencies`) |
 | licence | `package/LICENSE` ships in the tarball (Apache-2.0 §4(a)) |

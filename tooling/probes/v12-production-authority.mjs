@@ -22,7 +22,7 @@ const base = path.join(root, 'base'), store = path.join(root, 'store'), work = p
 let broker, enrollment; let failed = 0;
 const report = { tests: [], observations: null };
 const check = (name, ok, detail) => { report.tests.push({ name, ok, detail }); console.log(`${ok?'PASS':'FAIL'} ${name}: ${detail}`); if(!ok) failed++; };
-const command = (exe,args,cwd=root,timeout=180000) => {
+const command = (exe,args,cwd=root,timeout=300000) => {
   const r = spawnSync(exe,args,{cwd,encoding:'utf8',windowsHide:true,timeout});
   if(r.status!==0) throw new Error(`${exe} ${args.join(' ')}: ${r.status}\n${r.stdout}\n${r.stderr}`);
   return r.stdout;
@@ -60,9 +60,13 @@ try {
   broker = spawn(process.execPath,[cli,'provider','serve-production',store],{cwd:root,windowsHide:true,stdio:['ignore','pipe','pipe']});
   let brokerLog=''; broker.stdout.on('data', x => brokerLog+=x); broker.stderr.on('data', x=>brokerLog+=x);
   // Native compilation happens before listening; use a read-only pipe exchange for readiness.
+  // v1.4: 100 attempts x 100 ms = 10 s was enough on an idle machine and NOT under load — the
+  // full unit suite runs eight files at once and the broker's first start compiles the native
+  // boundary. 600 attempts (60 s) is a WAIT, not a relaxation: the fixture still fails loudly if
+  // the broker never answers, and what the suite asserts is unchanged.
   const net = await import('node:net');
   let ready=false;
-  for(let i=0;i<100&&!ready;i++) {
+  for(let i=0;i<600&&!ready;i++) {
     ready=await new Promise(resolve=>{const s=net.connect('\\\\.\\pipe\\'+enrollment.pipe);s.on('connect',()=>s.write('{"verb":"hello"}\n'));s.on('data',()=>{s.destroy();resolve(true);});s.on('error',()=>resolve(false));});
     if(!ready) await new Promise(r=>setTimeout(r,100));
   }

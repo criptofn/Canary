@@ -11,6 +11,16 @@ import { anchorPath, publishProductionMeasurement, type ProductionTranscript, ty
 import { candidateIdentity } from '../onboarding.js';
 
 const fixture = path.resolve(nativeRoot, '../../tooling/test-support/fixtures');
+/** How long a HELPER process may take to announce itself.
+ *
+ *  MEASURED (v1.4): 5 s was enough on an idle machine and NOT under load — the
+ *  release battery's full unit suite (eight files at once, several of them
+ *  spawning their own pipelines) failed the native confinement suite with
+ *  `pipe control unavailable`, because powershell.exe needed longer than 5 s to
+ *  start and reach its ready file. This is a WAIT, not an assertion: what is
+ *  asserted is the behaviour observed once the helper is up, and the failure
+ *  still names the wait it gave up on. */
+const HELPER_STARTUP_MS = 60_000;
 export async function measureProductionAttacks(store: string): Promise<void> {
   const e = enrollment(store);
   const { nonce: challenge, startedAt } = read<{ nonce: string; startedAt: number }>(path.join(store, 'measurement-session.json'));
@@ -46,9 +56,9 @@ export async function measureProductionAttacks(store: string): Promise<void> {
       const ready = path.join(store, 'listener-ready'), journal = path.join(store, 'listener.jsonl'), side = path.join(store, 'native-side.jsonl');
       fs.rmSync(ready, { force: true });
       server = spawn(process.execPath, [path.join(fixture, 'confined-listener.cjs'), ready, journal, host], { windowsHide: true, stdio: 'ignore' });
-      const deadline = Date.now() + 5000;
+      const deadline = Date.now() + HELPER_STARTUP_MS;
       while (!fs.existsSync(ready) && Date.now() < deadline) await new Promise(r => setTimeout(r, 25));
-      if (!fs.existsSync(ready)) throw new Error('independent listener failed');
+      if (!fs.existsSync(ready)) throw new Error(`independent listener failed to start within ${String(HELPER_STARTUP_MS / 1000)}s`);
       const port = plainFile(ready).toString('utf8');
       const r = spawnSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
         ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(fixture, 'boundary-native-run.ps1'),
@@ -78,12 +88,12 @@ export async function measureProductionAttacks(store: string): Promise<void> {
     negativePipe = spawn('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
       ['-NoProfile', '-NonInteractive', '-File', path.join(fixture, 'medium-pipe.ps1'), '-Pipe', pipe, '-Package', e.package, '-Ready', ready, '-DenyPackage'],
       { windowsHide: true, stdio: 'ignore' });
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + HELPER_STARTUP_MS;
     while (!fs.existsSync(ready) && Date.now() < deadline) await new Promise(r => setTimeout(r, 25));
-    if (!fs.existsSync(ready)) throw new Error('pipe control unavailable');
+    if (!fs.existsSync(ready)) throw new Error(`pipe control unavailable — the helper did not start within ${String(HELPER_STARTUP_MS / 1000)}s`);
     const args = ['--preserve-symlinks-main', caller, '--mode', 'hello', '--pipe', pipe, '--package', e.package, '--evidence', output, '--nonce', challenge, '--work', pipeWork];
-    const control = spawnSync(process.execPath, args, { cwd: pipeWork, windowsHide: true, timeout: 10000 });
-    if (control.status !== 0) throw new Error('pipe unrestricted control did not execute');
+    const control = spawnSync(process.execPath, args, { cwd: pipeWork, windowsHide: true, timeout: HELPER_STARTUP_MS });
+    if (control.status !== 0) throw new Error(`pipe unrestricted control did not execute (exit ${String(control.status)}${control.error ? `, ${control.error.message}` : ''})`);
     const controlReport = read<ProductionTranscript['pipeNegative']['control']>(output);
     fs.unlinkSync(output);
     const restricted = runNative(store, { mode: 'run', command: [process.execPath, ...args].map(quote).join(' '), cwd: pipeWork, side, package: e.package });

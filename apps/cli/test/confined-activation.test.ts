@@ -75,8 +75,22 @@ if (SUITE_SKIP) {
 }
 const json = (file: string) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const put = (file: string, value: unknown) => fs.writeFileSync(file, JSON.stringify(value));
+/** How long the REAL production fixture may take to enroll, compile its native
+ *  boundary and answer on a named pipe.
+ *
+ *  MEASURED (v1.4): 300 s was enough on an idle machine and NOT enough inside
+ *  `npm test`, where eight test files run concurrently and several of them spawn
+ *  their own pipelines; 600 s was still not enough under the same load — the
+ *  fixture was observed past its whole native attack battery and its custody
+ *  checks, still short of the handoff, while the same suite passed alone in
+ *  271 s (61/61) on the same bytes. A fixture that cannot come up inside its
+ *  budget is a red step that says nothing about the change under test, which is
+ *  the false red this release exists to remove. This is a BUDGET, not an
+ *  assertion: what the suite asserts is unchanged, and it still fails loudly if
+ *  the fixture never arrives. */
+const FIXTURE_STARTUP_MS = 900000;
 const pause = () => new Promise(resolve => setTimeout(resolve, 100));
-async function ready(file: string, child: ChildProcess, timeout = 300000): Promise<void> {
+async function ready(file: string, child: ChildProcess, timeout = FIXTURE_STARTUP_MS): Promise<void> {
   const until = Date.now() + timeout;
   while (!fs.existsSync(file)) {
     if (child.exitCode !== null || Date.now() > until) throw new Error('real fixture unavailable: ' + fixtureLog);
@@ -119,11 +133,10 @@ before(async () => {
     {cwd: repo, windowsHide: true, stdio: ['pipe','pipe','pipe']});
   fixture.stdout?.on('data', b => { fixtureLog += b; });
   fixture.stderr?.on('data', b => { fixtureLog += b; });
-  await ready(handoff, fixture);
-  ({store, enrollment: e, brokerPid} = json(handoff));
+  await ready(handoff, fixture);  ({store, enrollment: e, brokerPid} = json(handoff));
   recordFile = path.join(store, PRODUCTION_MEASUREMENT); anchorFile = anchorPath(store);
   record = json(recordFile); anchor = json(anchorFile); key = fs.readFileSync(path.join(store, 'producer.key'));
-}, {timeout: 310000});
+}, {timeout: FIXTURE_STARTUP_MS + 10000});
 beforeEach(restore);
 after(async () => {
   restore();

@@ -45,9 +45,15 @@ export function native(store: string, request: Record<string, unknown>) {
   const file = path.join(store, `${crypto.randomUUID()}.native.json`);
   write(file, request);
   try {
+    // MEASURED (v1.4): the native launcher waits up to 240 s for the confined
+    // child (CanaryConfinedLauncher.cs / AppContainerRunner.cs). This budget was
+    // 150 s, so a loaded machine produced exit 124 (WAIT_TIMEOUT) here first —
+    // the release battery's full unit suite failed the native confinement
+    // fixture that way while the same fixture passed alone. A budget is not an
+    // assertion: the launch is still bounded and still fails closed.
     return spawnSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(nativeRoot, 'production-native.ps1'), '-Request', file],
-      { encoding: 'utf8', windowsHide: true, timeout: 150000, maxBuffer: 1024 * 1024 });
+      { encoding: 'utf8', windowsHide: true, timeout: 300000, maxBuffer: 1024 * 1024 });
   } finally { fs.rmSync(file, { force: true }); }
 }
 export interface Enrollment {

@@ -122,7 +122,7 @@ public static class CanaryAppContainer {
       Check(AssignProcessToJobObject(job,child.process),"AssignProcessToJobObject");
       MeasureChild(child.process,child.pid); // trusted parent observes the actual suspended token
       Check(ResumeThread(child.thread)!=0xffffffff,"ResumeThread");
-      uint wait=WaitForSingleObject(child.process,120000);
+      uint wait=WaitForSingleObject(child.process,240000);
       if(wait==258) return 124;
       Check(wait==0,"WaitForSingleObject");
       uint code; Check(GetExitCodeProcess(child.process,out code),"GetExitCodeProcess");

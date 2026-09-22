@@ -114,6 +114,18 @@ position are in [`docs/RELEASE-1.4.md`](docs/RELEASE-1.4.md).
     counted host-bound SKIP** (never a PASS), while still running in full on a host that can. The
     leg's budget is 300 minutes, **from the measurement** (>180 min for the half that ran), to be
     tightened once a run reports its real total.
+- **The native provider path had four host budgets that were too tight for a loaded machine**, and
+  the v1.4 release battery found them in sequence: `productionHost()` killed its own PowerShell probe
+  after **10 s** and reported `OS-owned host/profile binding unavailable`; the attack fixture's helper
+  readiness deadlines were **5 s** (`pipe control unavailable`, `independent listener failed`); the
+  confined launcher — native code — waited **120 s** for its child and returned `124` (WAIT_TIMEOUT)
+  while the JS budget above it was **150 s**; and the fixture allowed **300 s** for a startup that
+  runs an entire measurement battery. Each was comfortable on an idle machine and false-red under
+  `npm test`'s eight concurrent files, where the same suite passes alone in 271 s on the same bytes.
+  All four are now **budgets with headroom** (60 s / 60 s / 240 s / 300 s / 900 s) and each failure
+  **names the wait it gave up on** instead of a bare refusal. Nothing asserted changed: the launch
+  and the probes are still bounded, still fail closed, and `npm test` is green —
+  **1,225 tests, 1,221 pass, 0 fail, 4 skipped**, the native confinement suite included.
 - **A fixture overlay that git could not carry, so `npm test` failed on every fresh clone.**
   `tooling/benchmark/fixtures/impossible-test/solutions/good` was an **empty directory** — the
   known-good solution for that fixture IS the untouched project — and git stores files, not
