@@ -702,23 +702,73 @@ function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
   const psExe = resolveSystemTool('WindowsPowerShell', 'v1.0', 'powershell.exe');
   // 60s clock slack: CIM CreationDate truncates to seconds.
   const cut = new Date(spawnedAtMs - 60_000).toISOString();
+  // ONE SNAPSHOT, NOT ONE QUERY PER PROCESS. MEASURED (v1.4 release gate, GitHub
+  // Windows runner, run 35636516908): the previous shape issued
+  // `Get-CimInstance -Filter "ParentProcessId=$p"` for EVERY node of the BFS. A
+  // fixture command that spawns a whole test suite has a large descendant tree,
+  // so the sweep made 30+ WMI queries; at the ~1s/query a loaded hosted runner
+  // gives, it exceeded its budget, reported the look as UNCONFIRMABLE, and every
+  // round of every pipeline became "not a valid test run" — 27 of the 29 real
+  // Windows CI failures, each costing ~334s of sweeps.
+  //
+  // A single snapshot carries the same information (Windows keeps the numeric
+  // PPID of a dead parent) at one query. The traversal then runs inside this one
+  // PowerShell, and the kills are attempted AFTER it — from the snapshot, so a
+  // process the BFS discovered cannot be missed because its parent died mid-sweep.
+  //
+  // The row count is printed FIRST and required to be a positive number by the
+  // caller: a snapshot that silently came back empty (`Get-CimInstance` failing
+  // under -ErrorAction SilentlyContinue) would otherwise be indistinguishable
+  // from a genuine "no survivors" — the one reading the honesty law forbids.
   const script =
+    `$ErrorActionPreference='Continue';` +
     `$cut=[DateTime]::Parse('${cut}').ToUniversalTime();` +
+    `$all=@(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_ -ne $null });` +
+    `Write-Output $all.Count;` +
+    `$byParent=@{};` +
+    `foreach($p in $all){ $pp=[int]$p.ParentProcessId; if(-not $byParent.ContainsKey($pp)){ $byParent[$pp]=New-Object System.Collections.ArrayList }; [void]$byParent[$pp].Add($p) };` +
     `$q=New-Object System.Collections.Generic.Queue[int]; $q.Enqueue(${pid});` +
-    `$done=New-Object System.Collections.Generic.HashSet[int]; $k=@();` +
+    `$seen=New-Object System.Collections.Generic.List[int];` +
+    `$done=New-Object System.Collections.Generic.HashSet[int];` +
     `while($q.Count -and $done.Count -lt ${SWEEP_MAX_PROCESSES}){` +
     `$p=$q.Dequeue(); if(-not $done.Add($p)){continue};` +
-    `Get-CimInstance -ClassName Win32_Process -Filter "ParentProcessId=$p" -ErrorAction SilentlyContinue | ForEach-Object{` +
-    `if($_.CreationDate -and $_.CreationDate.ToUniversalTime() -ge $cut){` +
-    `$q.Enqueue($_.ProcessId);` +
-    `try{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; $k+=$_.ProcessId }catch{} ` +
-    `} } };` +
+    `$seen.Add($p);` +
+    `if($byParent.ContainsKey($p)){ foreach($c in $byParent[$p]){` +
+    `if($c.CreationDate -and $c.CreationDate.ToUniversalTime() -ge $cut){ $q.Enqueue([int]$c.ProcessId) } } } };` +
+    `$k=@();` +
+    `foreach($id in $seen){ try{ Stop-Process -Id $id -Force -ErrorAction Stop; $k+=$id }catch{} };` +
     `$k -join ','`;
   const r = spawnSync(psExe,
     ['-NoProfile', '-NonInteractive', '-Command', script],
-    { timeout: 30_000, windowsHide: true, encoding: 'utf8', shell: false, env: containmentEnv() });
-  if (r.error || r.status !== 0) return { killed: [], failed: true };
-  const text = (r.stdout ?? '').trim();
+    // One enumeration instead of 30+ queries; the budget is per sweep and a
+    // timeout still fails CLOSED (never "no survivors") and now names its cause.
+    { timeout: 60_000, windowsHide: true, encoding: 'utf8', shell: false, env: containmentEnv() });
+  const why = r.error !== undefined && r.error !== null
+    ? `powershell spawn failed: ${r.error.message}`
+    : r.status !== 0
+      ? `powershell exited ${String(r.status)}: ${(r.stderr ?? '').trim().split('\n').slice(0, 3).join(' | ').slice(0, 400)}`
+      : '';
+  if (why !== '') {
+    // A sweep that could not LOOK must say so where an operator can see it: the
+    // round is about to be invalidated, and "could not confirm" without a reason
+    // cost this repository a full CI archaeology round.
+    process.stderr.write(`containment sweep could not run: ${why}\n`);
+    return { killed: [], failed: true };
+  }
+  const lines = (r.stdout ?? '').split('\n').map((l) => l.trim()).filter((l) => l !== '');
+  const surveyed = Number(lines[0]);
+  if (!Number.isFinite(surveyed) || surveyed <= 0) {
+    process.stderr.write(`containment sweep could not run: the process snapshot came back empty or unreadable (first line: '${String(lines[0] ?? '')}')\n`);
+    return { killed: [], failed: true };
+  }
+  const text = lines.slice(1).join('');
+  // Shape check: anything beyond the count and one CSV line is output this
+  // parser does not understand, and an unparsed listing must never be read as
+  // "nothing survived".
+  if (lines.length > 2 || (lines.length === 2 && !/^[0-9,]*$/.test(lines[1] as string))) {
+    process.stderr.write(`containment sweep could not run: unrecognised powershell output (${lines.slice(1).join(' / ').slice(0, 200)})\n`);
+    return { killed: [], failed: true };
+  }
   const killed = text
     ? text.split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0)
     : [];

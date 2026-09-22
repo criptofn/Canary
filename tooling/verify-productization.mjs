@@ -263,6 +263,18 @@ const STEPS = [
   // pins the isolation, that an unrelated stale store is inert, that a damaged store still refuses,
   // and that repeated runs agree.
   ['trust-store isolation (can stale temp state decide a test?)', process.execPath, ['tooling/probes/v14-trust-store-isolation.mjs'], {}],
+  // v1.4 — MEASURED (GitHub Windows run 35636516908): the post-exit containment sweep asked WMI one
+  // question PER PROCESS, exceeded its budget on the hosted runner, and reported the LOOK as
+  // unconfirmable — which invalidated every round of every pipeline (27 of 29 real failures, ~334s
+  // each). This pins the fix's shape (one snapshot, a non-empty table required) and, against a real
+  // live tree, the property the fix must not break: survivors are still found and killed.
+  ['containment sweep cost + honesty (one snapshot, real survivors still killed)', process.execPath, ['tooling/probes/v14-sweep-scale.mjs'], {}],
+  // v1.4 — the same Windows leg was red for a second, independent reason: a DELETED artifact was
+  // reported as "resolves outside the artifacts directory" whenever the host's temp path has an 8.3
+  // SHORT name (`C:\Users\RUNNER~1\...`), which no developer machine reproduces because `Johannes`
+  // fits 8.3. This runs the files that were red with TEMP/BOTH temp variables pointed at the short
+  // spelling of a long-named directory, so the runner's condition is exercised locally in minutes.
+  ['8.3 short-name suite (does the suite still hold when TEMP is spelled the way a runner spells it?)', process.execPath, ['tooling/probes/v14-shorttemp-suite.mjs'], {}],
   // And before anything is BELIEVED FROM THE DOCS: do their checkable numbers still match the
   // repository? This session's most persistent defect was summaries drifting from what they summarise
   // - the standings were stale twice, the README quoted a superseded token figure, a step label named

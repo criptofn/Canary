@@ -27,26 +27,39 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # MEASURED (v1.4). These are not the same job on the two hosts, so they do not get the
-    # same budget.
+    # MEASURED (v1.4 release gate). These are not the same job on the two hosts,
+    # so they do not get the same budget.
     #
     # Ubuntu: the whole suite finishes in ~80 s.
     #
-    # Windows (GitHub-hosted runner): the SAME commit, the same command, the same Node — and
-    # a handful of `panel K` / attested-channel tests that drive the real pipeline stall
-    # instead of running. Measured profile from run 35513360741 (job 106085049619, cancelled
-    # at the old 30-minute cap): individual tests took 92,698 ms / 92,908 ms / 98,124 ms /
-    # 335,197 ms / 335,763 ms / 337,352 ms / 1,441,173 ms, against 115 ms - 2,213 ms for the
-    # same tests in this repository's recorded logs on a developer Windows machine and 1.2 s
-    # on the ubuntu leg of the same run. That is a stall, not slowness: the leg needed more
-    # than 50 minutes of test time, and three of those tests reported `not ok` after stalling.
+    # Windows (GitHub-hosted runner): this leg was red or `cancelled` for two
+    # releases. v1.4 ran it down to two INDEPENDENT PRODUCT DEFECTS, not a host
+    # limitation — the previous comment here claimed a "stall" and that was
+    # wrong:
     #
-    # CLASSIFIED: HOST LIMITATION (GitHub-hosted Windows runner) — not a product defect and not
-    # a test defect; the assertions are correct and pass on a real Windows host. The old
-    # 30-minute cap turned this into `cancelled`, an ambiguous status that hid both the profile
-    # and the verdict. The budget below is the measured need plus headroom, so the leg now RUNS
-    # TO COMPLETION and reports a named, deterministic result. Nothing is skipped, no assertion
-    # is relaxed, and a genuine Windows regression still fails this job.
+    #   1. The post-exit containment sweep (packages/support) issued one WMI
+    #      query PER PROCESS in the descendant BFS. A fixture command that
+    #      spawns a whole test suite has a large tree, so the sweep made 30+
+    #      `Get-CimInstance` calls; at the ~1s/query a loaded hosted runner
+    #      gives, it exceeded its budget and reported the LOOK as unconfirmable.
+    #      Every round of every pipeline then became "not a valid test run" ->
+    #      INFRASTRUCTURE_FAILURE, which is 27 of the 29 real failures in run
+    #      35636516908, each costing ~334 s of sweeps. Fixed: ONE snapshot.
+    #   2. verifyArtifacts (apps/cli/src/prove.ts) resolved a path before
+    #      checking it existed, so a DELETED artifact was reported as
+    #      "resolves outside the artifacts directory" whenever the host's temp
+    #      path has an 8.3 short name (`C:\Users\RUNNER~1\...`). Fixed:
+    #      existence first, then canonical containment.
+    #
+    # The budgets below are measured need plus headroom, so the leg RUNS TO
+    # COMPLETION and reports a named verdict instead of an ambiguous
+    # `cancelled`. Nothing is skipped and no assertion is relaxed. One known
+    # host-bound exception remains and is NOT hidden by this budget: the native
+    # confinement suite (confined-activation) needs a host that can EXECUTE
+    # inside an AppContainer + restricted token + low integrity, and the
+    # GitHub-hosted Windows image measurably refuses that (`spawnSync
+    # C:\Program Files\Git\cmd\git.exe EPERM`) — the product reports it
+    # fail-closed, and that leg's verdict is what says so.
     timeout-minutes: ${{ matrix.os == 'windows-latest' && 90 || 30 }}
     steps:
       # Actions are pinned by commit SHA (supply chain). Dependabot
@@ -59,7 +72,13 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund   # audit S3: reproducible, lockfile-exact install
       - run: npm run build
-      - run: node --test "packages/**/dist/test/*.test.js" "apps/**/dist/test/*.test.js"
+      # The SAME command `npm test` runs, minus the local `--test-concurrency=8`
+      # pin: that pin exists because node's default (one file per core) over-
+      # subscribes a many-core developer machine, while a 4-vCPU runner is
+      # already at 3. The tooling glob is not optional — `sea-capability.test.mjs`
+      # is the test that guards the standalone job's node pin, and CI was not
+      # running it.
+      - run: node --test "packages/**/dist/test/*.test.js" "apps/**/dist/test/*.test.js" "tooling/**/*.test.mjs"
       - run: node tooling/probes/architecture-closure.mjs
       - run: node tooling/probes/architecture-metrics.mjs
       - run: node tooling/probes/cleanroom-packed-artifact.mjs
