@@ -55,22 +55,25 @@ jobs:
     # COMPLETION and reports a named verdict instead of an ambiguous
     # `cancelled`. Nothing is skipped and no assertion is relaxed.
     #
-    # MEASURED (run 35689460479, after the two product fixes above): the leg's
+    # MEASURED (run 35695885086, after the two product fixes above): the leg's
     # real failures went to ZERO (`testCodeFailure: 0`, 554 tests ok) — but the
-    # hosted runner is genuinely slow enough that the suite does not finish in
-    # 90 minutes: its slowest suites took 1955 s / 1377 s / 1305 s / 1279 s on
-    # that host against seconds here, and the step was still running when the
-    # 90-minute cap cancelled the job. So the Windows budget is raised to a
-    # finite 180 minutes — long enough to complete and be MEASURED, still a
-    # hard cap, and no work is dropped to fit it.
+    # hosted runner is genuinely slow enough that the suite did not finish: it
+    # completed 643 of ~1345 tests in 180 minutes, its slowest suites taking
+    # 1955 s / 1377 s / 1305 s / 1279 s where the same suites take seconds here.
+    # The budget is therefore 300 minutes: finite (the platform caps a job at
+    # 360), above the measured need for the half that DID run, and — with the
+    # scanner exclusion above — intended to be TIGHTENED to a measured value
+    # once a run completes and reports its real total. No work is dropped to fit
+    # it and no assertion is relaxed.
     #
     # One host-bound exception remains and is NOT hidden by this budget: the
     # native confinement suite (confined-activation) needs a host that can
     # EXECUTE inside an AppContainer + restricted token + low integrity, and the
     # GitHub-hosted Windows image measurably refuses that (`spawnSync
-    # C:\Program Files\Git\cmd\git.exe EPERM`) — the product reports it
-    # fail-closed, and that leg's verdict is what says so.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 180 || 30 }}
+    # C:\Program Files\Git\cmd\git.exe EPERM`). It is measured in the job and
+    # reports a named host-bound SKIP — never a PASS — and runs in full on any
+    # host that can.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 300 || 30 }}
     steps:
       # Actions are pinned by commit SHA (supply chain). Dependabot
       # (.github/dependabot.yml) is what keeps these pins current — do not
@@ -80,6 +83,28 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # MEASURED (v1.4): on this runner a single pipeline test costs ~334-348 s
+      # against ~6-9 s for the same test on a developer Windows machine, and the
+      # whole suite needed >180 minutes (run 35695885086: 643 of ~1345 tests,
+      # then ~1 test per 3.5 minutes). That profile — uniformly, massively slower
+      # process creation and file I/O, with the assertions themselves correct —
+      # is what real-time scanning of every spawned process looks like. This is a
+      # PERFORMANCE intervention only: no test is skipped, no assertion, timeout
+      # or threshold is touched, and the step is best-effort (a policy that
+      # refuses the exclusion leaves the job exactly as it was).
+      - name: reduce host scanning overhead (performance only, Windows)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          try {
+            Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE -ErrorAction Stop
+            Add-MpPreference -ExclusionPath $env:RUNNER_TEMP -ErrorAction Stop
+            Add-MpPreference -ExclusionPath (Join-Path $env:USERPROFILE 'AppData\Local\Temp') -ErrorAction Stop
+            Write-Output "exclusions now: $((Get-MpPreference).ExclusionPath -join '; ')"
+          } catch {
+            Write-Output "::warning::could not set scanner exclusions ($($_.Exception.Message)) — continuing unchanged"
+          }
       - run: npm ci --no-audit --no-fund   # audit S3: reproducible, lockfile-exact install
       - run: npm run build
       # v1.4 — MEASURE THE HOST, THEN ASK THE SUITE FOR THE CAPABILITY.
