@@ -53,14 +53,24 @@ jobs:
     #
     # The budgets below are measured need plus headroom, so the leg RUNS TO
     # COMPLETION and reports a named verdict instead of an ambiguous
-    # `cancelled`. Nothing is skipped and no assertion is relaxed. One known
-    # host-bound exception remains and is NOT hidden by this budget: the native
-    # confinement suite (confined-activation) needs a host that can EXECUTE
-    # inside an AppContainer + restricted token + low integrity, and the
+    # `cancelled`. Nothing is skipped and no assertion is relaxed.
+    #
+    # MEASURED (run 35689460479, after the two product fixes above): the leg's
+    # real failures went to ZERO (`testCodeFailure: 0`, 554 tests ok) — but the
+    # hosted runner is genuinely slow enough that the suite does not finish in
+    # 90 minutes: its slowest suites took 1955 s / 1377 s / 1305 s / 1279 s on
+    # that host against seconds here, and the step was still running when the
+    # 90-minute cap cancelled the job. So the Windows budget is raised to a
+    # finite 180 minutes — long enough to complete and be MEASURED, still a
+    # hard cap, and no work is dropped to fit it.
+    #
+    # One host-bound exception remains and is NOT hidden by this budget: the
+    # native confinement suite (confined-activation) needs a host that can
+    # EXECUTE inside an AppContainer + restricted token + low integrity, and the
     # GitHub-hosted Windows image measurably refuses that (`spawnSync
     # C:\Program Files\Git\cmd\git.exe EPERM`) — the product reports it
     # fail-closed, and that leg's verdict is what says so.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 90 || 30 }}
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 180 || 30 }}
     steps:
       # Actions are pinned by commit SHA (supply chain). Dependabot
       # (.github/dependabot.yml) is what keeps these pins current — do not
