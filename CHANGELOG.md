@@ -89,12 +89,39 @@ position are in [`docs/RELEASE-1.4.md`](docs/RELEASE-1.4.md).
     against the **host's** plan (and threw on Linux, where the Linux lifecycle has no
     `enroll-worker`). Both now assert the host-correct values, and the provider test covers the
     Linux `egress-policy` step it previously did not.
-  - The **Windows core leg** was cancelled by its 30-minute cap on every push. Measured: the same
-    commit and command take ~80 s on ubuntu, while on the GitHub-hosted Windows runner individual
-    tests stalled for **92 s – 24 min** against **115 ms – 2.2 s** for the same tests on a developer
-    Windows machine. Classified **HOST LIMITATION** (not a product or test defect), documented in
-    the workflow with that profile, and given a budget that lets the leg **run to completion and
-    report a named verdict** instead of being cancelled. No assertion was skipped to make it green.
+  - The **Windows core leg** had been red or cancelled on every push for two releases, and the first
+    explanation written here — "HOST LIMITATION, a stall, not slowness" — was **wrong**. Run down
+    properly (run 35636516908, log read failure by failure) the leg had **29 real assertion
+    failures and two independent PRODUCT defects behind all of them**:
+    - the post-exit **containment sweep** (`packages/support`) issued **one WMI query per process**
+      in the descendant BFS. A fixture command that spawns a whole test suite has a large tree, so
+      one sweep made 30+ `Get-CimInstance` calls; at the ~1 s/query a loaded hosted runner gives, it
+      exceeded its budget and reported the *look* as unconfirmable — which invalidated **every round
+      of every pipeline** (`INFRASTRUCTURE_FAILURE` instead of a verdict). Fixed to **one process
+      snapshot**, with the table required to be non-empty before "no survivors" may be reported, and
+      a sweep that cannot look now names its cause instead of costing another CI archaeology round;
+    - `verifyArtifacts` (`apps/cli/src/prove.ts`) resolved a path **before** checking it existed, so a
+      **deleted** artifact was reported as *"resolves outside the artifacts directory"* whenever the
+      host's temp path has an **8.3 short name** (`C:\Users\RUNNER~1\…` vs `C:\Users\runneradmin\…`).
+      Invisible on a developer machine because `Johannes` fits 8.3. Fixed: lexical check, then
+      existence, then canonical containment — both outcomes are still refusals.
+    After both fixes the leg reports **`testCodeFailure: 0`** with 554 tests passing, and one
+    host-bound exception remains, **measured in the job rather than assumed**: the native
+    confinement suite needs a host that can EXECUTE inside an AppContainer + restricted token + low
+    integrity, and the GitHub-hosted Windows image measurably refuses that (`spawnSync
+    C:\Program Files\Git\cmd\git.exe EPERM`). The product is right — it reports NOT HARDENED,
+    fail-closed — so the suite now measures the host with the same fixture and reports a **named,
+    counted host-bound SKIP** (never a PASS), while still running in full on a host that can. The
+    leg's budget is 300 minutes, **from the measurement** (>180 min for the half that ran), to be
+    tightened once a run reports its real total.
+- **A fixture overlay that git could not carry, so `npm test` failed on every fresh clone.**
+  `tooling/benchmark/fixtures/impossible-test/solutions/good` was an **empty directory** — the
+  known-good solution for that fixture IS the untouched project — and git stores files, not
+  directories, so it existed only in the checkout where it was created. Proven both ways: in a fresh
+  checkout of the previous commit `tooling/benchmark/fixtures.test.mjs` fails with *"missing
+  solutions/good for impossible-test"* (22 pass, 1 fail), and passes 23/23 with the tracked, inert
+  README that now carries the explanation. CI found it the first time it ran the `tooling/**` suite,
+  which it had never done.
 - **Two stale public statements that had become false.** `README.md` still told readers that
   `v1.2.0` was the newest published artifact and that **no `v1.3.0` artifact existed** — v1.3.0 was
   tagged, released and verified on 2026-09-20; the Install block now points at

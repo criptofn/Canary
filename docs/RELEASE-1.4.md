@@ -107,14 +107,26 @@ v1.3 shipped with red CI. v1.4 root-caused every red job and classified it. Five
   `./gradlew`; the Windows provider step ids). **The product was right both times**; the tests now
   assert host-correct values, and the provider test covers the Linux `egress-policy` step it
   previously missed.
-- the Windows CI leg was cancelled by its 30-minute cap on every push. Measured: the same commit
-  takes ~80 s on ubuntu, while on the GitHub-hosted Windows runner individual tests stalled for
-  **92 s – 24 min** against **115 ms – 2.2 s** on a developer Windows machine. Classified a **host
-  limitation** (not a product or test defect), documented in the workflow with that profile, and
-  given a budget so the leg **runs to completion and reports a named verdict** instead of being
-  cancelled.
+- the Windows CI leg was cancelled by its 30-minute cap on every push, and the first explanation
+  written here — a **host limitation, "a stall, not slowness"** — was **wrong**. Run down failure by
+  failure (run 35636516908), the leg had **29 real assertion failures and two PRODUCT defects behind
+  all of them**: the post-exit **containment sweep** asked WMI **one question per process**, so a
+  single sweep made 30+ queries, exceeded its budget on a hosted runner and reported the *look* as
+  unconfirmable — which invalidated **every round of every pipeline**; and `verifyArtifacts`
+  resolved a path **before** checking it existed, so a **deleted** artifact was accused of escaping
+  the artifacts directory whenever the host's temp path has an **8.3 short name**. Both **fixed**;
+  the leg now reports `testCodeFailure: 0` (554 tests passing on run 35689460479). The budget is
+  **from measurement** (300 min, the half that ran needed >180), and the one genuinely host-bound
+  case is **measured in the job**: the native confinement suite needs a host that can EXECUTE inside
+  an AppContainer + restricted token + low integrity, which the GitHub-hosted Windows image
+  measurably refuses. That is reported as a **named, counted host-bound SKIP — never a PASS** — and
+  the suite still runs in full on any host that can.
 
-**No assertion was deleted, relaxed, or skipped into a pass anywhere in this release.**
+**No assertion was deleted, relaxed, or skipped into a pass anywhere in this release.** The one
+host-bound SKIP added in this release is a *measured* one: the same fixture that performs the real
+enrollment runs first, and only a measured refusal to execute inside the native confinement (with
+the raw OS error carried into the reason) produces it. Any other failure sets nothing, and the
+suite then runs and fails on its own merits.
 
 ## Beginner UX and low-evidence repositories
 
@@ -183,16 +195,22 @@ Unchanged from v1.3 except as noted:
 - No demonstrated correctness advantage.
 - **New:** Codex gating requires a trusted project *and* a trusted hook, or it gates nothing.
 - **New:** the everyday token claim excludes a 5,726 B/turn standing payload.
-- **New:** the GitHub-hosted Windows CI leg stalls on a handful of pipeline tests; classified a host
-  limitation with its measured profile documented in the workflow.
+- **New:** the GitHub-hosted Windows CI leg cannot **execute inside the native confinement**
+  (AppContainer + restricted token + low integrity): every confined exec there is refused with
+  `spawnSync C:\Program Files\Git\cmd\git.exe EPERM`, which is what the product's own production
+  battery reports before it declines to claim `HARDENED`. The suite that requires that capability
+  **measures the host first** and reports a **named, counted host-bound SKIP** on such a host — never
+  a PASS — and runs in full anywhere the capability exists. The leg's earlier "stall" was **not** a
+  host limitation: it was two product defects (the containment sweep's per-process WMI queries and
+  an existence-after-resolution bug in `verifyArtifacts` under 8.3 short temp paths), both fixed.
 
 ## The release candidate artifact
 
 | | |
 |---|---|
 | file | `canary-rn-cli-1.4.0.tgz` |
-| size | **208,136 bytes** |
-| SHA-256 | `aafff076686241cb9a35945766d808522e3a823bb74041d25f9b811e3e46d54d` |
+| size | **208,743 bytes** |
+| SHA-256 | `6c1aa53c0909af5f7b3b8253401843f1e091d8987594fc1676cf542f45b67fbd` |
 | entries | **16** — exactly the pack allowlist (`dist/main.js`, `tools/windows-boundary` ×7, `tooling/test-support/fixtures` ×6, `package.json`, `LICENSE`) |
 | runtime dependencies | **none** (the manifest declares no `dependencies`, `peerDependencies` or `optionalDependencies`) |
 | licence | `package/LICENSE` ships in the tarball (Apache-2.0 §4(a)) |
