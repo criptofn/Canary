@@ -29,6 +29,10 @@ const command = (exe,args,cwd=root,timeout=180000) => {
 };
 const canary = args => command(process.execPath,[cli,...args]);
 const git = args => command('C:\\Program Files\\Git\\cmd\\git.exe',args,base);
+/** v1.4: the --capability verdict, carried out of the try block so the cleanup
+ *  in `finally` cannot overwrite it with the battery's pass/fail code. */
+class CapabilityVerdict extends Error { constructor(code, message) { super(message); this.code = code; } }
+let capabilityVerdict = null;
 try {
   fs.mkdirSync(base); fs.mkdirSync(work);
   // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
@@ -82,6 +86,32 @@ try {
   for (const args of [['rev-parse','--show-toplevel'],['status','--porcelain'],['diff'],['diff','--cached'],['add','--','index.cjs','sum.test.cjs']]) {
     const result=productionTool(store,work,{op:'exec',argv:['C:\\Program Files\\Git\\cmd\\git.exe',...args]});
     check('confined-git-'+args.join('-'),result.output?.result?.status===0,JSON.stringify(result.output));
+  }
+  // v1.4 — CAPABILITY MODE: answer ONE host question and stop.
+  //
+  // `confined-activation.test.ts` needs a host that can EXECUTE a program inside
+  // the native confinement. Whether a host can is not a guess: it is what these
+  // five probes just measured. MEASURED on the GitHub-hosted Windows image (run
+  // 35695885086): the write probes above PASS while every exec probe reports
+  // `spawnSync C:\Program Files\Git\cmd\git.exe EPERM` — so the signal is the
+  // EXEC probes specifically, never "some confined probe worked".
+  //
+  // Exit 0 = this host can. Exit 3 = measured refusal to execute (the raw OS
+  // error is printed and travels into the suite's SKIP reason). Exit 1 = the
+  // probes failed for some OTHER reason, which is a real failure and must not be
+  // laundered into a skip: the suite then runs and fails loudly.
+  if (process.argv.includes('--capability')) {
+    const execs = report.tests.filter(t => t.name.startsWith('confined-git-'));
+    const ran = execs.filter(t => t.ok).length;
+    const refusals = execs.map(t => String(t.detail ?? '')).filter(d => /EPERM|EACCES/.test(d));
+    const oneLine = (s) => s.replace(/\s+/g, ' ').trim().slice(0, 400);
+    if (ran === execs.length && ran > 0) {
+      throw new CapabilityVerdict(0, `CAPABILITY: this host CAN execute inside the native confinement (${ran}/${execs.length} confined exec probes ran)`);
+    }
+    if (ran === 0 && refusals.length > 0) {
+      throw new CapabilityVerdict(3, `CAPABILITY: this host CANNOT execute inside the native confinement (${refusals.length}/${execs.length} probes refused: ${oneLine(refusals[0])})`);
+    }
+    throw new CapabilityVerdict(1, `CAPABILITY: inconclusive — ${ran}/${execs.length} confined exec probes ran and ${refusals.length} carried an OS refusal; not a host-capability verdict`);
   }
   // Broker receives the actual implementation bytes, not the test's desired
   // output. Existing review, promotion and independent readback assertions follow.
@@ -223,7 +253,10 @@ try {
     fs.writeFileSync(holdFile,JSON.stringify({store,base,enrollment,brokerPid:broker.pid}));
     await new Promise(resolve=>process.stdin.once('data',resolve));
   }
-} catch(e) { check('infrastructure',false,e.stack); }
+} catch(e) {
+  if (e instanceof CapabilityVerdict) { capabilityVerdict = e; console.log(e.message); }
+  else check('infrastructure',false,e.stack);
+}
 finally {
   if(broker && broker.exitCode===null) spawnSync('taskkill',['/PID',String(broker.pid),'/T','/F'],{windowsHide:true});
   // Keep no live profile or fixture repository after the test.
@@ -241,5 +274,5 @@ finally {
   fs.writeFileSync(path.join(os.tmpdir(),'v12-production-authority.json'),JSON.stringify(report,null,2));
   fs.rmSync(root,{recursive:true,force:true});
   console.log(`production authority: ${report.tests.length-failed} pass, ${failed} fail`);
-  process.exitCode=failed?1:0;
+  process.exitCode=capabilityVerdict ? capabilityVerdict.code : (failed?1:0);
 }

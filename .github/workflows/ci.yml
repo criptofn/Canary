@@ -82,6 +82,44 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund   # audit S3: reproducible, lockfile-exact install
       - run: npm run build
+      # v1.4 — MEASURE THE HOST, THEN ASK THE SUITE FOR THE CAPABILITY.
+      #
+      # `apps/cli/test/confined-activation.test.ts` requires a host that can
+      # EXECUTE a program inside the native confinement (AppContainer +
+      # restricted token + low integrity). MEASURED on the GitHub-hosted Windows
+      # image (run 35695885086): every confined exec probe reports
+      # `spawnSync C:\Program Files\Git\cmd\git.exe EPERM`, 15 of the fixture's 33
+      # production-authority controls fail, and this file's `before` hook can only
+      # FAIL — never skip — so it produced five hookFailed suites and ~61
+      # cancelled tests for a reason unrelated to the change under test. The
+      # product was right (it reports NOT HARDENED, fail-closed); the suite was
+      # asking the host for something it does not have.
+      #
+      # So the host is MEASURED here, by the same fixture that performs the real
+      # enrollment, and the verdict travels to the suite in these variables. Only
+      # a measured refusal to execute (exit 3, raw OS error in the reason) sets
+      # them; exit 1 — a failure for any other reason — sets nothing, and the
+      # suite then runs and fails on its own merits. A SKIP is never a PASS: the
+      # suite is skipped, node:test reports the count, and the reason names the
+      # measurement.
+      - name: can this host execute inside the native confinement? (measured, Windows only)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          node tooling/probes/v12-production-authority.mjs --capability *>&1 | Tee-Object -FilePath confined-capability.log
+          $code = $LASTEXITCODE
+          Write-Output "confinement capability probe exit: $code"
+          if ($code -eq 3) {
+            $reason = (Select-String -Path confined-capability.log -Pattern '^CAPABILITY: ' | Select-Object -Last 1).Line
+            if (-not $reason) { $reason = 'CAPABILITY: this host cannot execute inside the native confinement (probe exit 3)' }
+            Add-Content -Path $env:GITHUB_ENV -Value "CANARY_CONFINED_HOST=unmeasurable"
+            Add-Content -Path $env:GITHUB_ENV -Value "CANARY_CONFINED_HOST_REASON=$reason"
+            Write-Output "::notice::$reason"
+          } elseif ($code -eq 1) {
+            Write-Output "::warning::the confinement capability probe was INCONCLUSIVE (exit 1) — nothing is skipped; the suite runs and must pass or fail on its own merits"
+          }
+          exit 0
+
       # The SAME command `npm test` runs, minus the local `--test-concurrency=8`
       # pin: that pin exists because node's default (one file per core) over-
       # subscribes a many-core developer machine, while a 4-vCPU runner is
