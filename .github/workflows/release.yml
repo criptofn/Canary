@@ -102,14 +102,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ASSETS=(pack/npm/*.tgz pack/npm/*.tgz.sha256)
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "release $GITHUB_REF_NAME exists â€” updating assets"
-            gh release upload "$GITHUB_REF_NAME" "${ASSETS[@]}" --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" "${ASSETS[@]}" \
-              --title "$GITHUB_REF_NAME" --generate-notes
-          fi
+          # MEASURED (v1.4.0): creating the release AND uploading its assets in one
+          # `gh release create <tag> <assets...>` call failed twice with
+          # `HTTP 422: Validation Failed (uploads.github.com...)`, leaving a
+          # PUBLISHED release with ZERO assets while the job reported the failure.
+          # The two operations are now separate and explicit, and the asset list is
+          # READ BACK so an upload that does not land fails the job.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" pack/npm/*.tgz pack/npm/*.tgz.sha256 --clobber
+          gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[] | "\(.name) \(.size) bytes"'
+          COUNT="$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length')"
+          if [ "$COUNT" -lt 2 ]; then echo "FAIL: expected tarball + checksum, found $COUNT asset(s)"; exit 1; fi
 
       # Registry publishing is optional and fails closed on its own precondition:
       # it needs a repository secret NPM_TOKEN whose account owns the npm scope
