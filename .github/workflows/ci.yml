@@ -78,8 +78,8 @@ jobs:
       # Actions are pinned by commit SHA (supply chain). Dependabot
       # (.github/dependabot.yml) is what keeps these pins current — do not
       # hand-edit a SHA to a tag.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -173,8 +173,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           # MEASURED (v1.4): this job pinned `22` and failed on all three legs for
           # two releases with `FAIL: node --build-sea failed (status 9)` and no
@@ -194,7 +194,7 @@ jobs:
         run: node tooling/standalone.mjs --list-targets
       - name: upload the executable and its evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: standalone-${{ matrix.os }}
           path: |
@@ -212,7 +212,7 @@ jobs:
     runs-on: windows-latest   # fixture proven on Windows; ubuntu parity TBD
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Round-3 B3: this job IS the committed proof host (win32/x64/
       # node 26.3.0/npm 11.16.0 + the nodeExecSha256 exec-bytes pin, independent-audit
       # F2, per the proof file's proofHost block — setup-node installs the
@@ -223,7 +223,7 @@ jobs:
       # (exit 2) and fail the job. If the pins move, the proof file's
       # proofHost/environment blocks must be re-cut on a machine that
       # genuinely runs the new versions.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.3.0
       - run: npm install -g npm@11.16.0   # exact npm pin: the proof host identity includes npm
@@ -243,7 +243,7 @@ jobs:
         shell: bash
       - name: upload evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: evidence-bundle
           path: .canary-runs/**/artifacts/
