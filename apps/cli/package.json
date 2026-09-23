@@ -1,6 +1,6 @@
 {
   "name": "@canary-rn/cli",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "canary \u2014 independent verification layer CLI: run / prove / report.",
   "type": "module",

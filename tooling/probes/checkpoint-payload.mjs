@@ -35,6 +35,10 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-payload-'));
 const root = path.join(TMP, 'project');
 fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
 fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+// v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+// `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+// machine that has Claude Code installed and failed on every CI runner.
+fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
 
 // A dependency-free project whose check FAILS, with a runner shape that reports a test identity
 // and an assertion line — the ordinary case the payload has to compress.

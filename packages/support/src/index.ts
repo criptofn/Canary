@@ -99,6 +99,79 @@ export interface ToolchainInjection {
   env: Record<string, string>;
 }
 
+/**
+ * CANONICAL FILESYSTEM IDENTITY — the one door for "are these the same object?".
+ *
+ * WHY THIS EXISTS (v1.4, MEASURED). On Windows a single filesystem object can have
+ * TWO textual spellings: its long name and its 8.3 SHORT alias
+ * (`C:\Users\runneradmin\...` vs `C:\Users\RUNNER~1\...`). A short alias exists only
+ * when a component does not fit 8.3, which is why this is invisible on many
+ * machines — `Johannes` is exactly 8 characters, so that path has no distinct
+ * alias. GitHub Actions runners set `TEMP=C:\Users\RUNNER~1\...`, and any user's
+ * temp, checkout or install path can do the same.
+ *
+ * `fs.realpathSync` is NOT enough for identity comparisons: the JavaScript
+ * implementation follows symlinks and junctions but returns the SHORT spelling
+ * unchanged. `fs.realpathSync.native` is the OS call (`GetFinalPathNameByHandle`
+ * on Windows, `realpath(3)` elsewhere) and DOES return the canonical long form.
+ * MEASURED: short `...\CAA02B~1\A-LONG~1` -> long `...\canary-shortname-iZPuS2\a-long-directory-name`.
+ *
+ * WHAT WENT WRONG WITHOUT IT: Canary compared a canonical root against a
+ * git-reported long path, or a stored identity against a freshly read one, saw two
+ * different strings for one object, and refused. That direction is fail-closed —
+ * no boundary was ever crossed — but it is a FALSE REFUSAL, and in the worst case
+ * it made every candidate/isolation/promotion path unusable on such a host.
+ *
+ * THE RULE, so this does not become "replace every path call":
+ *   - Use these functions ONLY where two filesystem IDENTITIES are compared, or
+ *     where an identity is PERSISTED to be compared later.
+ *   - Do NOT use them for display, for joining, for lexically resolving a
+ *     not-yet-existing destination, or for sanitising text.
+ *   - Containment is unchanged: callers still ask whether one canonical path is
+ *     inside another. Canonicalising both sides cannot widen a boundary, because
+ *     a short alias and its long name are the SAME object by definition.
+ *
+ * FAIL-CLOSED: every function here returns null/false rather than guessing when a
+ * path cannot be resolved. A nonexistent path is never silently accepted as an
+ * identity.
+ */
+export function canonicalPath(p: string): string {
+  return fs.realpathSync.native(p);
+}
+
+/** Canonical identity of an EXISTING path, or null when it cannot be resolved. */
+export function canonicalPathOrNull(p: string): string | null {
+  try { return fs.realpathSync.native(p); } catch { return null; }
+}
+
+/**
+ * Do two paths name the SAME filesystem object? Both must resolve, or the answer
+ * is false (fail closed). Windows compares case-insensitively, as its filesystem
+ * does; POSIX compares exactly.
+ */
+export function sameFilesystemIdentity(a: string, b: string): boolean {
+  const x = canonicalPathOrNull(a);
+  const y = canonicalPathOrNull(b);
+  if (x === null || y === null) return false;
+  return process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y;
+}
+
+/**
+ * Is `p` inside `root` (or equal to it), by CANONICAL identity? Both sides are
+ * canonicalised first, so a short/long spelling difference can no longer look
+ * like an escape — and a real escape (a symlink pointing out of the root) still
+ * resolves outside and is still refused.
+ */
+export function containsPath(root: string, p: string): boolean {
+  const r = canonicalPathOrNull(root);
+  const t = canonicalPathOrNull(p);
+  if (r === null || t === null) return false;
+  const rl = process.platform === 'win32' ? r.toLowerCase() : r;
+  const tl = process.platform === 'win32' ? t.toLowerCase() : t;
+  if (rl === tl) return true;
+  return tl.startsWith(rl + path.sep);
+}
+
 export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolchain }: EnvOptions): NodeJS.ProcessEnv {
   const systemRoot = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
   const home = path.join(ws.root, 'isolated-home');
@@ -112,8 +185,8 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolch
   // put a subject-chosen path (or value) into a verification child's environment.
   const observed: NodeJS.ProcessEnv = {};
   if (observer !== undefined) {
-    const rootReal = (() => { try { return fs.realpathSync(ws.root); } catch { return path.resolve(ws.root); } })();
-    const dirReal = (() => { try { return fs.realpathSync(observer.dir); } catch { return null; } })();
+    const rootReal = (() => { try { return canonicalPath(ws.root); } catch { return path.resolve(ws.root); } })();
+    const dirReal = (() => { try { return canonicalPath(observer.dir); } catch { return null; } })();
     if (dirReal === null || !fs.statSync(dirReal).isDirectory()) {
       throw new Error(`observer injection directory does not exist: ${observer.dir}`);
     }
@@ -133,7 +206,7 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolch
   }
   // Adapter-declared toolchain variables, under the same containment rule.
   if (toolchain !== undefined) {
-    const wsReal = (() => { try { return fs.realpathSync(ws.root); } catch { return path.resolve(ws.root); } })();
+    const wsReal = (() => { try { return canonicalPath(ws.root); } catch { return path.resolve(ws.root); } })();
     for (const [key, value] of Object.entries(toolchain.env)) {
       if (!TOOLCHAIN_ENV_KEYS.has(key)) {
         throw new Error(`adapter declared toolchain variable "${key}", which is not in Canary's toolchain allowlist`);
@@ -141,7 +214,7 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolch
       // Any value that LOOKS like a path must live inside Canary's workspace; a
       // plain token (GOTOOLCHAIN=local, GOFLAGS=-mod=mod) is taken as declared.
       if (path.isAbsolute(value)) {
-        const resolved = (() => { try { return fs.realpathSync(value); } catch { return path.resolve(value); } })();
+        const resolved = (() => { try { return canonicalPath(value); } catch { return path.resolve(value); } })();
         const rel = path.relative(wsReal, resolved);
         if (rel !== '' && (rel.startsWith('..') || path.isAbsolute(rel))) {
           throw new Error(`adapter declared ${key}=${value}, which is outside Canary's workspace (${wsReal})`);
@@ -629,23 +702,73 @@ function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
   const psExe = resolveSystemTool('WindowsPowerShell', 'v1.0', 'powershell.exe');
   // 60s clock slack: CIM CreationDate truncates to seconds.
   const cut = new Date(spawnedAtMs - 60_000).toISOString();
+  // ONE SNAPSHOT, NOT ONE QUERY PER PROCESS. MEASURED (v1.4 release gate, GitHub
+  // Windows runner, run 35636516908): the previous shape issued
+  // `Get-CimInstance -Filter "ParentProcessId=$p"` for EVERY node of the BFS. A
+  // fixture command that spawns a whole test suite has a large descendant tree,
+  // so the sweep made 30+ WMI queries; at the ~1s/query a loaded hosted runner
+  // gives, it exceeded its budget, reported the look as UNCONFIRMABLE, and every
+  // round of every pipeline became "not a valid test run" — 27 of the 29 real
+  // Windows CI failures, each costing ~334s of sweeps.
+  //
+  // A single snapshot carries the same information (Windows keeps the numeric
+  // PPID of a dead parent) at one query. The traversal then runs inside this one
+  // PowerShell, and the kills are attempted AFTER it — from the snapshot, so a
+  // process the BFS discovered cannot be missed because its parent died mid-sweep.
+  //
+  // The row count is printed FIRST and required to be a positive number by the
+  // caller: a snapshot that silently came back empty (`Get-CimInstance` failing
+  // under -ErrorAction SilentlyContinue) would otherwise be indistinguishable
+  // from a genuine "no survivors" — the one reading the honesty law forbids.
   const script =
+    `$ErrorActionPreference='Continue';` +
     `$cut=[DateTime]::Parse('${cut}').ToUniversalTime();` +
+    `$all=@(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_ -ne $null });` +
+    `Write-Output $all.Count;` +
+    `$byParent=@{};` +
+    `foreach($p in $all){ $pp=[int]$p.ParentProcessId; if(-not $byParent.ContainsKey($pp)){ $byParent[$pp]=New-Object System.Collections.ArrayList }; [void]$byParent[$pp].Add($p) };` +
     `$q=New-Object System.Collections.Generic.Queue[int]; $q.Enqueue(${pid});` +
-    `$done=New-Object System.Collections.Generic.HashSet[int]; $k=@();` +
+    `$seen=New-Object System.Collections.Generic.List[int];` +
+    `$done=New-Object System.Collections.Generic.HashSet[int];` +
     `while($q.Count -and $done.Count -lt ${SWEEP_MAX_PROCESSES}){` +
     `$p=$q.Dequeue(); if(-not $done.Add($p)){continue};` +
-    `Get-CimInstance -ClassName Win32_Process -Filter "ParentProcessId=$p" -ErrorAction SilentlyContinue | ForEach-Object{` +
-    `if($_.CreationDate -and $_.CreationDate.ToUniversalTime() -ge $cut){` +
-    `$q.Enqueue($_.ProcessId);` +
-    `try{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; $k+=$_.ProcessId }catch{} ` +
-    `} } };` +
+    `$seen.Add($p);` +
+    `if($byParent.ContainsKey($p)){ foreach($c in $byParent[$p]){` +
+    `if($c.CreationDate -and $c.CreationDate.ToUniversalTime() -ge $cut){ $q.Enqueue([int]$c.ProcessId) } } } };` +
+    `$k=@();` +
+    `foreach($id in $seen){ try{ Stop-Process -Id $id -Force -ErrorAction Stop; $k+=$id }catch{} };` +
     `$k -join ','`;
   const r = spawnSync(psExe,
     ['-NoProfile', '-NonInteractive', '-Command', script],
-    { timeout: 30_000, windowsHide: true, encoding: 'utf8', shell: false, env: containmentEnv() });
-  if (r.error || r.status !== 0) return { killed: [], failed: true };
-  const text = (r.stdout ?? '').trim();
+    // One enumeration instead of 30+ queries; the budget is per sweep and a
+    // timeout still fails CLOSED (never "no survivors") and now names its cause.
+    { timeout: 60_000, windowsHide: true, encoding: 'utf8', shell: false, env: containmentEnv() });
+  const why = r.error !== undefined && r.error !== null
+    ? `powershell spawn failed: ${r.error.message}`
+    : r.status !== 0
+      ? `powershell exited ${String(r.status)}: ${(r.stderr ?? '').trim().split('\n').slice(0, 3).join(' | ').slice(0, 400)}`
+      : '';
+  if (why !== '') {
+    // A sweep that could not LOOK must say so where an operator can see it: the
+    // round is about to be invalidated, and "could not confirm" without a reason
+    // cost this repository a full CI archaeology round.
+    process.stderr.write(`containment sweep could not run: ${why}\n`);
+    return { killed: [], failed: true };
+  }
+  const lines = (r.stdout ?? '').split('\n').map((l) => l.trim()).filter((l) => l !== '');
+  const surveyed = Number(lines[0]);
+  if (!Number.isFinite(surveyed) || surveyed <= 0) {
+    process.stderr.write(`containment sweep could not run: the process snapshot came back empty or unreadable (first line: '${String(lines[0] ?? '')}')\n`);
+    return { killed: [], failed: true };
+  }
+  const text = lines.slice(1).join('');
+  // Shape check: anything beyond the count and one CSV line is output this
+  // parser does not understand, and an unparsed listing must never be read as
+  // "nothing survived".
+  if (lines.length > 2 || (lines.length === 2 && !/^[0-9,]*$/.test(lines[1] as string))) {
+    process.stderr.write(`containment sweep could not run: unrecognised powershell output (${lines.slice(1).join(' / ').slice(0, 200)})\n`);
+    return { killed: [], failed: true };
+  }
   const killed = text
     ? text.split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0)
     : [];

@@ -14,6 +14,10 @@ const git = args => { const r = run('git', args); assert.equal(r.status, 0, r.st
 const canary = args => run(process.execPath, [cli, ...args]);
 try {
   fs.cpSync(path.join(repo, 'tooling/benchmark/fixtures/add-validation/project'), root, { recursive: true });
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the reproducer only reproduced
+  // on a machine that has Claude Code installed.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   const meta = JSON.parse(fs.readFileSync(path.join(repo, 'tooling/benchmark/fixtures/add-validation/fixture.json'), 'utf8'));
   git(['init', '-b', 'main']); git(['config', 'user.name', 'Trust audit']); git(['config', 'user.email', 'audit@localhost']);
   git(['add', '-A']); git(['commit', '-m', 'baseline']);

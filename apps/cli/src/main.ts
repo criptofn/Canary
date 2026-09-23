@@ -89,10 +89,12 @@ usage:
                             and no log dump — full evidence stays in the files the envelope
                             names. Never runs the plan, so it is free to call
   canary agents             which agents work in this repo and at what capability:
-                            GATED (a completion can be blocked) vs ADVISORY (the agent
-                            is told and may ignore it). "canary agents install codex"
-                            adds a marked, removable AGENTS.md instruction block; no
-                            command ever pretends a hook exists where none does
+                            GATED (a completion can be blocked — Claude Code, and
+                            OpenAI Codex CLI once you trust the hook setup wrote)
+                            vs ADVISORY (the agent is told and may ignore it).
+                            "canary agents install generic" adds a marked,
+                            removable AGENTS.md instruction block; no command ever
+                            pretends a hook exists where none does
   canary doctor             is Canary actually protecting this repo? Runs the checks now;
                             READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED (--run accepted,
                             always on). NOT PROVEN = the plan passed but an authorized
@@ -434,6 +436,14 @@ main(process.argv.slice(2))
   .then((code) => finish(code))
   .catch((e: unknown) => {
     if (e instanceof InfraAbort) { console.error(String(e.message)); finish(2); }
-    console.error('ERROR:', e instanceof Error ? e.message : e);
+    // v1.4 §E — the last-resort handler. This fires on an UNEXPECTED error, which is a defect in
+    // Canary rather than something wrong with the user's project, and it now says so instead of
+    // printing a bare `ERROR: <internal text>` that a person cannot act on. The exit code is
+    // unchanged (3, per the contract at the top of this file) and the internal text is still shown,
+    // because an unreportable bug is worse than a noisy one.
+    console.error('Canary hit an internal error and stopped. That is a defect in Canary, not a statement about your project.');
+    console.error(`  what happened: ${e instanceof Error ? e.message : String(e)}`);
+    console.error('  what it means: this run verified NOTHING — do not read it as a pass, and not as a failure of your code either.');
+    console.error('  what to do: re-run the same command with CANARY_VERBOSE=1 for the full detail, then report it with `canary --version`, `canary status --json` and `canary doctor --json`.');
     finish(3);
   });

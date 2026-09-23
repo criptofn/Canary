@@ -61,6 +61,11 @@ export interface ProtocolIntegration {
    *  as UNMEASURED rather than folded into a yes or a no — both of which would be claims. */
   gatingMeasured?: boolean;
   detected: boolean;
+  /** v1.4 §C: a one-time act the HARNESS owns before the installed hook will run at all — Codex
+   *  runs a project hook only after the hook definition has been reviewed and trusted. Present only
+   *  where such a step exists AND the hook is installed here; a machine consumer must be able to see
+   *  that `gating: true` at this moment means "written, one trust step from gating". */
+  gatingNeedsTrust?: string;
   /** For advisory integrations: is the AGENTS.md block currently installed? */
   advisoryInstalled?: boolean;
   summary: string;

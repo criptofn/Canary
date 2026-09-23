@@ -53,6 +53,10 @@ function makeProject(label) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `canary-unbound-${label}-`));
   const project = path.join(root, 'project');
   copyDir(path.join(FIXTURES, 'cli-exit-codes', 'project'), project);
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(project, '.claude'), { recursive: true });
   const git = (...args) => runCaptured('git', ['-C', project, ...args], { timeout: 60_000 });
   git('init', '-b', 'main');
   git('config', 'user.email', 'probe@canary.local');

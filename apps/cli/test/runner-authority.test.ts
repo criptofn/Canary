@@ -22,7 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
-process.env.CANARY_TRUST_STORE = path.join(os.tmpdir(), `canary-trust-authority-${process.pid}`);
+process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-authority-'));
 
 import { pytestRunnerIdentity } from '@canary-rn/executor';
 
@@ -49,6 +49,10 @@ after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 function pythonProject(name: string): string {
   const root = path.join(TMP, name);
   fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+  // v1.4 — declare the harness IN THE FIXTURE. `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
   fs.writeFileSync(path.join(root, 'pytest.ini'), '[pytest]\n');
   fs.writeFileSync(path.join(root, 'tests', 'test_ok.py'), 'def test_ok():\n    assert True\n');

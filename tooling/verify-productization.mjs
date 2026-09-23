@@ -202,6 +202,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+// v1.4 release-gate budgets + cascade isolation (pure rules, pinned by
+// tooling/probes/v14-battery-budget.mjs).
+import { budgetFor, verdictFor, shouldStopAfter, restoreDist, KNOWN_RUNTIME_MS } from './step-budgets.mjs';
 import { fileURLToPath } from 'node:url';
 // In-place dist mutation must be self-healing. The mutation batteries edit the
 // built dist and restore it in `finally`; a battery KILLED mid-mutation (timeout,
@@ -232,7 +235,12 @@ const STEPS = [
   // below to mean anything.
   // `npm exec`, not `npx`: the chain spawns steps without a shell, and `npx` is a shell shim that
   // `spawnSync` cannot resolve here (MEASURED: `spawnSync npx ENOENT`), while `npm` resolves.
-  ['build (tsc -b --force)', 'npm', ['exec', '--', 'tsc', '-b', 'apps/cli', '--force'], {}],
+  // v1.4 — force the WHOLE workspace, not just apps/cli. MEASURED: `tsc -b` exits 0 without
+  // re-emitting a file whose output was changed after compilation, and forcing only the CLI left
+  // every `packages/*/dist` free to be stale — so a probe could measure bytes that do not
+  // correspond to the source in front of it. The freshness probe below then proves the property
+  // rather than assuming it.
+  ['build (tsc -b --force)', 'npm', ['exec', '--', 'tsc', '-b', '--force'], {}],
   ['build (npm run build, incremental)', 'npm', ['run', 'build'], {}],
   // BEFORE anything reads the artifact: is the compiled CLI a real build, or a mutation battery's
   // leftover? MEASURED (2026-09-14): an interrupted `master-pass-mutations` run left
@@ -242,6 +250,31 @@ const STEPS = [
   // own acceptance baseline — hours spent explaining behaviour the source never had. This step turns
   // that state into a loud first failure instead of a phantom product defect.
   ['dist tripwire (is the compiled artifact mutated?)', process.execPath, ['tooling/probes/v12-dist-tripwire.mjs'], {}],
+  // v1.4 — the tripwire only looks for mutation-battery MARKERS. This proves the stronger
+  // property the release depends on: after this build path, no emitted file can hold bytes that
+  // do not match the source (it injects a sentinel, re-runs the build, and requires it to be gone).
+  ['dist freshness (does dist correspond to source, or can stale bytes be tested?)', process.execPath, ['tooling/probes/v14-dist-freshness.mjs'], {}],
+  // v1.4 — the gate checks its own budgets and its cascade isolation before anything slow runs:
+  // a step whose MEASURED runtime class exceeds its budget is an infrastructure defect that shows
+  // up as a false red (and did, twice).
+  ['release-gate budgets + cascade isolation (is a timeout distinguishable from a failure?)', process.execPath, ['tooling/probes/v14-battery-budget.mjs'], {}],
+  // v1.4 — MEASURED: suites passed alone and failed in the battery because a trust store derived
+  // from a RECYCLABLE pid picked up a stale, keyless store from an unrelated earlier run. This
+  // pins the isolation, that an unrelated stale store is inert, that a damaged store still refuses,
+  // and that repeated runs agree.
+  ['trust-store isolation (can stale temp state decide a test?)', process.execPath, ['tooling/probes/v14-trust-store-isolation.mjs'], {}],
+  // v1.4 — MEASURED (GitHub Windows run 35636516908): the post-exit containment sweep asked WMI one
+  // question PER PROCESS, exceeded its budget on the hosted runner, and reported the LOOK as
+  // unconfirmable — which invalidated every round of every pipeline (27 of 29 real failures, ~334s
+  // each). This pins the fix's shape (one snapshot, a non-empty table required) and, against a real
+  // live tree, the property the fix must not break: survivors are still found and killed.
+  ['containment sweep cost + honesty (one snapshot, real survivors still killed)', process.execPath, ['tooling/probes/v14-sweep-scale.mjs'], {}],
+  // v1.4 — the same Windows leg was red for a second, independent reason: a DELETED artifact was
+  // reported as "resolves outside the artifacts directory" whenever the host's temp path has an 8.3
+  // SHORT name (`C:\Users\RUNNER~1\...`), which no developer machine reproduces because `Johannes`
+  // fits 8.3. This runs the files that were red with TEMP/BOTH temp variables pointed at the short
+  // spelling of a long-named directory, so the runner's condition is exercised locally in minutes.
+  ['8.3 short-name suite (does the suite still hold when TEMP is spelled the way a runner spells it?)', process.execPath, ['tooling/probes/v14-shorttemp-suite.mjs'], {}],
   // And before anything is BELIEVED FROM THE DOCS: do their checkable numbers still match the
   // repository? This session's most persistent defect was summaries drifting from what they summarise
   // - the standings were stale twice, the README quoted a superseded token figure, a step label named
@@ -251,6 +284,14 @@ const STEPS = [
   // v1.3: the everyday journey, measured end to end — the completion gate's real decisions, the
   // agent-tool registration and its containment, and what the ordinary path refuses to hand a worker.
   ['v1.3 the everyday journey (setup -> completion gate -> agent tools)', process.execPath, ['tooling/probes/v13-journey-baseline.mjs'], {}],
+  // v1.4 Gap C: the SECOND gating adapter, measured rather than documented — the Codex `Stop` hook
+  // written by setup, the hook contract driven exactly as the vendor documents it (stdin event ->
+  // stdout decision, pass -> silent allow, fail -> parsed block, loop guard), and one real bounded
+  // `codex exec` session in which Codex executes the hook and continues the turn on its decision.
+  // SKIP-aware: a host with no codex CLI, or with no Codex credentials, cannot run the last arm and
+  // says so with explicit SKIP lines — a SKIP is never a PASS, and `gatingMeasured` in the capability
+  // table is exactly what that arm is evidence for.
+  ['v1.4 codex stop hook (a second measured completion gate)', process.execPath, ['tooling/probes/v14-codex-stop-hook.mjs'], {}],
   // v1.3: the AGENT side of the integration — `claude mcp list` proves the agent reads Canary's entry
   // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
   // SKIP is never a pass.
@@ -288,7 +329,12 @@ const STEPS = [
   ['v1.3 confined check feedback (does the per-batch check behave?)', process.execPath, ['tooling/probes/v13-confin-check.mjs'], {}],
   // v1.3: can the EVERYDAY path hand the agent its project's check result mid-task? A documented hook field
   // is not evidence it is delivered, so this measures it with the real CLI. Host-bound: explicit SKIP.
-  ['v1.3 posttool feedback (can the agent be told mid-task?)', process.execPath, ['tooling/probes/v13-posttool-feedback.mjs'], {}],
+  // v1.4 §11 — ROLE MADE EXPLICIT. This probe asserts two different kinds of thing: deterministic
+  // properties of the hook wiring (which gate this step) and what a LIVE MODEL SESSION did with
+  // the delivered text (which does not, because it is nondeterministic — MEASURED PASS -> FAIL ->
+  // PASS on identical bytes). A live-only non-observation exits 3 and is reported here as an
+  // explicit host-bound SKIP; a deterministic failure still exits 1 and still fails the battery.
+  ['v1.3 posttool feedback (DIAGNOSTIC live-integration; deterministic properties gate)', process.execPath, ['tooling/probes/v13-posttool-feedback.mjs'], {}],
   ['full unit suite', 'npm', ['test'], {}],
   ['onboarding contract tests', process.execPath, ['--test', 'apps/cli/dist/test/onboarding.test.js'], {}],
   ['M2 claims-not-evidence contract tests', process.execPath, ['--test', 'apps/cli/dist/test/m2-claims-not-evidence.test.js'], {}],
@@ -440,6 +486,11 @@ const STEPS = [
 // host-bound SKIPs — the headline distinguishes); 1 = any FAIL or a step
 // aborted mid-chain so later steps judged stale bytes.
 const SKIP_AWARE = new Set([
+  // v1.4 §11 — the live-integration diagnostic. Its deterministic properties exit 1 (a real
+  // failure, still reported as FAIL); a live-model-only non-observation exits 3 and is named as a
+  // host-bound SKIP, because a gate whose verdict depends on a live session must not silently
+  // decide a release. The probe prints the raw evidence either way.
+  'v1.3 posttool feedback (DIAGNOSTIC live-integration; deterministic properties gate)',
   'probe: HTG inline-interpreter corpus',
   'probe: documented examples (Node + Python, real CLI)',
   // The two acceptance batteries need a REAL pty. Where the host has no
@@ -462,18 +513,30 @@ const SKIP_AWARE = new Set([
   // text-grammar half is still covered by the comparator unit tests.
   'probe: pytest observation channel (shipped plugin bytes, real run)',
   '1.1 Phase 2 pytest channel WIRING (real recorder round path)',
+  // v1.4: the Codex end-to-end arm needs a runnable, AUTHENTICATED codex CLI (and
+  // the wired/protocol arms run regardless). Where either is absent the probe prints
+  // explicit SKIP lines and exits 3 — the host bound is named, never counted as PASS.
+  'v1.4 codex stop hook (a second measured completion gate)',
 ]);
-const results = []; // [label, 'PASS'|'SKIP'|'FAIL', note]
+const results = []; // [label, 'PASS'|'SKIP'|'FAIL'|'INCOMPLETE'|'NOT RUN', note]
+const runStep = (cmd, args, timeout) => spawnSync(cmd, args, { cwd: CANARY, encoding: 'utf8', shell: SH && cmd === 'npm', timeout, maxBuffer: 64 * 1024 * 1024 });
 for (const [label, cmd, args] of STEPS) {
   console.log(`\n=== ${label} ===`);
-  const r = spawnSync(cmd, args, { cwd: CANARY, encoding: 'utf8', shell: SH && cmd === 'npm', timeout: 900_000, maxBuffer: 64 * 1024 * 1024 });
+  // v1.4 — a per-step budget, because one flat timeout killed a step whose MEASURED legitimate
+  // runtime class exceeds it (master-pass: ~993 s against a 900 s cap). Finite everywhere still:
+  // a real deadlock must be caught, it just must not be confused with a slow valid workload.
+  const budget = budgetFor(label);
+  const r = runStep(cmd, args, budget);
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
   const tail = out.split(/\r?\n/).filter(Boolean).slice(-25).join('\n');
   console.log(tail);
   const skipLines = SKIP_AWARE.has(label)
     ? out.split(/\r?\n/).filter((l) => l.startsWith('SKIP')).map((l) => l.slice(0, 140))
     : [];
-  const verdict = r.status === 0 ? 'PASS' : (SKIP_AWARE.has(label) && r.status === 3 ? 'SKIP' : 'FAIL');
+  // "the assertion did not hold" and "we ran out of time" are different facts; only the first is
+  // evidence about the product. spawnSync reports the second as error.code ETIMEDOUT.
+  const timedOut = r.error?.code === 'ETIMEDOUT';
+  const verdict = verdictFor({ status: r.status, skipAware: SKIP_AWARE.has(label), timedOut });
   // M10.2 Fix 6: a SKIP that EXECUTED checks is a different fact from one that
   // ran zero because the environment is absent — the note must distinguish
   // them. Neither kind is ever counted as a PASS. The count is any `PASS <case>`
@@ -482,7 +545,24 @@ for (const [label, cmd, args] of STEPS) {
   const ran = SKIP_AWARE.has(label) ? out.split(/\r?\n/).filter((l) => /^(?:PASS|FAIL)\s+\S/.test(l)).length : 0;
   const skipNote = `host-bound: ${ran} check(s) EXECUTED, ${skipLines.length} explicit SKIP(s) — SKIP never counts as PASS` +
     (ran === 0 ? '; nothing here was accepted by execution' : '');
-  results.push([label, verdict, verdict === 'SKIP' ? skipNote : (verdict === 'FAIL' ? `(exit ${r.status}${r.error ? `: ${r.error.message}` : ''})` : '')]);
+  const known = KNOWN_RUNTIME_MS[label];
+  const note = verdict === 'SKIP' ? skipNote
+    : verdict === 'INCOMPLETE'
+      ? `DID NOT COMPLETE within its ${Math.round(budget / 1000)}s budget${known ? ` (the workload's measured legitimate class is ~${Math.round(known / 1000)}s)` : ''} — this is NOT a failed assertion, and NOT a pass`
+      : verdict === 'FAIL' ? `(exit ${r.status}${r.error ? `: ${r.error.message}` : ''})` : '';
+  results.push([label, verdict, note]);
+  // v1.4 — CASCADE ISOLATION. A step that REWRITES dist and did not finish leaves bytes this run
+  // cannot vouch for; MEASURED, one master-pass timeout manufactured FIVE later "failures". Restore
+  // trusted bytes and stop, so the summary carries the ORIGINAL finding and nothing artificial.
+  if (shouldStopAfter(label, verdict)) {
+    const restored = restoreDist((c, a) => runStep(c, a, 900_000));
+    console.log(`\nBATTERY STOPPED after "${label}" (${verdict}).`);
+    console.log('  This step REWRITES dist, so every later step would judge bytes this run cannot vouch for.');
+    console.log('  The finding above is the ONLY one to act on; the steps below were NOT RUN.');
+    console.log(`  trusted bytes restored: ${restored ? 'yes (tsc -b --force)' : 'NO — dist may be dirty, rebuild before trusting anything'}`);
+    results.push([`(all ${STEPS.length - results.length} remaining step(s) NOT RUN — a dist-rewriting step did not finish)`, 'NOT RUN', 'cascade suppressed']);
+    break;
+  }
   if (verdict === 'FAIL' && label.startsWith('build')) break; // later steps judge stale bytes — stop honestly
 }
 
@@ -491,13 +571,21 @@ for (const [label, verdict, note] of results) console.log(`${verdict}  ${label}$
 const failed = results.filter(([, v]) => v === 'FAIL').length;
 const skipped = results.filter(([, v]) => v === 'SKIP').length;
 const passed = results.filter(([, v]) => v === 'PASS').length;
-const incomplete = results.length < STEPS.length && !failed; // build aborted early
-if (failed || incomplete) {
-  console.log(`VERIFY-PRODUCTIZATION: FAIL (${failed} step(s) failed${incomplete ? '; chain aborted before all steps ran' : ''} of ${STEPS.length})`);
+const incomplete = results.filter(([, v]) => v === 'INCOMPLETE').length;
+const notRun = results.some(([, v]) => v === 'NOT RUN');
+// A chain that did not finish is not a pass, whatever the reason — but the reason is NAMED, because
+// "a step timed out" and "an assertion failed" call for different responses.
+if (failed || incomplete || notRun) {
+  const bits = [
+    failed ? `${failed} FAIL` : null,
+    incomplete ? `${incomplete} DID NOT COMPLETE (timeout, not a failed assertion)` : null,
+    notRun ? 'the chain stopped early' : null,
+  ].filter(Boolean);
+  console.log(`VERIFY-PRODUCTIZATION: NOT GREEN (${bits.join('; ')}${passed ? `; ${passed} PASS, ${skipped} SKIP` : ''})`);
 } else if (skipped) {
   const zeroExec = results.filter(([, v, n]) => v === 'SKIP' && /^host-bound: 0 check\(s\) EXECUTED/.test(n)).length;
   console.log(`VERIFY-PRODUCTIZATION: PASS WITH HOST-BOUND SKIP (${passed} PASS, ${skipped} SKIP — NOT full ${STEPS.length}/${STEPS.length} acceptance on this host; the SKIP lines above name what was not reproducible here${zeroExec ? `; ${zeroExec} SKIP step(s) EXECUTED ZERO checks — environment absent, accepted as nothing` : ''})`);
 } else {
   console.log(`VERIFY-PRODUCTIZATION: PASS (${passed}/${STEPS.length} steps green)`);
 }
-process.exit(failed || incomplete ? 1 : 0);
+process.exit(failed || incomplete || notRun ? 1 : 0);

@@ -55,6 +55,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+// v1.4 — canonical EXECUTABLE identity: this compares the observed program against the running
+// node. Two spellings of one binary (8.3 short vs long) must read as the same binary, or a
+// legitimate run is refused; a genuinely different program still differs.
+import { canonicalPath } from '@canary-rn/support';
 
 export const NODE_TEST_REPORTER_BASENAME = 'canary-node-test-reporter.cjs';
 
@@ -121,7 +125,7 @@ export function nodeRunnerIdentity(nodeExe: string): { version: string; identity
 /** True iff `program` resolves to the same real file as the running Node. */
 export function isCanaryOwnRuntime(program: string): boolean {
   try {
-    return fs.realpathSync(program) === fs.realpathSync(process.execPath);
+    return canonicalPath(program) === canonicalPath(process.execPath);
   } catch {
     return false;
   }

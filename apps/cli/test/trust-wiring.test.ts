@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
-process.env.CANARY_TRUST_STORE = path.join(os.tmpdir(), `canary-trust-${process.pid}`); // isolation default (overridden below)
+process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-')); // isolation default (overridden below)
 
 import { ensureStoreKey, openSealed, projectIdForRoot, sealRecord } from '../src/trust-store.js';
 import type { CanaryConfig } from '../src/onboarding.js';
@@ -55,7 +55,16 @@ describe('1.1 P0 trust-store wiring', () => {
     assert.equal(open.envelope!.seq, 1);
     const reg = openSealed(store, { projectId: pid, kind: 'registration' });
     assert.equal(reg.status, 'valid', reg.reason);
-    assert.deepEqual(reg.envelope!.payload, { root: fs.realpathSync(sealRoot), pm: 'npm', adapter: 'node' });
+    // MEASURED (v1.4, GitHub Windows run 35779803546): the registration seal
+    // records the CANONICAL spelling of the root, because that is what the
+    // trust store keys a project by. `fs.realpathSync` (JS) does NOT expand an
+    // 8.3 SHORT name, so on the runner — whose temp path is
+    // `C:\Users\RUNNER~1\…` — the expectation was the short spelling and the
+    // product's long one, and a deep-equal of two spellings of ONE directory
+    // failed on a host where nothing was wrong. Realpath resolution to identity
+    // is the product's documented behaviour (`canonicalPath`); the assertion
+    // asks for the same identity, and still requires the exact payload.
+    assert.deepEqual(reg.envelope!.payload, { root: fs.realpathSync.native(sealRoot), pm: 'npm', adapter: 'node' });
   });
 
   it('status/doctor report the sealed copy; the verdict stays the v1.0 one', () => {
@@ -102,7 +111,12 @@ describe('1.1 P0 trust-store wiring', () => {
       const r = canary(['setup', '--yes'], root);
       assert.equal(r.status, 2);
       assert.match(r.stdout, /NEEDS ATTENTION/);
-      assert.match(r.stdout, /could not be sealed/);
+      // v1.4 §E: translated for the everyday path — same refusal, same exit code, and it still names
+      // the actionable thing (the store path / CANARY_TRUST_STORE). The raw reason is behind
+      // --verbose. The property this test exists for — setup fails CLOSED and writes no config — is
+      // asserted on the next line and is unchanged.
+      assert.match(r.stdout, /could not store its verification record/);
+      assert.match(r.stdout, /CANARY_TRUST_STORE/);
       assert.ok(!fs.existsSync(cfgFile(root)), 'a failed seal must leave no half-wired config');
     } finally {
       process.env.CANARY_TRUST_STORE = STORE_ROOT;

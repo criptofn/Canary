@@ -111,6 +111,10 @@ try {
   // --- same project, wired by canary setup
   const wired = path.join(root, 'wired');
   copyDir(path.join(FIX, 'project'), wired);
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the "Canary-wired" repository
+  // of this probe was wired only on a machine that has Claude Code installed.
+  fs.mkdirSync(path.join(wired, '.claude'), { recursive: true });
   runSync('git', ['init', '-b', 'main'], wired);
   runSync('git', ['-c', 'user.email=b@c.d', '-c', 'user.name=B', 'add', '-A'], wired);
   runSync('git', ['-c', 'user.email=b@c.d', '-c', 'user.name=B', 'commit', '-m', 'init'], wired);

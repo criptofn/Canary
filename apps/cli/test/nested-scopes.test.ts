@@ -22,7 +22,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
 
-process.env.CANARY_TRUST_STORE = path.join(os.tmpdir(), `canary-nested-${process.pid}`);
+process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-nested-'));
 
 import { SCOPES_FILE, SCOPES_SCHEMA, composePlan, readScopeDeclaration } from '../src/project.js';
 

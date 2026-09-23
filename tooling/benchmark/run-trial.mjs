@@ -196,6 +196,10 @@ const gitHead = (dir) => {
 const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), `canary-bench-${task}-${arm}-`));
 const projectDir = path.join(runRoot, 'project');
 copyDir(path.join(FIXTURES, task, 'project'), projectDir);
+// v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+// `<root>/.claude` or the operator's `~/.claude`, so without this every protected arm of the
+// benchmark installed no Stop hook on a CI runner and measured nothing.
+fs.mkdirSync(path.join(projectDir, '.claude'), { recursive: true });
 // The fixture must be its OWN git repository. MEASURED: without this, `canary setup`
 // walks up from the temp directory and finds whatever repository happens to contain
 // it (on this machine, the user's home directory is one) — so the trial would have

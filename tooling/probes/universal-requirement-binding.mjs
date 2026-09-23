@@ -49,6 +49,10 @@ const CHECK_CASE = "'use strict';\nconst { normalize } = require('../src/text.js
 /** A universal project: no package.json anywhere, checks declared in the manifest. */
 function makeUniversal(bindings) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-universal-bind-'));
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.mkdirSync(path.join(root, 'checks'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'text.js'), "module.exports = { normalize: (t) => { const s = String(t).trim(); return s === '' ? 'empty' : s.toLowerCase(); } };\n");

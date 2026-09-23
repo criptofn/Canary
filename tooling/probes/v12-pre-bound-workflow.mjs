@@ -57,6 +57,10 @@ const independentCheck = path.join(temp, 'strings.check.cjs');
 
 try {
   fs.mkdirSync(base); fs.mkdirSync(work);
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(base, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(base, 'package.json'), JSON.stringify({ name: 'prebound-workflow', version: '1.0.0', scripts: { test: 'node sum.test.cjs' } }));
   fs.writeFileSync(path.join(base, 'index.cjs'), BUG);
   fs.writeFileSync(path.join(base, 'sum.test.cjs'), CHECK);

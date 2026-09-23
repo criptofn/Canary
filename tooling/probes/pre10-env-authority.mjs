@@ -125,6 +125,10 @@ function stepStdout(bundleDir, s) {
 }
 function makeRepo(name, scripts, files) {
   const root = path.join(TMP, name);
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'app.js'), 'module.exports = 2;\n');
   for (const [f, content] of Object.entries(files ?? {})) {
@@ -217,6 +221,8 @@ check('B honest candidate PASSes and promotes with byte-verified trusted-path ev
 // C — setup poisoning: pm detection AND smoke under lying PATH + preload.
 check('C setup under poisoned env: READY is earned by trusted bytes only (detection + smoke)', () => {
   const root = path.join(TMP, 'c-setup');
+  // v1.4 — harness declared in the fixture; `setup` reads `<root>/.claude` or the operator's `~/.claude`.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'app.js'), 'module.exports = 1;\n');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'c-setup', private: true, scripts: { test: PASS, build: BUILD } }, null, 2) + '\n');
@@ -241,6 +247,8 @@ check('C setup under poisoned env: READY is earned by trusted bytes only (detect
 // stripping, while npm_config_*/NODE_OPTIONS/NODE_PATH/PATH all carry poison.
 check('D NODE_OPTIONS + npm_config_* + PATH poison during verify: children see a clean env; bundle records the attempted overrides', () => {
   const root = path.join(TMP, 'd-witness');
+  // v1.4 — harness declared in the fixture; `setup` reads `<root>/.claude` or the operator's `~/.claude`.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
   fs.writeFileSync(path.join(root, 'scripts', 'witness.js'), [
     'const fs = require("fs"), p = require("path");',

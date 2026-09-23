@@ -28,6 +28,12 @@ function write(root: string, file: string, text: string) { fs.writeFileSync(path
 function fixture(name: string): string {
   const root = path.join(TMP, name);
   fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+  // v1.4 — the repository declares its harness. `setup` requires a DETECTED harness and
+  // refuses (exit 2, correctly) when there is none; detection reads `<root>/.claude` or the
+  // operator's `~/.claude`. Without this line the fixture passed only on a machine that has
+  // Claude Code installed and failed on every CI runner — a host-dependent test, not a
+  // product defect. Every other fixture in this suite already declares `.claude`.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   write(root, 'package.json', JSON.stringify({ name, private: true, scripts: { test: 'node --test tests/greet.test.cjs' } }));
   write(root, 'greet.cjs', SOURCE); write(root, 'tests/greet.test.cjs', TEST);
   git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);

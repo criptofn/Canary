@@ -150,12 +150,16 @@ try {
     assert(r.status === 0, `fixture git ${args[0]} failed: ${r.stdout}${r.stderr}`);
   }
 
-  const install = spawnSync(process.execPath, [cli, 'agents', 'install', 'codex'], {
+  // v1.4 §C — the advisory block is per-PROJECT and agent-independent, and this section measures the
+  // BLOCK, so it installs it through an integration that is still advisory. It used `codex`, which
+  // now has a real completion hook: `canary agents install codex` is refused on purpose (a gating
+  // integration's hook has one owner — `setup`), and `v14-codex-stop-hook.mjs` measures that hook.
+  const install = spawnSync(process.execPath, [cli, 'agents', 'install', 'generic'], {
     cwd: temp, encoding: 'utf8', windowsHide: true, timeout: 300000,
   });
   const text = `${install.stdout}${install.stderr}`;
-  console.log(`INFO \`canary agents install codex\` exit ${install.status}: ${text.trim().split('\n').slice(-3).join(' | ')}`);
-  assert(install.status === 0, `\`canary agents install codex\` exited ${install.status}:\n${text}`);
+  console.log(`INFO \`canary agents install generic\` exit ${install.status}: ${text.trim().split('\n').slice(-3).join(' | ')}`);
+  assert(install.status === 0, `\`canary agents install generic\` exited ${install.status}:\n${text}`);
 
   const target = path.join(temp, 'AGENTS.md');
   assert(fs.existsSync(target),

@@ -244,7 +244,7 @@ public static class CanaryConfined {
       if (!String.IsNullOrEmpty(sideChannel))
         File.WriteAllText(sideChannel, Json(measured, "\"sideChannel\":true"));
       Check(ResumeThread(child.thread) != 0xffffffff, "ResumeThread");
-      uint wait = WaitForSingleObject(child.process, 120000);
+      uint wait = WaitForSingleObject(child.process, 240000);
       uint returnCode;
       if (wait == 258) { returnCode = 124; }
       else {

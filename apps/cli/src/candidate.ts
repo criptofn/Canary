@@ -123,6 +123,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+// v1.4 — canonical filesystem identity (expands Windows 8.3 short names).
+import { canonicalPath } from '@canary-rn/support';
 import { controllerExecution } from './provider/execution.js';
 import { digest, canonicalTask, taskWeakening, subjectDigest, TASK_KINDS, type TaskIdentity, type AuthorizationSubject } from './authorization.js';
 
@@ -199,7 +201,21 @@ function commonDir(root: string): string | null {
   if (out === null) return null;
   const cd = out.trim();
   if (!cd) return null;
-  try { return fs.realpathSync(path.isAbsolute(cd) ? cd : path.resolve(root, cd)); } catch { return null; }
+  try {
+    // v1.4 — same defect class as containedRealPath, found by the same investigation: the JS
+    // `fs.realpathSync` does NOT expand an 8.3 SHORT name, so on a host whose temp or repo path
+    // contains one (`C:\Users\RUNNER~1\...` on GitHub Actions Windows) git's ABSOLUTE common-dir
+    // for the worktree comes back in LONG form while the base's is resolved through the SHORT
+    // spelling. `samePath` then compares `runner~1` with `runneradmin`, and a candidate that
+    // genuinely shares the base's object store is refused with "does not share this repo's git
+    // store" — a false block.
+    //
+    // MEASURED, offline and deterministically: pointing TEMP at a short-named directory
+    // (`...\CA1E00~1`) makes apps/cli/dist/test/discrimination-completion.test.js fail 4 of 6
+    // tests with exactly that message on an ordinary Windows workstation, and pass with this
+    // fix. `realpathSync.native` uses the OS call, which returns the canonical long form.
+    return fs.realpathSync.native(path.isAbsolute(cd) ? cd : path.resolve(root, cd));
+  } catch { return null; }
 }
 
 /** F4: the base's HEAD as a sandwich token. Refs are SHARED with every
@@ -767,8 +783,11 @@ function authorizationContext(root: string, name: string): {
   const cd = commonDir(root);
   if (!cd || commonDir(rec.root) !== cd) return 'candidate no longer belongs to the expected Git store';
   // Recheck toplevel explicitly: git discovery must not fall back to a parent.
+  // v1.4 — canonical identity on both sides: git prints the LONG name, while rec.root may have been
+  // recorded through a SHORT 8.3 spelling. Comparing the two spellings refused a valid candidate
+  // ("candidate repository identity changed"). A genuine parent-repo answer still differs.
   const top = gitCommand(rec.root, ['rev-parse', '--show-toplevel']);
-  if (!top || top.status !== 0 || !samePath(fs.realpathSync(top.stdout.trim()), fs.realpathSync(rec.root))) return 'candidate repository identity changed';
+  if (!top || top.status !== 0 || !samePath(canonicalPath(top.stdout.trim()), canonicalPath(rec.root))) return 'candidate repository identity changed';
   const cid = candidateIdentity(rec.root);
   if (!cid.resolved || !cid.head || !cid.tree || cid.dirty !== false) return 'candidate is not a clean committed state; commit the exact state you want reviewed, then run canary accept again';
   const baseTree = gitWithinRoot(root, ['rev-parse', '--verify', `${rec.baseHead}^{tree}`])?.trim();

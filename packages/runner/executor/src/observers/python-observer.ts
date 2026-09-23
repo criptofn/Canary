@@ -51,6 +51,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { OBSERVER_VERSION } from '../observation.js';
+// v1.4 — canonical filesystem identity (expands Windows 8.3 short names); the lexical fallback is
+// kept for a path that genuinely cannot be resolved, exactly as before.
+import { canonicalPath } from '@canary-rn/support';
 
 /** Where the observer directory lives inside the workspace (outside artifacts). */
 export const PYTHON_OBSERVER_DIRNAME = 'canary-python-observer';
@@ -99,7 +102,7 @@ export function ensurePythonObserver(wsRoot: string): string {
  * unchanged.
  */
 export function observerNonce(runnerId: string, fixturePath: string, arm: string, round: number): string {
-  const real = (() => { try { return fs.realpathSync(fixturePath); } catch { return path.resolve(fixturePath); } })();
+  const real = (() => { try { return canonicalPath(fixturePath); } catch { return path.resolve(fixturePath); } })();
   return crypto.createHash('sha256')
     .update(`${OBSERVER_PROTOCOL_VERSION}|${runnerId}|${real}|${arm}|${round}`, 'utf8')
     .digest('hex').slice(0, 32);

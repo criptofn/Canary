@@ -61,6 +61,10 @@ const env = go.binDir === null ? { ...process.env } : { ...process.env, PATH: `$
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-go-e2e-'));
 const root = path.join(TMP, 'goproject');
 fs.mkdirSync(root, { recursive: true });
+// v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+// `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+// machine that has Claude Code installed and failed on every CI runner.
+fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
 fs.writeFileSync(path.join(root, 'go.mod'), 'module example.com/greeter\n\ngo 1.22\n');
 fs.writeFileSync(path.join(root, 'greeter.go'), 'package greeter\n\n// Greet returns a greeting.\nfunc Greet(name string) string { return "hello " + name }\n');
 fs.writeFileSync(path.join(root, 'greeter_test.go'), [

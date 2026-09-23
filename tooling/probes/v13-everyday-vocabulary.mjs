@@ -61,6 +61,10 @@ const baseline = () => JSON.parse(fs.readFileSync(path.join(project, '.canary', 
 
 try {
   fs.mkdirSync(project, { recursive: true });
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(project, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(project, 'package.json'), JSON.stringify({
     name: 'vocabulary', private: true, scripts: { test: 'node greeting.test.cjs' },
   }, null, 2) + '\n');

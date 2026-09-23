@@ -53,6 +53,12 @@ const out = (r) => `${r.stdout ?? ''}${r.stderr ?? ''}`;
 /** A trivial but REAL Node project whose declared check is green on the starting bytes. */
 function makeProject(dir, name) {
   fs.mkdirSync(dir, { recursive: true });
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this every journey below passed only
+  // on a machine that has Claude Code installed and failed on every CI runner. The refusals this
+  // probe measures (the MCP squatter, an unbound requirement) happen AFTER harness detection, so
+  // they need a detected harness too — otherwise the refusal is the wrong one.
+  fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
     name, version: '1.0.0', private: true,
     scripts: { test: 'node greeting.test.cjs' },

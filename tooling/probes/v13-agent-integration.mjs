@@ -41,6 +41,10 @@ if (!fs.existsSync(claude)) {
 const run = (exe, args, cwd) => spawnSync(exe, args, { cwd, encoding: 'utf8', windowsHide: true, timeout: 300000 });
 
 try {
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(temp, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(temp, 'package.json'), JSON.stringify({
     name: 'agent-integration', private: true, scripts: { test: 'node -e "process.exit(0)"' },
   }, null, 2) + '\n');

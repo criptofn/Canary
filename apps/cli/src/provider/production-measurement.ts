@@ -3,6 +3,10 @@
  * Schema 1 is not parsed by this module and remains permanently retired. */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+// v1.4 — canonical filesystem identity (expands Windows 8.3 short names). The anchor stores the
+// store's identity and every later check compares it against a freshly read one; a short/long
+// spelling difference made a valid record read as "foreign custody" / "generation changed".
+import { canonicalPath } from '@canary-rn/support';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -15,10 +19,24 @@ export const NATIVE_ATTACKS = ['inherited-file', 'inherited-process-duplicate', 
   'authority-write-0', 'authority-write-1', 'authority-write-2', 'authority-write-3', 'authority-write-4', 'descendant-read'] as const;
 export function productionHost(): { user: string; host: string; profile: string } {
   if (process.platform !== 'win32') throw new Error('native host identity unavailable');
+  // MEASURED (v1.4): this budget was 10 s, which is comfortable on an idle
+  // machine and NOT under load — the release battery failed the native
+  // confinement suite with `OS-owned host/profile binding unavailable` while the
+  // same suite passed alone in 271 s on the same bytes. The cause was this
+  // PowerShell probe being killed by its own 10 s timeout (a loaded machine
+  // starting powershell.exe plus an AppContainer lookup), and the caller could
+  // not tell that from a genuine policy refusal because the reason was dropped.
+  // A budget is not an assertion: the probe still fails closed, it now says WHY.
+  const timeoutMs = 60_000;
   const r = spawnSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
     ['-NoProfile', '-NonInteractive', '-File', path.join(repo, 'tools/windows-boundary/production-host.ps1')],
-    { encoding: 'utf8', windowsHide: true, timeout: 10000 });
-  if (r.status !== 0) throw new Error('OS-owned host/profile binding unavailable');
+    { encoding: 'utf8', windowsHide: true, timeout: timeoutMs });
+  if (r.status !== 0) {
+    const why = r.error !== undefined && r.error !== null
+      ? `the probe did not complete within ${String(timeoutMs / 1000)}s (${r.error.message})`
+      : `the probe exited ${String(r.status)}: ${(r.stderr ?? '').trim().split('\n').slice(0, 3).join(' | ').slice(0, 300)}`;
+    throw new Error(`OS-owned host/profile binding unavailable — ${why}`);
+  }
   return JSON.parse(r.stdout);
 }
 function safeRead(file: string): Buffer {
@@ -49,11 +67,11 @@ export function enrollMeasurementAuthority(store: string, deployment: string, pu
   const file = anchorPath(store);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (fs.existsSync(file)) throw new Error('measurement authority already enrolled');
-  fs.writeFileSync(file, JSON.stringify({ store: fs.realpathSync(store), deployment, publicKey, nonce: crypto.randomUUID(), current: null } satisfies Anchor), { flag: 'wx' });
+  fs.writeFileSync(file, JSON.stringify({ store: canonicalPath(store), deployment, publicKey, nonce: crypto.randomUUID(), current: null } satisfies Anchor), { flag: 'wx' });
 }
 export function removeMeasurementAuthority(store: string, deployment: string): void {
   const file = anchorPath(store), anchor = read<Anchor>(file);
-  if (anchor.deployment !== deployment || anchor.store !== fs.realpathSync(store)) throw new Error('foreign custody removal refused');
+  if (anchor.deployment !== deployment || anchor.store !== canonicalPath(store)) throw new Error('foreign custody removal refused');
   fs.unlinkSync(file);
 }
 /** Begin invalidates all earlier measurements before any new attack runs. */
@@ -190,7 +208,7 @@ export function publishProductionMeasurement(store: string, nonce: string, start
   const anchorFile = anchorPath(store), anchor = read<Anchor>(anchorFile);
   const e = read<{ id: string; package: string; verifier: string; project: string; base: string }>(path.join(store, 'enrollment.json'));
   const host = productionHost();
-  if (anchor.nonce !== nonce || anchor.deployment !== e.id || anchor.store !== fs.realpathSync(store)) throw new Error('measurement generation changed');
+  if (anchor.nonce !== nonce || anchor.deployment !== e.id || anchor.store !== canonicalPath(store)) throw new Error('measurement generation changed');
   const payload: Payload = { schema: 'canary-production-measurement/2', deployment: e.id, store: anchor.store, host: host.host, user: host.user,
     tools: productionToolsDigest(store), nonce, startedAt, finishedAt: Date.now(), observations };
   checkObservations(payload, e);
@@ -205,7 +223,7 @@ export function readProductionMeasurement(store: string, now = Date.now()): { va
     const record = read<{ payload: Payload; signature: string }>(path.join(store, PRODUCTION_MEASUREMENT));
     const p = record.payload, e = read<{ id: string; package: string; verifier: string; project: string; base: string; pipe: string }>(path.join(store, 'enrollment.json'));
     const host = productionHost();
-    if (p.schema !== 'canary-production-measurement/2' || p.store !== fs.realpathSync(store) || anchor.store !== p.store ||
+    if (p.schema !== 'canary-production-measurement/2' || p.store !== canonicalPath(store) || anchor.store !== p.store ||
         p.deployment !== e.id || anchor.deployment !== e.id || p.nonce !== anchor.nonce || anchor.current !== hash(JSON.stringify(record))) throw new Error('copied, replayed or foreign deployment record');
     if (!crypto.verify(null, Buffer.from(JSON.stringify(p)), anchor.publicKey, Buffer.from(record.signature, 'base64'))) throw new Error('unauthenticated measurement producer');
     if (p.host !== host.host || p.user !== host.user) throw new Error('foreign host identity');
@@ -217,8 +235,16 @@ export function readProductionMeasurement(store: string, now = Date.now()): { va
     const heartbeat = spawnSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
       ['-NoProfile', '-NonInteractive', '-File', path.join(repo, 'tools/windows-boundary/production-heartbeat.ps1'),
         '-Pipe', e.pipe, '-Nonce', nonce, '-Deployment', e.id, '-Project', e.project],
-      { encoding: 'utf8', windowsHide: true, timeout: 10000 });
-    if (heartbeat.status !== 0) throw new Error('live production broker unavailable');
+      // Same budget lesson as productionHost() above: 10 s is enough when the
+      // host is idle and not when it is loaded, and the caller must be able to
+      // tell a slow host from a broker that is genuinely not there.
+      { encoding: 'utf8', windowsHide: true, timeout: 60_000 });
+    if (heartbeat.status !== 0) {
+      const why = heartbeat.error !== undefined && heartbeat.error !== null
+        ? `the heartbeat did not complete within 60s (${heartbeat.error.message})`
+        : `the heartbeat exited ${String(heartbeat.status)}: ${(heartbeat.stderr ?? '').trim().split('\n').slice(0, 3).join(' | ').slice(0, 300)}`;
+      throw new Error(`live production broker unavailable — ${why}`);
+    }
     const live = JSON.parse(heartbeat.stdout);
     if (live.status !== 200 || live.payload?.schema !== 'canary-production-heartbeat/2' || live.payload.deployment !== e.id || live.payload.nonce !== nonce ||
         live.payload.generation !== anchor.nonce || live.payload.measurement !== anchor.current ||

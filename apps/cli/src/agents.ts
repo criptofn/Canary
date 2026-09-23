@@ -6,9 +6,10 @@
  * capability table:
  *
  *   - `gating: true`  — this integration can BLOCK a completion (a hook the
- *                       harness actually honours). Only Claude Code qualifies
- *                       today, and its wiring implementation stays where it is
- *                       (one implementation, no fork).
+ *                       harness actually honours). Claude Code and OpenAI Codex
+ *                       CLI qualify today, and both run the SAME `checkpoint`
+ *                       entry point: one verification implementation, two pieces
+ *                       of wiring, no fork.
  *   - `gating: false` — the integration is REAL but ADVISORY: it tells the
  *                       agent to consult Canary and gives it a compact,
  *                       machine-readable answer, but nothing can block a
@@ -44,6 +45,16 @@ export interface AgentIntegration {
    * mechanism the vendor documents.
    */
   gatingMeasured?: boolean;
+  /**
+   * v1.4 §C — a one-time act the HARNESS owns before the hook this table calls GATED will run at
+   * all. Absent = none.
+   *
+   * Codex runs a non-managed hook only after that exact hook definition has been reviewed and
+   * trusted, and it records trust against the hook's current hash; a written-but-untrusted hook is
+   * skipped. That is real friction in the user's hands, and a row that said GATED without it would be
+   * the overclaim this file exists to prevent — so it is carried as data and printed beside the word.
+   */
+  gatingNeedsTrust?: string;
   /** Files whose presence means "this agent works here" (root-relative). */
   detectFiles: readonly string[];
   /** Executables that mean the same, looked for in the same trusted way the
@@ -63,12 +74,39 @@ export const AGENT_INTEGRATIONS: readonly AgentIntegration[] = [
     summary: 'completion hook installed into this project — Canary runs the sealed checks when the agent says it is done, and blocks once on failure',
   },
   {
+    /**
+     * v1.4 §C — CODEX IS GATED, AND THIS ENTRY USED TO SAY IT COULD NOT BE.
+     *
+     * The old summary read "ADVISORY only — no completion hook exists to gate". MEASURED on this host
+     * (2026-09-20): `codex --version` → `codex-cli 0.154.0`, `codex features list` → `hooks  stable
+     * true`, `--help` exposes `--dangerously-bypass-hook-trust`, and the vendor's hook reference
+     * documents a `Stop` event whose contract is the SAME one `cmdCheckpoint` already implements for
+     * Claude Code: one JSON object on stdin (`cwd`, `stop_hook_active`), JSON on stdout,
+     * `{"decision":"block","reason"}` to CONTINUE the turn with that reason as the next prompt, and
+     * exit 0 with no output to let it stop. `canary setup` therefore writes a `Stop` handler into
+     * `.codex/hooks.json` — the SAME command, from the SAME `buildHookCommand` — and the run that
+     * gates is the same `canary checkpoint`, so the hook gains no authority it did not have.
+     *
+     * `gatingMeasured: true` is a claim about EVIDENCE, and the evidence is
+     * `tooling/probes/v14-codex-stop-hook.mjs`: the hook driven exactly as Codex documents it
+     * (stdin event → stdout decision, pass → silent allow, fail → parsed `decision: "block"`), plus a
+     * real `codex exec` session in a temp repository in which Codex executed this hook and continued
+     * the turn on its reason. If that run is not reproducible on a host — and the probe says so with
+     * an explicit SKIP rather than a pass — the honest reading stays "the adapter is written; gating
+     * is UNMEASURED there", and this field is what a reader must check before quoting "GATED".
+     *
+     * The one thing Canary does NOT own is stated in the summary and in `gatingNeedsTrust`: Codex
+     * runs a non-managed hook only after that hook definition has been reviewed and trusted once, so
+     * until the user takes that step the file is written and nothing is gated.
+     */
     id: 'codex',
     label: 'OpenAI Codex CLI',
-    gating: false,
+    gating: true,
+    gatingMeasured: true,
+    gatingNeedsTrust: 'Codex runs a project hook only after a one-time review and trust (`/hooks`) — until then the hook is written but gates nothing',
     detectFiles: ['.codex', 'AGENTS.md'],
     detectExe: ['codex'],
-    summary: 'ADVISORY only — no completion hook exists to gate, so Canary instructs the agent (marked block in AGENTS.md) and answers it with `canary result --json`',
+    summary: 'completion hook installed into this project (.codex/hooks.json) — Canary runs the sealed checks when a Codex turn ends and sends the agent back to work once when they fail; Codex requires a one-time hook-trust review (`/hooks`) before it will run the hook, so an untrusted hook gates nothing',
   },
   {
     // v1.3 §E — CURSOR, reported as UNMEASURED rather than as anything stronger or weaker.

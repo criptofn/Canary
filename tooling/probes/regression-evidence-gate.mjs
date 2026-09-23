@@ -101,6 +101,10 @@ const TEST_DISCRIMINATING = [
 
 function makeRepo(name, src, test, opts = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `canary-regevidence-${name}-`));
+  // v1.4 — declare the harness IN THE FIXTURE: `setup` requires a detected harness and reads
+  // `<root>/.claude` or the operator's `~/.claude`, so without this the fixture passed only on a
+  // machine that has Claude Code installed and failed on every CI runner.
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
   fs.writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({ name: `regevidence-${name}`, private: true, scripts: { test: 'node run-tests.js' } }, null, 2)}\n`);

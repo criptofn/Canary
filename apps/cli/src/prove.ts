@@ -18,7 +18,7 @@ import {
 import { sha256File } from '@canary-rn/hashing';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
 import { classify, applyConfinementGuard, type ExecutionObservation, type RoundFact } from '@canary-rn/classification';
-import { sanitizedEnv, sanitizedEnvKeys, resolveNpmCli, KNOWN_RUNNER_RELEASES, type WorkspaceLayout } from '@canary-rn/support';
+import { sanitizedEnv, sanitizedEnvKeys, resolveNpmCli, KNOWN_RUNNER_RELEASES, canonicalPath, type WorkspaceLayout } from '@canary-rn/support';
 import { deriveArmTreeFacts } from './verify-tree.js';
 
 export interface SummaryExpectation { passing: number; failing?: number | undefined }
@@ -429,7 +429,18 @@ export function verifyArtifacts(artifactsDir: string, bundle: EvidenceBundle): s
   const issues: string[] = [];
   const rootAbs = path.resolve(artifactsDir);
   let rootReal = rootAbs;
-  try { rootReal = fs.realpathSync(rootAbs); } catch { /* root missing → surfaced per-file */ }
+  try { rootReal = canonicalPath(rootAbs); } catch {
+    // The root itself did not resolve. MEASURED (v1.4 release gate, GitHub
+    // Windows runner + probe v14-shorttemp-suite.mjs): `os.tmpdir()` there is
+    // `C:\Users\RUNNER~1\...` — an 8.3 SHORT spelling — so a root that has
+    // since been deleted used to be compared, short-spelled, against files
+    // canonicalised to the LONG spelling: every file was then reported as
+    // "resolves outside the artifacts directory" instead of "artifact
+    // missing". Canonicalising the PARENT keeps the comparison between two
+    // canonical spellings; when even that fails the root is genuinely gone and
+    // each file is surfaced by the existence check below.
+    try { rootReal = path.join(canonicalPath(path.dirname(rootAbs)), path.basename(rootAbs)); } catch { /* root missing → surfaced per-file */ }
+  }
 
   for (const r of bundle.rounds) {
     const at = `round ${String(r.arm)}#${String(r.round)}`;
@@ -466,14 +477,28 @@ export function verifyArtifacts(artifactsDir: string, bundle: EvidenceBundle): s
       const p = path.join(rootAbs, file); // file is a bare derived basename (no separators)
       const lex = withinDir(rootAbs, p);
       if (!lex.ok) { issues.push(`${at}: artifact ${file} escapes the artifacts directory (${lex.why})`); continue; }
-      let real = p;
-      try { real = fs.realpathSync(p); } catch { /* dangling symlink; lexical already ok */ }
-      const re = withinDir(rootReal, real);
-      if (!re.ok) { issues.push(`${at}: artifact ${file} resolves outside the artifacts directory (${re.why})`); continue; }
+      // EXISTENCE BEFORE RESOLUTION. MEASURED (v1.4 release gate): the realpath
+      // check used to run first, and a MISSING file cannot be canonicalised —
+      // the fallback kept the caller's spelling while the root had been
+      // canonicalised, so on a host whose temp path has an 8.3 short name
+      // (`C:\Users\RUNNER~1\…`) a deleted artifact was reported as
+      // "resolves outside the artifacts directory". That is a false accusation
+      // of traversal, and it masked the finding the operator needs: the
+      // artifact is gone. Both outcomes are refusals — no verdict changes —
+      // but the named reason must be the true one.
       if (!fs.existsSync(p)) {
         issues.push(`${at}: artifact missing: ${file}`);
         continue;
       }
+      let real: string;
+      try { real = canonicalPath(p); } catch {
+        try { real = path.join(canonicalPath(path.dirname(p)), path.basename(p)); } catch {
+          issues.push(`${at}: artifact ${file} exists but cannot be resolved for containment`);
+          continue;
+        }
+      }
+      const re = withinDir(rootReal, real);
+      if (!re.ok) { issues.push(`${at}: artifact ${file} resolves outside the artifacts directory (${re.why})`); continue; }
       let actual: string;
       try {
         actual = sha256File(p);
