@@ -299,6 +299,19 @@ const STEPS = [
   // reports a source-side improvement the built artifact predates as `PENDING-REBUILD … NOT a pass`
   // rather than asserting it, so the chain stays honest between a source edit and the next build.
   ['v1.5 first run (install -> setup -> gate -> fail -> repair -> uninstall, asserted)', process.execPath, ['tooling/probes/v15-first-run.mjs'], {}],
+  // v1.5 POST-AUDIT (independent GPT-5.6 audit of a004f55). Each of these is the focused proof for a
+  // confirmed finding, registered here so the release battery re-checks the finding rather than
+  // trusting the commit message that fixed it. All three are deterministic and cost no model tokens.
+  //   BLOCKERS 1+7: a worker that REWRITES an existing check must not inherit independent authority,
+  //   and a legitimate check outside a test path must not be a false red. LESS false red, no MORE
+  //   false green — one predicate caused both, so one probe covers both.
+  ['v1.5 check provenance (rewritten existing check is worker-authored; sealed-script check is not a false red)', process.execPath, ['tooling/probes/v15-check-provenance.mjs'], {}],
+  //   BLOCKER 2: a token headline may only rest on completed runs using the declared provider-native
+  //   ledger, and on cells that all share ONE instrument. Prints NO ratio for an incomplete run.
+  ['v1.5 token aggregate contract (ineligible cells and unstable instruments cannot enter a headline)', process.execPath, ['tooling/probes/v15-everyday-aggregate.mjs'], {}],
+  //   BLOCKER 6: the sealed step must resolve the toolchain the project's own checks need, and must
+  //   attribute an environment failure to CANARY rather than to the project.
+  ['v1.5 sealed toolchain (the environment names the missing tool instead of blaming the project)', process.execPath, ['tooling/probes/v15-sealed-toolchain.mjs'], {}],
   // v1.3: the AGENT side of the integration — `claude mcp list` proves the agent reads Canary's entry
   // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
   // SKIP is never a pass.
