@@ -85,13 +85,31 @@ Stated here rather than buried, because an audit kit that hides its own gaps is 
 
 | Item | Status |
 |---|---|
-| Full productization battery on the final v1.5 tree | **NOT RUN** at the time of writing (the tree changed after the last run) |
-| Full unit suite on the final v1.5 tree | **NOT RUN** |
-| Source/dist freshness (forced rebuild + dist tripwire) | **RUN** after the WS4 edits (build exit 0, first-run probe 58/0) but **must be re-run** after the claim-reset edits to `apps/cli/src/agents.ts` |
+| Full productization battery on the final v1.5 tree | **RUN PARTIALLY — RED, then fixed; NOT re-run.** It reached **25 probes / 341 PASS / 3 FAIL / 6 SKIP** before being stopped so the fix could be built and verified without corrupting the run (`session-evidence/v15-final-verify-productization.log`). One FAIL was real and is fixed (below); two are inside the documented live-nondeterministic posttool-feedback probe, which reports **SKIP** overall. **The full battery has not been re-run on the fixed tree.** |
+| Full unit suite on the final v1.5 tree | **RUN — GREEN.** 1,237 tests / 203 suites: **1,233 pass, 0 fail, 4 skipped**, exit 0 (`session-evidence/v15-final-npm-test.log`). After the vocabulary fix, the four affected suites re-ran **74/74 pass** |
+| Source/dist freshness | **RUN.** A forced rebuild was required: the first `tsc -b` reported exit 0 **without re-emitting** the changed module — the documented v1.2 trap. After `tsc -b apps/cli --force` the emitted file carried the fix and the gate went green |
 | CI legs for the v1.5 commit | **NOT RUN** — no push yet |
 | Windows core leg reaching terminal SUCCESS for v1.5 | **NOT RUN** |
-| Mutation / security gates on the final tree | **NOT RUN** |
+| Mutation / security gates | **RUN — GREEN** inside the battery: master-pass mutation battery, 1.1 P0 trust-boundary mutations, M10.2 adversarial authority, dist-mutation guard, HARDENED provider boundary, architecture closure matrix |
 | Real-world evidence (≥3 non-Canary repos, ≥6 agent tasks, false-done example) | **RUN** — `docs/REAL-WORLD-EVIDENCE-1.5.md`, bundle at `tooling/benchmark/results/session-evidence/v15-realworld/`. Findings in section G below |
+
+### The one real battery FAIL, and its fix
+
+`v13-everyday-vocabulary.mjs` pins a **budget of 13** internal terms in the ordinary path, set from
+the v1.4 measurement. It **passed in all four v1.4 release logs** and failed on the v1.5 tree with
+**19**. A per-command diff against the v1.4 breakdown isolated it to the v1.5 §4B/§4C wording fixes,
+which used the word "sealed" where plain language says the same thing (`setup --yes` 0→2, `agents`
+0→4; `status`, `doctor` and the completion gate unchanged at 7/1/5).
+
+Three user-facing strings were reworded; **no fact and no action changed**, and **the budget was not
+raised** — raising it would have been the gate-weakening this repository forbids. Re-measured after a
+forced rebuild: **TOTAL 13, identical to the v1.4 distribution, probe PASS, exit 0**, with the probe
+still confirming the internals stay reachable under `--verbose` and that the JSON envelope is
+unchanged by the prose.
+
+This is worth reading as evidence **about the process**: a release preparing to claim it had made
+messaging clearer was caught making the user decode **six more internal terms**, by a ratchet set
+from a measurement rather than from an ambition.
 
 **Consequence, stated plainly:** the gates that are `RUN` are green; the gates that are `NOT RUN`
 have no result, and a gate with no result is not a pass. v1.5.0 must not be released, and has not
