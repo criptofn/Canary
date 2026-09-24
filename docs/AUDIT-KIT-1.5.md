@@ -57,12 +57,23 @@ npm ci && npm run build
 # 1. HARDENED: does the boundary actually hold on THIS host?  (~2 min, no elevation)
 node tooling/probes/v15-hardened-boundary.mjs
 #    exit 0 = all six controls PASS; 1 = a measured FAIL; 3 = HOST UNSUPPORTED (NOT success)
+#    4 = the live battery failed (NOT MEASURED, and an older file cannot rescue it)
 
-# 2. Re-print the per-control table from the last signed transcript
+# 2. Re-print the per-control table from the last SAVED transcript
+#    HISTORICAL ONLY: exits 2, labels every row HISTORICAL, and cannot report a current PASS.
+#    (v1.5 post-audit: it used to print "HARDENED: MEASURED / RESULT: PASS" from a stale OS-temp
+#    file while the live store said LOCAL 0/6. Fixed and regressed:
+#    tooling/benchmark/hardened-evidence.{mjs,test.mjs}.)
 node tooling/probes/v15-hardened-boundary.mjs --from-saved
 
-# 3. Token benchmark: recompute every published figure from the RAW trial records
+# 3. Token benchmark: recompute the aggregate from the RAW trial records.
+#    Reports each run COMPLETE or INCOMPLETE and prints NO ratio for an incomplete one.
+#    (v1.5 post-audit: the published headline pooled a fallback-estimator cell and a run whose
+#    tree changed mid-measurement. Both are now refused; the claim was WITHDRAWN.)
 node tooling/probes/v15-everyday-aggregate.mjs
+
+# 3b. Check provenance: can a worker rewrite an existing check and keep independent authority?
+node tooling/probes/v15-check-provenance.mjs
 
 # 4. Is the standing MCP payload really in the session, and what does it cost?  (~1 min)
 node tooling/probes/v15-mcp-standing-payload.mjs

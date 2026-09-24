@@ -200,6 +200,13 @@ power-loss durability; Linux runtime verification (`hostVerified: false`).
 
 ## Limitations, stated plainly
 
+- **`--from-saved` is HISTORICAL EVIDENCE and cannot establish a current boundary.** It exits
+  **2**, labels every row `HISTORICAL`, and prints its own disproof (age versus the product's
+  15-minute ceiling, host match, whether the recorded store still exists). v1.5 post-audit: it
+  previously printed `HARDENED: MEASURED` / `RESULT: PASS` from a stale OS-temp transcript while
+  the live store reported `LOCAL` with 0/6 controls — a defect in the PROBE, not in the product's
+  validator, and it is fixed and regressed (`tooling/benchmark/hardened-evidence.{mjs,test.mjs}`).
+  A **failed live battery now exits 4** rather than falling through to an older file.
 - The trusted operator/broker is the normal user; the adversary is the **confined
   builder or candidate**, not a holder of that user's unrestricted token.
 - The persistent machine-wide service is **not installed**; `install-plan` prints
