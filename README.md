@@ -254,8 +254,9 @@ claims.
 > On short, well-bounded confined tasks in our replicated experiments, measured savings ranged from
 > roughly **27 % to 87 %**.
 >
-> On the measured authored everyday workflow, Canary used **7.3 % fewer model tokens than Plain in
-> aggregate** at equal measured correctness, while adding independent completion verification.
+> On the measured authored everyday workflow, Canary used **16.8 % fewer model tokens than Plain in
+> aggregate** across two v1.5 runs (**83.21 %** of Plain) at equal measured correctness, while adding
+> independent completion verification — **with the standing MCP payload now inside the measurement.**
 >
 > **The qualification, which is part of the claim, not a footnote to it:**
 >
@@ -265,19 +266,20 @@ claims.
 > - **87 % is not typical and not universal.** It is the best pairing in a 3×3 replication of the
 >   single most favourable cell, not an average, and the long stateful task is repeatedly *more*
 >   expensive than Plain under confined transport;
-> - **Canary does not always save tokens.** The ≤75 % aggregate target was not met, and this release
->   makes no such claim;
-> - per task, the everyday saving ranges from **17.1 % lower to essentially parity (+0.02 %)** — it is
->   not uniform.
-> - **the 92.7 % does not include one recurring cost, and that is stated here rather than left in an
->   appendix.** The tool server `setup` registers is re-advertised on **every turn** — measured from
->   the real server over the real transport at **5,726 bytes per turn** (1,475 B of instructions +
->   4,251 B of tool definitions), of which **1,923 B (33.6 %) is expert-only ceremony**
->   (`canary_work` / `canary_finish`) that an everyday user never calls
->   ([`tooling/probes/v13-standing-context.mjs`](tooling/probes/v13-standing-context.mjs)). The
->   benchmark harness launches the agent without the MCP server, so **the real everyday footprint is
->   somewhat worse than 92.7 %, not better.** Removing Canary's entire standing footprint would return
->   about **2 points**, which is why ≤ 75 % is neither claimed nor reachable by trimming Canary itself.
+> - **Canary does not always save tokens.** The ≤75 % aggregate target was not met (the best measured
+>   everyday aggregate is 83.21 %), and this release makes no such claim;
+> - per task, the everyday result ranges from **43.8 % MORE expensive to 38.7 % cheaper** — it is not
+>   uniform, and on the smallest fixture Canary cost more in **both** runs. The two run aggregates were
+>   **−19.3 %** and **−13.4 %**, while the plain arm drifted **27 %** between them on identical
+>   configuration; treat the *direction* as measured and the *size* as unstable (**n=1 per cell**).
+> - **the standing payload is now accounted for — and it was overstated before.** The tool server
+>   `setup` registers is re-advertised on **every turn** — measured from the real server over the real
+>   transport at **5,726 bytes** (1,475 B of instructions + 4,251 B of tool definitions), of which
+>   **1,923 B (33.6 %) is expert-only ceremony** (`canary_work` / `canary_finish`) that an everyday user
+>   never calls ([`tooling/probes/v13-standing-context.mjs`](tooling/probes/v13-standing-context.mjs)).
+>   Its cost is **~438 tokens per session, MEASURED provider-natively** — **not** the ~1,432 that
+>   `bytes ÷ 4` implied, which overstated it **3.3×**. v1.5 now passes `--mcp-config` in the benchmark,
+>   so the 83.21 % **already includes** this payload; the historical 92.7 % did not.
 
 **The arm map — which Canary *shape* costs what.** Same three fixtures, same
 model, same starting bytes, same hidden oracle. **`plain` means not using Canary at
@@ -296,21 +298,27 @@ understated the result: the `plain` arm was never gated.)
 | **total** | **409,824** | **379,792 — 92.7 %** | **728,564 — 177.8 %** | **642,861 — 156.9 %** |
 | correctness | 12/12, 15/15, 406/406 | *same* | *same* | *same* |
 
+*(The table above is the HISTORICAL v1.3 measurement and is kept as a record. It is not Canary's
+current footprint — see the bullets.)*
+
 Read it this way, because it is the only reading the numbers support:
 
-- **HISTORICAL MEASUREMENT (v1.3, one recorded run per cell): the everyday shape — install once,
-  then use your agent normally — used 7.3 % fewer model tokens than Plain in aggregate (92.7 % of
-  Plain) at equal measured correctness, with no false done.** Per task the measured range is
-  **17.1 % lower to essentially parity (+0.02 %)**: bug-sum was 100.02 % of Plain, i.e. technically
-  0.02 % *above* it. The saving is not uniform and this README does not claim it is.
-  The long stateful task does **not** explode on this shape (17 turns, 96.1 % of Plain).
-  **KNOWN LIMITATION — part of this claim, not a footnote to it:** that measurement launched the
-  agent **without** the MCP server, so it excludes a standing payload of **5,726 bytes per turn**
-  (the next-but-one bullet measures it). **The true current everyday footprint is therefore somewhat
-  worse than 92.7 %, and "7.3 % fewer tokens" must not be quoted as the current, complete everyday
-  result.** No replacement percentage is stated here, because producing one would require a new fair
-  measurement that **has not been run** — and inventing a number without it is the one thing this
-  project does not do.
+- **HISTORICAL (v1.3, one recorded run per cell): 92.7 % of Plain, −7.3 % in aggregate**, at equal
+  measured correctness with no false done. Per task that run measured **17.1 % lower to essentially
+  parity (+0.02 %)**. **It is historical, and it understates Canary's cost:** that run launched the agent
+  **without** the MCP server, so it excluded a standing payload of 5,726 bytes per turn.
+- **CURRENT (v1.5, TWO runs of the same three fixtures, standing payload INCLUDED): the everyday shape
+  used 83.21 % of a plain agent's tokens in aggregate — −16.79 %** — at equal measured correctness, with
+  no false done in either arm. The two runs gave **−19.26 %** and **−13.39 %**. The standing MCP payload
+  is inside those numbers, and v1.5 adds evidence it was really in the session, not merely configured
+  (`agent.mcpToolsAdvertised`: 3/3 guarded trials, 0/3 plain). Per task the range is **+43.8 % (MORE
+  expensive) to −38.7 % (cheaper)**, and on `bug-sum`, the smallest fixture, Canary cost more in **both**
+  runs. Method, every cell and every limit: [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
+  **Do not read −16.79 % as a stable effect size.** The plain arm itself drifted **27 %** between the two
+  runs on identical configuration — larger than the effect — and every cell is n=1.
+- **The standing payload costs ~438 tokens per session, MEASURED — not the ~1,432 that `bytes ÷ 4`
+  implied.** JSON tool schemas tokenise far better than four bytes per token, so the derived figure
+  overstated the payload by **3.3×**. `bytes ÷ 4` must not be quoted as tokens.
 - **The ceremony costs more than it saves** (+77.8 %) with identical correctness,
   which is why it is documented here as expert mode rather than the ordinary path.
 - **The confined transport is a trade, not a win**: 2–6× cheaper on short,
@@ -319,7 +327,8 @@ Read it this way, because it is the only reading the numbers support:
   below for what that flag does.)
 
 **The ≤75 % token target is not met in aggregate — but it IS met on two cells, replicated.** The everyday
-shape's best is 92.7 %. A full benchmark of the confined path with the opt-in per-batch check puts it at
+shape's best measured aggregate is **83.21 %** (v1.5, payload included; the historical 92.7 % excluded it).
+A full benchmark of the confined path with the opt-in per-batch check puts it at
 **86.8 % of plain by median, 110.5 % by mean** — about parity, not a saving — with equal correctness on every
 cell that could run at all. Per cell the picture is sharper and more favourable: on the two short bound cells
 it beats the target in **all six replicated runs** (**13.1-36.5 %** and **54.0-73.3 %** of plain), and the

@@ -103,7 +103,11 @@ export const AGENT_INTEGRATIONS: readonly AgentIntegration[] = [
     label: 'OpenAI Codex CLI',
     gating: true,
     gatingMeasured: true,
-    gatingNeedsTrust: 'Codex runs a project hook only after a one-time review and trust (`/hooks`) — until then the hook is written but gates nothing',
+    // v1.5 §4B — the trust step said WHAT to do (`/hooks`) but not WHAT you are approving, WHAT
+    // Canary changes, or HOW to undo it. All three fit in one clause each; none of them is a
+    // mechanism change, and the gate is untouched: the hook still runs `canary checkpoint`, which
+    // can only run this repository's own sealed checks and send the agent back once.
+    gatingNeedsTrust: 'Codex runs a project hook only after a one-time review and trust (`/hooks`) — until then the hook is written but gates nothing. What you approve is one Stop hook running `canary checkpoint`: it runs this repository\'s own sealed checks and can only send the agent back to repair a failure — no permissions widen and no other Codex setting changes. `canary uninstall` removes it again',
     detectFiles: ['.codex', 'AGENTS.md'],
     detectExe: ['codex'],
     summary: 'completion hook installed into this project (.codex/hooks.json) — Canary runs the sealed checks when a Codex turn ends and sends the agent back to work once when they fail; Codex requires a one-time hook-trust review (`/hooks`) before it will run the hook, so an untrusted hook gates nothing',
@@ -163,9 +167,13 @@ export function advisoryBlock(): string {
     '',
     // v1.3 §A — the instruction that was MEASURED. The `guarded` arm (agent works
     // normally, told that verification is automatic and that it will be told what to fix) is the only
-    // recorded Canary configuration CHEAPER than working without Canary: 92.7% of plain over the three
-    // token fixtures, equal correctness, no false done — while the ceremony arm (`canary work` →
-    // `finish`) cost 177.8%. The reliability half is deliberate and comes from the repository's own
+    // recorded Canary configuration CHEAPER than working without Canary: 83.21% of plain over the three
+    // token fixtures in the v1.5 fully-accounted two-run measurement — which INCLUDES the standing MCP
+    // payload, unlike the historical 92.7% it replaces (that one excluded it and is not comparable).
+    // Equal correctness, no false done — while the ceremony arm (`canary work` → `finish`) cost 177.8%.
+    // Per task the v1.5 range is +43.8% MORE expensive to -38.7% cheaper, and the plain arm itself
+    // drifted 27% between the two runs: the DIRECTION is measured, the SIZE is not stable (n=1 per cell).
+    // The reliability half is deliberate and comes from the repository's own
     // measurement: the AGGRESSIVE variant ("do not run the checks yourself") produced a false done and
     // a false green, so the model keeps the decision to verify and only loses the repetition.
     '**Verification here is AUTOMATIC.** Finish when you believe the work is done:',

@@ -29,8 +29,38 @@ import fs from 'node:fs';
 
 function hasFlag(args: readonly string[], f: string): boolean { return args.includes(f); }
 
+/**
+ * v1.5 — collapse the repeated clauses a per-control reason can accumulate.
+ *
+ * MEASURED (v1.5, this host): with no deployment measured, each of the six control
+ * lines repeated the SAME sentence twice and then appended a third clause — e.g.
+ * `authorityCustody` printed "the confined-caller deployment is not measured: no
+ * confined-caller deployment has been measured in this store (expected <path>);
+ * the record reports: no confined-caller deployment has been measured in this
+ * store (expected <path>); the identity path also leaves it unavailable: …".
+ * That is ~430 characters per control, six times, saying one thing.
+ *
+ * The rule is deliberately conservative: split on `; `, then drop a clause only
+ * when the text AFTER ITS FIRST COLON already appears in what has been kept. A
+ * clause carrying any new payload is never dropped, so this can only remove
+ * duplication — it can never hide a distinct reason. Order is preserved, and the
+ * first clause (which carries the label) always survives.
+ */
+export function dedupeReason(why: string): string {
+  const clauses = why.split('; ');
+  const kept: string[] = [];
+  for (const clause of clauses) {
+    const colon = clause.indexOf(': ');
+    const payload = colon < 0 ? clause : clause.slice(colon + 2);
+    if (payload.trim().length > 0 && kept.some((k) => k.includes(payload))) continue;
+    kept.push(clause);
+  }
+  return kept.join('; ');
+}
+
 export async function cmdProvider(rawArgs: string[]): Promise<number> {
   const json = hasFlag(rawArgs, '--json');
+  const verbose = hasFlag(rawArgs, '--verbose');
   const rest = rawArgs.filter((a) => !a.startsWith('--'));
   const [sub = 'status'] = rest;
   const out = (s: string): void => { if (json) console.error(s); else console.log(s); };
@@ -88,50 +118,115 @@ export async function cmdProvider(rawArgs: string[]): Promise<number> {
     }
     case 'status': {
       const status = providerStatus();
-      const measured = measuredCapabilities(status.boundary);
+      const boundary = status.boundary;
+      const measured = measuredCapabilities(boundary);
+      const hardened = measured.level === 'HARDENED';
+      const controls = Object.entries(boundary.controls) as Array<[string, { available: boolean; why: string }]>;
+      const missing = controls.filter(([, c]) => !c.available).map(([name]) => name);
+      const available = controls.length - missing.length;
+      const production = boundary.production;
+      const deployment: 'production' | 'confined-caller' | null = production?.valid === true
+        ? 'production' : (boundary.confined.measured ? 'confined-caller' : null);
+      const primitives = boundary.sandbox.kind ?? null;
+      const next = hardened
+        ? 'the boundary is established; canary provider serve is what the OS starts'
+        : 'run: node tooling/probes/v12-confined-caller.mjs (measures the real boundary on this host; nothing is elevated)';
+
       if (json) {
         emitEnvelope({
           schema: 'canary-provider-status/1',
           command: 'provider status',
           // The status word is the MEASURED level, so the human and machine
           // answers cannot diverge, and HARDENED can only appear when it is real.
-          status: measured.level === 'HARDENED' ? 'READY' : 'NOT CONNECTED',
-          exitCode: measured.level === 'HARDENED' ? 0 : 2,
+          status: hardened ? 'READY' : 'NOT CONNECTED',
+          exitCode: hardened ? 0 : 2,
           problems: status.unavailable,
-          security: { level: measured.level, reasons: Object.values(status.boundary.controls).map(c => c.why) },
-          next: measured.level === 'HARDENED'
-            ? 'the boundary is established; canary provider serve is what the OS starts'
-            : 'run: canary provider install-plan (privileged steps, owner authorization required)',
+          security: { level: measured.level, reasons: Object.values(boundary.controls).map(c => c.why) },
+          provider: {
+            hardenedAvailable: hardened,
+            controlsAvailable: available,
+            controlsTotal: controls.length,
+            controlsMissing: missing,
+            hostPrimitives: primitives,
+            deploymentMeasured: deployment,
+          },
+          next,
         });
       }
-      out(`provider: ${PROVIDER_SERVICE_NAME}  pipe: ${status.pipe}`);
-      out(`platform: ${status.boundary.platform}  user: ${status.boundary.currentUser ?? 'unknown'}  elevated: ${status.boundary.elevated}`);
-      out(`store:    ${status.boundary.storeDir} (${status.boundary.storeExists ? 'present' : 'absent'})`);
-      const d = status.boundary.confined;
-      if (status.boundary.production) {
-        const p = status.boundary.production;
-        out(`production: ${p.valid ? 'MEASURED + LIVE BROKER VERIFIED' : 'NOT MEASURED'} — ${p.reason}`);
-        if (p.payload) out(`deployment=${p.payload.deployment} generation=${p.payload.nonce}`);
-      } else if (d.measured) {
-        out(`confined: MEASURED  package=${d.callerPackage ?? 'n/a'} at=${d.measuredAt ?? 'n/a'} age=${d.ageMs === null ? 'n/a' : `${(d.ageMs / 60_000).toFixed(1)} min`} signature=${d.signatureVerified ? 'verified' : 'NOT VERIFIED'}`);
-        out(`          tools digest ${d.toolsDigest ?? 'n/a'}  record ${d.recordPath}`);
+
+      // v1.5 — the COMPACT answer first. MEASURED on this host before the change:
+      // six control lines of ~430 characters each, repeating one sentence twice
+      // and burying the two questions a user actually has ("is HARDENED real
+      // here?" and "was this host measured at all?"). The default output now
+      // answers the six required questions in a dozen lines; the raw per-control
+      // reasoning and observations moved behind `--verbose`, where they belong,
+      // and nothing was removed from them.
+      out(`canary provider — ${measured.level}${hardened ? '' : ' (HARDENED is NOT available here)'}`);
+      out('');
+      out(`  security level    ${measured.level}`);
+      out(`  provider          ${PROVIDER_SERVICE_NAME}   pipe ${status.pipe}`);
+      out(`  boundary controls ${available} of ${controls.length} available${hardened ? '' : ` — missing: ${missing.join(', ')}`}`);
+      out(`  host primitives   ${primitives ?? 'none observed'}${primitives ? '   (present is NOT proof: only a measurement activates HARDENED)' : ''}`);
+      if (deployment === null) {
+        out(`  measured here     NO — nothing is measured in this store (${boundary.storeDir})`);
+        // The exact refused reason quotes an absolute record path, which is real
+        // detail and belongs behind `--verbose` — the default says only whether a
+        // record EXISTS and did not validate, which is the user-facing fact.
+        const refused = production !== undefined || boundary.confined.recordPresent;
+        out(`  boundary          NOT MEASURED — ${refused
+          ? 'a record is present but did not validate (see --verbose)'
+          : 'no measurement record present'}`);
+      } else if (deployment === 'production') {
+        out('  measured here     YES — this store holds a valid production deployment measurement');
+        out(`  boundary          MEASURED + LIVE BROKER VERIFIED — ${production?.reason ?? ''}`);
+        if (production?.payload) out(`  deployment        ${production.payload.deployment} generation ${production.payload.nonce}`);
       } else {
-        out(`confined: NOT MEASURED — ${d.reason}`);
+        out('  measured here     YES — this store holds a valid confined-caller deployment measurement');
+        out(`  boundary          MEASURED — ${boundary.confined.callerPackage ?? 'n/a'} at ${boundary.confined.measuredAt ?? 'n/a'}`);
       }
-      out(`identity: service installed=${status.boundary.brokerServiceInstalled} running=${status.boundary.brokerServiceRunning} account=${status.boundary.brokerServiceAccount ?? 'n/a'}  worker=${status.boundary.workerUser ?? 'not enrolled'}`);
-      out(`sandbox:  ${status.boundary.sandbox.kind ?? 'none'}  ${status.boundary.sandbox.detail}`);
-      out('boundary controls (the measured confined-caller deployment):');
-      for (const [name, c] of Object.entries(status.boundary.controls)) {
-        out(`  ${c.available ? 'AVAILABLE  ' : 'UNAVAILABLE'} ${name}${c.available ? '' : ` — ${c.why}`}`);
+      out('');
+      out(`  what this means   ${hardened
+        ? 'every control was measured available: the worker cannot rewrite the records,'
+        : 'candidate code is NOT confined here. Proof records are sealed outside the repo (LOCAL),'}`);
+      out(`                    ${hardened
+        ? 'key or history that judge it.'
+        : 'but a process running as you could replace the store, the key and the ledger together.'}`);
+      out('');
+      out('  to enable HARDENED (nothing below elevates anything by itself)');
+      out('    node tooling/probes/v12-confined-caller.mjs    measure the real boundary on this host');
+      out('    canary provider install-plan                   print the privileged identity-path steps');
+      out('');
+      out('  verbose: canary provider status --verbose        per-control reasons and raw observations');
+
+      if (verbose) {
+        out('');
+        out('--- detail ---------------------------------------------------------------');
+        out(`platform: ${boundary.platform}  user: ${boundary.currentUser ?? 'unknown'}  elevated: ${boundary.elevated}`);
+        out(`store:    ${boundary.storeDir} (${boundary.storeExists ? 'present' : 'absent'})`);
+        const d = boundary.confined;
+        if (production) {
+          out(`production: ${production.valid ? 'MEASURED + LIVE BROKER VERIFIED' : 'NOT MEASURED'} — ${production.reason}`);
+        } else if (d.measured) {
+          out(`confined: MEASURED  package=${d.callerPackage ?? 'n/a'} at=${d.measuredAt ?? 'n/a'} age=${d.ageMs === null ? 'n/a' : `${(d.ageMs / 60_000).toFixed(1)} min`} signature=${d.signatureVerified ? 'verified' : 'NOT VERIFIED'}`);
+          out(`          tools digest ${d.toolsDigest ?? 'n/a'}  record ${d.recordPath}`);
+        } else {
+          out(`confined: NOT MEASURED — ${dedupeReason(d.reason)}`);
+        }
+        out(`identity: service installed=${boundary.brokerServiceInstalled} running=${boundary.brokerServiceRunning} account=${boundary.brokerServiceAccount ?? 'n/a'}  worker=${boundary.workerUser ?? 'not enrolled'}`);
+        out(`sandbox:  ${boundary.sandbox.kind ?? 'none'}  ${boundary.sandbox.detail}`);
+        out('boundary controls (each derived from the measured deployment, never from configuration):');
+        for (const [name, c] of controls) {
+          out(`  ${c.available ? 'AVAILABLE  ' : 'UNAVAILABLE'} ${name}${c.available ? '' : ` — ${dedupeReason(c.why)}`}`);
+        }
+        out('identity-path controls (what an ELEVATED install would add; NOT evidence on this host):');
+        for (const [name, c] of Object.entries(boundary.identityControls) as Array<[string, { available: boolean; why: string }]>) {
+          out(`  ${c.available ? 'AVAILABLE  ' : 'UNAVAILABLE'} ${name}${c.available ? '' : ` — ${dedupeReason(c.why)}`}`);
+        }
+        out(`\n${hardened
+          ? 'HARDENED — every boundary control is measured available on this host.'
+          : `${measured.level} — HARDENED is NOT available: ${status.unavailable.length} control(s) missing.`}`);
       }
-      out(`\n${measured.level === 'HARDENED'
-        ? 'HARDENED — every boundary control is measured available on this host.'
-        : `${measured.level} — HARDENED is NOT available: ${status.unavailable.length} control(s) missing.`}`);
-      if (measured.level !== 'HARDENED') {
-        out('next: node tooling/probes/v12-confined-caller.mjs   (measures the confined-caller deployment; nothing is elevated)');
-        out('      canary provider install-plan                  (prints the privileged identity-path steps; nothing is executed)');
-      }
-      return measured.level === 'HARDENED' ? 0 : 2;
+      return hardened ? 0 : 2;
     }
     case 'install-plan': {
       const plan = providerInstallPlan();

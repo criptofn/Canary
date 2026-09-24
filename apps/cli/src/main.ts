@@ -444,6 +444,6 @@ main(process.argv.slice(2))
     console.error('Canary hit an internal error and stopped. That is a defect in Canary, not a statement about your project.');
     console.error(`  what happened: ${e instanceof Error ? e.message : String(e)}`);
     console.error('  what it means: this run verified NOTHING — do not read it as a pass, and not as a failure of your code either.');
-    console.error('  what to do: re-run the same command with CANARY_VERBOSE=1 for the full detail, then report it with `canary --version`, `canary status --json` and `canary doctor --json`.');
+    console.error('  what to do: if the message above names a path you can fix (a FILE where Canary needs a directory, or a location this account cannot write), fix that first and re-run; otherwise re-run with CANARY_VERBOSE=1 for the full detail, then report it with `canary --version`, `canary status --json` and `canary doctor --json`.');
     finish(3);
   });

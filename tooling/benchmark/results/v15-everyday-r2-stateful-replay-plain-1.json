@@ -1,0 +1,330 @@
+{
+  "schema": "canary-benchmark-trial/2",
+  "label": "v15-everyday-r2-stateful-replay-plain-1",
+  "task": "stateful-replay",
+  "arm": "plain",
+  "variant": "normal",
+  "instrument": {
+    "version": "bench-b04a1fcfaff2",
+    "hash": "b04a1fcfaff28f52f8daa5a6289c4a2dba86caca5cca2bc9e43f30f94cc9b368",
+    "files": 239,
+    "product": {
+      "files": 37,
+      "hash": "575d5e45212a26fb59fbcca5a555d094f56e3571a04c999938b44f18a84ae398"
+    }
+  },
+  "fixture": {
+    "task": "stateful-replay",
+    "oracleKind": "correctness",
+    "startsGreen": true,
+    "intent": "repair tenant ledger consistency",
+    "requirements": [
+      "All mutation entry points preserve tenant isolation and fresh reads, including after journal replay."
+    ],
+    "benchmarkConfigs": [
+      {
+        "arm": "plain",
+        "registerRequirements": false
+      },
+      {
+        "arm": "workflow",
+        "registerRequirements": false
+      }
+    ],
+    "what": "State transitions spanning cache, batch mutation and replay; no implementation paths given in task."
+  },
+  "startedAt": "2026-09-24T04:36:01.913Z",
+  "runRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-bench-stateful-replay-plain-HR1S3e",
+  "configMismatch": null,
+  "agent": {
+    "command": "claude",
+    "model": "qwen3.8-flash",
+    "exitCode": 0,
+    "secs": 107.8,
+    "timedOut": false,
+    "mcpConfig": null,
+    "settingsSources": "project,local",
+    "forwardedEnvKeys": [
+      "ENABLE_TOOL_SEARCH",
+      "ANTHROPIC_AUTH_TOKEN",
+      "ANTHROPIC_BASE_URL",
+      "ANTHROPIC_MODEL",
+      "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL",
+      "ANTHROPIC_DEFAULT_OPUS_MODEL",
+      "CLAUDE_CODE_SUBAGENT_MODEL"
+    ],
+    "mcpToolsAdvertised": false
+  },
+  "prompt": "# Repair the tenant ledger\r\n\r\nRepair the ledger's public API to satisfy docs/CONTRACT.md. Find the relevant implementation locations yourself. Preserve the API; do not weaken checks or change the contract.\r\n\r\nAll mutation entry points preserve tenant isolation and fresh reads, including after journal replay.\r\n\r\nThe quick suite (node run-tests.js) is deliberately only a smoke test. The repository also contains public contract checks declared in canary.project.json; both benchmark arms may read and run all of them. Add tests as appropriate. There are no unstated requirements in the hidden oracle.",
+  "setup": null,
+  "canary": null,
+  "agentResult": {
+    "isError": false,
+    "parseFailure": false,
+    "subtype": "success",
+    "numTurns": 16,
+    "durationMs": 107058,
+    "costUsd": 0.34750425000000007,
+    "usage": {
+      "inputTokens": 54,
+      "outputTokens": 6037,
+      "cacheReadTokens": 134731,
+      "cacheCreationTokens": 20631,
+      "totalTokens": 161453,
+      "source": "result.usage (session, excludes earlier fresh input)"
+    },
+    "sessionUsage": {
+      "input": 54,
+      "output": 6037,
+      "cacheRead": 134731,
+      "cacheCreation": 20631,
+      "total": 161453,
+      "models": [
+        {
+          "name": "qwen3.8-flash",
+          "costUsd": 0.34750425000000007
+        }
+      ]
+    },
+    "streamedUsageUsable": false,
+    "finalText": "Everything works now. All three suites pass: `node run-tests.js` (1 passing), the registered contract check `node checks/contract.cjs` (passed), and the new extended checks (passed). I left Canary itself unconnected (`canary setup` wasn't part of the task and would add hooks) and didn't touch `checks/contract.cjs` or `canary.project.json`, so the registered proof hash stays valid.\n\n## What was broken and what I changed\n\n**`src/storage.js`** — `key()` was `id => id`, dropping the tenant entirely, so `('a','same')` and `('b','same')` collided. Replaced with a length-prefixed composite `` `${tenant.length}:${tenant}|${id.length}:${id}` ``, which is injective even when tenant/id contain `:`/`|` or look like each other's delimiters.\n\n**`src/replay.js`** — replay filtered to `op:'put'` only, so `open(exportJournal())` silently resurrected deleted pairs. Now applies every event in order; `apply()` already handled both ops.\n\n**`src/api.js`**\n- The read cache was never invalidated — cached hits *and* cached misses went stale after any mutation. `apply()` now does `cache.delete(k)` for the affected key, so all mutation paths (put, remove, batch, replay) keep reads fresh, including after journal replay.\n- `batch` ignored `event.op` (always `rows.set`, so batch deletes were no-ops) and bypassed `apply`. It now routes each event through `mutate({...e})`, giving in-order application, journal entries, and cache invalidation.\n- `journal.push(...history.map(...))` replaced with a per-event loop (avoids spread's argument-count limit on long histories); detach-copy semantics unchanged.\n- `exportJournal` already returned detached copies and is unchanged.\n\n**`checks/extended-contract.cjs`** (new) — covers contract clauses the smoke check misses: delimiter/punctuation key collisions, cached-miss freshness via put/batch, cached-hit staleness via remove/batch-delete, batch call-order and last-write-wins, exportJournal detachment (tampering with the array and its objects leaks neither into state nor later exports), `open(exportJournal())` including deletions, history preserved for subsequent exports/mutations, and repeated-replay equivalence."
+  },
+  "visible": {
+    "exitCode": 0,
+    "passing": 1,
+    "failing": 0,
+    "tail": "1 passing\n"
+  },
+  "visibleBefore": {
+    "exitCode": 0,
+    "passing": 1,
+    "failing": 0
+  },
+  "hidden": {
+    "exitCode": 0,
+    "passing": 406,
+    "total": 406,
+    "oracleError": false,
+    "stderrTail": "",
+    "tail": "hidden oracle: 406/406 behaviour checks passed\n"
+  },
+  "tamper": {
+    "changedFiles": [
+      "checks/extended-contract.cjs",
+      "src/api.js",
+      "src/replay.js",
+      "src/storage.js"
+    ],
+    "touchedTests": false,
+    "deletedFiles": [],
+    "assertionTokensBefore": 3,
+    "assertionTokensAfter": 3,
+    "assertionsRemoved": 0,
+    "weakenedTests": false,
+    "testFiles": [
+      {
+        "file": "run-tests.js",
+        "tokens": 3
+      }
+    ]
+  },
+  "claimsDone": true,
+  "falseDone": false,
+  "stream": {
+    "lines": 799,
+    "parseErrors": 0,
+    "unknownTypes": {
+      "system:init": 1,
+      "system:thinking_tokens": 754
+    },
+    "sawResult": true,
+    "assistantEvents": 28,
+    "messages": 9,
+    "turns": 16,
+    "usage": {
+      "input": 54,
+      "output": 6037,
+      "cacheRead": 134731,
+      "cacheCreation": 20631,
+      "total": 161453,
+      "source": "result.usage (session, excludes earlier fresh input)"
+    },
+    "streamedUsage": {
+      "input": 111655,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheCreation": 0,
+      "total": 111655
+    },
+    "streamedUsageUsable": false,
+    "bytes": {
+      "toolResultTotal": 6231,
+      "largestToolResult": 1089,
+      "canaryVisible": 433,
+      "hookOutput": 0
+    },
+    "commands": {
+      "total": 4,
+      "canary": 1,
+      "checks": 2,
+      "canaryCommands": [
+        "cd \"C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-bench-stateful-replay-plain-HR1S3e\\project\" && canary status 2>&1 | head -30"
+      ]
+    },
+    "hooks": {
+      "count": 0,
+      "canaryCount": 0,
+      "names": [],
+      "events": []
+    },
+    "gate": {
+      "messages": 0,
+      "bytes": 0,
+      "samples": []
+    },
+    "tail": {
+      "lastFileEditTurn": 5,
+      "turnsAfterLastEdit": 3,
+      "tokensAfterLastEdit": null,
+      "tokensAvailable": false,
+      "shareOfTokensAfterLastEdit": null
+    },
+    "toolCalls": 15,
+    "perTurn": [
+      {
+        "turn": 0,
+        "usage": {
+          "input": 12302,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12302
+        },
+        "tools": [
+          "Bash",
+          "Read"
+        ]
+      },
+      {
+        "turn": 1,
+        "usage": {
+          "input": 12320,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12320
+        },
+        "tools": [
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read",
+          "Read"
+        ]
+      },
+      {
+        "turn": 2,
+        "usage": {
+          "input": 12338,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12338
+        },
+        "tools": [
+          "Bash"
+        ]
+      },
+      {
+        "turn": 3,
+        "usage": {
+          "input": 12380,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12380
+        },
+        "tools": [
+          "Write",
+          "Write"
+        ]
+      },
+      {
+        "turn": 4,
+        "usage": {
+          "input": 12398,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12398
+        },
+        "tools": [
+          "Write"
+        ]
+      },
+      {
+        "turn": 5,
+        "usage": {
+          "input": 12416,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12416
+        },
+        "tools": [
+          "Write"
+        ]
+      },
+      {
+        "turn": 6,
+        "usage": {
+          "input": 12476,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12476
+        },
+        "tools": [
+          "Bash"
+        ]
+      },
+      {
+        "turn": 7,
+        "usage": {
+          "input": 12494,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12494
+        },
+        "tools": [
+          "Bash"
+        ]
+      },
+      {
+        "turn": 8,
+        "usage": {
+          "input": 12531,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12531
+        },
+        "tools": []
+      }
+    ]
+  },
+  "claim": {
+    "kind": "success",
+    "successPhrases": [
+      "Everything works",
+      "1 passing"
+    ],
+    "failurePhrases": []
+  },
+  "regression": false,
+  "candidates": [],
+  "finishedAt": "2026-09-24T04:37:49.995Z"
+}

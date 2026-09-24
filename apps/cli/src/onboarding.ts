@@ -2650,11 +2650,22 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
      */
     o.say(`OpenAI Codex CLI will run Canary when a turn ends here — the Stop hook is in ${rel(root, codexHooksPath(root))}.`);
     o.say('  Codex will NOT run it until you review and trust it once: run `codex` in this project, then `/hooks`, and trust the Canary Stop hook. Until you do, a Codex completion is NOT gated.');
+    // v1.5 §4B: the old line said WHAT to type and nothing else. A user approving a hook that can
+    // interrupt their agent is owed the three remaining answers — what exactly is being approved,
+    // what Canary does and does not touch, and how to undo it — in the same breath as the ask.
+    o.say('  What you are trusting is one command: `canary checkpoint` — it runs the sealed project checks listed above, and on a failure it can only send the agent back once to repair it; it never edits your files, never widens a permission, and touches no other Codex setting.');
+    o.say('  Undo it any time with `canary uninstall` (it removes exactly Canary\'s own entries and keeps your own hooks).');
   }
   if (wantsClaude && codex?.touched) o.say('both harnesses are wired here: Claude Code gates completions as soon as this setup ends; Codex gates them once you trust the hook above.');
   // v1.3 §C: say plainly that a SECOND file was written, and what the agent gets from it. Silence
   // about a file Canary just added to someone's repository would be the wrong kind of invisible.
   o.say(`agent tools: registered in ${rel(root, mcpConfigPath(root))} — your agent can now ask Canary whether it is done, instead of guessing. Your other MCP servers are untouched; \`canary uninstall\` removes exactly this entry.`);
+  // v1.5 §4C — IS THIS SHARED, OR MINE? MEASURED in the clean-room first run: setup writes three
+  // files that `git status` reports as TRACKED PROJECT files (a clone carries them), and one
+  // directory that self-ignores. Nothing user-facing said which was which, and the recorded hook
+  // command names an ABSOLUTE path on THIS machine — so a teammate receiving the entry verbatim
+  // gets a command their machine cannot run. One sentence, no mechanism change.
+  o.say(`  scope: ${rel(root, mcpConfigPath(root))} and the harness hook files are PROJECT files — commit them and a checkout/teammate gets them, and each person then runs \`canary setup --yes\` once so the recorded path matches where Canary is installed on their machine. Canary's own state is local to you: .canary/ (self-ignored) and this machine's trust store.`);
   // v1.3 §E, MEASURED with the real agent CLI (`claude mcp list` reports our entry as
   // "Pending approval"): the harness holds a project-scoped MCP server until a human approves it once.
   // That is one interactive step Canary cannot take for you, so it is named here rather than left to
@@ -2726,6 +2737,15 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
       for (const req of unbound.unbound) o.say(`  unbound: ${req.digest}`);
       o.say(`  sealed plan script(s) available to bind: ${unbound.planScripts.length > 0 ? unbound.planScripts.join(', ') : '(none)'}`);
       o.say('  the wiring here is ready, but the TASK is not: bind each digest (package.json "canary" proofs) and re-run setup. Until then `canary doctor` will say NOT PROVEN — that is the same fact, not a second problem.');
+    } else if (unbound.unbound.length > 0) {
+      // v1.5 §4D — MEASURED (clean-room first run, requirement on a subjective intent): the branch
+      // above is suppressed when Canary reads the requirement as SUBJECTIVE, because its "reported
+      // as NOT PROVEN until one does" clause would be false there. The side effect was that setup
+      // ended in READY with an open registered duty and NO mention of it, while the very next
+      // `canary doctor` answered NOT PROVEN — the user met the block with no warning. This says the
+      // fact that is true in that case and names where the exact next step is printed. No exit code,
+      // no verdict and no gate changes; READY still means what it meant.
+      o.say(`note: you registered ${unbound.unbound.length} requirement(s) that no machine check here measures — a completion cannot be reported as PROVEN on those; the exact next step for each is printed by: canary doctor`);
     }
     o.verdict('READY', 'Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.', `try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor`);
     return 0;
@@ -3076,11 +3096,18 @@ export function cmdDoctor(rawArgs: string[]): number {
     o.say('next: canary setup --yes reseals from the package.json scripts');
     return 2;
   }
-  writeVerificationBundle(root, 'doctor', ran, failed.length ? 'fail' : 'pass', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
+  const evidenceDir = writeVerificationBundle(root, 'doctor', ran, failed.length ? 'fail' : 'pass', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
   writeCheckpoint(root, failed.length ? 'fail' : 'pass', failed.map((f) => f.kind), 'doctor');
   if (failed.length) {
     o.context({ problems: failed.map((f) => `${f.kind} failed: ${f.display}`) });
     o.verdict('NEEDS ATTENTION', `wiring is good, but the checks just failed (${failed.map((f) => f.kind).join(', ')}) — your code is talking, not Canary.`, 'fix the failing checks (ask the agent), then: canary doctor');
+    // v1.5 §4D — MEASURED in the clean-room first run: doctor printed a blind 12-line TAIL of the
+    // runner output (stack frames, with the failing test's NAME cut off), while TROUBLESHOOTING.md
+    // tells the reader "the full runner output is written to disk and its path is printed — read
+    // that file, not the summary". The path was never printed. The bundle already returns it.
+    o.say(evidenceDir === null
+      ? 'full runner output: could not be written (evidence storage failed) — the excerpt above is all Canary kept'
+      : `full runner output: ${evidenceDir} — per-step logs and verification.json; read those, not the excerpt above`);
     return 2;
   }
   // M6: the same obligation read a checkpoint makes, for humans (no hook stdin
@@ -3388,7 +3415,9 @@ export async function cmdCheckpoint(): Promise<number> {
   writeCheckpoint(root, 'fail', failed.map((f) => f.kind), 'checkpoint');
   if (input.stop_hook_active === true) {
     // already one repair attempt this turn — never loop the agent; surface honestly instead
-    return emit({ systemMessage: `Canary: checks still failing (${failed.map((f) => f.kind).join(', ')}) after one repair attempt — stopping anyway; a human should look.` });
+    // v1.5 §4D — MEASURED (clean-room first run): this message named what failed and why Canary
+    // stopped, but gave the human it hands off to no next action. One clause, no mechanism change.
+    return emit({ systemMessage: `Canary: checks still failing (${failed.map((f) => f.kind).join(', ')}) after one repair attempt — stopping anyway; a human should look. Run: canary doctor` });
   }
   // M2: an agent claim may only ANNOTATE this already-decided block, and only
   // as a truthful claim-vs-observation contrast. Verdict authority: Canary's own
@@ -3840,6 +3869,11 @@ export function cmdAgents(rawArgs: string[]): number {
   // Canary cannot take for the user, so CONNECTED is printed with it rather than after it.
   const trustPending = gated.filter((i) => i.gatingNeedsTrust !== undefined);
   for (const i of trustPending) o.say(`note: ${i.label} — ${i.gatingNeedsTrust}.`);
+  // v1.5 §4C — the question this command exists to answer ("what is actually wired here?") had no
+  // answer for SCOPE: MEASURED (`git status` after setup) .claude/settings.json, .codex/hooks.json
+  // and .mcp.json are tracked PROJECT files, while .canary/ self-ignores. One line, and the user
+  // can decide what to commit without reading source.
+  o.say('scope: the harness and tool entries Canary writes (.claude/settings.json, .codex/hooks.json, .mcp.json) are PROJECT files — committing them shares them with a clone, and each developer then runs `canary setup --yes` once so the recorded path matches their machine. Canary\'s own state is local to you: .canary/ (self-ignored) and this machine\'s trust store.');
   o.verdict('CONNECTED', `${gated.map((i) => i.label).join(', ')} can gate completions here — the hook is installed in this repository.${trustPending.length > 0 ? ` (${trustPending.map((i) => i.label).join(', ')} gates once the hook is trusted.)` : ''}`, 'to confirm end to end: canary doctor');
   return 0;
 }

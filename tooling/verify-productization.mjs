@@ -292,6 +292,13 @@ const STEPS = [
   // says so with explicit SKIP lines — a SKIP is never a PASS, and `gatingMeasured` in the capability
   // table is exactly what that arm is evidence for.
   ['v1.4 codex stop hook (a second measured completion gate)', process.execPath, ['tooling/probes/v14-codex-stop-hook.mjs'], {}],
+  // v1.5 §4A/§4E: the FIRST RUN as a journey, against a real installed artifact in a scratch repo —
+  // install -> setup -> verified completion -> FAILED completion (block decision + evidence path that
+  // exists) -> repair -> uninstall, plus the five first-run error paths. It asserts semantics and
+  // required actions, never prose, so the wording can improve without turning the chain red. It
+  // reports a source-side improvement the built artifact predates as `PENDING-REBUILD … NOT a pass`
+  // rather than asserting it, so the chain stays honest between a source edit and the next build.
+  ['v1.5 first run (install -> setup -> gate -> fail -> repair -> uninstall, asserted)', process.execPath, ['tooling/probes/v15-first-run.mjs'], {}],
   // v1.3: the AGENT side of the integration — `claude mcp list` proves the agent reads Canary's entry
   // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
   // SKIP is never a pass.
