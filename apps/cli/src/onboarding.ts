@@ -2798,22 +2798,25 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     },
     planAuthority: reuse?.planAuthority ?? seal,
     /**
-     * v1.5 BLOCKER 6. The operator-authorized executable directories are SEALED HERE, together with
-     * the inventory of where THIS machine's PATH resolved each common toolchain program at this
-     * moment (evidence for a later remediation sentence, never authority for execution). A re-run
-     * without the flag KEEPS what is already authorized unless the operator explicitly revokes it
-     * with `--clear-toolchain-dirs`; the block is absent entirely when there is nothing to record, so
-     * every config written before this change keeps its exact byte shape.
+     * v1.5 BLOCKER 6. `dirs` is AUTHORITY (only what the operator named, sealed so a later ambient
+     * PATH edit changes nothing); `found` is EVIDENCE — where THIS machine's PATH resolved each common
+     * toolchain program at this moment, which is what lets a later failure say "your environment had
+     * git at C:\...\cmd when Canary was set up — authorize that directory" instead of a bare command
+     * the operator has to finish themselves. Nothing is ever executed from `found`.
+     *
+     * The record is REUSED byte-for-byte when the authorized set did not change, the same idempotence
+     * rule `planAuthority` follows above: re-running setup on a connected repo must not churn the
+     * config. `--clear-toolchain-dirs` is the explicit revocation (silently dropping authority a human
+     * granted is the failure this repository treats as worse than a refusal).
      */
-    ...((toolchainDirs.length > 0 || (toolchainArgs.clear ? false : (prevCfg?.toolchain?.dirs.length ?? 0) > 0))
-      ? {
-        toolchain: {
-          dirs: toolchainDirs.length > 0 ? toolchainDirs : (prevCfg?.toolchain?.dirs ?? []),
-          found: inventoryOperatorToolchain(process.env.PATH ?? ''),
-          at: new Date().toISOString(),
-        },
-      }
-      : {}),
+    toolchain: ((): ToolchainSeal => {
+      const prevSeal = prevCfg?.toolchain;
+      const dirs = toolchainArgs.clear
+        ? toolchainDirs
+        : (toolchainDirs.length > 0 ? toolchainDirs : (prevSeal?.dirs ?? []));
+      if (prevSeal !== undefined && JSON.stringify(prevSeal.dirs) === JSON.stringify(dirs)) return prevSeal;
+      return { dirs, found: inventoryOperatorToolchain(process.env.PATH ?? ''), at: new Date().toISOString() };
+    })(),
     cliPath: CLI_ENTRY, hookCommand,
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
     // Absent when Codex is not wired here, so a Claude-only setup keeps writing byte-identical config.
@@ -2887,7 +2890,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // That is one interactive step Canary cannot take for you, so it is named here rather than left to
   // look like a broken integration.
   o.say(`  Claude Code asks you to approve a project's MCP server once — run \`claude\` there and approve it; until then the server is listed but its tools are not available.`);
-  o.detail('authority sealed: the plan and the exact text of every script it runs — candidate edits to the verification surface block completion until setup is deliberately re-run.');
+  o.detail('authority sealed: the plan and the exact text of every script it runs — candidate edits to the verification surface block completion until setup is re-run. WHO may re-seal is deliberately NOT enforced: `canary setup` runs unattended and never checks the caller, so a worker with this user\'s authority can re-seal its own commit and plan. That is what HARDENED (a broker with a different OS identity) exists to close, and it is not installed here.');
   const level = probeTrustLevel(store);
   o.detail(`sealed authority copy: ${store.root} (project ${projectId}) — level ${level.level}: ${level.reasons.join(' ')}`);
 
@@ -3193,6 +3196,30 @@ export function protocolChecks(cfg: CanaryConfig): Array<{ kind: string; script:
   }));
 }
 
+/**
+ * v1.5 audit finding (LOCAL root of trust) — WHO CHOSE WHAT IS CHECKED, on the surfaces a
+ * user and an agent actually read.
+ *
+ * `LOCAL` says the records are written outside the repo. It does NOT say the writer was
+ * somebody other than the worker: `canary setup --yes` runs unattended and has never checked
+ * the caller's identity, so any caller with this user's authority — the worker's own shell
+ * included — can make a DIFFERENT plan and a different starting commit the ones that are
+ * checked and then complete against them. That is expected onboarding behaviour at LOCAL, and
+ * it is the whole reason `HARDENED` exists; reporting the level without saying who selected it
+ * would be the overclaim. `HARDENED` is the worker-independent path and is unreachable without
+ * a measured boundary.
+ *
+ * The wording deliberately uses none of the internals the everyday vocabulary ratchet budgets
+ * (`tooling/probes/v13-everyday-vocabulary.mjs`), so this honest line costs the ordinary path
+ * nothing.
+ */
+export function proofLevelLine(level: string): string {
+  if (level === 'HARDENED') {
+    return 'proof level: HARDENED — a measured boundary with a separate OS identity checks this work, so the worker cannot replace what judges it.';
+  }
+  return `proof level: ${level} — the same user account that runs the agent can also re-run \`canary setup --yes\` and make a different plan and starting commit the ones that are checked, so this proof is same-user and operator-selected, NOT worker-independent. HARDENED is the level that adds a separate OS identity, and it is NOT available here.`;
+}
+
 function sealedCopyReport(root: string, cfg: CanaryConfig): string {
   const store = storeFromEnv();
   let projectId: string, tail: string, level: string;
@@ -3241,13 +3268,15 @@ export function cmdStatus(rawArgs: string[]): number {
     o.say('next: canary setup --yes repairs the above; canary doctor proves the checks actually run');
     return 2;
   }
+  const security = securityCapability();
   o.context({
     checks: protocolChecks(cfg),
-    security: securityCapability(),
+    security,
     agent: agentCapability(root),
   });
   o.say(`repo: ${root}`);
   o.say(`plan: ${cfg.plan.length} step(s): ${cfg.plan.map((s) => `${s.kind}:${s.script}`).join(', ')} — sealed authority intact`);
+  o.say(proofLevelLine(security.level));
   o.detail(sealedCopyReport(root, cfg));
   const task = readTaskRecord(root);
   o.say(`task: ${task ? `${task.kinds.join('+')} (${task.requirementCount} requirement(s))` : 'none registered — verify will demand a frozen task before any PASS'}`);
@@ -3302,7 +3331,9 @@ export function cmdDoctor(rawArgs: string[]): number {
   }
   // Facts every later verdict in this command needs: the sealed checks, the
   // MEASURED custody level, and which harnesses can actually gate an agent.
-  o.context({ checks: protocolChecks(cfg), security: securityCapability(), agent: agentCapability(root) });
+  const doctorSecurity = securityCapability();
+  o.context({ checks: protocolChecks(cfg), security: doctorSecurity, agent: agentCapability(root) });
+  o.say(proofLevelLine(doctorSecurity.level));
   // READY is earned HERE, now — the plan runs in every doctor invocation, so a
   // hand-written or stale checkpoint can never produce READY on its own (S4).
   // --run is accepted but no longer changes behavior.
@@ -3522,7 +3553,10 @@ export async function cmdCheckpoint(): Promise<number> {
       // same no-loop posture as a failed plan: one repair turn, then honest stop
       return emit({ systemMessage: `Canary: verification authority is still changed (${drift.slice(0, 200)}) after one repair attempt — stopping anyway; a human should look.` });
     }
-    return emit({ decision: 'block', reason: `Canary blocked completion: verification authority changed by candidate — ${drift}. Canary will not certify proof commands it never sealed. Restore the sealed checks, or have a human run: canary setup (re-runs the new command under a visible smoke test and re-seals it).` });
+    // v1.5 audit finding: "have a human run" implied a step nothing enforces — `canary setup`
+    // has never checked the caller's identity. The claim is narrowed to what is true, without
+    // adding an internal the everyday vocabulary ratchet budgets.
+    return emit({ decision: 'block', reason: `Canary blocked completion: verification authority changed by candidate — ${drift}. Canary will not certify proof commands it never sealed. Restore the sealed checks, or run: canary setup (re-runs the new command under a visible smoke test and re-seals it — nothing checks who runs it).` });
   }
 
   // M4 provenance for every bundle this invocation writes — from the TRUSTED
@@ -3685,7 +3719,12 @@ export async function cmdCheckpoint(): Promise<number> {
         `Repair the observed failures.\n`;
     }
   }
-  const reason = `${claimNote}${buildFailurePayload({
+  // v1.5 BLOCKER 6: when the measured cause is Canary's own environment, the AGENT reads that here —
+  // otherwise a worker spends its budget repairing a project that was never at fault. The project
+  // case adds nothing (its payload already names the check and the failing test), so the ordinary
+  // block reason is byte-identical unless the environment really is the cause.
+  const attribution = attributeRunFailures(root, cfg, failed, cfg.plan);
+  const reason = `${claimNote}${attribution.cause === 'environment' ? `${attribution.reason} NEXT: ${attribution.next}\n` : ''}${buildFailurePayload({
     steps: failed.map((f) => ({
       kind: f.kind, display: f.display, exitCode: f.exitCode,
       stdout: f.stdout ?? '', stderr: f.stderr ?? '',

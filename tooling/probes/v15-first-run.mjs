@@ -66,6 +66,94 @@ function run(cmd, args, opts = {}) {
 }
 const git = (args, cwd) => run('git', args, { cwd });
 
+// ──────────────────────────────── a fixture root PROVABLY outside every git repository ──
+/**
+ * v1.5 §4D — MEASURED DEFECT IN THIS PROBE, FIXED HERE. Harness/fixture only; the product is correct.
+ *
+ * The "no git repository" case (§6a) used to build its fixture under `temp` = mkdtempSync(os.tmpdir())
+ * and then delete the fixture's own `.git`. MEASURED on the host where this was found (2026-09-24):
+ *
+ *   git -C "$env:TEMP" rev-parse --show-toplevel   ->   C:/Users/Johannes   (exit 0)
+ *
+ * so the fixture still sat INSIDE an ancestor repository and "no git repository" was NEVER tested.
+ * It reported PASS on `C:\Users\Johannes is a git repo, but Canary found no project it can model at
+ * its root` — a different condition, matched by the old `/git/i` detail check. That is the defect.
+ *
+ * Two proofs are taken, because they are two different claims, and neither substitutes for the other:
+ *   1. git's own discovery must fail from the fixture root (`rev-parse --show-toplevel`);
+ *   2. no `.git` entry may exist in ANY ancestor of the fixture root — this is Canary's OWN
+ *      project-root rule (`findRepoRoot`, apps/cli/src/onboarding.ts:173-181: an upward
+ *      `fs.existsSync(<dir>/.git)` walk). Proof 2 is the decisive one, and it is why the fixture
+ *      MOVES rather than the environment changing: `GIT_CEILING_DIRECTORIES` bounds git's upward
+ *      walk but does NOT bound that walk, so no environment variable can make an in-repo fixture
+ *      honest — only a physically repo-free root can.
+ *
+ * Candidate roots, in order: the OS temp dir (the repo's convention), then its ancestors
+ * nearest-first. Every rejection is printed with its reason. If no candidate can host a provably
+ * repo-free fixture, §6a reports an explicit host-bound SKIP — never a quiet pass.
+ */
+const GIT_DISCOVERY_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_CEILING_DIRECTORIES', 'GIT_DISCOVERY_ACROSS_FILESYSTEM'];
+/** Proof 1. Asked with git's own discovery variables stripped, so the answer is about the PATH
+ *  and not about a GIT_DIR this process happened to inherit. `status: null` = git could not be asked. */
+function gitToplevel(dir) {
+  const env = { ...process.env };
+  for (const k of GIT_DISCOVERY_VARS) delete env[k];
+  const r = run('git', ['rev-parse', '--show-toplevel'], { cwd: dir, env, timeoutMs: 60_000 });
+  const out = r.stdout.trim();
+  // `detail` is kept so the printed proof distinguishes "git says: not a repository" from
+  // "git failed for some other reason" — the two are not the same evidence.
+  return { status: r.status, toplevel: r.status === 0 && out !== '' ? out : null, detail: (r.stderr.trim() || out || r.error || '').split('\n')[0] };
+}
+/** Proof 2 — Canary's own rule, reproduced exactly: the nearest ancestor (or `dir` itself) holding
+ *  a `.git` ENTRY. `existsSync` on purpose: a directory, a worktree/submodule pointer file and a
+ *  bogus file all stop `findRepoRoot`'s walk. */
+function dotGitAncestor(dir) {
+  let d = path.resolve(dir);
+  for (;;) {
+    if (fs.existsSync(path.join(d, '.git'))) return d;
+    const parent = path.dirname(d);
+    if (parent === d) return null;
+    d = parent;
+  }
+}
+/** Does `text` name `p`, in either separator style? (Paths are compared case-insensitively.) */
+function namesPath(text, p) {
+  const t = String(text).toLowerCase();
+  return [p, p.replace(/\\/g, '/'), p.replace(/\//g, '\\')].some((f) => f !== '' && t.includes(f.toLowerCase()));
+}
+/** Walk `os.tmpdir()` and its ancestors; return the first that can host a fixture root that is
+ *  provably outside every repository, with the proofs re-taken on the root ACTUALLY created. */
+function repoFreeFixtureRoot() {
+  const candidates = [path.resolve(os.tmpdir())];
+  for (let d = candidates[0]; path.dirname(d) !== d;) { d = path.dirname(d); candidates.push(d); }
+  const tried = [];
+  for (const candidate of candidates) {
+    const top = gitToplevel(candidate);
+    if (top.status === null) { tried.push(`${candidate} — REJECTED: git could not be asked, so repo-freeness is UNPROVEN`); continue; }
+    if (top.status === 0) { tried.push(`${candidate} — REJECTED: INSIDE a git repository (rev-parse --show-toplevel -> ${top.toplevel})`); continue; }
+    const dot = dotGitAncestor(candidate);
+    if (dot !== null) { tried.push(`${candidate} — REJECTED: a .git entry exists at ${dot}, so Canary's own root walk stops inside a repository`); continue; }
+    let root;
+    try { root = fs.mkdtempSync(path.join(candidate, 'canary-v15-nogit-')); }
+    catch (e) { tried.push(`${candidate} — REJECTED: repo-free but unusable, cannot create a fixture root there (${e.code ?? e.message})`); continue; }
+    const reTop = gitToplevel(root);
+    const reDot = dotGitAncestor(root);
+    if (reTop.status === 0 || reDot !== null) {
+      tried.push(`${candidate} — REJECTED: the created root ${root} still resolves into ${reTop.toplevel ?? reDot}`);
+      fs.rmSync(root, { recursive: true, force: true });
+      continue;
+    }
+    tried.push(`${candidate} — repo-free and writable: CHOSEN`);
+    return { root, tried, proof: [
+      `git -C "${root}" rev-parse --show-toplevel  ->  exit ${reTop.status}, no toplevel printed; git said: ${reTop.detail}`,
+      `no .git entry in any ancestor of ${root}  ->  Canary's own findRepoRoot() answers null here`,
+    ] };
+  }
+  return { root: null, tried, proof: [] };
+}
+/** The repository the OLD fixture location resolved into — kept only to prove the difference. */
+const noGitAncestorRepo = dotGitAncestor(os.tmpdir());
+
 // ───────────────────────────────────────────────────────────────── the measured surface ──
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-v15-firstrun-'));
 /**
@@ -340,13 +428,96 @@ const errorCase = (label, r, extra = () => true, nextRe = /^next: /m) => {
   check(`${label}: keeps its factual detail`, extra(out), out.slice(0, 400));
 };
 
-// (a) no git repository
-const noGit = path.join(temp, 'no-git');
-makeProject(noGit);
-fs.rmSync(path.join(noGit, '.git'), { recursive: true, force: true });
-const rNoGit = invoke(['setup', '--yes'], { cwd: noGit });
-console.log(rNoGit.stdout.trimEnd() || rNoGit.stderr.trimEnd());
-errorCase('no git repo', rNoGit, (out) => /git/i.test(out));
+// (a) no git repository. STRENGTHENED in v1.5: the fixture must be PROVABLY outside every
+//     repository (see the block at the top of this file), and the refusal is pinned to the text
+//     the built artifact actually prints — the generic errorCase below is kept, but its old
+//     `/git/i` detail check passed on `C:\Users\Johannes is a git repo, ...` (the ENCLOSING
+//     repository), i.e. it would pass for exactly the wrong reason this section now rules out.
+const gitOnPath = run('git', ['--version']).status === 0;
+const noGitFixture = gitOnPath
+  ? repoFreeFixtureRoot()
+  : { root: null, tried: ['git is not on PATH — repo-freeness cannot be proven'], proof: [] };
+if (noGitFixture.root === null) {
+  skip(`no git repository: this host offers no PROVABLY repo-free fixture root, so the case is UNMEASURED (${noGitFixture.tried.join('; ')}) — a fixture inside an ancestor repository measures the enclosing-repo path instead, which is the defect this case fixes; a skip is never a pass`);
+} else {
+  console.log(`no-git fixture root: ${noGitFixture.root}`);
+  for (const t of noGitFixture.tried) console.log(`  candidate: ${t}`);
+  for (const p of noGitFixture.proof) console.log(`  proof:     ${p}`);
+  if (noGitAncestorRepo !== null) {
+    console.log(`  (this case's OLD fixture location, the OS temp dir ${os.tmpdir()}, still resolves into the repository at ${noGitAncestorRepo} — that is why the fixture had to move)`);
+    /**
+     * WHY NOT SIMPLY SET `GIT_CEILING_DIRECTORIES`? MEASURED here rather than argued: a ceiling
+     * bounds GIT's upward walk, not Canary's own root walk (`findRepoRoot` asks the filesystem,
+     * never git). The OLD fixture shape is built again under the temp dir and asked — with the
+     * ceiling pointed at the enclosing repository — which root Canary selects. `canary result`
+     * writes nothing, so this control cannot perturb any state. It is printed, not asserted: if a
+     * future Canary ever honoured the ceiling, the fixture move below would still be the correct
+     * (and sufficient) construction, and this probe should not go red for that improvement.
+     */
+    const ceilingFixture = path.join(temp, 'no-git-under-ceiling');
+    makeProject(ceilingFixture);
+    fs.rmSync(path.join(ceilingFixture, '.git'), { recursive: true, force: true });
+    const ceilingRun = invoke(['result', '--json'], { cwd: ceilingFixture, env: { GIT_CEILING_DIRECTORIES: noGitAncestorRepo } });
+    let ceilingEnv = null;
+    try { ceilingEnv = JSON.parse(ceilingRun.stdout.trim()); } catch { ceilingEnv = null; }
+    console.log(`  measured (read-only control): GIT_CEILING_DIRECTORIES=${noGitAncestorRepo} on the old fixture shape -> Canary still selects root=${JSON.stringify(ceilingEnv?.root ?? null)} (${ceilingEnv?.status ?? `exit ${ceilingRun.status}`}) — a ceiling cannot make an in-repo fixture honest`);
+    fs.rmSync(ceilingFixture, { recursive: true, force: true });
+  }
+  const noGit = path.join(noGitFixture.root, 'no-git');
+  makeProject(noGit);
+  fs.rmSync(path.join(noGit, '.git'), { recursive: true, force: true });
+  // The proofs are re-taken HERE — the fixture's final state, immediately before the product runs.
+  const noGitTop = gitToplevel(noGit);
+  const noGitDot = dotGitAncestor(noGit);
+  check('no git repo: the fixture is PROVABLY outside every git repository (git discovery fails; no .git in any ancestor)',
+    noGitTop.status !== 0 && noGitTop.toplevel === null && noGitDot === null,
+    `git -C "${noGit}" rev-parse --show-toplevel -> exit ${noGitTop.status} toplevel=${JSON.stringify(noGitTop.toplevel)} ("${noGitTop.detail}"); nearest .git ancestor: ${noGitDot}`);
+  const ancestorCanaryBefore = noGitAncestorRepo === null ? null : fs.existsSync(path.join(noGitAncestorRepo, '.canary'));
+  const rNoGit = invoke(['setup', '--yes'], { cwd: noGit });
+  console.log(rNoGit.stdout.trimEnd() || rNoGit.stderr.trimEnd());
+  const noGitOut = `${rNoGit.stdout}${rNoGit.stderr}`;
+  // Pinned to the OBSERVED refusal of the built artifact: run `node apps/cli/dist/src/main.js setup
+  // --yes` in this fixture (the probe prints that run's output verbatim above) and copied here.
+  const NO_GIT_REFUSAL = 'UNSUPPORTED — this folder is not inside a git repository.';
+  const NO_GIT_NEXT = 'next: cd into your project and try again';
+  errorCase('no git repo', rNoGit, (out) => out.includes(NO_GIT_REFUSAL) && out.includes(NO_GIT_NEXT));
+  check('no git repo: the verdict and exit code are the refusal itself (UNSUPPORTED, exit exactly 2)',
+    rNoGit.status === 2 && noGitOut.includes(NO_GIT_REFUSAL),
+    `exit ${rNoGit.status}\n${noGitOut.slice(0, 400)}`);
+  check('no git repo: names the no-repository next action, verbatim',
+    noGitOut.includes(NO_GIT_NEXT), noGitOut.slice(0, 400));
+  // The negation that makes this case discriminating: the old fixture's verdict NAMED the
+  // enclosing repository. Neither that shape nor that path may appear here.
+  check('no git repo: does NOT take the enclosing repository as the project root (the shape the old fixture produced)',
+    !/is a git repo(sitory)?, but/.test(noGitOut) && !/no project it can model/.test(noGitOut)
+    && (noGitAncestorRepo === null || !namesPath(noGitOut, noGitAncestorRepo)),
+    noGitOut.slice(0, 400));
+  // `canary result --json` carries the selected root as a FIELD (`root`, protocol.ts:80, attached
+  // only after a root is found), so this is the "which root did the product select" assertion: a
+  // no-repository project must select NONE — least of all the ancestor.
+  const rNoGitResult = invoke(['result', '--json'], { cwd: noGit });
+  console.log(`no-git result --json: exit ${rNoGitResult.status} ${rNoGitResult.stdout.trim()}`);
+  let noGitEnv = null;
+  try { noGitEnv = JSON.parse(rNoGitResult.stdout.trim()); } catch { noGitEnv = null; }
+  check('no git repo: `result --json` selects NO project root (the envelope names neither the fixture\'s ancestor nor any other repo)',
+    rNoGitResult.status === 2 && noGitEnv !== null && noGitEnv.status === 'NOT CONNECTED' && noGitEnv.exitCode === 2
+    && noGitEnv.root === undefined
+    && (noGitAncestorRepo === null || (!namesPath(rNoGitResult.stdout, noGitAncestorRepo) && !namesPath(rNoGitResult.stderr, noGitAncestorRepo))),
+    `exit ${rNoGitResult.status} stdout=${JSON.stringify(rNoGitResult.stdout)} stderr=${JSON.stringify(rNoGitResult.stderr)}`);
+  check('no git repo: `result` says there is no Canary state here, verbatim (not the "is a git repository, but ..." shape)',
+    /not inside a git repository — there is no Canary state to report here\./.test(rNoGitResult.stderr)
+    && !/is a git repository, but/.test(rNoGitResult.stderr),
+    rNoGitResult.stderr.slice(0, 400));
+  // A refusal must not be a partial setup, in the fixture OR in the enclosing repository.
+  check('no git repo: wrote nothing — no Canary state in the fixture, and the enclosing repository is untouched',
+    !fs.existsSync(path.join(noGit, '.canary'))
+    && (noGitAncestorRepo === null || fs.existsSync(path.join(noGitAncestorRepo, '.canary')) === ancestorCanaryBefore),
+    `fixture .canary=${fs.existsSync(path.join(noGit, '.canary'))} ancestor .canary=${noGitAncestorRepo === null ? 'n/a' : fs.existsSync(path.join(noGitAncestorRepo, '.canary'))} (before ${ancestorCanaryBefore})`);
+  check("no git repo: the user's own Claude/Codex/MCP files are byte-for-byte untouched",
+    fs.readFileSync(path.join(noGit, '.claude', 'settings.json'), 'utf8') === JSON.stringify(USER_CLAUDE, null, 2) + '\n'
+    && fs.readFileSync(path.join(noGit, '.codex', 'hooks.json'), 'utf8') === JSON.stringify(USER_CODEX, null, 2) + '\n'
+    && fs.readFileSync(path.join(noGit, '.mcp.json'), 'utf8') === JSON.stringify(USER_MCP, null, 2) + '\n');
+}
 
 // (b) no detected harness — a clean HOME and a PATH with no agent on it
 const noHarness = path.join(temp, 'no-harness');
@@ -431,8 +602,12 @@ console.log(`SKIP (host-bound; never a pass): ${skips.length}`);
 for (const s of skips) console.log(`  - ${s}`);
 if (failed.length === 0) {
   fs.rmSync(temp, { recursive: true, force: true });
+  // The no-git fixture lives OUTSIDE the OS temp dir (it must be repo-free, §6a); it is this
+  // probe's own mkdtemp directory, so it is removed here too.
+  if (noGitFixture.root !== null) fs.rmSync(noGitFixture.root, { recursive: true, force: true });
   console.log('\nALL ASSERTIONS PASSED (a PENDING-REBUILD line is not one of them)');
   process.exit(0);
 }
 console.log(`\nFIXTURES KEPT FOR INSPECTION: ${temp}`);
+if (noGitFixture.root !== null) console.log(`  (the repo-free no-git fixture root: ${noGitFixture.root})`);
 process.exit(1);

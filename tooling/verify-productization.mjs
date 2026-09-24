@@ -312,6 +312,12 @@ const STEPS = [
   //   BLOCKER 6: the sealed step must resolve the toolchain the project's own checks need, and must
   //   attribute an environment failure to CANARY rather than to the project.
   ['v1.5 sealed toolchain (the environment names the missing tool instead of blaming the project)', process.execPath, ['tooling/probes/v15-sealed-toolchain.mjs'], {}],
+  //   BLOCKER 4: every attempt gets immutable identity. MEASURED cause: the run-task probe wrote fixed
+  //   filenames into one directory per task, so a SECOND attempt truncated the FIRST's stream, ledger,
+  //   record and diff while leaving behind files it never wrote. The result was a directory that looked
+  //   like one run and was two. This probe refuses an occupied attempt and proves the earlier attempt's
+  //   bytes are untouched.
+  ['v1.5 attempt provenance (one attempt per directory; an occupied attempt is refused, never mixed)', process.execPath, ['tooling/probes/v15-attempt-provenance.mjs'], {}],
   // v1.3: the AGENT side of the integration — `claude mcp list` proves the agent reads Canary's entry
   // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
   // SKIP is never a pass.

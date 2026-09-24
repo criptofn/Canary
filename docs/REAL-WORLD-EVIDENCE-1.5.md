@@ -9,7 +9,7 @@ the doctrine the repository already writes down: **claims are not evidence**, **
 done**, **a skip is never a pass**, **unmeasured is never measured**.
 
 Raw artifacts: `tooling/benchmark/results/session-evidence/v15-realworld/` (index in
-[`INDEX.md`](../../../tooling/benchmark/results/session-evidence/v15-realworld/INDEX.md)).
+[`INDEX.md`](../tooling/benchmark/results/session-evidence/v15-realworld/INDEX.md)).
 Reusable probes: `tooling/probes/v15-realworld-run-task.mjs`,
 `tooling/probes/v15-realworld-gate-env.mjs`,
 `tooling/probes/v15-realworld-falsedone-induced.mjs`.
@@ -117,6 +117,17 @@ Stop hook gates the completion) — no candidate/isolation, no `--requirement` i
 Every `"repair"` cell that says "none reached" means exactly that: the session's loop guard allowed
 the stop on the second hook invocation and the run ended with the working tree unchanged by that
 turn. Nothing was made green by the operator.
+
+**R1's row above describes two attempts that shared ONE output directory, and the artifact that
+survives there is attempt 2's.** The probe wrote every artifact into `runs/R1-refactron-pytest-ids/`
+directly, so attempt 2 truncated attempt 1's raw stream, parsed stream, ledger, record, diff and git
+state, while attempt 1's `hook-input.json` and `checkpoint-manual.*` stayed behind. The result is
+attributed artifact by artifact, from an executed audit, in the bundle's
+[`INDEX.md`](../tooling/benchmark/results/session-evidence/v15-realworld/INDEX.md)
+(`node tooling/probes/v15-attempt-provenance.mjs --audit <dir>` prints `AUDIT RESULT: MIXED`).
+**Attempt 1's raw record is not in the bundle and cannot be reconstructed** — see §8. This is a
+defect of the harness and it is fixed: the probe now gives every attempt its own directory and
+refuses to write into one that already holds evidence.
 
 ---
 
@@ -284,7 +295,7 @@ session.** Manufacturing a story around one of the above would be dishonest.
 A reproducible end-to-end demonstration of the gate stopping a "done" whose objective evidence
 fails was produced by **the operator deliberately breaking the code after the agent had finished**.
 It is labelled `INDUCED` in the probe's output and in
-[`falsedone-INDUCED-schniedelsmp/LABEL.txt`](../../../tooling/benchmark/results/session-evidence/v15-realworld/falsedone-INDUCED-schniedelsmp/LABEL.txt).
+[`falsedone-INDUCED-schniedelsmp/LABEL.txt`](../tooling/benchmark/results/session-evidence/v15-realworld/falsedone-INDUCED-schniedelsmp/LABEL.txt).
 **It must never be described as organic agent behaviour.**
 
 What is real in it: the worker's code (`761b863`, produced by the S1 session), the project's own
@@ -384,7 +395,8 @@ Recorded because a report that only lists wins is advertisement.
    169 s and 1 500 s while the agent was still working, so Canary judged nothing and the token
    ledger for that task is empty. That is a statement about this session's harness budget, not
    about Canary — but it is also the honest reason the "six tasks" here are five verdicts and one
-   unfinished run.
+   unfinished run. **(The 169 s attempt has no raw record: attempt 2 wrote into the same directory
+   and truncated it — see §8.)**
 
 ---
 
@@ -395,10 +407,29 @@ Recorded because a report that only lists wins is advertisement.
   figure at all**. Its manual checkpoint block is an environment artefact (§4). It is reported as
   unfinished rather than summarised into a verdict, and its diff is evidence about the *agent's
   work*, not about a completion the gate ever judged.
+- **`R1` ATTEMPT 1 HAS NO RAW RECORD, AND THAT IS AN HONEST GAP — NOTHING WAS RECONSTRUCTED.**
+  Both attempts wrote into one output directory, so attempt 2 truncated attempt 1's
+  `agent.stream.raw.txt`, `agent.stream.jsonl`, `agent.stderr*`, `ledger.json`, `record.json`,
+  `agent.diff`, `git-before.json` and `git-after.json`; the files attempt 2 never wrote — attempt
+  1's `hook-input.json` and `checkpoint-manual.*` — stayed behind beside attempt 2's record.
+  Everything that is known about attempt 1 therefore comes from those three surviving files and
+  from this session's notes: `canary checkpoint` was driven by hand at `2026-09-24T04:57:37.949Z`
+  and returned a `block` naming a `tests` failure under Canary's own step environment. Its
+  **1 500.1 s** sibling is fully recorded (`record.json`: `timedOut: true`,
+  `hookFiredDuringRun: true`, `checkpointDrivenManually: false`, `sawResultEvent: false`), except
+  that its own `checkpointBefore` is **attempt 1's** checkpoint (`04:57:38.412Z`) rather than its
+  own starting state — an inheritance the directory layout made possible and the corrected layout
+  makes impossible. The **169 s** figure for attempt 1 is a session note: the artifact that carried
+  it was attempt 1's `ledger.json`, which no longer exists on disk. The per-artifact attribution,
+  and the audit command that produces it, are in the bundle's
+  [`INDEX.md`](../tooling/benchmark/results/session-evidence/v15-realworld/INDEX.md).
+  Attempt 1's stream is **not** recoverable from anything in this repository, and this document
+  does not pretend otherwise.
 - **No organic false-done was observed.** §6.1. The demonstration in §6.2 is `INDUCED`.
 - **Two checkpoints were driven manually, not by the harness**: R1 attempt 1 (the hook did not
   fire because nothing tried to stop) and every `canary checkpoint` invocation inside the induction
-  probe. §3 and §6.2 say which.
+  probe. §3 and §6.2 say which — and for R1 attempt 1 only the raw `checkpoint-manual.*` output
+  survives, not the `record.json` that would have carried `checkpointDrivenManually: true`.
 - **The mechanism behind schniedelsmp's `gradle test` failing at setup and passing later was not
   isolated.** Both observations are recorded; no explanation is claimed.
 - **Not measured:** the standing MCP payload's token cost; the difference Canary's own
@@ -421,8 +452,13 @@ six hook-fired verdicts, four of them `NOT PROVEN`, one `pass` reached after the
 its own plan and baseline, and one plan failure under Canary's step environment. R1's second
 attempt also produced two hook-fired `fail` verdicts, but the run never ended, so it is reported as
 unfinished rather than as a verdict. **Manually driven** (this session fed `canary checkpoint` the
-real hook JSON itself, and the artifact says `checkpointDrivenManually: true`): R1 attempt 1, and
-the two checkpoint invocations inside the induction probe. **Induced** (the operator broke the code
-after the agent finished, to show the gate stopping failing evidence end-to-end): §6.2, and only
-§6.2. Nothing in this document is a reconstruction from memory; every number is the output of a
-command whose raw bytes are in the bundle beside it.
+real hook JSON itself): R1 attempt 1, whose surviving artifacts are its `hook-input.json` and
+`checkpoint-manual.*` — the `record.json` that would have carried `checkpointDrivenManually: true`
+for it was truncated by attempt 2, and the `record.json` in that directory is attempt 2's, which
+says `hookFiredDuringRun: true` and `checkpointDrivenManually: false` — and the two checkpoint
+invocations inside the induction probe, which do carry `checkpointDrivenManually: true` in their own
+bundles. **Induced** (the operator broke the code after the agent finished, to show the gate
+stopping failing evidence end-to-end): §6.2, and only §6.2. Nothing in this document is a
+reconstruction from memory; every number is the output of a command whose raw bytes are in the
+bundle beside it — **with the single, stated exception of R1 attempt 1, whose raw bytes were
+truncated by attempt 2 and are not in the bundle at all (§8).**

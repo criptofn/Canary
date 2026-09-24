@@ -77,7 +77,14 @@ usage:
                                           derivation checks ON THIS MACHINE — NOT a committed-
                                           proof comparison; that is prove/check. exit 0 on
                                           self-consistency, else NOT SELF-CONSISTENT, exit 3)
-  canary setup [--yes]      one-command onboarding for a Node project (AI-harness auto-wiring)
+  canary setup [--yes] [--toolchain-dir <abs dir>]...
+                            one-command onboarding for a Node project (AI-harness auto-wiring).
+                            --toolchain-dir (repeatable) authorizes ONE executable directory
+                            for the checks your project runs: build tools a project spawns
+                            itself (java, python, git) are invisible to Canary's restricted
+                            step environment on purpose, because a program planted earlier on
+                            the calling PATH would run as Canary's own authority. A directory
+                            inside the repository is refused; --clear-toolchain-dirs revokes
   canary status             lazy reconnect: does Canary already know this repo, and is its
                             wiring sound? READ-ONLY — no project commands executed, zero
                             writes (a few read-only git metadata reads);

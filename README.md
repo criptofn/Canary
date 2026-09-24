@@ -234,7 +234,13 @@ Agents are reported by what they can actually do, not by what we wish they could
 capability is reported the same way: **`LOCAL`** is what this build can honestly
 claim today, and `HARDENED` is not available yet
 ([why](docs/CAPABILITY-LEVELS.md), and
-[what a real boundary would require](docs/TRUST-ARCHITECTURE.md)). Full matrix,
+[what a real boundary would require](docs/TRUST-ARCHITECTURE.md)). **`LOCAL`
+proof is same-user and operator-selected**: the caller who runs `canary setup
+--yes` chooses the plan and the starting commit that are checked, and nothing
+checks that the caller is not the worker — so a worker with your authority can
+re-run `setup` and complete against a plan and baseline it sealed itself.
+`HARDENED` is the worker-independent path (a broker with a different OS
+identity), and it is not available in this build. Full matrix,
 including what is deliberately *not* supported:
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Upgrading an existing
 installation: [docs/MIGRATION-1.0-TO-1.1.md](docs/MIGRATION-1.0-TO-1.1.md).
@@ -402,7 +408,10 @@ the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`]
 What Canary does **not** claim is as much a part of the product as what it does.
 
 - **`LOCAL` is not an OS isolation boundary.** A same-UID worker can replace the
-  local root of trust; those limits are documented, not papered over
+  local root of trust, **or simply re-run `canary setup --yes`** and make a
+  different plan and starting commit the ones that are checked — `setup` never
+  checks the caller's identity, so this is expected onboarding behaviour at
+  `LOCAL`, not a defect. Those limits are documented, not papered over
   ([`docs/CAPABILITY-LEVELS.md`](docs/CAPABILITY-LEVELS.md)).
 - **`HARDENED` is not available in this release.** The provider/broker
   architecture exists and refuses to serve without a proven separation, but

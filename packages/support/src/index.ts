@@ -65,6 +65,27 @@ export interface EnvOptions {
    * toolchain at a subject-chosen directory.
    */
   toolchain?: ToolchainInjection | undefined;
+  /**
+   * OPERATOR-AUTHORIZED executable directories (v1.5, audit blocker 6).
+   *
+   * WHY THIS EXISTS, with the measurement that forced it: the step PATH is
+   * `${nodeDir};System32;%SystemRoot%`, so a project whose own check spawns a tool
+   * transitively — `npm test` → `java`, `python`, `git` — fails INSIDE Canary on a
+   * host where the same command passes outside it, and the failure was reported as
+   * the project's fault (docs/CLAIM-EVIDENCE-MATRIX-1.5.md, probe
+   * tooling/probes/v15-realworld-gate-env.mjs: 12 PATH entries against the shell's 41,
+   * `java`/`python`/`git` invisible).
+   *
+   * WHAT THIS IS NOT: it is never `process.env.PATH`. The calling PATH stays ignored,
+   * because a worker could plant `python.cmd` earlier on it and have Canary execute
+   * that as sealed authority. These directories are ABSOLUTE, must exist, and are
+   * named by the OPERATOR at `canary setup` time (`--toolchain-dir`) and sealed into
+   * the local config, so a later ambient PATH edit changes nothing. Canary's own
+   * resolution of the plan's program still never consults PATH at all
+   * (`resolveProgram`), and these directories are appended AFTER the Node install dir
+   * and the OS-managed dirs, so nothing here can shadow them.
+   */
+  extraPathDirs?: readonly string[] | undefined;
 }
 
 export interface ObserverInjection {
@@ -172,7 +193,7 @@ export function containsPath(root: string, p: string): boolean {
   return tl.startsWith(rl + path.sep);
 }
 
-export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolchain }: EnvOptions): NodeJS.ProcessEnv {
+export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolchain, extraPathDirs }: EnvOptions): NodeJS.ProcessEnv {
   const systemRoot = process.env['SystemRoot'] ?? 'C:\\WINDOWS';
   const home = path.join(ws.root, 'isolated-home');
   const tmp = path.join(ws.root, 'tmp');
@@ -224,6 +245,21 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolch
     }
   }
 
+  // v1.5 blocker 6: operator-authorized executable directories, validated the same
+  // fail-closed way the other doors are — absolute, existing, a real directory — and
+  // appended AFTER the trusted system dirs so they can never shadow Node or the OS.
+  // A directory that fails validation is REFUSED (throw), never silently dropped:
+  // a silently missing toolchain is exactly the defect this closes.
+  const extraDirs: string[] = [];
+  for (const d of extraPathDirs ?? []) {
+    if (typeof d !== 'string' || !path.isAbsolute(d)) {
+      throw new Error(`operator-authorized toolchain directory must be an absolute path (got ${JSON.stringify(d)})`);
+    }
+    let isDir = false;
+    try { isDir = fs.statSync(d).isDirectory(); } catch { isDir = false; }
+    if (!isDir) throw new Error(`operator-authorized toolchain directory does not exist or is not a directory: ${d}`);
+    if (!extraDirs.includes(d)) extraDirs.push(d);
+  }
   if (process.platform === 'win32') {
     // Audit F6 (executed probe, 2026-08-30): the Windows process loader
     // APPENDS logon-session identity vars (USERNAME, USERDOMAIN, LOGONSERVER,
@@ -239,7 +275,7 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolch
     const homeDrive = homeParsed.root.slice(0, 2); // 'C:'
     const homeRelative = home.slice(homeParsed.root.length - 1); // '\\Users\\...'
     return {
-      PATH: `${nodeDir};${path.join(systemRoot, 'System32')};${systemRoot}`,
+      PATH: `${nodeDir};${path.join(systemRoot, 'System32')};${systemRoot}${extraDirs.map((d) => `;${d}`).join('')}`,
       PATHEXT: '.EXE;.CMD',
       SystemRoot: systemRoot,
       windir: systemRoot,
@@ -262,7 +298,7 @@ export function sanitizedEnv({ ws, nodeDir, materialize = true, observer, toolch
   // POSIX analogues — the loader appends nothing here (child envp is exactly
   // what is passed); the observation test asserts equality on Linux CI.
   return {
-    PATH: `${nodeDir}:/usr/bin:/bin`,
+    PATH: `${nodeDir}:/usr/bin:/bin${extraDirs.map((d) => `:${d}`).join('')}`,
     HOME: home,
     TMPDIR: tmp,
     LANG: 'C.UTF-8',

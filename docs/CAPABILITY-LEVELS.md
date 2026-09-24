@@ -25,6 +25,17 @@ That process can delete or replace the store, its keypair and its ledger
 together — which is why the level is `LOCAL` and why the words "hardened" and
 "protected" are not used for it anywhere in this build.
 
+**It also does not** mean the worker was kept out of the choice of what is
+checked. `canary setup --yes` runs unattended and has never checked the caller's
+identity, so the same user that runs the worker — the worker's own shell included
+— can re-run it and make a **different plan and a different starting commit** the
+ones the completion gate judges (`docs/EXECUTION-AUTHORITY.md`, and
+`apps/cli/src/onboarding.ts` states this on the surface it prints). `LOCAL` proof
+is therefore **same-user and operator-selected**: it establishes that the records
+are sealed outside the repo, never that somebody other than the worker sealed
+them. `HARDENED` is the level that establishes *that*, by requiring a broker with
+a different OS identity, and it stays unreachable here.
+
 Refused on purpose, and each refusal has a test:
 
 - key material that is a **symlink, junction or hardlink** (a second name for
