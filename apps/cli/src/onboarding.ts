@@ -70,6 +70,9 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // names it used to own so every existing importer (candidate.ts, the contract
 // tests) compiles and behaves unchanged while the seam gains a second owner.
 import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, scopeDir, SCOPES_FILE, SCOPES_SCHEMA, sealPlanAuthority, sha256, stepArgv } from './project.js';
+// v1.5 BLOCKER 6: the sealed toolchain (operator-authorized executable directories) and the
+// MEASURED decision of whether a failing check is the project's fault or Canary's own environment.
+import { attributeFailures, inventoryOperatorToolchain, npmScriptDirs, pathEntries, validateToolchainDir, type AttributeInput, type FailureAttribution, type ToolchainSeal } from './sealed-toolchain.js';
 import { emitEnvelope, PROTOCOL_RESULT, PROTOCOL_STATUS, type ProtocolEnvelope, type ProtocolIntegration } from './protocol.js';
 import { decideFastPath } from './fastpath.js';
 import { AGENT_INTEGRATIONS, hasAdvisory, installAdvisory, removeAdvisory } from './agents.js';
@@ -166,6 +169,11 @@ export interface CanaryConfig {
    *  config written before 1.1 describes a Node project, and setup keeps that
    *  byte shape until detection can legitimately name another ecosystem. */
   project?: string;
+  /** v1.5 blocker 6: the executable directories the OPERATOR authorized at setup
+   *  (`--toolchain-dir`), sealed here so a later ambient PATH edit changes nothing.
+   *  Absent = the step environment is exactly what it always was (Node install dir
+   *  + OS dirs), and the block below never runs. */
+  toolchain?: ToolchainSeal;
 }
 
 // ---------- detection (pure, testable) ----------
@@ -858,6 +866,67 @@ const hardenedEnv = (fixture: string): NodeJS.ProcessEnv =>
 const hardenedEnvWithToolchain = (fixture: string, toolchain: Record<string, string>): NodeJS.ProcessEnv =>
   sanitizedEnv({ ws: { root: os.tmpdir(), fixture }, nodeDir: NODE_DIR, toolchain: { env: toolchain } });
 
+/**
+ * v1.5 BLOCKER 6 — THE OPERATOR-AUTHORIZED EXECUTABLE DIRECTORIES, AND NOTHING ELSE.
+ *
+ * `hardenedEnv` above is deliberately untouched: the M7 mutation pins its exact text ("merge the
+ * CALLER environment under the sanitized one" must stay dead), and that rule still holds — the
+ * calling PATH is NEVER consulted at verification time. What this adds is the one thing a pin cannot
+ * reach: a project's own check spawning a tool TRANSITIVELY (`npm test` → `java`, `python`, `git`),
+ * where the resolution happens inside the child through the PATH the child was handed.
+ *
+ * Authority is still a human act at the one authorizing moment (`setup --toolchain-dir`), recorded in
+ * the local config; a directory the repository can write is refused outright by
+ * `validateToolchainDir`, so a worker cannot authorize its own shim. A directory that has since
+ * vanished is filtered out here (the spawn must not throw) and REPORTED to the attribution below,
+ * which is where "Canary's environment is the cause" is decided.
+ */
+export function sealedToolchainDirs(root: string): string[] {
+  let cfg: CanaryConfig | 'corrupt' | null = null;
+  try { cfg = readConfig(root); } catch { return []; }
+  if (cfg === null || cfg === 'corrupt') return [];
+  const dirs = cfg.toolchain?.dirs;
+  if (!Array.isArray(dirs)) return [];
+  return dirs.filter((d): d is string => typeof d === 'string' && d.length > 0 && isDir(d));
+}
+
+/** Operator-authorized directories that are sealed in the config but NO LONGER EXIST here. */
+export function vanishedToolchainDirs(root: string): string[] {
+  let cfg: CanaryConfig | 'corrupt' | null = null;
+  try { cfg = readConfig(root); } catch { return []; }
+  if (cfg === null || cfg === 'corrupt') return [];
+  const dirs = cfg.toolchain?.dirs;
+  if (!Array.isArray(dirs)) return [];
+  return dirs.filter((d): d is string => typeof d === 'string' && d.length > 0 && !isDir(d));
+}
+
+function isDir(p: string): boolean {
+  try { return fs.statSync(p).isDirectory(); } catch { return false; }
+}
+
+/**
+ * What a failing step may be blamed on, measured — see `attributeStepFailure` for the rules. The
+ * directories handed to the child are reconstructed from the SAME env door the step used (plus the
+ * `node_modules/.bin` entries npm itself prepends), so "it is not in the sealed environment" is a
+ * statement about the environment the check actually ran in, not about this process's PATH.
+ */
+export function attributeRunFailures(root: string, cfg: CanaryConfig, failed: StepResult[], plan: PlanStep[]): FailureAttribution {
+  const seal: ToolchainSeal | null = cfg.toolchain ?? null;
+  const sealedDirs = sealedToolchainDirs(root);
+  const vanished = vanishedToolchainDirs(root);
+  const inputs: AttributeInput[] = failed.map((f) => {
+    const step = plan.find((s) => s.kind === f.kind && stepDisplay(cfg.pm, s) === f.display)
+      ?? plan.find((s) => s.kind === f.kind);
+    const cwd = step ? scopeDir(root, step) : root;
+    const childPathDirs = [...pathEntries(hardenedEnv(cwd)), ...npmScriptDirs(cwd), ...sealedDirs];
+    return {
+      kind: f.kind, script: step?.script ?? f.display, exitCode: f.exitCode,
+      output: `${f.stdout}${f.stderr}`, childPathDirs, vanishedDirs: vanished, seal,
+    };
+  });
+  return attributeFailures(inputs);
+}
+
 /** Compact executable identity for evidence: sha256 where cheap, size where not. */
 export function execDigest(p: string): string | null {
   try {
@@ -1061,13 +1130,23 @@ function resolveFromAdapterDirs(step: PlanStep, program: string): string | null 
 
 /** Shared spawn for a resolved pm: the plan runner and doctor's liveness
  *  probe must consult the SAME bytes, so they share this one door. */
-function spawnHardened(resolved: ResolvedPm, args: string[], cwd: string, timeoutMs: number, toolchain?: Record<string, string>) {
+function spawnHardened(resolved: ResolvedPm, args: string[], cwd: string, timeoutMs: number, toolchain?: Record<string, string>, toolchainDirs?: readonly string[]) {
   const controller = controllerExecution.getStore();
   if (controller) return controller.run([...resolved.spawnArgv, ...args], cwd, timeoutMs);
+  // v1.5 blocker 6: the operator-authorized dirs are appended to the SAME sanitized env canary has
+  // always built — never merged from the caller. With no authorized dirs the expression below is the
+  // unchanged one (`hardenedEnv` / `hardenedEnvWithToolchain`), so a config without `toolchain`
+  // produces byte-identical children.
+  const dirs = toolchainDirs ?? [];
+  const env = dirs.length === 0
+    ? (toolchain !== undefined && Object.keys(toolchain).length > 0 ? hardenedEnvWithToolchain(cwd, toolchain) : hardenedEnv(cwd))
+    : sanitizedEnv({
+      ws: { root: os.tmpdir(), fixture: cwd }, nodeDir: NODE_DIR, extraPathDirs: dirs,
+      ...(toolchain !== undefined && Object.keys(toolchain).length > 0 ? { toolchain: { env: toolchain } } : {}),
+    });
   return spawnSync(resolved.spawnArgv[0], [...resolved.spawnArgv.slice(1), ...args], {
     cwd, encoding: 'utf8', timeout: timeoutMs,
-    env: toolchain !== undefined && Object.keys(toolchain).length > 0 ? hardenedEnvWithToolchain(cwd, toolchain) : hardenedEnv(cwd),
-    shell: false, windowsHide: true,
+    env, shell: false, windowsHide: true,
     maxBuffer: 32 * 1024 * 1024,
   });
 }
@@ -1129,7 +1208,10 @@ export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs 
     } catch { return undefined; }
   })();
   const startedAt = new Date().toISOString();
-  const r = spawnHardened(resolved, argv.slice(1), cwd, timeoutMs, toolchain);
+  // v1.5 blocker 6: the OPERATOR-authorized executable dirs sealed in this repo's config. Resolution
+  // of the plan's OWN program is untouched above (never PATH); these exist for what the project's
+  // check spawns transitively.
+  const r = spawnHardened(resolved, argv.slice(1), cwd, timeoutMs, toolchain, sealedToolchainDirs(root));
   const stdout = r.stdout ?? '';
   const stderr = r.stderr ?? '';
   const out = `${stdout}${stderr}`;
@@ -1654,6 +1736,25 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
   };
   const files = disc.changedPaths.slice(0, 4).map(safePath).join(', ');
   const more = disc.changedPaths.length > 4 ? ` (+${disc.changedPaths.length - 4} more)` : '';
+  /**
+   * v1.5 post-audit — CONFIRMED AUDIT FINDING (BLOCKER 1): THE REWRITTEN EXISTING CHECK.
+   *
+   * This caveat used to fire only for check files the session had ADDED, so a worker could
+   * take an EXISTING recognized check, rewrite it to assert a marker it had just introduced,
+   * and receive an UNCAVEATED "the sealed checks fail without this change, so their pass is
+   * evidence about it". MEASURED by an independent auditor on commit a004f55: the rewritten
+   * check exited 0 on the candidate and 1 when overlaid on the base — a textbook
+   * discrimination result — while the oracle it satisfied was the worker's own text.
+   *
+   * The defect was asking "did this path exist before?" when the authority question is
+   * "did the WORKER write the bytes that judge the work?". An edit writes those bytes
+   * exactly as much as a creation does, so added and modified checks are now both
+   * worker-authored evidence, and the message says which is which.
+   */
+  const workerAuthored = [
+    ...disc.addedChecks.map((p) => `${safePath(p)} (created by this session)`),
+    ...disc.modifiedChecks.map((p) => `${safePath(p)} (EXISTING check rewritten by this session)`),
+  ];
   if (disc.basePassed === true) {
     return {
       id: 'regression-evidence', mode: 'objective', status: 'unproven',
@@ -1663,8 +1764,8 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
   return {
     id: 'regression-evidence', mode: 'objective', status: 'met',
     note: `the sealed checks fail without this change (${disc.baseFailures.join(', ') || 'a sealed step'}), so their pass is evidence about it${disc.overlaidChecks.length > 0 ? ` (candidate check files overlaid on the base: ${disc.overlaidChecks.slice(0, 3).map(safePath).join(', ')})` : ''}`,
-    ...(disc.addedChecks.length > 0
-      ? { caveat: `the evidence that discriminates this change includes check file(s) THIS SESSION ADDED (${disc.addedChecks.slice(0, 3).map(safePath).join(', ')}) — sensitive to the change, but written by the same worker whose work it judges. Independent coverage needs an operator-bound check (package.json canary.proofs, or canary.project.json proofs) or a human's acceptance` }
+    ...(workerAuthored.length > 0
+      ? { caveat: `the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (${workerAuthored.slice(0, 3).join(', ')}) — sensitive to the change, but authored by the same worker whose work it judges, so it is NOT independent authority. Independent coverage needs an operator-bound check (package.json canary.proofs, or canary.project.json proofs) or a human's acceptance` }
       : {}),
   };
 }
@@ -1710,6 +1811,14 @@ export interface DiscriminationResult {
    * SENSITIVITY, not independence. A verdict that rests on it must say so.
    */
   addedChecks: string[];
+  /**
+   * v1.5 post-audit (BLOCKER 1): check files that EXISTED at the sealed baseline and whose
+   * bytes THIS SESSION changed. They are worker-authored evidence for the same reason
+   * `addedChecks` are — the worker wrote the oracle — and before this field existed they
+   * silently inherited the authority of the operator's original check because the PATH was
+   * old. Kept separate from `addedChecks` so the message can say which happened.
+   */
+  modifiedChecks: string[];
   basePassed: boolean | null;
   baseFailures: string[];
 }
@@ -1739,7 +1848,7 @@ export interface DiscriminationResult {
  */
 export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string): DiscriminationResult {
   const none = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
-    ({ applicable: false, reason, changedPaths, overlaidChecks: [], addedChecks: [], basePassed: null, baseFailures: [] });
+    ({ applicable: false, reason, changedPaths, overlaidChecks: [], addedChecks: [], modifiedChecks: [], basePassed: null, baseFailures: [] });
   const unknown = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
     ({ ...none(reason, changedPaths), applicable: true });
 
@@ -1787,12 +1896,60 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
     }
     const overlaid: string[] = [];
     const addedChecks: string[] = [];
+    const modifiedChecks: string[] = [];
+    /**
+     * v1.5 post-audit — BLOCKERS 1 AND 7 SOLVED TOGETHER, because one predicate caused both.
+     *
+     * `isTestPath` is a PATH HEURISTIC, and this loop was using it as the AUTHORITY question.
+     * That produced the auditor's two findings in opposite directions:
+     *
+     *  - TOO PERMISSIVE for an existing check the worker REWROTE. Its path was old, so it was
+     *    overlaid, failed on the base, and was credited as "evidence about this change" with no
+     *    caveat — while the oracle it satisfied was the worker's own text (BLOCKER 1).
+     *  - TOO STRICT for a legitimate check at `scripts/smoke-test.js`, which the operator's own
+     *    sealed script ran. It was not check surface, so the base ran the OLD check, that passed,
+     *    and the verdict was NOT PROVEN — a FALSE RED for a worker that had measurably
+     *    discriminated its change (BLOCKER 7).
+     *
+     * The anchor added here is OPERATOR-SEALED rather than path-shaped: a file is also check
+     * surface when a SEALED plan script's text names it, and the script text is verified against
+     * the digest sealed at setup. A worker cannot widen this, because editing the script is
+     * authority drift, which blocks before execution.
+     *
+     * Provenance is then decided by GIT and the two answers are kept APART: a file absent at the
+     * baseline was CREATED by this session; a file present and changed was REWRITTEN by it. Both
+     * are worker-authored evidence (see `regressionEvidenceObligation`), so neither inherits the
+     * operator's authority — which is the whole point.
+     */
+    const namedBySealedScript = (p: string): boolean => {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as { scripts?: Record<string, unknown> };
+        const scripts = pkg.scripts ?? {};
+        const digests = cfg.planAuthority?.scriptDigests ?? {};
+        const normalized = p.replace(/\\/g, '/');
+        const base = path.basename(normalized);
+        for (const step of cfg.plan) {
+          const name = (step as { script?: unknown }).script;
+          if (typeof name !== 'string') continue;
+          const text = scripts[name];
+          if (typeof text !== 'string') continue;
+          // The script text must STILL BE the sealed text. Without a sealed digest there is no
+          // operator authority to borrow, so the file is not admitted on this ground.
+          const sealed = digests[name];
+          if (typeof sealed !== 'string' || sealed !== sha256(text)) continue;
+          if (text.includes(normalized) || text.includes(base)) return true;
+        }
+        return false;
+      } catch { return false; }
+    };
     for (const p of changed) {
-      if (!isTestPath(p) || !signals.changes.includes(p)) continue;
-      // "Did this check file exist at the sealed baseline?" — asked of git, not guessed: a check the
-      // session ADDED is the worker's own evidence, and that distinction is the point.
+      if (!signals.changes.includes(p)) continue;
+      if (!isTestPath(p) && !namedBySealedScript(p)) continue;
+      // "Did this check file exist at the sealed baseline?" — asked of git, not guessed. Every
+      // path in `changed` IS a change, so presence at the baseline is exactly the provenance split.
       const atBaseline = gitWithinRoot(root, ['cat-file', '-e', `${head}:${p}`]) !== null;
       if (!atBaseline) addedChecks.push(p);
+      else modifiedChecks.push(p);
       if (!copyInto(root, tree, p)) return unknown(`candidate check could not be overlaid: ${safePath(p)}`, changed);
       overlaid.push(p);
     }
@@ -1818,6 +1975,7 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
       changedPaths: changed,
       overlaidChecks: overlaid,
       addedChecks,
+      modifiedChecks,
       basePassed: failures.length === 0,
       baseFailures: failures.map((f) => f.kind),
     };
@@ -2402,11 +2560,52 @@ export function dirArg(rest: string[]): string | undefined { return rest.find((a
 
 // ---------- commands ----------
 
+/**
+ * v1.5 BLOCKER 6 — INTAKE FOR THE OPERATOR-AUTHORIZED TOOLCHAIN DIRECTORIES.
+ *
+ * Taken out of the args BEFORE `dirArg`, which reads the first non-flag token as the project
+ * directory: `canary setup --toolchain-dir "C:\Program Files\Git\cmd"` would otherwise treat the
+ * toolchain directory as the project and answer UNSUPPORTED. The pairs are removed, so the rest of
+ * setup's parsing sees exactly what it saw before this flag existed.
+ *
+ * `--clear-toolchain-dirs` is the explicit REVOCATION: without it, a re-run of setup keeps the
+ * directories already sealed here (silently dropping authority a human granted is exactly the
+ * failure this repository treats as worse than a refusal).
+ */
+export function takeToolchainDirs(args: string[]): { dirs: string[]; rest: string[]; problems: string[]; clear: boolean } {
+  const dirs: string[] = [];
+  const rest: string[] = [];
+  const problems: string[] = [];
+  let clear = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i] as string;
+    if (a === '--clear-toolchain-dirs') { clear = true; continue; }
+    if (a === '--toolchain-dir') {
+      const value = args[i + 1];
+      if (value === undefined || value.startsWith('--')) { problems.push('--toolchain-dir needs a directory after it (nothing was authorized)'); continue; }
+      dirs.push(value); i += 1; continue;
+    }
+    if (a.startsWith('--toolchain-dir=')) { dirs.push(a.slice('--toolchain-dir='.length)); continue; }
+    rest.push(a);
+  }
+  return { dirs, rest, problems, clear };
+}
+
 export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose, opts.json);
-  const root = findRepoRoot(dirArg(rest) ?? process.cwd());
+  const toolchainArgs = takeToolchainDirs(rest);
+  const root = findRepoRoot(dirArg(toolchainArgs.rest) ?? process.cwd());
   if (!root) { o.verdict('UNSUPPORTED', 'this folder is not inside a git repository.', 'cd into your project and try again'); return 2; }
+  // The authorization is validated BEFORE anything is written: a directory inside the repository is
+  // refused, because the tree the worker under verification can write is not a source of authority.
+  const checkedDirs = toolchainArgs.dirs.map((d) => validateToolchainDir(root, d));
+  const refusedDirs = [...toolchainArgs.problems, ...checkedDirs.flatMap((c) => (c.ok ? [] : [c.problem]))];
+  if (refusedDirs.length > 0) {
+    o.verdict('NEEDS ATTENTION', `Canary will not authorize that toolchain directory: ${refusedDirs.join('; ')}.`, 'name an absolute directory OUTSIDE this repository that contains the executable (for example the JDK\'s bin), then run setup again — nothing was changed');
+    return 2;
+  }
+  const toolchainDirs = checkedDirs.flatMap((c) => (c.ok ? [c.dir] : []));
   // 1.1 §12–17: the project is whatever the registered adapters declare, not
   // "a repo with a package.json". A present package.json is still validated
   // exactly as before (1.0 message, 1.0 fail-closed), but its ABSENCE is no
@@ -2598,6 +2797,23 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
       dirty: baselineStatus === null ? baselineId.dirty : baselineStatus.trim().length > 0,
     },
     planAuthority: reuse?.planAuthority ?? seal,
+    /**
+     * v1.5 BLOCKER 6. The operator-authorized executable directories are SEALED HERE, together with
+     * the inventory of where THIS machine's PATH resolved each common toolchain program at this
+     * moment (evidence for a later remediation sentence, never authority for execution). A re-run
+     * without the flag KEEPS what is already authorized unless the operator explicitly revokes it
+     * with `--clear-toolchain-dirs`; the block is absent entirely when there is nothing to record, so
+     * every config written before this change keeps its exact byte shape.
+     */
+    ...((toolchainDirs.length > 0 || (toolchainArgs.clear ? false : (prevCfg?.toolchain?.dirs.length ?? 0) > 0))
+      ? {
+        toolchain: {
+          dirs: toolchainDirs.length > 0 ? toolchainDirs : (prevCfg?.toolchain?.dirs ?? []),
+          found: inventoryOperatorToolchain(process.env.PATH ?? ''),
+          at: new Date().toISOString(),
+        },
+      }
+      : {}),
     cliPath: CLI_ENTRY, hookCommand,
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
     // Absent when Codex is not wired here, so a Claude-only setup keeps writing byte-identical config.
@@ -2695,6 +2911,15 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     // command invocation already gave. A TTY is still asked first, above.
     o.detail('unattended (no TTY, no --yes): running the smoke test directly — wiring without execution would prove nothing.');
   }
+  // v1.5 blocker 6: authority a human granted is authority the human is SHOWN, in the default output
+  // and before the smoke test runs under it. (Deliberately not Canary's internals vocabulary here —
+  // the everyday path's word budget is a ratchet, see tooling/probes/v13-everyday-vocabulary.mjs.)
+  const effectiveToolchainDirs = cfg.toolchain?.dirs ?? [];
+  if (effectiveToolchainDirs.length > 0) {
+    o.say(`toolchain: ${effectiveToolchainDirs.length} executable director${effectiveToolchainDirs.length === 1 ? 'y' : 'ies'} you authorized${toolchainDirs.length > 0 ? '' : ' (kept from the previous setup)'} — appended AFTER Canary's own trusted directories, never your shell's PATH:`);
+    for (const d of effectiveToolchainDirs) o.say(`  + ${d}`);
+    o.say('  the plan\'s own program is still pinned to an absolute path; these directories exist for what your check spawns itself. Revoke with: canary setup --clear-toolchain-dirs');
+  }
   o.say('\nsmoke test (running your own project scripts):');
   let allOk = true;
   const failed: StepResult[] = [];
@@ -2750,7 +2975,20 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     o.verdict('READY', 'Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.', `try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor`);
     return 0;
   }
-  o.verdict('NEEDS ATTENTION', `Canary is wired here, but your project's own checks did not pass${failed.length ? ` (${failed.map((f) => f.kind).join(', ')})` : ''}. ${failed.some((f) => f.exitCode === null) ? 'Some commands could not run at all.' : 'That is your project talking, not Canary.'}`, 'fix the failing checks (ask the agent), then: canary doctor');
+  // v1.5 BLOCKER 6 — WHO IS ACTUALLY AT FAULT, MEASURED RATHER THAN ASSUMED.
+  //
+  // This line used to say "That is your project talking, not Canary." whenever no step had exited
+  // `null`, and the auditor reproduced exactly what that costs: on the audited commit a clean project
+  // whose check is `npm test` → `java -version` passes OUTSIDE Canary and fails INSIDE it, because a
+  // step child gets PATH = the Node install dir + the OS dirs (12 entries against the shell's 41,
+  // `java`/`python`/`git` invisible, JAVA_HOME absent). The attribution was FALSE, and a false
+  // attribution is worse than a vague one: it sent the operator to fix a project that was fine.
+  //
+  // The two outcomes now have different words, and the environment one is only ever printed when the
+  // environment was MEASURED to be missing the program the child named (see attributeStepFailure).
+  // The verdict, the exit code and the checkpoint are unchanged: a failing check still fails.
+  const attribution = attributeRunFailures(root, cfg, failed, plan);
+  o.verdict('NEEDS ATTENTION', attribution.reason, attribution.next);
   return 2;
 }
 
@@ -2779,6 +3017,12 @@ function writeCheckpoint(root: string, status: string, failed: string[], source:
 function readOnlyProblems(root: string, cfg: CanaryConfig, livePmProbe: boolean): string[] {
   const problems: string[] = [];
   if (!Array.isArray(cfg.plan) || cfg.plan.length === 0) problems.push('the verification plan is empty — Canary would have nothing to check (a pass here would be fake)');
+  // v1.5 blocker 6: an operator-authorized toolchain directory that has since vanished is an
+  // ENVIRONMENT fact Canary must report before it executes anything — and it is named as Canary's
+  // own restriction, never as a project problem.
+  for (const gone of vanishedToolchainDirs(root)) {
+    problems.push(`the toolchain directory sealed at setup is gone: ${gone} — your checks run with the directories Canary sealed (never your shell's PATH), so anything that lived there cannot resolve. Re-authorize it: canary setup --toolchain-dir "<where it is now>"`);
+  }
   // 1.1 §12–17 — each step is answered for by its OWN adapter in its OWN scope,
   // so a Python step is never judged against package.json. For a 1.0 config
   // every step resolves to the Node adapter and this yields the same list.
@@ -3100,7 +3344,15 @@ export function cmdDoctor(rawArgs: string[]): number {
   writeCheckpoint(root, failed.length ? 'fail' : 'pass', failed.map((f) => f.kind), 'doctor');
   if (failed.length) {
     o.context({ problems: failed.map((f) => `${f.kind} failed: ${f.display}`) });
-    o.verdict('NEEDS ATTENTION', `wiring is good, but the checks just failed (${failed.map((f) => f.kind).join(', ')}) — your code is talking, not Canary.`, 'fix the failing checks (ask the agent), then: canary doctor');
+    // v1.5 blocker 6: the same MEASURED attribution setup prints. Doctor is the gate a worker meets
+    // most often, so it must not blame the project for a restriction Canary itself imposed. The
+    // wiring fact stays in the line (it is what doctor checked first); only the blame moves.
+    const attribution = attributeRunFailures(root, cfg, failed, cfg.plan);
+    o.verdict('NEEDS ATTENTION',
+      attribution.cause === 'project'
+        ? `wiring is good, but the checks just failed (${failed.map((f) => f.kind).join(', ')}). ${attribution.reason}`
+        : attribution.reason,
+      attribution.next);
     // v1.5 §4D — MEASURED in the clean-room first run: doctor printed a blind 12-line TAIL of the
     // runner output (stack frames, with the failing test's NAME cut off), while TROUBLESHOOTING.md
     // tells the reader "the full runner output is written to disk and its path is printed — read

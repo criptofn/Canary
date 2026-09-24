@@ -105,8 +105,24 @@ if (!FROM_SAVED) {
   say(`battery exit ${code}`);
   say('');
   if (code !== 0) {
-    say('The battery did not pass, so no control may be reported as PASS below.');
-    say(`Raw transcript (if any): ${saved}`);
+    /*
+     * v1.5 post-audit — BLOCKER 3, requirement D. CONFIRMED AUDIT FINDING: this probe
+     * used to print that sentence and then keep going, reading whatever transcript was
+     * left in the OS temp dir by an EARLIER run and reporting its controls as PASS. So a
+     * failing live battery could be "rescued" by a stale file, which is the same defect
+     * as `--from-saved` wearing a different hat.
+     *
+     * The live run is the measurement. If it did not pass, there is no measurement, and
+     * an older file cannot supply one.
+     */
+    say('FAILED LIVE RUN: the battery did not pass, so NO control may be reported from this run.');
+    if (fs.existsSync(saved)) {
+      say(`An OLDER transcript exists at ${saved}. It is NOT used here: a saved file cannot rescue a`);
+      say('failed live measurement. Inspect it consciously with `--from-saved`, which labels it historical.');
+    }
+    say('');
+    say('RESULT: NOT MEASURED — the live battery failed. This is not a pass and not a host verdict.');
+    process.exit(4);
   }
 }
 
@@ -233,6 +249,52 @@ say('');
 say('--- control NOT provided (Canary does not claim these; they are not passes) ---');
 for (const [name, why] of nonClaims) say(`  CONTROL NOT PROVIDED  ${name.padEnd(32)} ${why}`);
 
+/*
+ * v1.5 post-audit — BLOCKER 3. CONFIRMED AUDIT FINDING.
+ *
+ * `--from-saved` read the transcript an EARLIER run had left in the OS temp dir and
+ * printed:
+ *
+ *     HARDENED : MEASURED (all six controls hold)
+ *     RESULT   : PASS — all six controls measured on this host.
+ *
+ * while the live store on the same host reported LOCAL with 0/6 controls. The product's
+ * own validator was never bypassed — it enforces signature, store/deployment, host,
+ * 15-minute freshness, toolchain digest, enrollment, observations and a live broker
+ * heartbeat — but this PROBE presented a stale file as a current verdict, which is a
+ * documentation-grade defect with the same consequence: a reader would believe HARDENED
+ * held here and now.
+ *
+ * This mode is now HISTORICAL EVIDENCE, NON-AUTHORITATIVE FOR CURRENT STATE. The
+ * recorded observations are still printed (they are why the file is kept), but every
+ * verdict is labelled HISTORICAL, the summary can never read MEASURED, and the exit
+ * code is 2 — never 0. The binding facts below show exactly how the file fails to
+ * describe the present.
+ */
+const FRESHNESS_CEILING_MS = 15 * 60 * 1000;
+let historicalBinding = null;
+if (FROM_SAVED) {
+  const recordedPass = rows.filter((r) => r.verdict === 'PASS').length;
+  const ageMs = Date.now() - Number(p.finishedAt ?? 0);
+  historicalBinding = {
+    recordedPass,
+    ageMs,
+    fresh: Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= FRESHNESS_CEILING_MS,
+    hostMatches: p.host === os.hostname(),
+    storeStillExists: typeof p.store === 'string' && fs.existsSync(p.store),
+  };
+  for (const r of rows) r.verdict = 'HISTORICAL';
+  say('');
+  say('##############################################################################');
+  say('#  HISTORICAL EVIDENCE — NON-AUTHORITATIVE FOR CURRENT STATE                  #');
+  say('#  This is a SAVED transcript from an earlier run. It is NOT a measurement     #');
+  say('#  taken now, and it does NOT establish that HARDENED holds here today.        #');
+  say('#  For the current state run, WITHOUT --from-saved:                            #');
+  say('#      node tooling/probes/v15-hardened-boundary.mjs                           #');
+  say('#  or ask the product: canary provider status                                  #');
+  say('##############################################################################');
+}
+
 report();
 
 function report() {
@@ -263,12 +325,35 @@ function report() {
   say(` PASS                  : ${passed}`);
   say(` FAIL                  : ${rows.filter((r) => r.verdict === 'FAIL').length}`);
   say(` HOST UNSUPPORTED      : ${unsupported}`);
-  say(` HARDENED              : ${passed === 6 && unsupported === 0 ? 'MEASURED (all six controls hold)' : 'NOT ESTABLISHED'}`);
+  if (FROM_SAVED) {
+    say(` AS RECORDED THEN      : ${historicalBinding.recordedPass}/${rows.length} controls held (HISTORICAL)`);
+    say(' HARDENED              : NOT ESTABLISHED FOR CURRENT STATE — a saved transcript is not a measurement taken now');
+  } else {
+    say(` HARDENED              : ${passed === 6 && unsupported === 0 ? 'MEASURED (all six controls hold)' : 'NOT ESTABLISHED'}`);
+  }
   say('==============================================================');
 }
 say('');
 say(`HOST: ${HOST}`);
 say(`REPRODUCTION COMMAND: ${REPRO}`);
+if (FROM_SAVED) {
+  const b = historicalBinding;
+  say('');
+  say('--- WHY THIS IS NOT A CURRENT VERDICT (binding facts, measured just now) ---');
+  say(`  transcript age     : ${Number.isFinite(b.ageMs) ? (b.ageMs / 60000).toFixed(1) + ' min' : 'unknown'}`
+    + `  (the product's ceiling for a CURRENT measurement is ${FRESHNESS_CEILING_MS / 60000} min)`);
+  say(`  freshness          : ${b.fresh ? 'within the ceiling' : 'EXPIRED — the product itself would refuse this record as stale'}`);
+  say(`  host recorded      : ${p.host}`);
+  say(`  host now           : ${os.hostname()}   match: ${b.hostMatches}`);
+  say(`  store recorded     : ${p.store}`);
+  say(`  store still exists : ${b.storeStillExists ? 'yes' : 'NO — the deployment this transcript describes is gone'}`);
+  say('');
+  say('  None of these facts can upgrade the transcript into a current measurement. They are');
+  say('  printed so a reader can see for themselves that it is not one.');
+  say('');
+  say('RESULT: HISTORICAL EVIDENCE ONLY — non-authoritative for current state (exit 2, never 0).');
+  process.exit(2);
+}
 say(failed === 0 && !rows.some((r) => r.verdict === 'HOST UNSUPPORTED')
   ? 'RESULT: PASS — all six controls measured on this host.'
   : `RESULT: NOT A PASS — ${failed} control(s) FAILED.`);
