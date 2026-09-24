@@ -264,10 +264,13 @@ claims.
 > published `83.21 % of Plain (-16.79 %)`; an independent audit found the aggregate pooled a cell
 > measured by the **fallback estimator** rather than the declared provider-native ledger, and this
 > closure found the same class of defect again in the follow-up run (a tree edited mid-measurement).
-> Under the corrected accounting **no valid dataset supports a saving claim**: the two runs that were
-> measurable disagreed in **sign** (-19.26 % and **+20.43 %**) against a **46.5 % drift in the plain
-> arm alone**. The standing MCP payload IS now inside the measurement and costs ~438 tokens
-> (measured, not derived), so the **accounting** is fixed — the **saving** is not supported. See
+> Under the corrected accounting there are now **two COMPLETE runs and they disagree in sign**:
+> **80.74 % (-19.26 %)** and **102.91 % (+2.91 %)** - a **22.17-point spread** against a **44.3 %
+> drift in the plain arm alone**. Pooling them gives 89.81 % (-10.19 %), which is **smaller than the
+> spread between runs of the identical configuration**; the aggregate probe prints that warning
+> itself. **No saving claim is supported, and none is made.** The standing MCP payload IS now inside
+> the measurement and costs ~438 tokens (measured, not derived), so the **accounting** is fixed -
+> the **saving** is not supported. See
 > [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
 >
 > **The qualification, which is part of the claim, not a footnote to it:**
@@ -328,10 +331,13 @@ Read it this way, because it is the only reading the numbers support:
   contract (`tooling/benchmark/eligibility.mjs`) a cell counts only if its run completed on the declared
   ledger, and a run counts only if every cell is eligible **and all cells share one instrument**;
   anything else is reported **INCOMPLETE** and contributes no ratio at all.
-  What the corrected data shows: the two runs that were measurable disagreed in **sign** —
-  **−19.26 %** and **+20.43 %** (Canary *more* expensive) — a **39.7-point spread** against a **46.5 %
-  drift in the plain arm alone** (371,094 → 543,518) on identical configuration. Exactly one run is
-  complete, so there is nothing to pool it with and no variance to quote.
+  What the corrected data shows: there are **two COMPLETE runs and they disagree in sign** —
+  **−19.26 %** (80.74 %) and **+2.91 %** (102.91 %, Canary *more* expensive) — a **22.17-point spread**
+  against a **44.3 % drift in the plain arm alone** (376,688 → 543,518) on identical configuration.
+  Pooling them gives **−10.19 %**, which is **smaller than the spread between runs of the identical
+  configuration**, and the aggregate probe prints that warning itself. The post-closure run `r4` is
+  also the only one whose tree was **frozen** while it measured, so it is the only one whose six cells
+  are unambiguously one experiment.
   **This benchmark, at n=1 per cell on Canary-authored fixtures, cannot resolve an effect of this size
   in either direction.** Method, every cell and every limit:
   [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).

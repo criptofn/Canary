@@ -65,19 +65,24 @@ failed cell would flatter the ratio; it is not counted at all).
 | `v15-everyday` | 543,518 | 438,818 | 80.74 % (−19.26 %) | COMPLETE |
 | `v15-everyday-r2` | — | — | — | **INCOMPLETE** — fallback-ledger cell |
 | `v15-everyday-r3` | 371,094 | 446,893 | 120.43 % (**+20.43 %**) | **INCOMPLETE** — five instruments |
+| `v15-everyday-r4` | 376,688 | 387,649 | **102.91 % (+2.91 %)** | COMPLETE — one instrument, six eligible cells |
 
-The two runs that produced usable ratios point in **opposite directions**, with a
-**39.7-point spread** against a **46.5 % drift in the plain arm alone** on identical
-configuration (371,094 → 543,518). Exactly **one** run is complete, so there is no
-variance estimate to quote and nothing to pool it with.
+`r4` is the first run measured **after** the closure and on a **frozen** tree: six cells, all
+ledger-eligible, one instrument digest throughout. It says the everyday path was
+**2.91 % MORE expensive than plain**.
 
-**Therefore: no token-saving claim is supported, and none is made.** Not a smaller
-saving, not a different percentage — *none*. The honest summary is that this benchmark,
-at n=1 per cell on Canary-authored fixtures, **cannot resolve an effect of this size in
-either direction**, and the two attempts that could be measured disagreed in sign. A
-replacement dataset would need several complete runs against a **frozen** tree; that has
-not been produced, and inventing a number without it is the one thing this project does
-not do.
+The two COMPLETE runs therefore point in **opposite directions** — one 19.26 % cheaper, one
+2.91 % dearer — with a **22.17-point spread** against a **44.3 % drift in the plain arm alone**
+(376,688 → 543,518) on identical configuration. Pooling them gives 89.81 % (−10.19 %), and the
+probe prints its own warning that **the pooled delta is smaller than the spread between runs of
+the identical configuration**.
+
+**Therefore no token-saving claim is supported, and none is made.** Not a smaller saving, not a
+different percentage — *none*. The honest summary is that this benchmark, at n=1 per cell on
+Canary-authored fixtures, **cannot resolve an effect of this size in either direction**, and the
+two runs that could be measured disagreed in sign. The `r4` result is also the more credible of
+the two for a mundane reason worth stating: it is the only run whose tree was frozen while it
+measured, so it is the only one whose six cells are unambiguously one experiment.
 
 What this document still establishes, because it rests on direct observation rather than
 on a pooled ratio: the standing MCP payload is genuinely **inside** the measurement
