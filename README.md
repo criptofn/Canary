@@ -254,9 +254,15 @@ claims.
 > On short, well-bounded confined tasks in our replicated experiments, measured savings ranged from
 > roughly **27 % to 87 %**.
 >
-> On the measured authored everyday workflow, Canary used **16.8 % fewer model tokens than Plain in
-> aggregate** across two v1.5 runs (**83.21 %** of Plain) at equal measured correctness, while adding
-> independent completion verification — **with the standing MCP payload now inside the measurement.**
+> On the everyday workflow, this release **WITHDRAWS its token-saving figure**. The v1.5 candidate
+> published `83.21 % of Plain (-16.79 %)`; an independent audit found the aggregate pooled a cell
+> measured by the **fallback estimator** rather than the declared provider-native ledger, and this
+> closure found the same class of defect again in the follow-up run (a tree edited mid-measurement).
+> Under the corrected accounting **no valid dataset supports a saving claim**: the two runs that were
+> measurable disagreed in **sign** (-19.26 % and **+20.43 %**) against a **46.5 % drift in the plain
+> arm alone**. The standing MCP payload IS now inside the measurement and costs ~438 tokens
+> (measured, not derived), so the **accounting** is fixed — the **saving** is not supported. See
+> [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
 >
 > **The qualification, which is part of the claim, not a footnote to it:**
 >
@@ -267,7 +273,7 @@ claims.
 >   single most favourable cell, not an average, and the long stateful task is repeatedly *more*
 >   expensive than Plain under confined transport;
 > - **Canary does not always save tokens.** The ≤75 % aggregate target was not met (the best measured
->   everyday aggregate is 83.21 %), and this release makes no such claim;
+>   everyday aggregate is **withdrawn** and no current figure is claimed), and this release makes no such claim;
 > - per task, the everyday result ranges from **43.8 % MORE expensive to 38.7 % cheaper** — it is not
 >   uniform, and on the smallest fixture Canary cost more in **both** runs. The two run aggregates were
 >   **−19.3 %** and **−13.4 %**, while the plain arm drifted **27 %** between them on identical
@@ -279,7 +285,8 @@ claims.
 >   never calls ([`tooling/probes/v13-standing-context.mjs`](tooling/probes/v13-standing-context.mjs)).
 >   Its cost is **~438 tokens per session, MEASURED provider-natively** — **not** the ~1,432 that
 >   `bytes ÷ 4` implied, which overstated it **3.3×**. v1.5 now passes `--mcp-config` in the benchmark,
->   so the 83.21 % **already includes** this payload; the historical 92.7 % did not.
+>   in the measurement (proven in-session), so the accounting is now right; the historical 92.7 % did not
+>   include it. The v1.5 saving figure is nevertheless **withdrawn** — see the corrected data above.
 
 **The arm map — which Canary *shape* costs what.** Same three fixtures, same
 model, same starting bytes, same hidden oracle. **`plain` means not using Canary at
@@ -307,15 +314,21 @@ Read it this way, because it is the only reading the numbers support:
   measured correctness with no false done. Per task that run measured **17.1 % lower to essentially
   parity (+0.02 %)**. **It is historical, and it understates Canary's cost:** that run launched the agent
   **without** the MCP server, so it excluded a standing payload of 5,726 bytes per turn.
-- **CURRENT (v1.5, TWO runs of the same three fixtures, standing payload INCLUDED): the everyday shape
-  used 83.21 % of a plain agent's tokens in aggregate — −16.79 %** — at equal measured correctness, with
-  no false done in either arm. The two runs gave **−19.26 %** and **−13.39 %**. The standing MCP payload
-  is inside those numbers, and v1.5 adds evidence it was really in the session, not merely configured
-  (`agent.mcpToolsAdvertised`: 3/3 guarded trials, 0/3 plain). Per task the range is **+43.8 % (MORE
-  expensive) to −38.7 % (cheaper)**, and on `bug-sum`, the smallest fixture, Canary cost more in **both**
-  runs. Method, every cell and every limit: [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
-  **Do not read −16.79 % as a stable effect size.** The plain arm itself drifted **27 %** between the two
-  runs on identical configuration — larger than the effect — and every cell is n=1.
+- **CURRENT (v1.5): NO TOKEN-SAVING CLAIM IS MADE. The earlier v1.5 figure was withdrawn.** The
+  candidate published `83.21 % of Plain (-16.79 %)`. An independent audit showed the aggregate pooled a
+  cell whose tokens came from the **fallback estimator** instead of the declared provider-native ledger;
+  this closure then found the same class of defect in the replacement run, whose **six cells carry five
+  different instrument digests** because the tree was edited while it measured. Under the corrected
+  contract (`tooling/benchmark/eligibility.mjs`) a cell counts only if its run completed on the declared
+  ledger, and a run counts only if every cell is eligible **and all cells share one instrument**;
+  anything else is reported **INCOMPLETE** and contributes no ratio at all.
+  What the corrected data shows: the two runs that were measurable disagreed in **sign** —
+  **−19.26 %** and **+20.43 %** (Canary *more* expensive) — a **39.7-point spread** against a **46.5 %
+  drift in the plain arm alone** (371,094 → 543,518) on identical configuration. Exactly one run is
+  complete, so there is nothing to pool it with and no variance to quote.
+  **This benchmark, at n=1 per cell on Canary-authored fixtures, cannot resolve an effect of this size
+  in either direction.** Method, every cell and every limit:
+  [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
 - **The standing payload costs ~438 tokens per session, MEASURED — not the ~1,432 that `bytes ÷ 4`
   implied.** JSON tool schemas tokenise far better than four bytes per token, so the derived figure
   overstated the payload by **3.3×**. `bytes ÷ 4` must not be quoted as tokens.
@@ -326,8 +339,9 @@ Read it this way, because it is the only reading the numbers support:
   above is measured WITHOUT the opt-in per-batch check; see the full benchmark
   below for what that flag does.)
 
-**The ≤75 % token target is not met in aggregate — but it IS met on two cells, replicated.** The everyday
-shape's best measured aggregate is **83.21 %** (v1.5, payload included; the historical 92.7 % excluded it).
+**The ≤75 % token target is not met — and since the v1.5 withdrawal there is no current everyday figure
+at all.** The historical 92.7 % excluded the standing payload, and the v1.5 replacement was withdrawn
+(see above), so the everyday path currently has **no supported aggregate number**.
 A full benchmark of the confined path with the opt-in per-batch check puts it at
 **86.8 % of plain by median, 110.5 % by mean** — about parity, not a saving — with equal correctness on every
 cell that could run at all. Per cell the picture is sharper and more favourable: on the two short bound cells

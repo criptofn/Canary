@@ -10,7 +10,12 @@
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { aggregateCells, cellEligibility, PROVIDER_NATIVE_SOURCE } from './eligibility.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { aggregateCells, cellEligibility, instrumentOf, PROVIDER_NATIVE_SOURCE } from './eligibility.mjs';
+
+const repo = fileURLToPath(new URL('../../', import.meta.url));
 
 /** A record that is eligible: the shape eleven of the twelve published cells had. */
 const good = (totalTokens = 1000, arm = 'guarded') => ({
@@ -131,5 +136,36 @@ describe('aggregateCells: a hole makes the aggregate INCOMPLETE, never a percent
     ]);
     assert.equal(agg.complete, true);
     assert.deepEqual(agg.totals, { plain: 10, guarded: 9 });
+  });
+});
+
+describe('instrumentOf + the run-level stability rule (v1.5 post-audit, second hole)', () => {
+  it('reads the instrument digest from either shape the harness writes', () => {
+    assert.equal(instrumentOf({ instrument: 'bench-abc' }), 'bench-abc');
+    assert.equal(instrumentOf({ instrument: { hash: 'deadbeef', version: 'bench-x', files: 239 } }), 'deadbeef');
+    assert.equal(instrumentOf({}), null);
+    assert.equal(instrumentOf({ instrument: { version: 'bench-x' } }), null, 'no hash means no identity');
+    assert.equal(instrumentOf(undefined), null);
+  });
+
+  it('THE AUDITED DEFECT: cells measured against different instruments are not one dataset', () => {
+    // Shape of the real v15-everyday-r3 run: six eligible cells, five instrument digests,
+    // because the tree was edited while it measured.
+    const instruments = ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64), 'd'.repeat(64), 'e'.repeat(64), 'c'.repeat(64)];
+    const cells = instruments.map((hash, i) => ({ arm: i % 2 ? 'guarded' : 'plain', record: { ...good(1000 + i), instrument: { hash } } }));
+    // Every CELL is eligible...
+    for (const c of cells) assert.equal(cellEligibility(c.record).eligible, true, 'the cells themselves are sound');
+    // ...and the digest set still proves the run is two experiments, not one.
+    const distinct = [...new Set(cells.map((c) => instrumentOf(c.record)))];
+    assert.equal(distinct.length, 5, 'the fixture must reproduce the five-instrument shape');
+    assert.notEqual(distinct.length, 1, 'a run over more than one instrument must not be treated as one dataset');
+  });
+
+  it('the aggregate probe enforces run-level instrument stability', () => {
+    const src = fs.readFileSync(path.join(repo, 'tooling/probes/v15-everyday-aggregate.mjs'), 'utf8');
+    assert.match(src, /instrumentStable/, 'the probe must compute instrument stability per run');
+    assert.match(src, /UNSTABLE INSTRUMENT/, 'and must report it');
+    assert.match(src, /instrumentStable\s*\}\s*;|instrumentStable$|&& instrumentStable|instrumentStable\s*\)/,
+      'and must fold it into the run completeness rule');
   });
 });

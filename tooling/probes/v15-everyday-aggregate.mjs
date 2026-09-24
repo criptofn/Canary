@@ -27,7 +27,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cellEligibility } from '../benchmark/eligibility.mjs';
+import { cellEligibility, instrumentOf } from '../benchmark/eligibility.mjs';
 
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 const dir = path.join(repo, 'tooling/benchmark/results');
@@ -60,7 +60,7 @@ for (const f of fs.readdirSync(dir).filter((x) => /^v15-everyday.*\.json$/.test(
   if (j.schema !== 'canary-benchmark-trial/2') continue;
   const run = f.replace(new RegExp(`-${j.task}-${j.arm}-\\d+\\.json$`), '');
   const judged = cellEligibility(j);
-  records.push({ file: f, run, task: j.task, arm: j.arm, mcp: j.agent?.mcpToolsAdvertised, ...judged });
+  records.push({ file: f, run, task: j.task, arm: j.arm, mcp: j.agent?.mcpToolsAdvertised, instrument: instrumentOf(j), ...judged });
 }
 
 check('per-trial records were found', () => {
@@ -93,7 +93,18 @@ const runs = [...new Set(records.map((r) => r.run))].sort().map((run) => {
     const mine = cells.filter((c) => c.arm === arm && c.eligible);
     totals[arm] = mine.reduce((a, c) => a + /** @type {number} */ (c.total), 0);
   }
-  return { run, cells, bad, missing, totals, complete: bad.length === 0 && missing.length === 0 };
+  /**
+   * EVERY CELL IN A RUN MUST HAVE RUN AGAINST THE SAME INSTRUMENT.
+   *
+   * v1.5 post-audit, self-inflicted: run r3 was started and the tree was then EDITED while
+   * it ran, so its cells carry five different instrument digests. Each cell is individually
+   * eligible; the RUN is still two experiments, and a ratio pooled across them compares
+   * instruments rather than arms. The harness already records this — it was simply never
+   * enforced.
+   */
+  const instruments = [...new Set(cells.map((c) => c.instrument).filter((x) => x !== null && x !== undefined))];
+  const instrumentStable = instruments.length <= 1;
+  return { run, cells, bad, missing, totals, instruments, instrumentStable, complete: bad.length === 0 && missing.length === 0 && instrumentStable };
 });
 
 console.log('');
@@ -103,6 +114,11 @@ for (const r of runs) {
   console.log(`${r.run.padEnd(17)} ${verdict} plain=${fmt(r.totals.plain).padStart(9)} guarded=${fmt(r.totals.guarded).padStart(9)}`
     + (r.complete ? `  ratio=${pct(100 * r.totals.guarded / r.totals.plain)} delta=${(100 * (r.totals.guarded - r.totals.plain) / r.totals.plain).toFixed(2)}%` : '  (no ratio: the run is not a complete dataset)'));
   for (const m of r.missing) console.log(`   MISSING CELL      ${m}`);
+  if (!r.instrumentStable) {
+    console.log(`   UNSTABLE INSTRUMENT: ${r.instruments.length} different instruments across ${r.cells.length} cells`);
+    for (const i of r.instruments) console.log(`                     - ${String(i).slice(0, 24)}…`);
+    console.log('                     the tree changed WHILE this run was measuring, so the cells are not one dataset');
+  }
   for (const b of r.bad) {
     console.log(`   INELIGIBLE CELL   ${b.task}/${b.arm} (${b.file})`);
     for (const why of b.reasons) console.log(`                     - ${why}`);
@@ -159,7 +175,8 @@ if (complete.length === 0) {
 
 check('every INCOMPLETE run is reported as incomplete and contributes nothing', () => {
   for (const r of runs.filter((x) => !x.complete)) {
-    assert(r.bad.length > 0 || r.missing.length > 0, `${r.run} is incomplete without a stated reason`);
+    assert(r.bad.length > 0 || r.missing.length > 0 || !r.instrumentStable,
+      `${r.run} is incomplete without a stated reason`);
   }
   const names = runs.filter((r) => !r.complete).map((r) => r.run);
   console.log(names.length > 0 ? `     INCOMPLETE (no ratio reported): ${names.join(', ')}` : '     every run is complete');

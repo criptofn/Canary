@@ -71,6 +71,27 @@ export function cellEligibility(record) {
 }
 
 /**
+ * The instrument digest of a trial — the harness's own record of WHICH TREE the cell ran
+ * against (`bench.mjs` hashes the tooling/fixture files and stamps every record).
+ *
+ * WHY A HEADLINE NEEDS THIS. v1.5 post-audit, self-inflicted: run `v15-everyday-r3` was
+ * started and then the tree was EDITED while it ran, so its six cells carry five different
+ * instrument digests (239, 241, 242, 243 files). Every one of those cells is individually
+ * eligible — right exit code, right ledger — and the RUN is still not one dataset, because
+ * the arms were not measured against the same instrument. A percentage pooled across
+ * different instruments is comparing two experiments, not two arms.
+ *
+ * This is the same class of defect as the fallback-ledger cell: a number that is true of
+ * its own cell and meaningless in the aggregate it was poured into.
+ */
+export function instrumentOf(record) {
+  const i = /** @type {any} */ (record ?? {})?.instrument;
+  if (typeof i === 'string') return i;
+  if (i && typeof i.hash === 'string') return i.hash;
+  return null;
+}
+
+/**
  * Aggregate a set of cells, refusing to invent a headline over a hole.
  *
  * @param {Array<{record: unknown, task?: string, arm?: string, run?: string}>} cells

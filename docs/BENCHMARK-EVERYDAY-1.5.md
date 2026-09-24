@@ -1,5 +1,16 @@
 # The everyday token measurement, v1.5 — fully accounted
 
+> ## WITHDRAWN v1.5 POST-AUDIT - DO NOT QUOTE THE FIGURES IN THIS BLOCK
+>
+> The v1.5 candidate published `83.21 % of Plain, -16.79 %`. That is **withdrawn**. An
+> independent audit found the aggregate pooled a cell whose tokens came from the
+> **fallback estimator** rather than the declared provider-native ledger; this closure
+> then found the same class of defect again in the follow-up run (a tree edited
+> mid-run, five instrument digests across six cells). Under the corrected accounting
+> **no valid dataset supports a claim of token savings at all**. See *The withdrawn
+> headline, and what replaced it* below. The block that follows is kept only as the
+> record of what was claimed and why it failed.
+
 > **Headline, with its limits attached.** Over two independent runs of the same three
 > fixtures, the everyday Canary path (`guarded`) used **83.21 %** of the tokens a plain
 > agent used — **−16.79 %** in aggregate — at **equal measured correctness** and with
@@ -15,7 +26,65 @@
 > this measures a **direction that was consistent in both runs**, not a stable effect
 > size. On one of the three fixtures Canary was **more expensive in both runs**.
 
-Reproduce the aggregate without trusting this document or the benchmark reporter:
+## The withdrawn headline, and what replaced it
+
+**Withdrawn: `83.21 % of Plain, −16.79 %`.** A headline percentage is only as good as the
+dataset under it, and this one had two holes.
+
+**Hole 1 — mixed accounting (the auditor's finding, CONFIRMED).**
+`v15-everyday-r2-stateful-replay-guarded-1.json` contributed 131,099 tokens from
+`usage.source = "streamed per-message usage (no result event)"` — the **fallback
+estimator** — while the accounting rule names `result.usage` as the one method. The same
+record has `agent.exitCode 4294967295`, `isError`, `parseFailure`, `sawResult: false` and
+the harness's own `streamedUsageUsable: false`. Eleven provider-native cells and one
+estimated cell were averaged into a single published percentage.
+
+**Hole 2 — an unstable instrument (found by this closure).** The replacement run
+(`v15-everyday-r3`) was complete and every cell eligible, but the tree was **edited while
+it ran**: its six cells carry **five different instrument digests** (239/241/242/243
+files). Those cells are individually sound and are still not one dataset — they are two
+experiments, and a ratio across them compares instruments rather than arms. `bench.mjs`
+already records the instrument; nothing enforced it. It does now.
+
+### The corrected contract
+
+`tooling/benchmark/eligibility.mjs` + `tooling/probes/v15-everyday-aggregate.mjs`. A cell
+counts toward a headline only if the run **completed** (exit 0, no timeout, no
+`isError`/`parseFailure`, a terminal `result` event) **on the declared ledger**
+(`result.usage`), with a usable total. A run counts only if **every** cell is eligible
+and **all cells share one instrument digest**. Otherwise the run is reported
+**INCOMPLETE** and contributes **no ratio and no total** — the probe prints no percentage
+at all rather than one computed over a hole. Regressed by
+`tooling/benchmark/eligibility.test.mjs` (including an adversarial case where a *cheaper*
+failed cell would flatter the ratio; it is not counted at all).
+
+### What the corrected data actually says
+
+| run | plain | guarded | ratio | verdict |
+|---|---|---|---|---|
+| `v15-everyday` | 543,518 | 438,818 | 80.74 % (−19.26 %) | COMPLETE |
+| `v15-everyday-r2` | — | — | — | **INCOMPLETE** — fallback-ledger cell |
+| `v15-everyday-r3` | 371,094 | 446,893 | 120.43 % (**+20.43 %**) | **INCOMPLETE** — five instruments |
+
+The two runs that produced usable ratios point in **opposite directions**, with a
+**39.7-point spread** against a **46.5 % drift in the plain arm alone** on identical
+configuration (371,094 → 543,518). Exactly **one** run is complete, so there is no
+variance estimate to quote and nothing to pool it with.
+
+**Therefore: no token-saving claim is supported, and none is made.** Not a smaller
+saving, not a different percentage — *none*. The honest summary is that this benchmark,
+at n=1 per cell on Canary-authored fixtures, **cannot resolve an effect of this size in
+either direction**, and the two attempts that could be measured disagreed in sign. A
+replacement dataset would need several complete runs against a **frozen** tree; that has
+not been produced, and inventing a number without it is the one thing this project does
+not do.
+
+What this document still establishes, because it rests on direct observation rather than
+on a pooled ratio: the standing MCP payload is genuinely **inside** the measurement
+(6/6 guarded trials advertised `mcp__canary`, 0/6 plain), and it costs about **438 tokens**
+measured provider-natively rather than the ~1,432 that `bytes ÷ 4` implied.
+
+## Reproduce the aggregate without trusting this document or the benchmark reporter:
 
 ```sh
 node tooling/probes/v15-everyday-aggregate.mjs
