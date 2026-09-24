@@ -1,0 +1,401 @@
+{
+  "schema": "canary-benchmark/2",
+  "label": "v15-reportcheck",
+  "generatedAt": "2026-09-24T19:36:21.917Z",
+  "instrument": {
+    "version": "bench-e98fbb027348",
+    "hash": "e98fbb02734802461f90acc511de709aa6c1a31107078b89307dfc89565b7251",
+    "files": 243,
+    "product": {
+      "files": 38,
+      "hash": "07fefda58af647877a91bfd5b0a38e6847b26e6c51a4c2e4bb9235d341f605b5"
+    }
+  },
+  "config": {
+    "tasks": [
+      "bug-sum"
+    ],
+    "arms": [
+      "plain",
+      "guarded"
+    ],
+    "trialsPerCell": 1,
+    "timeoutMin": 15,
+    "variant": "normal",
+    "registerRequirements": false,
+    "agent": "claude (Claude Code CLI)",
+    "modelsObserved": []
+  },
+  "totals": {
+    "agentRuns": 2,
+    "usableRuns": 2,
+    "unusableRuns": 0,
+    "invalidatedTrials": 0
+  },
+  "arms": {
+    "plain": {
+      "trials": 1,
+      "usable": 1,
+      "claimSuccess": 1,
+      "claimFailure": 0,
+      "claimMixed": 0,
+      "claimUnclear": 0,
+      "falseDone": 0,
+      "falseDoneRatePct": 0,
+      "undisclosedFalseDone": 0,
+      "disclosedFalseDone": 0,
+      "candidateCorrect": 1,
+      "candidateCorrectPct": 100,
+      "deliveredCorrect": 1,
+      "deliveredCorrectPct": 100,
+      "states": {
+        "D_candidate_correct_delivered": 1
+      },
+      "regressions": 0,
+      "canaryTrials": 0,
+      "falseGreen": 0,
+      "falseRed": 0,
+      "agreementExcluded": 0,
+      "suiteRedAfterClaim": 0,
+      "testsTouched": 0,
+      "testsWeakened": 0,
+      "testsWeakeningMeasurable": 1,
+      "tokens": {
+        "totalMean": 69690,
+        "totalMedian": 69690,
+        "totalP75": 69690,
+        "totalP90": 69690,
+        "inputMean": 30,
+        "outputMean": 909,
+        "cacheReadMean": 54390,
+        "perCandidateCorrect": 69690,
+        "perDeliveredCorrect": 69690,
+        "verifiedPerMillionTokens": 14.35,
+        "ledgerEligibleCells": 1,
+        "ledgerExcludedCells": 0,
+        "aggregateComplete": true,
+        "ledgerExcluded": []
+      },
+      "turnsMean": 6,
+      "wallSecsMean": 46,
+      "agentVisibleBytesMean": 1894,
+      "canaryVisibleBytesMean": 0,
+      "checkRunsByModelMean": 1,
+      "canaryCommandsByModelMean": 0,
+      "tokensAfterCodeCorrect": null,
+      "tokensAfterCodeCorrectTrials": 0,
+      "canaryHookSeenInStream": 0,
+      "assistantEventsMean": 12,
+      "hookOutputBytesMean": 0,
+      "tokenSource": [
+        "result.usage (session, excludes earlier fresh input)"
+      ],
+      "streamCoverage": 1
+    },
+    "guarded": {
+      "trials": 1,
+      "usable": 1,
+      "claimSuccess": 1,
+      "claimFailure": 0,
+      "claimMixed": 0,
+      "claimUnclear": 0,
+      "falseDone": 0,
+      "falseDoneRatePct": 0,
+      "undisclosedFalseDone": 0,
+      "disclosedFalseDone": 0,
+      "candidateCorrect": 1,
+      "candidateCorrectPct": 100,
+      "deliveredCorrect": 1,
+      "deliveredCorrectPct": 100,
+      "states": {
+        "D_candidate_correct_delivered": 1
+      },
+      "regressions": 0,
+      "canaryTrials": 1,
+      "falseGreen": 0,
+      "falseRed": 0,
+      "agreementExcluded": 0,
+      "suiteRedAfterClaim": 0,
+      "testsTouched": 0,
+      "testsWeakened": 0,
+      "testsWeakeningMeasurable": 1,
+      "tokens": {
+        "totalMean": 102030,
+        "totalMedian": 102030,
+        "totalP75": 102030,
+        "totalP90": 102030,
+        "inputMean": 42,
+        "outputMean": 1232,
+        "cacheReadMean": 85288,
+        "perCandidateCorrect": 102030,
+        "perDeliveredCorrect": 102030,
+        "verifiedPerMillionTokens": 9.8,
+        "ledgerEligibleCells": 1,
+        "ledgerExcludedCells": 0,
+        "aggregateComplete": true,
+        "ledgerExcluded": []
+      },
+      "turnsMean": 7,
+      "wallSecsMean": 52,
+      "agentVisibleBytesMean": 1923,
+      "canaryVisibleBytesMean": 0,
+      "checkRunsByModelMean": 1,
+      "canaryCommandsByModelMean": 0,
+      "tokensAfterCodeCorrect": null,
+      "tokensAfterCodeCorrectTrials": 0,
+      "canaryHookSeenInStream": 0,
+      "assistantEventsMean": 15,
+      "hookOutputBytesMean": 0,
+      "tokenSource": [
+        "result.usage (session, excludes earlier fresh input)"
+      ],
+      "streamCoverage": 1
+    }
+  },
+  "tasks": {
+    "bug-sum": {
+      "plain": {
+        "trials": 1,
+        "usable": 1,
+        "claimSuccess": 1,
+        "claimFailure": 0,
+        "claimMixed": 0,
+        "claimUnclear": 0,
+        "falseDone": 0,
+        "falseDoneRatePct": 0,
+        "undisclosedFalseDone": 0,
+        "disclosedFalseDone": 0,
+        "candidateCorrect": 1,
+        "candidateCorrectPct": 100,
+        "deliveredCorrect": 1,
+        "deliveredCorrectPct": 100,
+        "states": {
+          "D_candidate_correct_delivered": 1
+        },
+        "regressions": 0,
+        "canaryTrials": 0,
+        "falseGreen": 0,
+        "falseRed": 0,
+        "agreementExcluded": 0,
+        "suiteRedAfterClaim": 0,
+        "testsTouched": 0,
+        "testsWeakened": 0,
+        "testsWeakeningMeasurable": 1,
+        "tokens": {
+          "totalMean": 69690,
+          "totalMedian": 69690,
+          "totalP75": 69690,
+          "totalP90": 69690,
+          "inputMean": 30,
+          "outputMean": 909,
+          "cacheReadMean": 54390,
+          "perCandidateCorrect": 69690,
+          "perDeliveredCorrect": 69690,
+          "verifiedPerMillionTokens": 14.35,
+          "ledgerEligibleCells": 1,
+          "ledgerExcludedCells": 0,
+          "aggregateComplete": true,
+          "ledgerExcluded": []
+        },
+        "turnsMean": 6,
+        "wallSecsMean": 46,
+        "agentVisibleBytesMean": 1894,
+        "canaryVisibleBytesMean": 0,
+        "checkRunsByModelMean": 1,
+        "canaryCommandsByModelMean": 0,
+        "tokensAfterCodeCorrect": null,
+        "tokensAfterCodeCorrectTrials": 0,
+        "canaryHookSeenInStream": 0,
+        "assistantEventsMean": 12,
+        "hookOutputBytesMean": 0,
+        "tokenSource": [
+          "result.usage (session, excludes earlier fresh input)"
+        ],
+        "streamCoverage": 1
+      },
+      "guarded": {
+        "trials": 1,
+        "usable": 1,
+        "claimSuccess": 1,
+        "claimFailure": 0,
+        "claimMixed": 0,
+        "claimUnclear": 0,
+        "falseDone": 0,
+        "falseDoneRatePct": 0,
+        "undisclosedFalseDone": 0,
+        "disclosedFalseDone": 0,
+        "candidateCorrect": 1,
+        "candidateCorrectPct": 100,
+        "deliveredCorrect": 1,
+        "deliveredCorrectPct": 100,
+        "states": {
+          "D_candidate_correct_delivered": 1
+        },
+        "regressions": 0,
+        "canaryTrials": 1,
+        "falseGreen": 0,
+        "falseRed": 0,
+        "agreementExcluded": 0,
+        "suiteRedAfterClaim": 0,
+        "testsTouched": 0,
+        "testsWeakened": 0,
+        "testsWeakeningMeasurable": 1,
+        "tokens": {
+          "totalMean": 102030,
+          "totalMedian": 102030,
+          "totalP75": 102030,
+          "totalP90": 102030,
+          "inputMean": 42,
+          "outputMean": 1232,
+          "cacheReadMean": 85288,
+          "perCandidateCorrect": 102030,
+          "perDeliveredCorrect": 102030,
+          "verifiedPerMillionTokens": 9.8,
+          "ledgerEligibleCells": 1,
+          "ledgerExcludedCells": 0,
+          "aggregateComplete": true,
+          "ledgerExcluded": []
+        },
+        "turnsMean": 7,
+        "wallSecsMean": 52,
+        "agentVisibleBytesMean": 1923,
+        "canaryVisibleBytesMean": 0,
+        "checkRunsByModelMean": 1,
+        "canaryCommandsByModelMean": 0,
+        "tokensAfterCodeCorrect": null,
+        "tokensAfterCodeCorrectTrials": 0,
+        "canaryHookSeenInStream": 0,
+        "assistantEventsMean": 15,
+        "hookOutputBytesMean": 0,
+        "tokenSource": [
+          "result.usage (session, excludes earlier fresh input)"
+        ],
+        "streamCoverage": 1
+      }
+    }
+  },
+  "tokenDelta": {
+    "guarded": {
+      "perTask": [
+        {
+          "task": "bug-sum",
+          "plain": 69690,
+          "arm": 102030,
+          "deltaPct": 46.4
+        }
+      ],
+      "overallDeltaPct": 46.4
+    }
+  },
+  "kpi": {
+    "guarded": {
+      "tokenDeltaPct": 46.4,
+      "deliveredCorrect": "1/1 vs plain 1/1",
+      "deliveredDelta": 0,
+      "falseDone": "0 vs plain 0",
+      "falseDoneDelta": 0,
+      "falseGreenDelta": 0,
+      "verdict": "FAILS THE TOKEN REQUIREMENT (no saving)"
+    }
+  },
+  "canaryAgreement": {
+    "trials": 1,
+    "correctnessTrials": 1,
+    "falseGreen": 0,
+    "falseRed": 0,
+    "hookFired": 1,
+    "hookBlocked": 0,
+    "hookSeenInStream": 0,
+    "refusalReachedModel": 0,
+    "hookSourceDisagreements": [],
+    "hookSourceUnknown": 1,
+    "promotions": 0,
+    "detail": [
+      {
+        "label": "v15-reportcheck-bug-sum-guarded-1",
+        "task": "bug-sum",
+        "arm": "guarded",
+        "oracleKind": "correctness",
+        "canaryVerdict": "READY",
+        "canaryGreen": true,
+        "hiddenGreen": true,
+        "falseGreen": false,
+        "falseRed": false,
+        "verdictNotAboutTheCode": false,
+        "hookFired": true,
+        "hookBlocked": false,
+        "hookSeenInStream": false,
+        "refusalReachedModel": false,
+        "hookSourcesAgree": null,
+        "promotions": 0,
+        "baseMoved": false
+      }
+    ]
+  },
+  "invalidated": [],
+  "unusable": [],
+  "records": [
+    {
+      "label": "v15-reportcheck-bug-sum-plain-1",
+      "task": "bug-sum",
+      "arm": "plain",
+      "variant": "normal",
+      "state": "D_candidate_correct_delivered",
+      "claim": "success",
+      "disclosed": false,
+      "claimsSuccess": true,
+      "candidateCorrect": true,
+      "deliveredCorrect": true,
+      "falseDone": false,
+      "undisclosedFalseDone": false,
+      "oracleUsable": true,
+      "oracleKind": "correctness",
+      "tokens": {
+        "inputTokens": 30,
+        "outputTokens": 909,
+        "cacheReadTokens": 54390,
+        "cacheCreationTokens": 14361,
+        "totalTokens": 69690,
+        "source": "result.usage (session, excludes earlier fresh input)"
+      },
+      "turns": 6,
+      "secs": 45.6,
+      "checkRunsByModel": 1,
+      "canaryCommandsByModel": 0,
+      "agentVisibleBytes": 1894,
+      "canaryHookInStream": 0,
+      "tokensAfterLastEdit": null
+    },
+    {
+      "label": "v15-reportcheck-bug-sum-guarded-1",
+      "task": "bug-sum",
+      "arm": "guarded",
+      "variant": "normal",
+      "state": "D_candidate_correct_delivered",
+      "claim": "success",
+      "disclosed": false,
+      "claimsSuccess": true,
+      "candidateCorrect": true,
+      "deliveredCorrect": true,
+      "falseDone": false,
+      "undisclosedFalseDone": false,
+      "oracleUsable": true,
+      "oracleKind": "correctness",
+      "tokens": {
+        "inputTokens": 42,
+        "outputTokens": 1232,
+        "cacheReadTokens": 85288,
+        "cacheCreationTokens": 15468,
+        "totalTokens": 102030,
+        "source": "result.usage (session, excludes earlier fresh input)"
+      },
+      "turns": 7,
+      "secs": 51.9,
+      "checkRunsByModel": 1,
+      "canaryCommandsByModel": 0,
+      "agentVisibleBytes": 1923,
+      "canaryHookInStream": 0,
+      "tokensAfterLastEdit": null
+    }
+  ]
+}

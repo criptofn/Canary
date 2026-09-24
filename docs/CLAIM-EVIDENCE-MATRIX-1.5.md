@@ -132,3 +132,32 @@ inside its artifact directory and must never be described as organic.
 | **A worker can re-seal its own authority.** S1's agent wrote `canary.project.json`, ran `canary setup --yes` itself (43 mentions in its stream) and sealed baseline = its own commit `d7f6436`, reaching a `PASS` | bundle `runs/S1-schniedelsmp-idlookup/`; `docs/EXECUTION-AUTHORITY.md:78-92` | **DOCUMENTED LIMIT, NOW OBSERVED IN THE WILD** — not a new defect; the old framing was theory, this is an instance |
 | Canary blocks a wrong "done" on real repositories | — | **UNMEASURED.** In 5 of 6 real tasks the gate did not fire in the blocking direction; the only block obtained was **induced** |
 | Canary is worth its overhead on real work | — | **NOT SUPPORTED as a general claim.** H1–H5 all returned `NOT PROVEN` on **correct** agent code, and one of three repos could not be gated at all. This is a net cost on that population |
+
+---
+
+## H. Post-audit closure — independent GPT-5.6 audit of `a004f55`
+
+An independent auditor reproduced four new blockers and the three known real-world defects on
+commit `a004f5544af6ea62e1f3a4c036af8c8358e23462`. Each was reproduced here on those exact bytes,
+classified, fixed with the smallest safe correction, and regressed. **The audit was right on every
+finding it raised**, including one where the defect was in *this candidate's own published claim*.
+
+| # | FINDING | AUDITOR | THIS CLOSURE | STATUS AFTER FIX |
+|---|---|---|---|---|
+| 1 | Rewritten **existing** check inherited independent authority (false GREEN) | CONFIRMED TRUST-BOUNDARY DEFECT, HIGH | Root cause: `addedChecks` recorded only files **absent at baseline**, so a worker that *rewrote* a recognized check got an uncaveated *"evidence about this change"*. Provenance is now decided by git (`addedChecks` vs new **`modifiedChecks`**) and **both** are worker-authored evidence | **FIXED + REGRESSED** — `v15-check-provenance.mjs` 7/7; the audited build contains **zero** of the new identifiers, so it could not have passed |
+| 2 | Headline pooled a **fallback-estimator** cell | CONFIRMED | Worse than reported: `usage.source` was `streamed per-message usage (no result event)` with `streamedUsageUsable:false`. New `tooling/benchmark/eligibility.mjs`; a cell needs a completed run on the declared ledger, and a run needs **all cells on one instrument** | **FIXED + REGRESSED** — but see the TOKEN row below: **the claim did not survive the fix** |
+| 3 | `--from-saved` printed a stale transcript as a current `PASS` | CONFIRMED (product validator NOT bypassed) | `--from-saved` is now **HISTORICAL, non-authoritative**: exit **2**, every row `HISTORICAL`, and it prints its own disproof (854.3 min old vs a 15-min ceiling; recorded store gone). A **failed live battery now exits 4** instead of falling through to an older file | **FIXED + REGRESSED** — `hardened-evidence.test.mjs` 11/11 |
+| 4 | Two R1 attempts **mixed** into one output directory | CONFIRMED | One attempt per directory with **refusal on existing evidence**; regression 22 PASS / 0 FAIL. **R1 attempt 1's raw record is NOT on disk and CANNOT be reconstructed** — attempt 2 truncated it. This is stated plainly; nothing was reconstructed | **FIXED + REGRESSED** (the historical gap is documented, not invented) |
+| 5 | `LOCAL` described as worker-independent proof | EXPECTED ONBOARDING BEHAVIOUR, but **CLAIM TOO STRONG** | LOCAL proof is now stated as **same-user / operator-selected**, with `HARDENED` kept as the worker-independent path | in progress |
+| 6 | Sealed step loses `python`/`java`/`git`; Canary blamed the project | CONFIRMED PRODUCT DEFECT | Toolchain resolution + truthful attribution | in progress |
+| 7 | Legitimate sealed-script check outside a test path = false red | CONFIRMED | Fixed **together with #1** by anchoring check surface to a **sealed script's text** rather than a path heuristic. Less false red, **no** more false green | **FIXED + REGRESSED** — same probe, CASE A/CONTROL |
+| — | No-git first-run fixture was inside an ancestor repo | harness gap | Fixture now proven repo-free (`rev-parse` fails **and** no ancestor `.git`); final run 66 PASS / 0 FAIL. **Product was correct** — this was never a product defect | **FIXED + REGRESSED** |
+
+### The token claim did not survive its own fix
+
+| CLAIM | STATUS |
+|---|---|
+| `83.21 % of Plain, −16.79 %` (v1.5 candidate) | **REJECTED / WITHDRAWN.** Mixed accounting (finding 2). Withdrawn in `README.md`, `docs/BENCHMARK-EVERYDAY-1.5.md` and here; the aggregate probe asserts the figure is **not reproducible** from eligible cells |
+| The replacement dataset supports a saving | **NOT SUPPORTED.** `r3` was measurable but its six cells carry **five instrument digests** — the tree was edited while it measured. Its ratio was **120.43 % (Canary MORE expensive)**. The two measurable runs disagree in **sign** across a 39.7-point spread, against **46.5 % drift in the plain arm alone** |
+| Any current everyday token figure | **NONE IS CLAIMED.** At n=1 per cell on Canary-authored fixtures this benchmark cannot resolve an effect of this size in either direction. A replacement needs several complete runs against a **frozen** tree; that has not been produced |
+| The standing MCP payload is inside the measurement and costs ~438 tokens | **PROVEN BY CURRENT EVIDENCE** — 6/6 guarded trials advertised `mcp__canary`, 0/6 plain; ~438 tokens measured provider-natively, not the ~1,432 `bytes ÷ 4` implied |

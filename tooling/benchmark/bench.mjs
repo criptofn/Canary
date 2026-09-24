@@ -134,6 +134,8 @@ const quantile = (xs, q) => {
 const round = (x, d = 0) => (x === null || x === undefined ? null : Math.round(x * 10 ** d) / 10 ** d);
 const pct = (n, d) => (d === 0 ? null : Math.round((n / d) * 1000) / 10);
 
+import { cellEligibility } from './eligibility.mjs';
+
 function summarise(rs) {
   const judged = rs.map((r) => ({ record: r, v: judgeTrial(r, classifyText) }));
   const usable = judged.filter((j) => j.v.oracleUsable);
@@ -143,7 +145,27 @@ function summarise(rs) {
   const falseDone = usable.filter((j) => j.v.falseDone);
   const undisclosed = falseDone.filter((j) => j.v.undisclosedFalseDone);
   const tok = (j) => j.record.agentResult?.usage ?? {};
-  const all = (k) => usable.map((j) => tok(j)[k]).filter((v) => typeof v === 'number');
+  /**
+   * LEDGER ELIGIBILITY (v1.5 post-audit — CONFIRMED AUDIT FINDING).
+   *
+   * `usable` filters on the ORACLE being usable, which says nothing about whether the token
+   * ledger is COMPARABLE. MEASURED: a cell whose tokens came from the FALLBACK estimator
+   * (`usage.source = "streamed per-message usage (no result event)"`, with `sawResult:false`,
+   * `parseFailure:true` and `streamedUsageUsable:false`) was `oracleUsable` and was therefore
+   * pooled into `totalMean` beside eleven provider-native cells — the mixed-accounting defect
+   * this release forbids. `tokenSource` below REPORTED the mixture without excluding it, which
+   * is a warning, not a contract.
+   *
+   * Token aggregates are now computed ONLY from ledger-eligible cells, and the excluded ones
+   * are named with their reasons. CORRECTNESS aggregates still use `usable`: an unusable token
+   * ledger does not make the oracle's verdict wrong.
+   */
+  const ledgerEligible = usable.filter((j) => cellEligibility(j.record).eligible);
+  const ledgerExcluded = usable
+    .map((j) => ({ j, e: cellEligibility(j.record) }))
+    .filter((x) => !x.e.eligible)
+    .map((x) => ({ name: x.j.record.label ?? x.j.record.task ?? '?', arm: x.j.record.arm ?? '?', reasons: x.e.reasons }));
+  const all = (k) => ledgerEligible.map((j) => tok(j)[k]).filter((v) => typeof v === 'number');
   const totals = all('totalTokens');
   const stream = (j) => j.record.stream ?? null;
   const bytes = usable.map((j) => stream(j)?.bytes?.toolResultTotal).filter((v) => typeof v === 'number');
@@ -218,6 +240,12 @@ function summarise(rs) {
       perDeliveredCorrect: delivered.length === 0 ? null : round(totals.reduce((a, b) => a + b, 0) / delivered.length),
       verifiedPerMillionTokens: totals.reduce((a, b) => a + b, 0) === 0 ? null
         : round((delivered.length / totals.reduce((a, b) => a + b, 0)) * 1_000_000, 2),
+      // THE CONTRACT, carried into the report: a token headline is comparable only from
+      // ledger-eligible cells, and the excluded ones are named rather than dropped.
+      ledgerEligibleCells: ledgerEligible.length,
+      ledgerExcludedCells: ledgerExcluded.length,
+      aggregateComplete: ledgerExcluded.length === 0,
+      ledgerExcluded,
     },
     turnsMean: round(mean(usable.map((j) => j.record.agentResult?.numTurns).filter((v) => typeof v === 'number')), 1),
     wallSecsMean: round(mean(usable.map((j) => j.record.agent.secs).filter((v) => typeof v === 'number'))),
@@ -233,7 +261,7 @@ function summarise(rs) {
     canaryHookSeenInStream: canaryHookFromStream.filter((c) => c > 0).length,
     assistantEventsMean: round(mean(usable.map((j) => stream(j)?.assistantEvents).filter((v) => typeof v === 'number')), 1),
     hookOutputBytesMean: round(mean(usable.map((j) => stream(j)?.bytes?.hookOutput).filter((v) => typeof v === 'number'))),
-    tokenSource: [...new Set(usable.map((j) => j.record.agentResult?.usage?.source).filter(Boolean))],
+    tokenSource: [...new Set(ledgerEligible.map((j) => j.record.agentResult?.usage?.source).filter(Boolean))],
     streamCoverage: usable.filter((j) => j.record.stream !== undefined).length,
   };
 }
@@ -483,6 +511,30 @@ lines.push('measures exactly that, and `checks run BY THE MODEL` measures the wo
 lines.push('take over.');
 lines.push('');
 lines.push(`Token accounting (named per arm, because it is a measurement decision): ${report.arms[arms[0]]?.tokenSource?.join(', ') || 'n/a — these records predate the stream ledger'}.`);
+/*
+ * v1.5 post-audit — THE TOKEN HEADLINE IS ONLY COMPARABLE ACROSS LEDGER-ELIGIBLE CELLS.
+ *
+ * Reporting the mixture was not enough: this report previously printed a mean that INCLUDED
+ * a fallback-estimated cell, and a reader (an independent auditor, in fact) took the number
+ * at face value. The exclusion is now stated where the number is.
+ */
+{
+  const excludedArms = arms.filter((a) => (report.arms[a]?.tokens?.ledgerExcludedCells ?? 0) > 0);
+  if (excludedArms.length > 0) {
+    lines.push('');
+    lines.push(`> **THE TOKEN AGGREGATE IS INCOMPLETE — do not read a token ratio from this report.**`);
+    lines.push(`> ${excludedArms.map((a) => `${a}: ${report.arms[a].tokens.ledgerExcludedCells} comparable cell(s) excluded`).join('; ')}.`);
+    lines.push('> A cell is excluded when its run did not complete on the declared provider-native ledger');
+    lines.push('> (`result.usage`): a fallback estimate, no terminal result event, a parse failure, or a');
+    lines.push('> non-zero exit. Those cells are NOT counted in any token mean above, because pooling them');
+    lines.push('> would average two incomparable accounting methods.');
+    for (const a of excludedArms) {
+      for (const x of report.arms[a].tokens.ledgerExcluded) lines.push(`> - ${a} / ${x.name}: ${x.reasons.join('; ')}`);
+    }
+  } else {
+    lines.push('Every token-aggregate cell was ledger-eligible (a completed run on the declared provider-native ledger).');
+  }
+}
 lines.push('The per-message usage in the stream is PARTIAL on this CLI (measured: output_tokens 0 on every');
 lines.push('assistant event while the session total reports output), so it is recorded but never summed into');
 lines.push('a total; "tokens after the last edit" is attributed only for trials where it is trustworthy.');
