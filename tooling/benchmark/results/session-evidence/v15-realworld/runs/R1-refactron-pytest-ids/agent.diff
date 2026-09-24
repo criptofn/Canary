@@ -1,0 +1,325 @@
+diff --git a/.claude/settings.json b/.claude/settings.json
+index df0c389..80302a4 100644
+--- a/.claude/settings.json
++++ b/.claude/settings.json
+@@ -65,6 +65,17 @@
+           }
+         ]
+       }
++    ],
++    "Stop": [
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "node \"C:\\Users\\Johannes\\Desktop\\canary\\apps\\cli\\dist\\src\\main.js\" checkpoint",
++            "timeout": 1800
++          }
++        ]
++      }
+     ]
+   }
+ }
+diff --git a/src/verify/failure-ids.ts b/src/verify/failure-ids.ts
+index 89b0263..7c6e590 100644
+--- a/src/verify/failure-ids.ts
++++ b/src/verify/failure-ids.ts
+@@ -16,19 +16,41 @@ import { summarizeVitestFailures } from './summarize-vitest.js';
+ 
+ // pytest short-summary lines: `FAILED <nodeid> - <repr>` and, for collection
+ // failures, `ERROR <nodeid-or-path>`. The nodeid runs up to the ` - ` repr
+-// separator (space-hyphen-space) or end of line. A parametrized id can contain
+-// an internal ` - `, which would truncate it, but the truncation is identical
+-// across runs so the delta comparison still holds.
++// separator (space-hyphen-space) or end of line — but a parametrized nodeid
++// can contain its own ` - ` inside the trailing `[params]` bracket
++// (`test_p[a - b]`), and truncating there would collapse `test_p[a - b]` and
++// `test_p[a - c]` into one id, hiding a new regression behind a pre-existing
++// failure in the sibling param. So the separator is the first ` - ` at bracket
++// depth zero: `[params]` is kept verbatim, which keeps distinct nodeids
++// distinct while still dropping only the repr — the one part that can differ
++// between runs of the same failing test — so ids stay stable across runs.
+ const PYTEST_LINE = /^(?:FAILED|ERROR)\s+(.+)$/;
+ const PYTEST_REPR_SEP = ' - ';
+ 
++// Cut a pytest summary field at the first ` - ` separator that is not inside a
++// `[parametrization]` bracket. If none is found (e.g. an unbalanced `[` inside
++// a param value keeps the depth open), the whole field is kept: that can split
++// one test into run-specific ids, which only ever makes the delta report MORE
++// new failures — parse gaps never make the gate lenient.
++function stripPytestRepr(field: string): string {
++  let depth = 0;
++  for (let i = 0; i < field.length; i++) {
++    const ch = field[i];
++    if (ch === '[') depth++;
++    else if (ch === ']') {
++      if (depth > 0) depth--;
++    } else if (depth === 0 && ch === ' ' && field.startsWith(PYTEST_REPR_SEP, i)) {
++      return field.slice(0, i).trim();
++    }
++  }
++  return field;
++}
++
+ function addPytestIds(text: string, ids: Set<string>): void {
+   for (const raw of text.split('\n')) {
+     const m = raw.trim().match(PYTEST_LINE);
+     if (!m) continue;
+-    let nodeid = m[1]!.trim();
+-    const sep = nodeid.indexOf(PYTEST_REPR_SEP);
+-    if (sep !== -1) nodeid = nodeid.slice(0, sep).trim();
++    const nodeid = stripPytestRepr(m[1]!.trim());
+     if (nodeid) ids.add(nodeid);
+   }
+ }
+diff --git a/tests/unit/verify/failure-ids.test.ts b/tests/unit/verify/failure-ids.test.ts
+index 5286831..9c6054d 100644
+--- a/tests/unit/verify/failure-ids.test.ts
++++ b/tests/unit/verify/failure-ids.test.ts
+@@ -31,6 +31,35 @@ describe('extractFailureIds (pytest)', () => {
+   it('returns an empty set for an all-passing run', () => {
+     expect(extractFailureIds('.... 4 passed in 0.10s').size).toBe(0);
+   });
++
++  it('keeps parametrized node ids that contain " - " inside their brackets distinct', () => {
++    // Regression: truncating at the FIRST " - " collapsed both of these to
++    // "tests/test_x.py::test_p[a", so a new failure in one param hid behind a
++    // pre-existing failure in the sibling param and the delta never saw it.
++    const stdout = [
++      'FAILED tests/test_x.py::test_p[a - b] - AssertionError: first',
++      'FAILED tests/test_x.py::test_p[a - c] - AssertionError: second',
++    ].join('\n');
++    const ids = extractFailureIds(stdout);
++    expect([...ids].sort()).toEqual([
++      'tests/test_x.py::test_p[a - b]',
++      'tests/test_x.py::test_p[a - c]',
++    ]);
++  });
++
++  it('keeps a parametrized id stable across runs when only the repr differs', () => {
++    const baseline = extractFailureIds('FAILED tests/test_x.py::test_p[a - b] - assert 1 == 2');
++    const changed = extractFailureIds('FAILED tests/test_x.py::test_p[a - b] - assert 1 == 3');
++    expect([...changed]).toEqual([...baseline]);
++    expect([...baseline]).toEqual(['tests/test_x.py::test_p[a - b]']);
++  });
++
++  it('still strips a repr that itself contains brackets around a " - "', () => {
++    // Guard against a "last separator" fix: the real separator is the first
++    // " - " at bracket depth zero, whatever the repr says afterwards.
++    const ids = extractFailureIds('FAILED test_demo.py::test_x - assert [1 - 2] == [3 - 4]');
++    expect([...ids]).toEqual(['test_demo.py::test_x']);
++  });
+ });
+ 
+ describe('extractFailureIds (vitest)', () => {
+diff --git a/tests/unit/verify/gates-imports.test.ts b/tests/unit/verify/gates-imports.test.ts
+index c8838d2..3c682c3 100644
+--- a/tests/unit/verify/gates-imports.test.ts
++++ b/tests/unit/verify/gates-imports.test.ts
+@@ -2,10 +2,25 @@ import { describe, it, expect } from 'vitest';
+ import * as fs from 'node:fs/promises';
+ import * as os from 'node:os';
+ import * as path from 'node:path';
++import { execSync } from 'node:child_process';
+ import { importsGate } from '../../../src/verify/gates/imports.js';
+ import { createShadowTree } from '../../../src/verify/shadow-tree.js';
+ import type { FileChange } from '../../../src/contracts.js';
+ 
++// The python delta cases below drive the imports sidecar through a real
++// `python3`. Where no runnable interpreter exists the prerequisite is missing,
++// not the behavior — report SKIPPED via `it.skipIf` (never an early return,
++// which reports PASSED and proves nothing). On CI and dev shells the probe
++// passes and all tests run.
++const NO_PYTHON = (() => {
++  try {
++    execSync('python3 -c "pass"', { stdio: 'ignore' });
++    return false;
++  } catch {
++    return true;
++  }
++})();
++
+ describe('importsGate', () => {
+   it('passes a clean mixed tree', async () => {
+     const src = await fs.mkdtemp(path.join(os.tmpdir(), 'gi-'));
+@@ -17,7 +32,7 @@ describe('importsGate', () => {
+     expect(r.passed).toBe(true);
+   });
+ 
+-  it('fails when a python change has an unresolved import', async () => {
++  it.skipIf(NO_PYTHON)('fails when a python change has an unresolved import', async () => {
+     const src = await fs.mkdtemp(path.join(os.tmpdir(), 'gi-fail-'));
+     await fs.writeFile(path.join(src, 'a.py'), 'import os\n');
+     const change: FileChange = {
+@@ -33,7 +48,7 @@ describe('importsGate', () => {
+     expect(r.blockingReason).toMatch(/totally_not_a_real_pkg_xyz/);
+   });
+ 
+-  it('passes when a pre-existing unresolved import is untouched by the edit', async () => {
++  it.skipIf(NO_PYTHON)('passes when a pre-existing unresolved import is untouched by the edit', async () => {
+     const src = await fs.mkdtemp(path.join(os.tmpdir(), 'gi-preexist-'));
+     // The unresolved import already exists in the base file; the edit only
+     // touches an unrelated line. Delta-aware gate must not blame the change.
+@@ -50,7 +65,7 @@ describe('importsGate', () => {
+     expect(r.passed).toBe(true);
+   });
+ 
+-  it('fails on a newly introduced unresolved import and names the module + relative path', async () => {
++  it.skipIf(NO_PYTHON)('fails on a newly introduced unresolved import and names the module + relative path', async () => {
+     const src = await fs.mkdtemp(path.join(os.tmpdir(), 'gi-new-'));
+     await fs.mkdir(path.join(src, 'pkg'), { recursive: true });
+     await fs.writeFile(path.join(src, 'pkg', 'a.py'), 'import os\n');
+@@ -70,7 +85,7 @@ describe('importsGate', () => {
+     expect(r.blockingReason).not.toContain(h.path);
+   });
+ 
+-  it('fails on an unguarded unresolved import in a brand-new file', async () => {
++  it.skipIf(NO_PYTHON)('fails on an unguarded unresolved import in a brand-new file', async () => {
+     const src = await fs.mkdtemp(path.join(os.tmpdir(), 'gi-newfile-'));
+     await fs.writeFile(path.join(src, 'pyproject.toml'), '[project]\nname="x"\n');
+     const change: FileChange = {
+@@ -87,7 +102,7 @@ describe('importsGate', () => {
+     expect(r.blockingReason).toMatch(/newmod\.py/);
+   });
+ 
+-  it('passes a TYPE_CHECKING-guarded unresolved import in a changed file', async () => {
++  it.skipIf(NO_PYTHON)('passes a TYPE_CHECKING-guarded unresolved import in a changed file', async () => {
+     const src = await fs.mkdtemp(path.join(os.tmpdir(), 'gi-tc-'));
+     await fs.writeFile(path.join(src, 'a.py'), 'x = 1\n');
+     const change: FileChange = {
+diff --git a/tests/unit/verify/imports-python.test.ts b/tests/unit/verify/imports-python.test.ts
+index 7a95709..3f0128d 100644
+--- a/tests/unit/verify/imports-python.test.ts
++++ b/tests/unit/verify/imports-python.test.ts
+@@ -2,11 +2,25 @@ import { describe, it, expect } from 'vitest';
+ import * as fs from 'node:fs/promises';
+ import * as os from 'node:os';
+ import * as path from 'node:path';
++import { execSync } from 'node:child_process';
+ import {
+   checkPythonImports,
+   collectPythonUnresolved,
+ } from '../../../src/verify/checks/imports-python.js';
+ 
++// Every test below drives the imports sidecar through a real `python3`. Where no
++// runnable interpreter exists the prerequisite is missing, not the behavior —
++// report SKIPPED via `it.skipIf` (never an early return, which reports PASSED
++// and proves nothing). On CI and dev shells the probe passes and all tests run.
++const NO_PYTHON = (() => {
++  try {
++    execSync('python3 -c "pass"', { stdio: 'ignore' });
++    return false;
++  } catch {
++    return true;
++  }
++})();
++
+ async function project(files: Record<string, string>): Promise<string> {
+   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'imp-py-'));
+   for (const [rel, content] of Object.entries(files)) {
+@@ -18,25 +32,25 @@ async function project(files: Record<string, string>): Promise<string> {
+ }
+ 
+ describe('checkPythonImports', () => {
+-  it('passes when every import resolves', async () => {
++  it.skipIf(NO_PYTHON)('passes when every import resolves', async () => {
+     const root = await project({
+       'a.py': 'import utils\nutils.do()\n',
+       'utils.py': 'def do(): pass\n',
+     });
+     expect((await checkPythonImports(root, [path.join(root, 'a.py')])).passed).toBe(true);
+   });
+-  it('fails on unresolved relative import', async () => {
++  it.skipIf(NO_PYTHON)('fails on unresolved relative import', async () => {
+     const root = await project({ 'a.py': 'from missing_pkg import x\n' });
+     const r = await checkPythonImports(root, [path.join(root, 'a.py')]);
+     expect(r.passed).toBe(false);
+     expect(r.blockingReason).toMatch(/missing_pkg/);
+   });
+-  it('passes stdlib imports', async () => {
++  it.skipIf(NO_PYTHON)('passes stdlib imports', async () => {
+     const root = await project({ 'a.py': 'import os, sys, json\n' });
+     expect((await checkPythonImports(root, [path.join(root, 'a.py')])).passed).toBe(true);
+   });
+ 
+-  it('skips a TYPE_CHECKING-guarded unresolved import (attribute form)', async () => {
++  it.skipIf(NO_PYTHON)('skips a TYPE_CHECKING-guarded unresolved import (attribute form)', async () => {
+     const root = await project({
+       'a.py':
+         'import typing as t\n' +
+@@ -46,7 +60,7 @@ describe('checkPythonImports', () => {
+     expect((await checkPythonImports(root, [path.join(root, 'a.py')])).passed).toBe(true);
+   });
+ 
+-  it('skips a TYPE_CHECKING-guarded unresolved import (bare name form)', async () => {
++  it.skipIf(NO_PYTHON)('skips a TYPE_CHECKING-guarded unresolved import (bare name form)', async () => {
+     const root = await project({
+       'a.py':
+         'from typing import TYPE_CHECKING\n' +
+@@ -56,7 +70,7 @@ describe('checkPythonImports', () => {
+     expect((await checkPythonImports(root, [path.join(root, 'a.py')])).passed).toBe(true);
+   });
+ 
+-  it('still checks the else branch of a TYPE_CHECKING guard', async () => {
++  it.skipIf(NO_PYTHON)('still checks the else branch of a TYPE_CHECKING guard', async () => {
+     const root = await project({
+       'a.py':
+         'from typing import TYPE_CHECKING\n' +
+@@ -73,7 +87,7 @@ describe('checkPythonImports', () => {
+     expect([...(mods ?? [])]).not.toContain('missing_type_only_pkg');
+   });
+ 
+-  it('reports every unresolved import, not just the first', async () => {
++  it.skipIf(NO_PYTHON)('reports every unresolved import, not just the first', async () => {
+     const root = await project({
+       'a.py': 'import missing_one\nimport missing_two\nimport os\n',
+     });
+diff --git a/tests/unit/verify/syntax-python.test.ts b/tests/unit/verify/syntax-python.test.ts
+index c770728..f4c003d 100644
+--- a/tests/unit/verify/syntax-python.test.ts
++++ b/tests/unit/verify/syntax-python.test.ts
+@@ -2,8 +2,22 @@ import { describe, it, expect } from 'vitest';
+ import * as fs from 'node:fs/promises';
+ import * as path from 'node:path';
+ import * as os from 'node:os';
++import { execSync } from 'node:child_process';
+ import { checkPythonSyntax } from '../../../src/verify/checks/syntax-python.js';
+ 
++// Every test below drives the syntax sidecar through a real `python3`. Where no
++// runnable interpreter exists the prerequisite is missing, not the behavior —
++// report SKIPPED via `it.skipIf` (never an early return, which reports PASSED
++// and proves nothing). On CI and dev shells the probe passes and all tests run.
++const NO_PYTHON = (() => {
++  try {
++    execSync('python3 -c "pass"', { stdio: 'ignore' });
++    return false;
++  } catch {
++    return true;
++  }
++})();
++
+ async function tmpFile(content: string, ext = '.py'): Promise<string> {
+   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'syn-'));
+   const p = path.join(dir, 'f' + ext);
+@@ -12,18 +26,18 @@ async function tmpFile(content: string, ext = '.py'): Promise<string> {
+ }
+ 
+ describe('checkPythonSyntax', () => {
+-  it('passes valid python', async () => {
++  it.skipIf(NO_PYTHON)('passes valid python', async () => {
+     const f = await tmpFile('def x(): return 1\n');
+     const r = await checkPythonSyntax([f]);
+     expect(r.passed).toBe(true);
+   });
+-  it('fails on broken python', async () => {
++  it.skipIf(NO_PYTHON)('fails on broken python', async () => {
+     const f = await tmpFile('def x(:\n  pass\n');
+     const r = await checkPythonSyntax([f]);
+     expect(r.passed).toBe(false);
+     expect(r.blockingReason).toMatch(/SyntaxError|invalid syntax/);
+   });
+-  it('returns short-circuit on first failing file', async () => {
++  it.skipIf(NO_PYTHON)('returns short-circuit on first failing file', async () => {
+     const ok = await tmpFile('x = 1\n');
+     const bad = await tmpFile('x = (\n');
+     const r = await checkPythonSyntax([ok, bad]);

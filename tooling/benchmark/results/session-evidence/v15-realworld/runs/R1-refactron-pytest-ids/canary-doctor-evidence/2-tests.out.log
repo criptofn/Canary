@@ -1,0 +1,91 @@
+
+> refactron@0.4.5 test
+> vitest run
+
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90mC:/Users/Johannes/Desktop/canary-ws5-scratch/refactron[39m
+
+ [31m❯[39m tests/unit/verify/gates-tests.test.ts [2m([22m[2m8 tests[22m[2m | [22m[31m3 failed[39m[2m)[22m[33m 698[2mms[22m[39m
+[31m   [31m×[31m testsGate[2m > [22mpasses when shadow tree tests pass[39m[33m 310[2mms[22m[39m
+[31m     → expected false to be true // Object.is equality[39m
+   [32m✓[39m testsGate[2m > [22mfails when a change breaks behavior[32m 90[2mms[22m[39m
+   [32m✓[39m testsGate[2m > [22maborts with a clear message if baseline already fails[32m 94[2mms[22m[39m
+   [32m✓[39m testsGate[2m > [22mpreserves the baseline-fail marker even with large output (no tail truncation of prefix)[32m 0[2mms[22m[39m
+[31m   [31m×[31m testsGate[2m > [22mtreats a cross-tree flake (heals on a fresh shadow) as flaky (id surfaced)[39m[32m 36[2mms[22m[39m
+[31m     → expected false to be true // Object.is equality[39m
+   [32m✓[39m testsGate[2m > [22mdoes NOT excuse an idempotency break (cwd-marker heal) as flaky[32m 34[2mms[22m[39m
+[31m   [31m×[31m testsGate[2m > [22mfails when a new failure persists on retry (genuine regression, not flaky)[39m[32m 97[2mms[22m[39m
+[31m     → expected 'baseline tests already fail before re…' to match /tests fail after refactoring/[39m
+   [32m✓[39m testsGate[2m > [22mfalls back to a plain failure when the runner output is unparseable[32m 36[2mms[22m[39m
+ [31m❯[39m tests/unit/verify/runners-run.test.ts [2m([22m[2m4 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[33m 367[2mms[22m[39m
+[31m   [31m×[31m runRunner[2m > [22mreturns exit code 0 on success[39m[32m 215[2mms[22m[39m
+[31m     → expected 1 to be +0 // Object.is equality[39m
+[31m   [31m×[31m runRunner[2m > [22mreturns nonzero on failure[39m[32m 32[2mms[22m[39m
+[31m     → expected 1 to be 17 // Object.is equality[39m
+[31m   [31m×[31m runRunner[2m > [22mreports timeout[39m[32m 35[2mms[22m[39m
+[31m     → expected false to be true // Object.is equality[39m
+[31m   [31m×[31m runRunner[2m > [22mretries baseline on flake[39m[32m 84[2mms[22m[39m
+[31m     → expected 1 to be +0 // Object.is equality[39m
+ [31m❯[39m tests/integration/verify-engine.test.ts [2m([22m[2m4 tests[22m[2m | [22m[31m3 failed[39m[2m)[22m[33m 406[2mms[22m[39m
+[31m   [31m×[31m RefactronVerifier on python-legacy-mini[2m > [22mpasses a no-op plan[39m[32m 120[2mms[22m[39m
+[31m     → expected false to be true // Object.is equality[39m
+   [32m✓[39m RefactronVerifier on python-legacy-mini[2m > [22mrejects a plan that breaks syntax[32m 198[2mms[22m[39m
+[31m   [31m×[31m RefactronVerifier on python-legacy-mini[2m > [22mrejects a plan that breaks imports[39m[32m 43[2mms[22m[39m
+[31m     → expected false to be true // Object.is equality[39m
+[31m   [31m×[31m RefactronVerifier on python-legacy-mini[2m > [22mrejects a plan that breaks tests[39m[32m 43[2mms[22m[39m
+[31m     → expected false to be true // Object.is equality[39m
+ [32m✓[39m tests/unit/verify/gates-imports.test.ts [2m([22m[2m9 tests[22m[2m | [22m[33m5 skipped[39m[2m)[22m[32m 261[2mms[22m[39m
+ [2m[90m↓[39m[22m tests/unit/verify/imports-python.test.ts [2m([22m[2m7 tests[22m[2m | [22m[33m7 skipped[39m[2m)[22m
+ [31m❯[39m tests/unit/verify/runner-env-redaction.test.ts [2m([22m[2m7 tests[22m[2m | [22m[31m1 failed[39m[2m | [22m[33m1 skipped[39m[2m)[22m[32m 43[2mms[22m[39m
+   [32m✓[39m the verified suite does not inherit our credentials[2m > [22mstrips the token Refactron itself authenticates with[32m 1[2mms[22m[39m
+   [32m✓[39m the verified suite does not inherit our credentials[2m > [22mstrips the CI credentials most likely to be present in the gate[32m 0[2mms[22m[39m
+   [32m✓[39m the verified suite does not inherit our credentials[2m > [22mstrips by suffix, so a variable we never enumerated is still caught[32m 0[2mms[22m[39m
+   [32m✓[39m the verified suite does not inherit our credentials[2m > [22mleaves the variables a real test suite needs[32m 1[2mms[22m[39m
+   [32m✓[39m the verified suite does not inherit our credentials[2m > [22mdoes not mutate the environment it was given[32m 0[2mms[22m[39m
+[31m   [31m×[31m the redaction survives the spawn, not just the function[2m > [22ma child process cannot read REFACTRON_TOKEN, but still has PATH[39m[32m 40[2mms[22m[39m
+[31m     → expected '' to contain 'tok=[unset]'[39m
+   [2m[90m↓[39m[22m the coverage probe does not leak credentials to repo-controlled code[2m > [22ma coverage.py planted at the repo root sees no credentials
+ [31m❯[39m tests/unit/verify/verifier-on-gate-complete.test.ts [2m([22m[2m2 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[33m 327[2mms[22m[39m
+[31m   [31m×[31m RefactronVerifier callbacks[2m > [22mcalls onGateComplete once per gate (syntax, imports, tests) in order on success[39m[33m 316[2mms[22m[39m
+[31m     → expected false to be true // Object.is equality[39m
+   [32m✓[39m RefactronVerifier callbacks[2m > [22memits onGateComplete for skipped gates when an earlier gate fails[32m 9[2mms[22m[39m
+ [2m[90m↓[39m[22m tests/unit/verify/syntax-python.test.ts [2m([22m[2m3 tests[22m[2m | [22m[33m3 skipped[39m[2m)[22m
+ [32m✓[39m tests/unit/cli/help-drift.test.ts [2m([22m[2m10 tests[22m[2m)[22m[33m 1886[2mms[22m[39m
+   [33m[2m✓[22m[39m CLI help and dispatch do not drift[2m > [22mevery advertised verb dispatches without crashing [33m 1233[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/syntax-fuzz.test.ts [2m([22m[2m2 tests[22m[2m)[22m[33m 1841[2mms[22m[39m
+   [33m[2m✓[22m[39m syntax fuzz[2m > [22mrejects all hand-curated Python breakages [33m 1550[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/gates-syntax.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 49[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/diff-input.test.ts [2m([22m[2m33 tests[22m[2m)[22m[32m 78[2mms[22m[39m
+ [32m✓[39m tests/unit/cli/verify-diff-wiring.test.ts [2m([22m[2m6 tests[22m[2m | [22m[33m4 skipped[39m[2m)[22m[33m 626[2mms[22m[39m
+   [33m[2m✓[22m[39m runVerifyDiffCommand: test-scope note wiring (#120)[2m > [22mdiscloses an unparsed command instead of letting it read as clean [33m 396[2mms[22m[39m
+ [32m✓[39m tests/integration/shadow-tree-immunity.test.ts [2m([22m[2m5 tests[22m[2m | [22m[33m2 skipped[39m[2m)[22m[32m 133[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/shadow-tree.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 39[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/statement-map.test.ts [2m([22m[2m18 tests[22m[2m | [22m[33m17 skipped[39m[2m)[22m[32m 39[2mms[22m[39m
+ [32m✓[39m tests/unit/release/changelog-parity.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/test-scope.test.ts [2m([22m[2m195 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/diff-intake-containment.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/imports-typescript.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 92[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/runners-detect.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/syntax-typescript.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+ [32m✓[39m tests/integration/coverage-reporter.test.ts [2m([22m[2m30 tests[22m[2m | [22m[33m18 skipped[39m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/coverage-attribution.test.ts [2m([22m[2m43 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/verdict-fuse.test.ts [2m([22m[2m51 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m tests/unit/cli/verify-diff-command.test.ts [2m([22m[2m24 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m tests/unit/release/release-workflow.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 5[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/summarize-vitest.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m tests/unit/auth/credentials.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m tests/unit/cli/auth-gate.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/failure-ids.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m tests/unit/mcp/verify-change.test.ts [2m([22m[2m7 tests[22m[2m | [22m[33m2 skipped[39m[2m)[22m[32m 2[2mms[22m[39m
+ [32m✓[39m tests/unit/verify/mutation.test.ts [2m([22m[2m8 tests[22m[2m | [22m[33m7 skipped[39m[2m)[22m[32m 2[2mms[22m[39m
+ [2m[90m↓[39m[22m tests/integration/branch-coverage-safe.test.ts [2m([22m[2m2 tests[22m[2m | [22m[33m2 skipped[39m[2m)[22m
+ [2m[90m↓[39m[22m tests/integration/mutation-downgrade.test.ts [2m([22m[2m4 tests[22m[2m | [22m[33m4 skipped[39m[2m)[22m
+ [2m[90m↓[39m[22m tests/integration/pytest-config-narrowing.test.ts [2m([22m[2m6 tests[22m[2m | [22m[33m6 skipped[39m[2m)[22m
+ [2m[90m↓[39m[22m tests/integration/verify-diff.test.ts [2m([22m[2m27 tests[22m[2m | [22m[33m27 skipped[39m[2m)[22m
+ [2m[90m↓[39m[22m tests/unit/verify/mutate-sidecar.test.ts [2m([22m[2m6 tests[22m[2m | [22m[33m6 skipped[39m[2m)[22m
+
+[2m Test Files [22m [1m[31m5 failed[39m[22m[2m | [22m[1m[32m26 passed[39m[22m[2m | [22m[33m7 skipped[39m[90m (38)[39m
+[2m      Tests [22m [1m[31m12 failed[39m[22m[2m | [22m[1m[32m460 passed[39m[22m[2m | [22m[33m111 skipped[39m[90m (583)[39m
+[2m   Start at [22m 07:28:25
+[2m   Duration [22m 23.50s[2m (transform 467ms, setup 0ms, collect 6.90s, tests 7.02s, environment 5ms, prepare 3.36s)[22m
+

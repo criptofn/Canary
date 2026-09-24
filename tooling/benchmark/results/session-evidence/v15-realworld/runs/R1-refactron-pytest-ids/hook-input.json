@@ -1,0 +1,7 @@
+{
+  "session_id": "ws5-R1",
+  "transcript_path": "tooling\\benchmark\\results\\session-evidence\\v15-realworld\\runs\\R1-refactron-pytest-ids\\agent.stream.jsonl",
+  "cwd": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\refactron",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false
+}

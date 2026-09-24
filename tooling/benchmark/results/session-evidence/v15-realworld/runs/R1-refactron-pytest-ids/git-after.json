@@ -1,0 +1,5 @@
+{
+  "head": "1fe40d8505bbb0cac703c976401c17213abf1e9d",
+  "status": "M .claude/settings.json\n M src/verify/failure-ids.ts\n M tests/unit/verify/failure-ids.test.ts\n M tests/unit/verify/gates-imports.test.ts\n M tests/unit/verify/imports-python.test.ts\n M tests/unit/verify/syntax-python.test.ts\n?? .codex/\n?? .mcp.json",
+  "untracked": ".codex/hooks.json\n.mcp.json"
+}

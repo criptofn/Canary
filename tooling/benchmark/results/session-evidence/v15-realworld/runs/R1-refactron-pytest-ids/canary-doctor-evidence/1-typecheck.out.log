@@ -1,0 +1,4 @@
+
+> refactron@0.4.5 typecheck
+> tsc --noEmit
+

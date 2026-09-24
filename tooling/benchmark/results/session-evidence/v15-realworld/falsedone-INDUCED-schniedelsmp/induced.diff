@@ -1,0 +1,16 @@
+diff --git a/src/main/java/net/schniedelsmp/smp/util/IdLookup.java b/src/main/java/net/schniedelsmp/smp/util/IdLookup.java
+index 74aa98c..98d2b0a 100644
+--- a/src/main/java/net/schniedelsmp/smp/util/IdLookup.java
++++ b/src/main/java/net/schniedelsmp/smp/util/IdLookup.java
+@@ -20,10 +20,9 @@ public final class IdLookup {
+         if (normalized.length() < Math.max(1, minimumPrefixLength)) return null;
+ 
+         T match = null;
+-        int matchingKeys = 0;
+         for (Map.Entry<String, T> entry : values.entrySet()) {
+             if (!entry.getKey().toLowerCase(Locale.ROOT).startsWith(normalized)) continue;
+-            if (++matchingKeys > 1) return null;
++            if (match != null && match != entry.getValue()) return null;
+             match = entry.getValue();
+         }
+         return match;

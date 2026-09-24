@@ -1,0 +1,51 @@
+{
+  "label": "H5",
+  "arm": "canary",
+  "repo": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\hermes-agent",
+  "startedAt": "2026-09-24T05:02:39.934Z",
+  "wallSeconds": 776.9,
+  "agentExitCode": 0,
+  "spawnError": null,
+  "timedOut": false,
+  "streamLines": 10329,
+  "streamParseErrors": 0,
+  "sawResultEvent": true,
+  "resultSubtype": "success",
+  "resultIsError": false,
+  "model": "qwen3.8-flash",
+  "numTurns": 35,
+  "durationMsProvider": 775256,
+  "usage": {
+    "input_tokens": 186,
+    "cache_creation_input_tokens": 104807,
+    "cache_read_input_tokens": 1301448,
+    "output_tokens": 38758,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 104807
+    },
+    "inference_geo": "",
+    "iterations": [],
+    "speed": "standard"
+  },
+  "totalCostUsdProvider": 2.2756477499999996,
+  "forwardedEnvKeys": [
+    "ENABLE_TOOL_SEARCH",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL"
+  ],
+  "assistantEvents": 69
+}

@@ -1,0 +1,51 @@
+{
+  "label": "S1",
+  "arm": "canary",
+  "repo": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\schniedelsmp",
+  "startedAt": "2026-09-24T04:57:41.575Z",
+  "wallSeconds": 880.1,
+  "agentExitCode": 0,
+  "spawnError": null,
+  "timedOut": false,
+  "streamLines": 8734,
+  "streamParseErrors": 0,
+  "sawResultEvent": true,
+  "resultSubtype": "success",
+  "resultIsError": false,
+  "model": "qwen3.8-flash",
+  "numTurns": 48,
+  "durationMsProvider": 875845,
+  "usage": {
+    "input_tokens": 246,
+    "cache_creation_input_tokens": 69342,
+    "cache_read_input_tokens": 1776547,
+    "output_tokens": 35491,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 69342
+    },
+    "inference_geo": "",
+    "iterations": [],
+    "speed": "standard"
+  },
+  "totalCostUsdProvider": 2.2101660000000005,
+  "forwardedEnvKeys": [
+    "ENABLE_TOOL_SEARCH",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL"
+  ],
+  "assistantEvents": 99
+}

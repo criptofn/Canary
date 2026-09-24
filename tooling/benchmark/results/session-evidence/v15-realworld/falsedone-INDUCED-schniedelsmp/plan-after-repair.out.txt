@@ -1,0 +1,19 @@
+
+> Task :compileJava
+
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestResources NO-SOURCE
+> Task :testClasses UP-TO-DATE
+> Task :test
+
+[Incubating] Problems report is available at: file:///C:/Users/Johannes/Desktop/canary-ws5-scratch/schniedelsmp/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 3s
+4 actionable tasks: 2 executed, 2 up-to-date
+
+--- stderr ---
+Hinweis: Einige Eingabedateien verwenden oder überschreiben eine veraltete API.
+Hinweis: Wiederholen Sie die Kompilierung mit -Xlint:deprecation, um Details zu erhalten.
+

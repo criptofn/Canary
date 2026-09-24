@@ -1,0 +1,7 @@
+{
+  "session_id": "ws5-induced-falsedone",
+  "transcript_path": "tooling\\benchmark\\results\\session-evidence\\v15-realworld\\falsedone-INDUCED-schniedelsmp\\worker-transcript-pointer.txt",
+  "cwd": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\schniedelsmp",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false
+}

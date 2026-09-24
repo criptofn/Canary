@@ -1,0 +1,87 @@
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index 6441623..d1541e6 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -23,7 +23,7 @@ assert.equal(matchesMatrixNormTask("Frobenius Spektralnorm INT4 NPU"), true);
+ const math = buildMatrixNormBriefing("Frobenius Spektralnorm INT4 NPU");
+ assert.match(math.markdown, /Frobenius-Norm/);
+ assert.ok(math.scores.frobenius > math.scores.spectral);
+-assert.equal(math.simulation.length, 8);
++assert.equal(math.simulation.length, 12);
+ 
+ const preview = await previewOrganization({ root: ".", maxAgeDays: 9999 });
+ assert.ok(Array.isArray(preview.moves));
+@@ -59,4 +59,39 @@ try {
+   await fs.rm(ageRoot, { recursive: true, force: true });
+ }
+ 
++// Invoice classification contract: an invoice-style name wins over the generic
++// documents group for every document extension (.pdf .doc .docx .txt .md .xlsx .pptx),
++// and no other group's classification changes.
++const invoiceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "hermes-invoice-classify-"));
++try {
++  const names = [
++    "Rechnung_2026-03.txt", "invoice-2026.md", "Beleg.doc", "tax-report.pptx",
++    "Rechnung-2024.pdf", "invoice.docx", "receipt.xlsx",
++    "notes.txt", "README.md", "summary.docx",
++    "photo.png", "app.js", "data.csv", "archive.zip", "mystery.xyz"
++  ];
++  for (const name of names) await fs.writeFile(path.join(invoiceRoot, name), "x");
++  const page = await previewOrganization({ root: invoiceRoot });
++  const groups = Object.fromEntries(page.moves.map((move) => [move.file, move.group]));
++  assert.deepEqual(groups, {
++    "Rechnung_2026-03.txt": "invoices",
++    "invoice-2026.md": "invoices",
++    "Beleg.doc": "invoices",
++    "tax-report.pptx": "invoices",
++    "Rechnung-2024.pdf": "invoices",
++    "invoice.docx": "invoices",
++    "receipt.xlsx": "invoices",
++    "notes.txt": "documents",
++    "README.md": "documents",
++    "summary.docx": "documents",
++    "photo.png": "images",
++    "app.js": "code",
++    "data.csv": "code",
++    "archive.zip": "archives",
++    "mystery.xyz": "other"
++  });
++} finally {
++  await fs.rm(invoiceRoot, { recursive: true, force: true });
++}
++
+ console.log("Hermes smoke test passed");
+diff --git a/src/agent/matrixNormCore.js b/src/agent/matrixNormCore.js
+index 1caf599..c62c28a 100644
+--- a/src/agent/matrixNormCore.js
++++ b/src/agent/matrixNormCore.js
+@@ -135,7 +135,9 @@ function simulateNormStability() {
+     { name: "dense 16x16", rows: 16, cols: 16, mode: "dense" },
+     { name: "wide 8x32", rows: 8, cols: 32, mode: "dense" },
+     { name: "rank-1 dominant", rows: 16, cols: 16, mode: "rank1" },
+-    { name: "two close singular directions", rows: 16, cols: 16, mode: "two-close" }
++    { name: "two close singular directions", rows: 16, cols: 16, mode: "two-close" },
++    { name: "dense 32x32", rows: 32, cols: 32, mode: "dense" },
++    { name: "very wide 4x64", rows: 4, cols: 64, mode: "dense" }
+   ];
+ 
+   const rows = [];
+diff --git a/src/workflows/fileOrganizer.js b/src/workflows/fileOrganizer.js
+index 7f504bf..c410291 100644
+--- a/src/workflows/fileOrganizer.js
++++ b/src/workflows/fileOrganizer.js
+@@ -2,10 +2,12 @@ import { promises as fs } from "node:fs";
+ import path from "node:path";
+ import os from "node:os";
+ 
++const DOCUMENT_EXTS = [".pdf", ".doc", ".docx", ".txt", ".md", ".xlsx", ".pptx"];
++
+ const EXT_GROUPS = [
+   { group: "code", test: (name, ext) => [".js", ".ts", ".py", ".ipynb", ".json", ".csv", ".r", ".rs", ".go"].includes(ext) },
+-  { group: "invoices", test: (name, ext) => [".pdf", ".docx", ".xlsx"].includes(ext) && /(rechnung|invoice|receipt|beleg|tax)/i.test(name) },
+-  { group: "documents", test: (name, ext) => [".pdf", ".doc", ".docx", ".txt", ".md", ".xlsx", ".pptx"].includes(ext) },
++  { group: "invoices", test: (name, ext) => DOCUMENT_EXTS.includes(ext) && /(rechnung|invoice|receipt|beleg|tax)/i.test(name) },
++  { group: "documents", test: (name, ext) => DOCUMENT_EXTS.includes(ext) },
+   { group: "images", test: (name, ext) => [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"].includes(ext) },
+   { group: "archives", test: (name, ext) => [".zip", ".7z", ".rar", ".tar", ".gz"].includes(ext) }
+ ];

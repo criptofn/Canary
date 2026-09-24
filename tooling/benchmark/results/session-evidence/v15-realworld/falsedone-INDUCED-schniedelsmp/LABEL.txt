@@ -1,0 +1,8 @@
+INDUCED — NOT ORGANIC AGENT BEHAVIOUR.
+
+The worker commit d7f64361890da57ccdd5f194a9e275d757689f38 is real: it was produced by a real Claude Code session
+under this repository's own Stop hook (see ../H1-hermes-maxagedays/).
+The regression this probe demonstrates was introduced by the OPERATOR after that session
+ended, by restoring the pre-fix source file while keeping the worker's regression test.
+Everything else — the sealed plan, the hook input, the decision JSON, the exit codes,
+the failing assertion and the repair — is the product, unmodified.
