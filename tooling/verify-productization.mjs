@@ -316,7 +316,8 @@ const STEPS = [
   // whether the <=75% token target is reachable by removing turns. Costs no model tokens.
   ['v1.3 gate cost (how often does the gate refuse, and what would removing it save?)', process.execPath, ['tooling/probes/v13-gate-cost.mjs'], {}],
   // v1.3: the docs describe the SIMPLER product — the everyday path leads, and the candidate path is
-  // never presented without its measured cost (177.8% vs 92.7%).
+  // never presented without its measured cost (177.8% vs the everyday figure, which v1.5 re-measured
+  // at 83.21% WITH the standing MCP payload included; the historical 92.7% excluded it).
   ['v1.3 doc first path (do the docs still lead with the everyday path?)', process.execPath, ['tooling/probes/v13-doc-first-path.mjs'], {}],
   // v1.3: the property the invisible candidate/promotion lifecycle exists to provide, attacked directly —
   // a forged green checkpoint record on a repository whose checks fail must not allow a completion.

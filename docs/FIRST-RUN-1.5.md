@@ -5,12 +5,24 @@
 `apps/cli/dist/` as it stood (`canary 1.4.0`). No output in this document is reconstructed,
 paraphrased or inferred: each one was printed by the command shown above it.
 
-> **HARD CONSTRAINT OBSERVED — the artifact was NOT rebuilt.** `npm run build`, `npm test`,
-> `npm exec tsc` and `verify:productization` were not run (a benchmark is measuring the built
-> `dist/` concurrently). Consequence, stated plainly and carried through this document: the
-> five source-side improvements in §4 are **in source and NOT in the measured artifact**.
-> `tooling/probes/v15-first-run.mjs` reports each of them as `PENDING-REBUILD … NOT a pass`,
-> never as a pass. They become measurable the moment someone runs `npm run build`.
+> **HARD CONSTRAINT OBSERVED DURING THE JOURNEY — the artifact was NOT rebuilt while measuring.**
+> `npm run build`, `npm test`, `npm exec tsc` and `verify:productization` were not run during the
+> journey (a benchmark was measuring the built `dist/` concurrently). Consequence at that moment,
+> stated plainly: the source-side improvements in §4 were **in source and NOT in the measured
+> artifact**, and `tooling/probes/v15-first-run.mjs` reported each of them as
+> `PENDING-REBUILD … NOT a pass`, never as a pass.
+>
+> **RESOLVED AFTERWARDS — and re-measured, not assumed.** Once the benchmark finished, the tree was
+> rebuilt (`npm run build`, exit 0) and the journey re-run against a **freshly packed** artifact:
+> **58 PASS, 0 FAIL, 0 PENDING-REBUILD, 0 SKIP**
+> (`tooling/benchmark/results/session-evidence/v15-first-run-postbuild.txt`). The improvements are
+> therefore now measured in the shipped bytes, not merely present in source.
+>
+> That re-run also exposed a **defect in this probe**: it reused any tarball already sitting in
+> `pack/npm/` and never repacked, so it had been installing an artifact packed *before* the fixes and
+> reporting the fixes as `PENDING-REBUILD`. It was measuring stale bytes and presenting them as the
+> current surface. The probe now repacks and **refuses to measure a tarball older than the newest
+> compiled file**.
 
 ## 1. How the journey was run
 

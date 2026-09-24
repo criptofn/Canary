@@ -91,8 +91,26 @@ Stated here rather than buried, because an audit kit that hides its own gaps is 
 | CI legs for the v1.5 commit | **NOT RUN** — no push yet |
 | Windows core leg reaching terminal SUCCESS for v1.5 | **NOT RUN** |
 | Mutation / security gates on the final tree | **NOT RUN** |
-| Real-world evidence (≥3 non-Canary repos, ≥6 agent tasks, false-done example) | **IN PROGRESS** — see `docs/REAL-WORLD-EVIDENCE-1.5.md` when it lands |
+| Real-world evidence (≥3 non-Canary repos, ≥6 agent tasks, false-done example) | **RUN** — `docs/REAL-WORLD-EVIDENCE-1.5.md`, bundle at `tooling/benchmark/results/session-evidence/v15-realworld/`. Findings in section G below |
 
 **Consequence, stated plainly:** the gates that are `RUN` are green; the gates that are `NOT RUN`
 have no result, and a gate with no result is not a pass. v1.5.0 must not be released, and has not
 been.
+
+---
+
+## G. Real-world evidence — three defects the laboratory could not have found
+
+`docs/REAL-WORLD-EVIDENCE-1.5.md`. Three non-Canary repositories (TypeScript/vitest, Java/Gradle,
+Node ESM), six real agent tasks, and the originals verified untouched. **No natural false-done was
+obtained, and none was manufactured** — the induced one is labelled `INDUCED` with a `LABEL.txt`
+inside its artifact directory and must never be described as organic.
+
+| FINDING | EVIDENCE | STATUS |
+|---|---|---|
+| **A worker that writes a genuinely discriminating check in the wrong directory is refused anyway** (a **false red**). H1's worker put a check at `scripts/smoke-test.js`; measured on its own commit it exits 0 with the fix and 1 without it, yet Canary returned `NOT PROVEN` because the discrimination overlay credits only `isTestPath` files (`onboarding.ts:1790`, `:1382`), which that path matches none of | bundle `runs/H1-hermes-maxagedays/`; doc §5.1, §6.3 | **CONFIRMED PRODUCT DEFECT** — not fixed in v1.5 |
+| **The sealed step receives a restricted environment**, so Canary fails checks the project passes and blames the project. PATH is 12 entries against the shell's 29: `python`, `python3`, `java`, `sh`, `bash` and **`git`** are invisible even when on PATH, and `JAVA_HOME` is stripped. refactron's suite is **27 failed inside Canary, 0 failed outside**; `canary setup` reports *"That is your project talking, not Canary"* | `tooling/probes/v15-realworld-gate-env.mjs`; doc §4 | **CONFIRMED PRODUCT DEFECT** — not fixed in v1.5. Two of three real repositories could not be gated as found |
+| **A sealed plan cannot distinguish "green" from "green because the demanding tests no longer run."** R1's agent converted 15 environment failures into explicit `it.skipIf` skips (27→12 failed, 96→111 skipped) — correct engineering, and invisible to the plan | bundle `runs/R1-refactron-pytest-ids/` | **CONFIRMED TEST/HARNESS LIMITATION** — disclosed, not fixed |
+| **A worker can re-seal its own authority.** S1's agent wrote `canary.project.json`, ran `canary setup --yes` itself (43 mentions in its stream) and sealed baseline = its own commit `d7f6436`, reaching a `PASS` | bundle `runs/S1-schniedelsmp-idlookup/`; `docs/EXECUTION-AUTHORITY.md:78-92` | **DOCUMENTED LIMIT, NOW OBSERVED IN THE WILD** — not a new defect; the old framing was theory, this is an instance |
+| Canary blocks a wrong "done" on real repositories | — | **UNMEASURED.** In 5 of 6 real tasks the gate did not fire in the blocking direction; the only block obtained was **induced** |
+| Canary is worth its overhead on real work | — | **NOT SUPPORTED as a general claim.** H1–H5 all returned `NOT PROVEN` on **correct** agent code, and one of three repos could not be gated at all. This is a net cost on that population |

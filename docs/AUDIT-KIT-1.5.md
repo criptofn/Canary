@@ -148,6 +148,23 @@ per-task and per-run ratios and fails if any published figure does not recompute
 10. **The real-world evidence** depends on agent runs the author drove. Check for cherry-picking and
     whether "where Canary added no value" is reported honestly.
 
+**Added after the real-world workstream — the three findings most worth attacking:**
+
+11. **The sealed step's restricted environment (highest-value target).** Canary hands its sealed step
+    PATH = `node_modules/.bin` + Node dir + System32/Windows only (12 entries against the shell's
+    29): `python`, `python3`, `java`, `sh`, `bash` and **`git`** are invisible even when on PATH, and
+    `JAVA_HOME` is stripped. Measured consequence: refactron's suite is **27 failed inside Canary, 0
+    failed outside it**, while `canary setup` reports *"That is your project talking, not Canary"*.
+    **Try to falsify whether that misattribution is real, and judge how many real projects this
+    silently mis-gates.** Reproduce with `node tooling/probes/v15-realworld-gate-env.mjs`.
+12. **A false red in the discrimination overlay.** A worker that writes a genuinely discriminating
+    check at a path the overlay does not recognise as a test (`scripts/smoke-test.js`) is refused
+    `NOT PROVEN` even though its check provably fails without the change and passes with it
+    (`onboarding.ts:1790`, `:1382`). Attack whether the overlay's path heuristic is defensible.
+13. **The worker can re-seal its own authority.** In the wild, an agent ran `canary setup --yes`
+    itself and sealed its own commit as the baseline, reaching a `PASS`. It is documented
+    (`docs/EXECUTION-AUTHORITY.md:78-92`), but decide for yourself whether documenting it is enough.
+
 ## 8. What the author knows is NOT verified
 
 At the time this kit was written: the **full productization battery**, the **full unit suite**, the

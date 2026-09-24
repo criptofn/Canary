@@ -71,7 +71,7 @@ export const AGENT_INTEGRATIONS: readonly AgentIntegration[] = [
     gating: true,
     detectFiles: ['.claude'],
     detectExe: ['claude'],
-    summary: 'completion hook installed into this project — Canary runs the sealed checks when the agent says it is done, and blocks once on failure',
+    summary: 'completion hook installed into this project — Canary runs your project\'s own checks when the agent says it is done, and blocks once on failure',
   },
   {
     /**
@@ -107,10 +107,10 @@ export const AGENT_INTEGRATIONS: readonly AgentIntegration[] = [
     // Canary changes, or HOW to undo it. All three fit in one clause each; none of them is a
     // mechanism change, and the gate is untouched: the hook still runs `canary checkpoint`, which
     // can only run this repository's own sealed checks and send the agent back once.
-    gatingNeedsTrust: 'Codex runs a project hook only after a one-time review and trust (`/hooks`) — until then the hook is written but gates nothing. What you approve is one Stop hook running `canary checkpoint`: it runs this repository\'s own sealed checks and can only send the agent back to repair a failure — no permissions widen and no other Codex setting changes. `canary uninstall` removes it again',
+    gatingNeedsTrust: 'Codex runs a project hook only after a one-time review and trust (`/hooks`) — until then the hook is written but gates nothing. What you approve is one Stop hook running `canary checkpoint`: it runs this repository\'s own checks and can only send the agent back to repair a failure — no permissions widen and no other Codex setting changes. `canary uninstall` removes it again',
     detectFiles: ['.codex', 'AGENTS.md'],
     detectExe: ['codex'],
-    summary: 'completion hook installed into this project (.codex/hooks.json) — Canary runs the sealed checks when a Codex turn ends and sends the agent back to work once when they fail; Codex requires a one-time hook-trust review (`/hooks`) before it will run the hook, so an untrusted hook gates nothing',
+    summary: 'completion hook installed into this project (.codex/hooks.json) — Canary runs your project\'s own checks when a Codex turn ends and sends the agent back to work once when they fail; Codex requires a one-time hook-trust review (`/hooks`) before it will run the hook, so an untrusted hook gates nothing',
   },
   {
     // v1.3 §E — CURSOR, reported as UNMEASURED rather than as anything stronger or weaker.

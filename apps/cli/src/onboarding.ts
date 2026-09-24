@@ -2653,7 +2653,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     // v1.5 §4B: the old line said WHAT to type and nothing else. A user approving a hook that can
     // interrupt their agent is owed the three remaining answers — what exactly is being approved,
     // what Canary does and does not touch, and how to undo it — in the same breath as the ask.
-    o.say('  What you are trusting is one command: `canary checkpoint` — it runs the sealed project checks listed above, and on a failure it can only send the agent back once to repair it; it never edits your files, never widens a permission, and touches no other Codex setting.');
+    o.say('  What you are trusting is one command: `canary checkpoint` — it runs the project checks listed above, and on a failure it can only send the agent back once to repair it; it never edits your files, never widens a permission, and touches no other Codex setting.');
     o.say('  Undo it any time with `canary uninstall` (it removes exactly Canary\'s own entries and keeps your own hooks).');
   }
   if (wantsClaude && codex?.touched) o.say('both harnesses are wired here: Claude Code gates completions as soon as this setup ends; Codex gates them once you trust the hook above.');
