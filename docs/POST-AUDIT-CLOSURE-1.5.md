@@ -95,8 +95,22 @@ on a different drive from the repository. **No mechanism is claimed** — it nee
 reproduce it.
 
 **Consequence, stated plainly:** `FINDING 6` is fixed for the cases the probe measures, and is
-**NOT GREEN on the Windows runner**. `H` below records the gates, and the Windows core leg is a
-required gate, so the closure is **not complete** and the candidate stays unreleased.
+**NOT GREEN on the Windows runner**. The Windows core leg is a required gate, so the closure is
+**not complete** and the candidate stays unreleased.
+
+**The cross-drive candidate is REFUTED, by experiment.** `subst R: C:\Users\Johannes\Desktop\canary`
+puts the repository on a different drive from `TEMP` (which stays on `C:`) — the same shape as the
+runner — and the suite run through `R:` passes:
+
+```
+node --test --concurrency=1 R:\apps\cli\dist\test\v15-sealed-toolchain.test.js
+  -> tests 25, pass 25, fail 0, exit 0
+     including "setup accepts --toolchain-dir with spaces, records it, and the sealed step sees it"
+```
+
+The mapping was removed afterwards. So the failure is **not** explained by a cross-drive layout, that
+candidate is eliminated, and **the cause remains unknown**. It needs a runner-side diagnostic or a
+maintainer machine that reproduces it; no further mechanism is guessed here.
 
 ## New candidate commit
 
