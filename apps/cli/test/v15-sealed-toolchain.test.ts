@@ -222,10 +222,27 @@ describe('attribution: is Canary\'s environment the cause, or the project?', () 
   });
 
   it('PROJECT: the same text when the program DOES resolve (a project cannot print its way out of blame)', () => {
-    const a = attributeStepFailure({ ...base, childPathDirs: [path.join('C:', 'Program Files', 'Git', 'cmd')] });
-    assert.equal(a.cause, 'project');
-    assert.match(a.reason, new RegExp(PROJECT_CHECK_FAILURE));
-    assert.match(a.reason, /That is your project talking, not Canary\./);
+    /*
+     * PORTABILITY (v1.5 post-audit, MEASURED on the ubuntu CI leg). This test handed the resolution
+     * walk `C:\Program Files\Git\cmd`, which EXISTS on the Windows runner — `git.exe` really
+     * resolved, so the attribution was PROJECT — and does not exist on Linux, where resolution
+     * correctly failed and the product answered ENVIRONMENT. The test was therefore asserting
+     * against the RUNNER'S SOFTWARE INVENTORY rather than against the product.
+     *
+     * `resolvesIn` does a real `fs.statSync`, so the fix is to make the premise TRUE: the test
+     * creates a directory that genuinely contains the program it claims resolves. The assertion is
+     * unchanged and still measures the product.
+     */
+    const resolvesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-resolves-'));
+    for (const name of ['git', 'git.exe', 'git.cmd']) fs.writeFileSync(path.join(resolvesDir, name), '');
+    try {
+      const a = attributeStepFailure({ ...base, childPathDirs: [resolvesDir] });
+      assert.equal(a.cause, 'project');
+      assert.match(a.reason, new RegExp(PROJECT_CHECK_FAILURE));
+      assert.match(a.reason, /That is your project talking, not Canary\./);
+    } finally {
+      fs.rmSync(resolvesDir, { recursive: true, force: true });
+    }
   });
 
   it('ENVIRONMENT: a step that could not run at all (nothing about the project was measured)', () => {
