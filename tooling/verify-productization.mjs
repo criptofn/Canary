@@ -318,6 +318,15 @@ const STEPS = [
   //   like one run and was two. This probe refuses an occupied attempt and proves the earlier attempt's
   //   bytes are untouched.
   ['v1.5 attempt provenance (one attempt per directory; an occupied attempt is refused, never mixed)', process.execPath, ['tooling/probes/v15-attempt-provenance.mjs'], {}],
+  //   THE LAST WINDOWS CI BLOCKER, made portable. The Windows core leg failed one test because it
+  //   compared the child's PATH against the authorized directory AS THE TEST SPELLED IT, while the
+  //   product seals `fs.realpathSync.native(dir)` — the same class as the v1.4 short-name failure:
+  //   one assertion comparing two spellings of one directory. 8.3 short names are disabled on this
+  //   host, so a JUNCTION stands in for the short name and produces the identical shape: two
+  //   spellings, one directory. The probe proves the sealed child receives the directory, that a RAW
+  //   comparison would call it absent (the CI symptom, reproduced without a short name), and that a
+  //   directory which was never authorized is still refused.
+  ['v1.5 path spelling (two spellings of one directory are not "absent")', process.execPath, ['tooling/probes/v15-path-spelling.mjs'], {}],
   // v1.3: the AGENT side of the integration — `claude mcp list` proves the agent reads Canary's entry
   // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
   // SKIP is never a pass.

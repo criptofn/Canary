@@ -51,7 +51,6 @@ defect was in this candidate's own published claim.
   mid-run. A measurement spanning changing bytes is not evidence; it is re-run against a frozen tree.
 
 ## CI results (draft PR #8, run `36094994575`, sha `0b7bae9`)
-
 | leg | result |
 |---|---|
 | core ubuntu | **SUCCESS** |
@@ -111,6 +110,32 @@ node --test --concurrency=1 R:\apps\cli\dist\test\v15-sealed-toolchain.test.js
 The mapping was removed afterwards. So the failure is **not** explained by a cross-drive layout, that
 candidate is eliminated, and **the cause remains unknown**. It needs a runner-side diagnostic or a
 maintainer machine that reproduces it; no further mechanism is guessed here.
+
+### Third Windows attempt (`36111042216`, sha `447f4fb`) — a DIFFERENT failure
+
+The spelling fix worked: **the path-with-spaces test passed**. A different test then failed:
+
+```
+not ok 1 - sweepDescendants finds and kills a live parent's child process
+  error: 'sweep killed [7564] but not 2144'      duration_ms: 35980
+```
+`packages/support/dist/test/lifecycle.test.js:85` — the descendant sweep (the known load-sensitive
+one AGENTS.md flags at ~34 s; the whole suite pins `--test-concurrency=8` partly because of it).
+
+**Evidence that it is intermittent rather than deterministic:**
+- it PASSED on the v1.4 Windows leg (`testCodeFailure: 0`) and on the immediately preceding run
+  `36094994575`, which failed only the path-with-spaces test;
+- locally it passes **5/5**, and takes **894 ms** here against **35,980 ms** on the runner — a ~40×
+  difference.
+
+**My first hypothesis was wrong and is retracted here:** I guessed a one-second window, but
+`sweepWin32` computes `cut = spawnedAtMs - 60_000` (`packages/support/src/index.ts:740`), so the
+window is 61 seconds and a slow runner does not by itself explain the miss.
+
+**Classification: INTERMITTENT, HOST-LOAD-DEPENDENT, CAUSE UNDETERMINED.** It is recorded as an open
+failure, **not** waved away as a flake, and **not** answered by re-rolling until green — "run it again
+until it passes" is the false-green behaviour this project exists to prevent. The Windows core leg is
+a required gate and it is **not green**.
 
 ## New candidate commit
 
