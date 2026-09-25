@@ -327,6 +327,16 @@ const STEPS = [
   //   comparison would call it absent (the CI symptom, reproduced without a short name), and that a
   //   directory which was never authorized is still refused.
   ['v1.5 path spelling (two spellings of one directory are not "absent")', process.execPath, ['tooling/probes/v15-path-spelling.mjs'], {}],
+  //   THE SECOND-AUDITOR FINDING, as a tripwire. A reviewer found the public audit set telling two
+  //   stories at once: the matrix still carried the withdrawn `83.21 % / -16.79 %` as SUPPORTED in one
+  //   section and WITHDRAWN in another; the audit kit still asked for an attack on that number; the
+  //   closure document's last paragraph declared gates NOT RUN that had gone green; the README still
+  //   called v1.3.0 the newest published artifact. Every one was caught by a human reading carefully.
+  //   This probe checks the CONTEXT of each withdrawn figure (a marker within ±4 lines), the absence of
+  //   statements the closure made false, and the presence of the current truth in the documents'
+  //   words. It cannot check whether prose is true; it checks that the documents do not contradict
+  //   each other about what this project claims.
+  ['v1.5 evidence consistency (the public audit set tells one truth)', process.execPath, ['tooling/probes/v15-evidence-consistency.mjs'], {}],
   // v1.3: the AGENT side of the integration — `claude mcp list` proves the agent reads Canary's entry
   // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
   // SKIP is never a pass.

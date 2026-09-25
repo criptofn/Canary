@@ -11,7 +11,8 @@
 > headline, and what replaced it* below. The block that follows is kept only as the
 > record of what was claimed and why it failed.
 
-> **Headline, with its limits attached.** Over two independent runs of the same three
+> **Headline, with its limits attached — WITHDRAWN, kept only as the record of what was
+> claimed and why it failed.** Over two independent runs of the same three
 > fixtures, the everyday Canary path (`guarded`) used **83.21 %** of the tokens a plain
 > agent used — **−16.79 %** in aggregate — at **equal measured correctness** and with
 > **no false done in either arm**. The run-to-run figures were **−19.26 %** and
@@ -157,6 +158,11 @@ Canary user actually pays is what the `guarded` arm now measures.
 
 ## Per task, per run — every cell, nothing pooled away
 
+> **The two tables in this section and the next are the WITHDRAWN generation** (`v15-everyday` +
+> `v15-everyday-r2`), kept because deleting a published dataset is how a benchmark becomes an
+> advertisement. `r2` is **INCOMPLETE** under the corrected contract, so its cells and the pooled
+> 83.21 % may not be quoted as a result. The current data is the four-run table above.
+
 | run | task | plain | guarded | guarded as % of plain | delta |
 |---|---|---|---|---|---|
 | v15-everyday | bound-requirements | 123,250 | 123,446 | 100.2 % | **+0.2 %** |
@@ -166,13 +172,13 @@ Canary user actually pays is what the `guarded` arm now measures.
 | v15-everyday-r2 | bug-sum | 71,504 | 87,562 | 122.5 % | **+22.5 %** |
 | v15-everyday-r2 | stateful-replay | 161,453 | 131,099 | 81.2 % | **−18.8 %** |
 
-## Aggregate
+## Aggregate (WITHDRAWN generation — these rows are the record, not a result)
 
 | run | plain | guarded | guarded as % of plain | delta |
 |---|---|---|---|---|
 | v15-everyday | 543,518 | 438,818 | 80.74 % | **−19.26 %** |
 | v15-everyday-r2 | 394,733 | 341,873 | 86.61 % | **−13.39 %** |
-| **combined** | **938,251** | **780,691** | **83.21 %** | **−16.79 %** |
+| **combined — WITHDRAWN, do not quote** | **938,251** | **780,691** | **83.21 %** | **−16.79 %** |
 
 ## Correctness — measured, not inferred a benefit
 
@@ -206,8 +212,10 @@ Reported because the point is evidence, not advertising:
 
 ## Measurement limits
 
-- **n = 1 per cell, 2 runs.** No confidence interval is claimed. Plain drifted 27 %
-  between runs on identical configuration, which is the same order as the effect.
+- **n = 1 per cell.** Four runs exist; two are **INCOMPLETE** under the corrected contract and the
+  two COMPLETE runs disagree in sign. No confidence interval is claimed. Plain drifted **44.3 %**
+  between the two complete runs on identical configuration, which is larger than any delta pooled
+  across them.
 - **One model, one CLI version** (Claude Code 2.1.278), one host, one agent
   configuration.
 - **The fixtures are Canary-authored.** They are reused deliberately, so the change from
@@ -228,21 +236,28 @@ Reported because the point is evidence, not advertising:
 
 **Supported by the current evidence:**
 
-- over two runs of three Canary-authored fixtures, the everyday path used **83.21 %** of
-  a plain agent's tokens in aggregate (−16.79 %), at equal correctness, with no false
-  done in either arm, **including** the standing MCP payload;
-- the standing payload costs **~438 tokens** per session, measured provider-natively;
-- per-task results range from **+43.8 % (more expensive)** to **−38.7 % (cheaper)**.
+- **nothing about an everyday token-saving percentage.** There is no supported figure, in either
+  direction: the two COMPLETE runs disagree in sign (80.74 % / −19.26 % and 102.91 % / **+2.91 %**),
+  and the pooled 89.81 % (−10.19 %) is **smaller than the spread between runs of the identical
+  configuration** (22.17 points against 44.3 % plain-arm drift). It is an observation with a
+  limitation, never a headline;
+- the standing payload costs **~438 tokens** per session, measured provider-natively, and it is
+  genuinely inside the guarded sessions (**6/6** guarded advertised `mcp__canary`, **0/6** plain);
+- the **withdrawn** generation's per-task spread (**+43.8 %** more expensive to **−38.7 %** cheaper)
+  remains a description of *those* cells, not of Canary.
 
 **Withdrawn as current claims (historical only):**
 
+- **`83.21 % of Plain, −16.79 %`** — mixed accounting (a fallback-estimator cell) and a replacement
+  run whose tree changed mid-measurement. Withdrawn in `README.md`, `docs/CLAIM-EVIDENCE-MATRIX-1.5.md`
+  and here; the aggregate probe asserts the figure is **not reproducible** from eligible cells;
 - the historical **92.7 % / −7.3 %** figure — it excluded the standing payload and must
   not be quoted as Canary's current footprint;
 - **`5,726 bytes ≈ 1,432 tokens`** — a derived figure that overstated the measured
   payload by 3.3×.
 
 **Still not claimed** (and no evidence here supports them): universal or guaranteed
-savings; **≥ 25 %** savings; **≤ 75 %** of plain — the measured 83.21 % **does not meet**
-that target; **"up to 87 %" as typical** (it was the best pairing in one 3×3 replication
-and is not typical or universal); **"always cheaper"**; and any correctness or
+savings; **≥ 25 %** savings; **≤ 75 %** of plain; **"up to 87 %" as typical** (it was the best pairing
+in one 3×3 replication and is not typical or universal); **"always cheaper"**; and any correctness or
 false-done advantage, since none was observed.
+

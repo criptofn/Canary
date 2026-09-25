@@ -30,6 +30,10 @@ this kit only tells you how to attack it.
   `HOST UNSUPPORTED`);
 - no claim that Canary is **always** cheaper — on one of three fixtures it was more expensive in
   both runs;
+- **no everyday token-saving percentage at all.** The v1.5 candidate's `83.21 % of Plain / −16.79 %`
+  is **withdrawn** (mixed accounting), and the corrected data has **two COMPLETE runs that disagree
+  in sign**. The only surviving token number is the standing MCP payload's **~438 tokens**, which is
+  a measurement of a cost, not of a saving;
 - no claim of **administrator resistance**, exhaustive network coverage, a separate installed
   service account, key rotation, power-loss durability, or Linux runtime verification;
 - **no claim that an external audit has happened.** This document is a *request*.
@@ -92,14 +96,19 @@ PowerShell and a C# compiler. **No elevation.** Measured working on Windows 10.0
 `HOST UNSUPPORTED` — that is a host verdict, not a pass.
 
 **Expected outputs.** Probe #1 prints one row per control with `CONTROL / EXPECTED / ACTUAL /
-VERDICT / HOST / REPRO`, then `PASS 6 · FAIL 0 · HOST UNSUPPORTED 0`, and exits 0. Probe #3 prints
-per-task and per-run ratios and fails if any published figure does not recompute.
+VERDICT / HOST / REPRO`, then `PASS 6 · FAIL 0 · HOST UNSUPPORTED 0`, and exits 0. Probe #3 reports
+each run as **COMPLETE** or **INCOMPLETE** and prints **no ratio for an incomplete run**; it fails if
+the withdrawn headline turns out to be reproducible from eligible cells, and it prints its own
+warning when a pooled delta is smaller than the run-to-run spread.
 
 ## 5. Where the evidence lives
 
 | Subject | Artefact |
 |---|---|
 | Claim/evidence matrix, all statuses | [`CLAIM-EVIDENCE-MATRIX-1.5.md`](CLAIM-EVIDENCE-MATRIX-1.5.md) |
+| Post-audit closure: seven findings, fixes, regressions, the open sweep result | [`POST-AUDIT-CLOSURE-1.5.md`](POST-AUDIT-CLOSURE-1.5.md) |
+| Cell/run eligibility rule for any token ratio | `tooling/benchmark/eligibility.mjs` + `eligibility.test.mjs` |
+| Windows sweep failure diagnostic (observability only) | `packages/support/test/lifecycle.test.ts` |
 | HARDENED boundary: mechanism, controls, activation, measurement | [`HARDENED-1.5.md`](HARDENED-1.5.md) |
 | HARDENED raw run output | `tooling/benchmark/results/session-evidence/v15-hardened-boundary-fresh.txt` |
 | Everyday benchmark: method, every cell, limits, claim reset | [`BENCHMARK-EVERYDAY-1.5.md`](BENCHMARK-EVERYDAY-1.5.md) |
@@ -134,11 +143,46 @@ per-task and per-run ratios and fails if any published figure does not recompute
 
 ## 7. Where to attack this — the author's own list of weakest points
 
-1. **The token effect size.** Two runs, **n=1 per cell**, and the plain arm drifted **27 %** between
-   runs on identical configuration — larger than the −16.79 % effect. Try to show the aggregate
-   result is noise. If you can, the claim narrows to "direction only", and the docs should say that.
-2. **`bug-sum` is more expensive with Canary in both runs** (+43.8 %, +22.5 %). Check whether the
-   aggregate is carried entirely by `stateful-replay`; the docs say it is. If it is, say so louder.
+### 7.0 START HERE — the Windows descendant sweep (OPEN, UNEXPLAINED, containment-relevant)
+
+This is the only known **open** defect-shaped result in the release, it is **not** fixed, and it is
+the highest-value thing to attack:
+
+- On one hosted Windows run, `sweepDescendants finds and kills a live parent's child process`
+  failed: **`sweep killed [7564] but not 2144`**, `duration_ms 35980` (the same test takes **894 ms**
+  on the author's machine).
+- It did **not** reproduce locally in **14** attempts (idle; 48 CPU burners on 24 cores; burners with
+  the test pinned to 2 cores) — 0 failures, 1.6–2.9 s at worst.
+- The next CI run was **green** — and that is **not** evidence it is fixed: **no product change was
+  made between the failing run and the green one.** The only delta was a **diagnostic in a test
+  failure message**, which cannot alter product behaviour.
+- **Therefore: green ≠ fixed.** A missed descendant is a **containment** concern: `sweepWin32`
+  enumerates one CIM snapshot and can omit a child only if (a) the child is absent from that
+  snapshot, (b) its `ParentProcessId` is not the parent being queued, (c) its `CreationDate` is null
+  or before the 61-second cut, or (d) the kill itself failed. The diagnostic has been improved to
+  separate those shapes on the **next** failure — it has not yet observed one.
+- What to attack: reproduce it on a loaded Windows host, or show the improved diagnostic still cannot
+  distinguish the four shapes. On failure the message now prints the sweep input and expected child,
+  the `cutUsedBySweep` recomputed from `spawnedAtMs`, the liveness of both processes, a **fresh
+  `Get-CimInstance` observation** of both PIDs (`ProcessId`, `ParentProcessId`, `CreationDate`,
+  presence) and the shape those observations are consistent with. **That output path was measured,
+  not assumed** — see `docs/POST-AUDIT-CLOSURE-1.5.md` ("Second-auditor pass"), where a one-off
+  mutation of the emitted file reproduced the runner's failure shape and produced the diagnostic
+  text, after which the artifact was rebuilt byte-identically. Reproduce the ordinary path with
+  `node --test packages/support/dist/test/lifecycle.test.js` under load, repeatedly.
+
+1. **The token effect — can ANY effect be resolved from the current data?** The project currently
+   claims **NONE**. The published `83.21 % / −16.79 %` is **withdrawn**; `r2` and `r3` are
+   **INCOMPLETE**; the two COMPLETE runs disagree in **sign** (80.74 % / −19.26 % and 102.91 % /
+   +2.91 %) across a 22.17-point spread against a **44.3 % plain-arm drift**. Do **not** spend your
+   time deciding whether −16.79 % is noise — that number is already withdrawn. Try instead to show
+   that some **other** number is supportable from these records, or that none is. Reproduce with
+   `node tooling/probes/v15-everyday-aggregate.mjs`, and check the refusal itself: feed
+   `tooling/benchmark/results/v15-everyday*.json` through `tooling/benchmark/eligibility.mjs` and try
+   to get an INCOMPLETE run to print a ratio.
+2. **`bug-sum` was more expensive with Canary in both historical runs** (+43.8 %, +22.5 %). These are
+   **withdrawn-generation** cells, kept as observations: check whether the (withdrawn) aggregate was
+   carried entirely by `stateful-replay`, and whether any surviving claim leans on that dataset.
 3. **The benchmark fixtures are Canary-authored.** They are reused for comparability, not because
    they are neutral. Challenge whether they are representative.
 4. **`configMismatch` on the stored cells** — the historical everyday cells ran with fixture
@@ -153,6 +197,8 @@ per-task and per-run ratios and fails if any published figure does not recompute
 7. **Token attribution.** The CLI cannot itemise system context or the per-turn re-sent payload;
    those are inside the session total but unattributed. Attack whether any headline depends on an
    estimate (`bytes ÷ 4` is used **only** as a labelled cross-check, and is shown to be 3.3× wrong).
+   The one surviving token observation — the **~438-token** standing payload, 6/6 guarded vs 0/6
+   plain — is the thing to attack if you want to move a number in the docs.
 8. **The first-run journey is on a synthetic scratch repository**, not a real one.
 9. **Cursor is resolved by documentation, not by a run** — Cursor is absent from the author's
    machine. Verify the missing-primitive argument, and check the author did not merely assert it.
@@ -161,24 +207,61 @@ per-task and per-run ratios and fails if any published figure does not recompute
 
 **Added after the real-world workstream — the three findings most worth attacking:**
 
-11. **The sealed step's restricted environment (highest-value target).** Canary hands its sealed step
-    PATH = `node_modules/.bin` + Node dir + System32/Windows only (12 entries against the shell's
-    29): `python`, `python3`, `java`, `sh`, `bash` and **`git`** are invisible even when on PATH, and
-    `JAVA_HOME` is stripped. Measured consequence: refactron's suite is **27 failed inside Canary, 0
-    failed outside it**, while `canary setup` reports *"That is your project talking, not Canary"*.
-    **Try to falsify whether that misattribution is real, and judge how many real projects this
-    silently mis-gates.** Reproduce with `node tooling/probes/v15-realworld-gate-env.mjs`.
-12. **A false red in the discrimination overlay.** A worker that writes a genuinely discriminating
-    check at a path the overlay does not recognise as a test (`scripts/smoke-test.js`) is refused
-    `NOT PROVEN` even though its check provably fails without the change and passes with it
-    (`onboarding.ts:1790`, `:1382`). Attack whether the overlay's path heuristic is defensible.
+11. **The sealed step's restricted environment — CONFIRMED, now FIXED (audit finding 6); attack the
+    remaining gap, not the fixed defect.** The original measurement stands: PATH was
+    `node_modules/.bin` + Node dir + System32/Windows only (12 entries against the shell's 29), so
+    `python`, `python3`, `java`, `sh`, `bash` and **`git`** were invisible even when on PATH, and
+    `JAVA_HOME` was stripped — refactron's suite was **27 failed inside Canary, 0 failed outside**,
+    reported as *"That is your project talking, not Canary"*. **What v1.5 changed:** an OPERATOR may
+    authorize a toolchain directory (`canary setup --toolchain-dir`), which is appended *after* the
+    trusted dirs (a planted `git.cmd` earlier on PATH is still never executed), and an unresolvable
+    required program is now attributed to the environment. **Still open to attack:** the
+    authorization is an operator act, not automatic; there is **no `JAVA_HOME` handling**; `HOME` is
+    still redirected; the "not found" signature set covers en/de-DE text plus exit codes 9009/127
+    only. Find a locale or loader shape that is still mis-attributed to the project. Reproduce with
+    `node tooling/probes/v15-realworld-gate-env.mjs` (the measurement) and
+    `node tooling/probes/v15-sealed-toolchain.mjs` (the fix and its stated limits).
+12. **A false red in the discrimination overlay — CONFIRMED, now FIXED (audit finding 7); attack the
+    fix.** The observation stands: a worker that wrote a genuinely discriminating check at
+    `scripts/smoke-test.js` was refused `NOT PROVEN` although its check provably failed without the
+    change and passed with it (`onboarding.ts:1790`, `:1382`). The discrimination surface is now
+    anchored to a **sealed plan script's text** (digest-verified) instead of the path heuristic.
+    **Still open to attack:** does that anchoring credit anything it should not — can a worker obtain
+    **uncaveated** authority for evidence it authored itself? Reproduce with
+    `node tooling/probes/v15-check-provenance.mjs` (CASE A/CONTROL and CASE B).
 13. **The worker can re-seal its own authority.** In the wild, an agent ran `canary setup --yes`
     itself and sealed its own commit as the baseline, reaching a `PASS`. It is documented
     (`docs/EXECUTION-AUTHORITY.md:78-92`), but decide for yourself whether documenting it is enough.
 
-## 8. What the author knows is NOT verified
+## 8. Current state of this candidate, in four categories
 
-At the time this kit was written: the **full productization battery**, the **full unit suite**, the
-**mutation/security gates**, the **CI legs** and the **Windows core leg** had **not** been run on the
-final v1.5 tree, and v1.5.0 had **not** been tagged or released. A gate with no result is not a pass.
-The matrix records each of these as `NOT RUN`.
+**CLOSED — the seven audited findings** (independent audit of `a004f55`; reproduced, fixed and
+regressed here). Each row of the closure table carries its own regression command and its own
+remaining limitation: [`POST-AUDIT-CLOSURE-1.5.md`](POST-AUDIT-CLOSURE-1.5.md),
+[`CLAIM-EVIDENCE-MATRIX-1.5.md`](CLAIM-EVIDENCE-MATRIX-1.5.md) §H. Two of them are
+**claim** corrections rather than boundary changes (finding 5), and one is a **harness** gap, not a
+product defect (the no-git fixture). "Closed" means *closed for the measured and reproduced cases* —
+each row states where its fix stops.
+
+**OPEN — one unexplained result, and it is containment-shaped:** the intermittent Windows
+descendant-sweep failure in §7.0. It did not recur; **no product change was made between the failing
+run and the green one**, so the green leg is not evidence of a fix. The failure diagnostic was
+improved so the next occurrence distinguishes the four exclusion shapes — that improves
+**observability only**, and it is **not** claimed to fix anything.
+
+**UNSUPPORTED / UNMEASURED claims** — no everyday token-saving percentage (withdrawn, no
+replacement); no correctness advantage (neither arm was more correct); no general real-world
+overhead justification (H1–H5 returned `NOT PROVEN` on correct agent code); Cursor unmeasured
+(absent from the author's host); HARDENED measured on one host only; Linux runtime verification not
+performed.
+
+**Release state:** **NOT TAGGED, NOT RELEASED, NOT MERGED.** `main` is `4271e6e` (`v1.4.0`, the
+latest published artifact). The audited code commit is `e51b6fc` — **all six CI legs green there**,
+including the Windows core leg as a **terminal** success (1,211 tests, 1,206 pass, 0 fail, 5 skipped,
+170.9 min of a 300-min cap). Every later commit on this branch is **documentation only** and is not
+covered by that run.
+
+**What has run, so you do not have to wonder:** full unit suite (1,284 pass / 0 fail / 4 skipped),
+productization battery (104 PASS / 0 FAIL / 3 SKIP), mutation/security gates, HARDENED live 6/6,
+first-run 66/0/0, the five v1.5 probes, and CI. A gate with no result is not a pass — which is why
+the sweep result above is written as OPEN rather than as green.

@@ -1,8 +1,9 @@
 # Canary v1.5 — post-audit closure report
 
 **Audited candidate:** `a004f5544af6ea62e1f3a4c036af8c8358e23462` (branch `codex/v15-evidence-release`).
-**Auditor:** independent (GPT-5.6). **Closure branch head:** see *New candidate commit* at the end.
-**Status: NOT RELEASED.** No tag, no merge, no push of the candidate, no v1.6 work.
+**Auditor:** independent (GPT-5.6). **Closure branch head:** reported in the closing message; the
+CI-verified code commit is `e51b6fc` and every later commit on the branch is documentation only.
+**Status: NOT RELEASED.** No tag, no merge, no v1.6 work. Handed back for a second audit.
 
 An independent audit reproduced **four new blockers** and the **three known real-world defects**.
 Every finding was reproduced on those exact bytes, classified, corrected with the smallest safe
@@ -15,8 +16,8 @@ defect was in this candidate's own published claim.
 | 2 | Headline pooled a **fallback-estimator** cell | CONFIRMED | `usage.source` was `streamed per-message usage (no result event)`, `streamedUsageUsable:false`, pooled with 11 provider-native cells. `bench.mjs` filtered on `oracleUsable`, which says nothing about ledger comparability | `tooling/benchmark/eligibility.mjs`; enforced in the probe **and** the reporter; a run also needs one instrument digest | `eligibility.test.mjs` | **PASS** — claim WITHDRAWN |
 | 3 | `--from-saved` printed a stale transcript as a current `PASS` | CONFIRMED (product validator NOT bypassed) | the PROBE read the OS-temp transcript regardless of age, host, store or a failed live battery | `--from-saved` is HISTORICAL, exit **2**, prints its own disproof; a failed live battery exits **4** | `hardened-evidence.test.mjs` | **PASS** |
 | 4 | Two R1 attempts **mixed** in one output directory | CONFIRMED | the run-task probe reused one directory per task across attempts | one attempt per directory, **refusal on existing evidence**; index corrected | `tooling/probes/v15-attempt-provenance.mjs` | **PASS** (historical gap documented, not invented) |
-| 5 | `LOCAL` implied worker-independent proof | **CLAIM TOO STRONG** (behaviour expected at LOCAL) | wording | LOCAL stated as same-user / operator-selected; HARDENED kept as the worker-independent path | `apps/cli/test/local-authority-same-user.test.ts` | see §5 |
-| 6 | Sealed step loses `python`/`java`/`git`; Canary blamed the project | CONFIRMED PRODUCT DEFECT | the sealed environment builds its own PATH and ignores the calling PATH **by design** (anti-shadowing); a project whose check spawns an unresolvable tool then failed and was attributed to the project | see §6 | `tooling/probes/v15-sealed-toolchain.mjs`, `v15-sealed-toolchain.test.ts` | see §6 |
+| 5 | `LOCAL` implied worker-independent proof | **CLAIM TOO STRONG** (behaviour expected at LOCAL) | wording | LOCAL stated as same-user / operator-selected; HARDENED kept as the worker-independent path | `apps/cli/test/local-authority-same-user.test.ts` | **PASS — 5/5.** A claim correction, **not** a boundary: at LOCAL the same user can still replace the store, the key and the ledger together |
+| 6 | Sealed step loses `python`/`java`/`git`; Canary blamed the project | CONFIRMED PRODUCT DEFECT | the sealed environment builds its own PATH and ignores the calling PATH **by design** (anti-shadowing); a project whose check spawns an unresolvable tool then failed and was attributed to the project | an operator-authorized directory is **appended after** the trusted Node/OS dirs (never in front) and refused inside the repository; `SEALED ENV CANNOT RESOLVE` when Canary's restriction is the cause, `PROJECT CHECK FAILURE` only when the project genuinely failed | `tooling/probes/v15-sealed-toolchain.mjs`, `apps/cli/test/v15-sealed-toolchain.test.ts` | **PASS for the tested cases — 25/25**, and the probe measures that the suggested remediation makes the same check pass inside Canary. **Limits:** authorization is an OPERATOR act; no `JAVA_HOME` handling; `HOME` still redirected; not-found signatures cover en/de-DE text plus exit 9009/127 only; the real repositories were **not** re-run with an authorized directory |
 | 7 | Legitimate sealed-script check outside a test path = false red | CONFIRMED | the same `isTestPath` predicate that caused #1, failing in the opposite direction | check surface anchored to a **sealed plan script's text** (digest-verified) instead of a path heuristic | same probe, CASE A + CONTROL | **PASS** |
 | — | No-git first-run fixture was inside an ancestor repo | harness gap, **not** a product defect | `git -C %TEMP% rev-parse --show-toplevel` → `C:/Users/Johannes`, so the fixture was never repo-free | fixture now proven repo-free (`rev-parse` fails **and** no ancestor `.git`) | `tooling/probes/v15-first-run.mjs` | **PASS** 66/0/0 |
 
@@ -148,11 +149,44 @@ a required gate and it is **not green**.
 The runner's sweep took **35,980 ms** — roughly 40× the idle local figure and ~12× the deliberately
 constrained one — so the condition is not merely "slow", and this host cannot reach it. Because a
 blind re-run could only return green or red *without a reason*, the next leg instead carries a
-**diagnostic** (`packages/support/test/lifecycle.test.ts`): on failure it prints the whole
-`SweepResult`, the liveness of the intermediate parent and the child at assertion time, and the
-platform — which distinguishes the three possible causes (`sweepWin32` can only omit a child if it is
-absent from the CIM snapshot, has a different `ParentProcessId`, or has `CreationDate` before the
-61-second cut). Diagnostic only: no assertion, threshold or timeout changed.
+**diagnostic** (`packages/support/test/lifecycle.test.ts`).
+
+**The diagnostic was too weak, and the second-auditor pass strengthened it (this commit).** It used to
+print the whole `SweepResult`, the liveness of both processes and the platform — which cannot say
+*which* exclusion happened, and it named only three causes. `sweepWin32` can omit a child in **four**
+ways: (a) it is absent from the sweep's one CIM snapshot; (b) its `ParentProcessId` is not the parent
+being expanded; (c) its `CreationDate` is **null** (the explicit `$c.CreationDate -and` guard) or
+before the 61-second cut; (d) it was found but its `Stop-Process` failed. On failure the message now
+carries, in addition:
+
+- `sweepInputParentPid`, `expectedChildPid`, `spawnedAtMs` and the **`cutUsedBySweep`** recomputed
+  from them, so the sweep's own boundary is reconstructible from the log;
+- a **fresh, throwaway `Get-CimInstance` observation** of both PIDs (row count, `ProcessId`,
+  `ParentProcessId`, `CreationDate`, presence), taken only when an assertion is about to fail;
+- the shape that observation is consistent with, stated as a shape and, where two remain possible,
+  as both.
+
+**Its output path is itself measured, not assumed.** Because a diagnostic that has never fired is a
+diagnostic nobody has tested, the *emitted* file was mutated once, outside the source, to reproduce
+the runner's exact failure shape (`killed` without the child, `failed: false`) with both processes
+alive; the run printed:
+
+```
+sweep killed [] but not 10208 | result={"killed":[],"failed":false} | platform=win32
+| diagnostic: sweepInputParentPid=56752 | expectedChildPid=10208 | spawnedAtMs=1790349374686
+| cutUsedBySweep=2026-09-25T15:15:14.686Z | aliveAtAssertionParent=true | aliveAtAssertionChild=true
+| cimObservation snapshotCount=321
+| cimObservation row=56752;present=true;ppid=61524;creationDate=2026-09-25T15:16:15.5518550Z
+| cimObservation row=10208;present=true;ppid=56752;creationDate=2026-09-25T15:16:15.5867820Z
+| shape (d) or a snapshot difference: present with the right parent and a date after the cut, ...
+```
+
+The artifact was then rebuilt (`tsc -b packages/support --force`) to a file **byte-identical** to the
+previous build (SHA-256 `9CE5F8C6…`), the mutation string is absent, and the suite is 8/8 again.
+
+**Diagnostic only: no assertion, threshold, timeout, kill or selection changed, and nothing here can
+turn a failure into a pass.** It does **not** fix the containment question, and it is not claimed to.
+
 
 ### Fourth Windows attempt (`36131430147`, sha `e51b6fc`) — ALL SIX LEGS SUCCESS
 
@@ -172,12 +206,65 @@ that is *not* evidence it is fixed. The only delta between the failing run and t
 is: **the leg is green; the flake is documented, unexplained, and still open.** It is recorded here
 rather than silently closed, and it is the first thing a second audit should try to reproduce.
 
-## New candidate commit
+## Second-auditor pass — documentation consistency, and a diagnostic that can be investigated
 
-Recorded after the final gate run; see the closing message.
+A second auditor found **no reopened original finding**, and **two** things that had to be corrected
+before v1.5 could be called review-ready: the public audit set was internally stale and
+contradictory, and the Windows sweep diagnostic did not distinguish all the causes the documentation
+claimed it did. Both are addressed in this pass. **No product behaviour changed.**
 
-## Release blockers remaining
+| ITEM | WHAT WAS WRONG | WHAT THIS PASS DID |
+|---|---|---|
+| Claim/evidence matrix | still carried `83.21 % / −16.79 %` as **SUPPORTED BUT LIMITED** while a later section of the same file withdrew it; findings 5 and 6 still described as pending; a block declaring release gates un-run that had since gone green | one current truth: the headline is **REJECTED / WITHDRAWN** with **no replacement percentage**; findings 5/6 closed **with their stated limitations**; and the verification table names **which commit each result covers** — `e51b6fc` for CI and the local gates, later commits documentation-only |
+| Audit kit | asked a reviewer to attack a number this project had already withdrawn, and declared un-run gates that had run | §7.0 is now the **Windows descendant sweep** as the highest-priority open target (the failure, the 14 negative local attempts, why green ≠ fixed); the token target is "**can any effect be resolved at all — the project claims NONE**"; §8 separates CLOSED findings, the OPEN flake, unsupported claims and release state |
+| Closure document | its last paragraph contradicted its own successful CI section | replaced by the current-state table below, with provenance, the sweep as **OPEN / UNEXPLAINED**, and the release untagged / unreleased / unmerged |
+| README | called v1.3.0 the newest published artifact while the tree was described as a candidate for v1.4, quoted the superseded −19.3 % / −13.4 % pair, and led with a token claim that is withdrawn | v1.4.0 named as the latest **published** release, the source tree as the **unreleased v1.5 candidate**, the withdrawal stated where a reader meets it first, and the four evidence documents linked |
+| Everyday benchmark document | its "Claim reset" section still listed the withdrawn aggregate as *supported* | that section now supports **nothing** about an everyday percentage, and the retained tables are labelled as the **withdrawn generation** |
+| Real-world evidence document | §4 and §5.1 described defects without their post-audit state | each carries a one-line post-audit note: fixed for the **measured/tested** cases, with the limitation, and with "the repositories were not re-run" said explicitly |
+| Windows sweep diagnostic | could not distinguish which exclusion occurred | see the section above: four shapes, a fresh CIM observation, the cut recomputed from the sweep input, and a **measured** self-test of the output path |
+| CI trigger | `canary-ci` had no manual dispatch — the only reason draft PR #8 existed | `workflow_dispatch:` added. **Operational plumbing, not a product feature:** 6 inserted lines, 0 deletions, and push / pull_request / schedule semantics unchanged |
 
-Everything in §"full release gates" below is **NOT RUN** against this tree: unit suite, productization
-battery, mutation/security batteries, HARDENED live, first-run, real-world regression, CI legs and the
-Windows core leg. **READY FOR A SECOND LOCAL AUDIT: NO.**
+**A tripwire, because every one of those was found by a person reading carefully.**
+`tooling/probes/v15-evidence-consistency.mjs` fails when a withdrawn figure appears without a marker
+within ±4 lines, when a retired statement reappears (an un-run gate, a finding still described as
+pending, a defect described as unfixed, or an older release described as the newest), or when a
+required statement of the current truth disappears. It is registered in `verify:productization`. It
+cannot check whether prose is **true** — only that the documents do not contradict each other about
+what is claimed. **Its refusal path was itself exercised:** three real context gaps were caught in
+`BENCHMARK-EVERYDAY-1.5.md`, and a deliberate falsification (an un-run gate status appended to the
+audit kit) produced a FAIL and was restored byte-identically.
+
+**What this pass deliberately did NOT do:** it did **not** re-run the productization battery, the
+unit suite or the token benchmark — no product code changed, so their evidence on `e51b6fc` is not
+invalidated by documentation. The new consistency probe has been run **standalone** on these bytes;
+it has **not** yet been exercised inside a full battery run, and it is recorded here that way rather
+than implied to be covered.
+
+## Current state — exact, with provenance
+
+| ITEM | STATE | COVERS WHICH BYTES |
+|---|---|---|
+| Original seven audited findings | **CLOSED for the measured / reproduced cases** — each row above names its regression and its remaining limitation | fixes are in `e51b6fc` |
+| Full unit suite | **GREEN** — 1,288 tests / 216 suites: **1,284 pass, 0 fail, 4 skipped**, exit 0 | `e51b6fc` |
+| Productization battery | **GREEN** — **104 PASS / 0 FAIL / 3 SKIP**, exit 0, 91.4 min | `e51b6fc` |
+| HARDENED boundary, live | **GREEN 6/6** — measured on the author's host only; a host that cannot confine is `HOST UNSUPPORTED` | `e51b6fc` |
+| CI, six legs | **GREEN** — run `36131430147`, `completed / success` | **`e51b6fc`** (the audited code commit) |
+| Windows core leg | **TERMINAL SUCCESS** — 1,211 tests, **1,206 pass, 0 fail, 5 skipped**, **170.9 min** against a 300-min cap, 0 `not ok` | `e51b6fc` |
+| Intermittent Windows descendant-sweep failure | **OPEN / UNEXPLAINED / DID NOT RECUR** — one hosted failure (`sweep killed [7564] but not 2144`, 35,980 ms), 14 negative local attempts, next run green with **no product change in between** (only a test diagnostic). **Green is not fixed** | failure seen on `447f4fb`; not observed on `e51b6fc` |
+| Windows sweep observability | **DIAGNOSTIC IMPROVED** — the next failure prints the sweep input, expected child, the cut used, the four exclusion shapes and a fresh CIM observation. **Not a fix, and not claimed as one** | this commit |
+| Everyday token-saving claim | **NONE** — `83.21 % / −16.79 %` withdrawn with no replacement; the two COMPLETE runs disagree in sign (80.74 % / −19.26 % and 102.91 % / +2.91 %); the pooled −10.19 % is smaller than the run-to-run spread | `e51b6fc` |
+| Standing MCP payload | **~438 tokens**, measured provider-natively; in-session 6/6 guarded vs 0/6 plain — a cost measurement, not a saving | `e51b6fc` |
+| v1.5 tagged | **NO** — no `v1.5*` tag exists | — |
+| v1.5 released | **NO** — no v1.5 release exists | — |
+| Merged to `main` | **NO** — `main` is `4271e6e` (`v1.4.0`, the latest published artifact) | — |
+| Second external audit | **STILL PENDING** — this document is the hand-back | — |
+
+**READY FOR A SECOND AUDIT: YES** — on the grounds that the repository now tells one internally
+consistent truth, every gate that has been run is green **except** the sweep result, which is written
+as OPEN rather than as green, and the token claim is absent rather than smaller.
+
+**STILL NOT RELEASABLE ON MY OWN AUTHORITY:** the sweep result is unexplained and
+containment-shaped; a second auditor has not yet had it. **NOT TAGGED. NOT RELEASED. NOT MERGED.**
+
+New candidate head and its changed files are reported in the closing message.
+

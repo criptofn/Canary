@@ -7,6 +7,12 @@ on:
   pull_request:
   schedule:
     - cron: '17 6 * * 1'   # weekly: the golden proof must keep holding
+  # OPERATIONAL PLUMBING, not a v1.5 product feature. Feature-branch pushes trigger
+  # nothing here (see the three triggers above), so verifying one previously required
+  # opening a pull request — which is the only reason draft PR #8 existed. This adds a
+  # manual trigger; it does NOT change push, pull_request or schedule semantics, and
+  # concurrency below still cancels only superseded pull_request runs.
+  workflow_dispatch:
 
 # Superseded pull-request runs are wasted work; main/tag runs are never cancelled.
 concurrency:

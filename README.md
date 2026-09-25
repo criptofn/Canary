@@ -74,24 +74,43 @@ Canary's vocabulary to use it.
 ## Install
 
 ```bash
-npm install -g ./canary-rn-cli-1.3.0.tgz     # Node.js 22 or newer
-canary --version                             # canary 1.3.0
+npm install -g ./canary-rn-cli-1.4.0.tgz     # Node.js 22 or newer
+canary --version                             # canary 1.4.0
 ```
 
 Download that tarball from the
-[v1.3.0 release](https://github.com/criptofn/Canary/releases/tag/v1.3.0) and check
+[v1.4.0 release](https://github.com/criptofn/Canary/releases/tag/v1.4.0) and check
 it against the published `.sha256`. It is ONE self-contained bundle with **zero
 runtime dependencies**.
 
-> **Honest version note.** `v1.3.0` is the newest *published* artifact: the tag,
-> the GitHub release and the tarball below were all verified against it on
-> 2026-09-20. This document describes the **source tree**, which is the `v1.4.0`
-> candidate; build from source for exactly what is described here:
-> `npm ci && npm run build`, then `node apps/cli/dist/src/main.js`. **No `v1.4.0`
-> artifact has been published** — there is no tarball, tag or GitHub release for
-> it, so the download above does not contain every behaviour described below.
-> v1.3's own bytes are described, with their measured numbers and their known
-> limitations, in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
+> **Honest version note.** **`v1.4.0` is the newest *published* artifact** — tag `v1.4.0` →
+> `4271e6e`, the tip of `main`; the release, its tarball and its sidecar were verified
+> against it, and the published bytes and digest are recorded in
+> [`docs/RELEASE-1.4.md`](docs/RELEASE-1.4.md). This document describes the **source tree**,
+> which is the **unreleased v1.5 candidate**: under audit, **not tagged, not released, not
+> merged**. Build from source for exactly what is described here: `npm ci && npm run build`,
+> then `node apps/cli/dist/src/main.js`. v1.3's own bytes are described, with their measured
+> numbers and their known limitations, in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
+
+> **v1.5 status, stated where you will see it first: the token-saving headline is WITHDRAWN.**
+> The v1.5 candidate published `83.21 % of Plain (−16.79 %)` for the everyday path. An
+> independent audit found that aggregate pooled a cell measured by the **fallback estimator**
+> rather than the declared provider-native ledger, and the replacement run measured a tree
+> that was **edited while it ran**. Under the corrected rule
+> ([`tooling/benchmark/eligibility.mjs`](tooling/benchmark/eligibility.mjs)) the **two COMPLETE
+> runs disagree in sign** — 80.74 % (−19.26 %) and 102.91 % (**+2.91 %**) — and their spread is
+> larger than any delta pooled across them. **v1.5 therefore claims no token-saving percentage
+> at all**: not a smaller one, not a different one. What survives is a measured **cost**, not a
+> saving: the standing MCP payload is genuinely inside the guarded sessions (6/6 guarded
+> advertised it, 0/6 plain) and costs **~438 provider-native tokens** per session — **not** the
+> ~1,432 that a `bytes ÷ 4` derivation implied. One intermittent Windows containment-sweep
+> failure is **open and unexplained** (recorded as open, not re-rolled until green); every other
+> release gate that has run is green, on the code commit `e51b6fc`. Evidence:
+> [`docs/AUDIT-KIT-1.5.md`](docs/AUDIT-KIT-1.5.md) ·
+> [`docs/CLAIM-EVIDENCE-MATRIX-1.5.md`](docs/CLAIM-EVIDENCE-MATRIX-1.5.md) ·
+> [`docs/POST-AUDIT-CLOSURE-1.5.md`](docs/POST-AUDIT-CLOSURE-1.5.md) ·
+> [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
+
 
 ## Use your coding agent normally
 
@@ -173,9 +192,11 @@ same answer compactly and for free.
 Not part of the ordinary loop, and **measured to cost more than the everyday path**
 (see [the arm map](#what-the-benchmarks-actually-show): the `work` → `finish`
 ceremony ran at **177.8 %** of a plain agent's tokens, where the everyday shape ran
-at **92.7 %**, with identical correctness). Reach for it when a change needs
-evidence rather than a green suite — for example when someone else's work must be
-verified before it reaches your branch.
+at **92.7 %** in the **historical v1.3** measurement, with identical correctness).
+That 92.7 % is **historical and superseded** — the v1.5 everyday figure is
+**withdrawn**, so no current everyday percentage exists. Reach for the candidate path
+when a change needs evidence rather than a green suite — for example when someone
+else's work must be verified before it reaches your branch.
 
 ```bash
 # operator, BEFORE the handoff — declare each stated requirement, then bind it
@@ -255,10 +276,11 @@ claims.
 
 ## What the benchmarks actually show
 
-> **What it costs, in one paragraph.** Canary can cut model-token use by up to **87 %**.
->
-> On short, well-bounded confined tasks in our replicated experiments, measured savings ranged from
-> roughly **27 % to 87 %**.
+> **What it costs, in one paragraph.** There is **no supported everyday token-saving figure** — the
+> one this release published is withdrawn, and the corrected data cannot resolve an effect. What can
+> still be said is narrower and it is stated with its own limit below: on short, well-bounded
+> **confined** tasks in our replicated experiments, measured savings ranged from roughly **27 % to
+> 87 %** (best pairing, not typical, not universal).
 >
 > On the everyday workflow, this release **WITHDRAWS its token-saving figure**. The v1.5 candidate
 > published `83.21 % of Plain (-16.79 %)`; an independent audit found the aggregate pooled a cell
@@ -283,10 +305,12 @@ claims.
 >   expensive than Plain under confined transport;
 > - **Canary does not always save tokens.** The ≤75 % aggregate target was not met (the best measured
 >   everyday aggregate is **withdrawn** and no current figure is claimed), and this release makes no such claim;
-> - per task, the everyday result ranges from **43.8 % MORE expensive to 38.7 % cheaper** — it is not
->   uniform, and on the smallest fixture Canary cost more in **both** runs. The two run aggregates were
->   **−19.3 %** and **−13.4 %**, while the plain arm drifted **27 %** between them on identical
->   configuration; treat the *direction* as measured and the *size* as unstable (**n=1 per cell**).
+> - per task, the **withdrawn** generation was not uniform: it ranged from **43.8 % MORE expensive to
+>   38.7 % cheaper**, and on the smallest fixture Canary cost more in **both** of those runs. Those
+>   per-cell observations stand as observations; the **aggregates** built from them
+>   (**−19.3 %** and **−13.4 %**) are **superseded**, because that dataset is the one the audit
+>   disqualified. The corrected pair of COMPLETE runs is **−19.26 %** and **+2.91 %** — read those,
+>   not these.
 > - **the standing payload is now accounted for — and it was overstated before.** The tool server
 >   `setup` registers is re-advertised on **every turn** — measured from the real server over the real
 >   transport at **5,726 bytes** (1,475 B of instructions + 4,251 B of tool definitions), of which
@@ -366,8 +390,10 @@ because either one alone hides the other.
 > benchmark harness's own printed words — *"an experiment outside the configuration the fixture was
 > authored and validated for; do not present it as that fixture's measurement."* That applies to **both**
 > arms equally, so the ratios are like-for-like, but no absolute confined figure here is a fixture's
-> validated measurement. The everyday/`guarded` numbers are the exception: `guarded` **is** the arm those
-> fixtures were authored for, which is why the 92.7 % is the stronger of the two measurements.
+> validated measurement. The everyday/`guarded` numbers were the exception in *design*: `guarded` **is**
+> the arm those fixtures were authored for. That design advantage did **not** survive measurement — the
+> everyday aggregate is **withdrawn** and no current figure is claimed — so the historical **92.7 %** is
+> quoted only as history, never as the stronger current measurement.
 
 Short version, with the full ledgers linked below — and stated the way the
 evidence supports it:

@@ -133,6 +133,14 @@ refuses to write into one that already holds evidence.
 
 ## 4. Why two of the three repositories could not be gated as found
 
+> **Post-audit status of this section (v1.5).** This is the historical observation behind audit
+> **finding 6**, and it is kept as observed. The mechanism is now **fixed for the tested cases** — an
+> OPERATOR may authorize a toolchain directory, which is appended after the trusted Node/OS dirs
+> (anti-shadowing preserved), and an unresolvable required program is attributed to the environment
+> instead of the project: `tooling/probes/v15-sealed-toolchain.mjs`,
+> `apps/cli/test/v15-sealed-toolchain.test.ts` (25/25). **The three repositories below were not
+> re-run with an authorized directory**, so nothing here should be read as "these now gate".
+
 `canary setup` refused both, correctly and with the right words. The cause is a deliberate
 product property, and it is the single most consequential real-world finding of this session.
 
@@ -208,6 +216,13 @@ where that made a plan pass; it records the shape and the numbers that came near
 ## 5. What the gate actually did when it spoke
 
 ### 5.1 Four natural `NOT PROVEN` blocks — and a measurement that shows one of them was NOT justified
+
+> **Post-audit status of this subsection (v1.5).** This is the historical observation behind audit
+> **finding 7**. The discrimination surface is now anchored to a **sealed plan script's text**
+> (digest-verified) rather than to the `isTestPath` path heuristic, so a legitimate check outside a
+> test path is no longer refused: `tooling/probes/v15-check-provenance.mjs` (CASE A/CONTROL, CASE B).
+> What did **not** change: worker-authored evidence is still caveated and never gains independent
+> authority (audit finding 1).
 
 H1, H2, H3 and H5 all ended with the same hook decision:
 
