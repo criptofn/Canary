@@ -125,7 +125,8 @@ describe('audit F5 — sweep mechanism (live parent, positive proof)', () => {
       assert.ok(res.killed.includes(kidPid),
         `sweep killed ${JSON.stringify(res.killed)} but not ${kidPid}`
         + ` | result=${JSON.stringify(res)}`
-        + ` | mid(pid ${String(mid.pid)}) alive=${isAlive(mid.pid)} kid(pid ${kidPid}) alive=${isAlive(kidPid)}`
+        + ` | mid(pid ${String(mid.pid)}) alive=${mid.pid === undefined ? 'unknown' : String(isAlive(mid.pid))}`
+        + ` kid(pid ${kidPid}) alive=${String(isAlive(kidPid))}`
         + ` | platform=${process.platform}`);
       assert.ok(await untilDead(kidPid), `child ${kidPid} survived the sweep`);
     } finally {
