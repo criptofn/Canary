@@ -107,8 +107,26 @@ describe('audit F5 — sweep mechanism (live parent, positive proof)', () => {
       assert.ok(isAlive(kidPid), 'precondition: child should be alive before sweep');
       const res = sweepDescendants(mid.pid, Date.now() - 1000);
       assert.equal(res.failed, false, 'sweep must not fail');
+      /*
+       * v1.5 post-audit: this assertion fired ONCE on the hosted Windows runner and never locally.
+       *
+       *   error: 'sweep killed [7564] but not 2144'   duration_ms: 35980   (894 ms on a dev machine)
+       *
+       * `killed` holding ONE pid is consistent with the BFS never having enqueued the child at all,
+       * which `sweepWin32` can only cause in three ways: the child is missing from the CIM snapshot,
+       * its ParentProcessId is not the intermediate parent, or its CreationDate falls before the cut
+       * (`spawnedAtMs - 60_000`). The old message could not tell those apart, so a blind re-run could
+       * only produce a green or a red without a reason — the false-red/false-green pattern this
+       * project exists to remove.
+       *
+       * The failure message now carries what is needed to decide: the whole sweep result, and whether
+       * each process was still alive at assertion time. DIAGNOSTIC ONLY — no assertion was changed.
+       */
       assert.ok(res.killed.includes(kidPid),
-        `sweep killed ${JSON.stringify(res.killed)} but not ${kidPid}`);
+        `sweep killed ${JSON.stringify(res.killed)} but not ${kidPid}`
+        + ` | result=${JSON.stringify(res)}`
+        + ` | mid(pid ${String(mid.pid)}) alive=${isAlive(mid.pid)} kid(pid ${kidPid}) alive=${isAlive(kidPid)}`
+        + ` | platform=${process.platform}`);
       assert.ok(await untilDead(kidPid), `child ${kidPid} survived the sweep`);
     } finally {
       killIfAlive(kidPid);
