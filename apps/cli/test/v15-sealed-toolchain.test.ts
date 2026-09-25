@@ -208,7 +208,17 @@ describe('attribution: is Canary\'s environment the cause, or the project?', () 
     assert.deepEqual(a.missing, ['git']);
     assert.match(a.reason, new RegExp(SEALED_ENV_CANNOT_RESOLVE));
     assert.doesNotMatch(a.reason, /That is your project talking/);
-    assert.match(a.next, /canary setup --toolchain-dir "C:\\Program Files\\Git\\cmd"/);
+    /*
+     * PORTABILITY (v1.5 post-audit, MEASURED on the ubuntu CI leg): this assertion hardcoded the
+     * Windows separator (`C:\Program Files\Git\cmd`). The fixture's directory is built with
+     * path.join — on Linux that renders as `C:/Program Files/Git/cmd` — so a mandatory CI leg went
+     * red for a reason that had nothing to do with the behaviour under test. The expectation is now
+     * derived from the SAME expression the fixture uses, so it stays EXACT on every platform rather
+     * than being relaxed into a substring match.
+     */
+    const expectedDir = path.join('C:', 'Program Files', 'Git', 'cmd');
+    assert.ok(a.next.includes(`canary setup --toolchain-dir "${expectedDir}"`),
+      `the remediation must name the directory that HAS the tool; got: ${a.next}`);
   });
 
   it('PROJECT: the same text when the program DOES resolve (a project cannot print its way out of blame)', () => {

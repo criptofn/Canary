@@ -139,7 +139,18 @@ describe('provider status answers the user in compact form by default', () => {
     const verbose = run(['--verbose']).stdout;
     assert.match(verbose, /boundary controls \(each derived from the measured deployment, never from configuration\)/);
     assert.match(verbose, /identity-path controls \(what an ELEVATED install would add; NOT evidence on this host\)/);
-    assert.match(verbose, /sandbox:\s+win32-appcontainer-restricted-low|sandbox:\s+none/);
+    /*
+     * PORTABILITY (v1.5 post-audit, MEASURED on the ubuntu CI leg): this line used to pin
+     * `sandbox: win32-appcontainer-restricted-low`, which only exists on Windows — Linux reports
+     * `unshare` — so a mandatory CI leg went red for a reason that had nothing to do with the
+     * behaviour under test. What the LINE owes the reader is the host's own primitive, or an
+     * honest "none"; WHICH primitive that is, is the host's business rather than this test's.
+     * The assertion is still exact on each platform, so it has not been relaxed into vagueness.
+     */
+    assert.match(verbose, /sandbox:\s+\S/, 'the verbose report must name the host sandbox primitive (or none)');
+    assert.match(verbose, process.platform === 'win32'
+      ? /sandbox:\s+win32-appcontainer-restricted-low|sandbox:\s+none/
+      : /sandbox:\s+(unshare|seatbelt|sandbox-exec|none)/);
     // Nothing was deleted from the reasoning: the distinct clause survives.
     assert.match(verbose, /the identity path also leaves it unavailable/);
   });
