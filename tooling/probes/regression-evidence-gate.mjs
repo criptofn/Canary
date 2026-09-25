@@ -284,7 +284,23 @@ console.log('\n── G: the worker adds its own check to satisfy the gate');
   check('G2: but the allow SAYS the discriminating evidence is the worker\'s own new check', () => {
     const msg = String(h.env?.systemMessage ?? '');
     assert(msg !== '', 'a READY resting on worker-authored evidence must not be silent');
-    assert(/THIS SESSION ADDED/i.test(msg), `the caveat must name the added check:\n${msg}`);
+    /*
+     * v1.5 POST-AUDIT. This assertion used to grep the exact phrase "THIS SESSION ADDED".
+     *
+     * The BLOCKER 1+7 fix replaced that prose with wording that ALSO covers a REWRITTEN existing
+     * check — "CHECK TEXT WRITTEN BY THE WORKER ITSELF", with a per-file "(created by this
+     * session)" or "(EXISTING check rewritten by this session)" — because a worker that EDITS an
+     * existing oracle writes the evidence just as much as one that creates a file, and the old
+     * wording let it inherit independent authority. Coupling a gate to a sentence made that
+     * security fix look like a regression.
+     *
+     * The gate now asserts the SEMANTICS it always cared about, and asserts them more strongly:
+     * the message must name the worker's check, say the WORKER authored it AND say how it was
+     * authored. A future rewording cannot pass by dropping that claim.
+     */
+    assert(/added-by-worker\.test\.js/.test(msg), `the caveat must name the worker's check:\n${msg}`);
+    assert(/worker/i.test(msg) && /(created by this session|rewritten by this session)/i.test(msg),
+      `the caveat must say the WORKER authored the evidence, and whether it was created or REWRITTEN:\n${msg}`);
     assert(/independent coverage|operator-bound/i.test(msg), 'and it must name what independent coverage would take');
   });
   fs.rmSync(root, { recursive: true, force: true });
