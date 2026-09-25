@@ -303,11 +303,24 @@ describe('product level: a path with spaces is sealed and used verbatim', () => 
     fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
     // The check proves the directory reached the CHILD environment: it fails unless the staged
     // directory (whose path contains spaces) is on the PATH the child was handed.
+    //
+    // BOTH SIDES ARE CANONICALISED (v1.5 post-audit, MEASURED on the Windows CI runner). This
+    // assertion used to compare `process.env.PATH` against SPACED_DIR *as spelled here*, while the
+    // product seals `fs.realpathSync.native(dir)` — which is deliberate, and is what stops a symlink
+    // being swapped after sealing. On a runner whose TEMP is the 8.3 form (`...\RUNNER~1\...`) the
+    // child's PATH therefore holds the right directory under its CANONICAL spelling
+    // (`...\runneradmin\...`), and a raw `includes` failed even though the directory WAS on the
+    // path. That is the same defect class as the v1.4 Windows failure: one assertion comparing two
+    // spellings of one directory. Comparing canonical to canonical tests the question this check
+    // actually asks — did the authorized directory reach the child? — and still fails for a
+    // directory that genuinely is not there.
     fs.writeFileSync(path.join(root, 'check.cjs'),
       "'use strict';\n"
       + 'const path = require(\'node:path\');\n'
-      + `const want = ${JSON.stringify(SPACED_DIR)};\n`
-      + "const dirs = (process.env.PATH || '').split(path.delimiter);\n"
+      + 'const fs = require(\'node:fs\');\n'
+      + 'const canonical = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };\n'
+      + `const want = canonical(${JSON.stringify(SPACED_DIR)});\n`
+      + "const dirs = (process.env.PATH || '').split(path.delimiter).map(canonical);\n"
       + "if (!dirs.includes(want)) { console.error('the authorized directory never reached the child PATH'); process.exit(3); }\n"
       + "console.log('authorized directory present in the sealed step PATH');\n");
     fs.writeFileSync(path.join(root, 'package.json'), `${JSON.stringify({ name: 'spaced-fixture', private: true, scripts: { test: 'node check.cjs' } }, null, 2)}\n`);
