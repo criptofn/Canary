@@ -154,6 +154,24 @@ platform — which distinguishes the three possible causes (`sweepWin32` can onl
 absent from the CIM snapshot, has a different `ParentProcessId`, or has `CreationDate` before the
 61-second cut). Diagnostic only: no assertion, threshold or timeout changed.
 
+### Fourth Windows attempt (`36131430147`, sha `e51b6fc`) — ALL SIX LEGS SUCCESS
+
+| leg | result |
+|---|---|
+| `build + unit/integration tests (offline)` (ubuntu-latest) | **SUCCESS** |
+| `build + unit/integration tests (offline)` (windows-latest) | **SUCCESS** — 1211 tests, **1206 pass, 0 fail, 5 skipped** |
+| `standalone single executable` (ubuntu / windows / macos) | **SUCCESS** |
+| `golden regression proof (axios 0.27.2 -> 1.0.0)` | **SUCCESS** |
+
+Run `completed/success`; the Windows leg ran **170 minutes** against a 300-minute cap (**terminal, not a
+timeout and not a cancellation**), **zero `not ok` lines**, and the sweep diagnostic **did not fire**.
+
+**The honest caveat, which is part of the result:** the intermittent sweep failure did **not recur**, and
+that is *not* evidence it is fixed. The only delta between the failing run and this one is a
+**diagnostic in a test failure message**, which cannot affect product behaviour. So the correct reading
+is: **the leg is green; the flake is documented, unexplained, and still open.** It is recorded here
+rather than silently closed, and it is the first thing a second audit should try to reproduce.
+
 ## New candidate commit
 
 Recorded after the final gate run; see the closing message.
