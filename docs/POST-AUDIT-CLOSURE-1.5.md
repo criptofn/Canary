@@ -137,6 +137,23 @@ failure, **not** waved away as a flake, and **not** answered by re-rolling until
 until it passes" is the false-green behaviour this project exists to prevent. The Windows core leg is
 a required gate and it is **not green**.
 
+**Local reproduction attempts, all negative (14 runs, 0 failures):**
+
+| condition | runs | sweep duration | result |
+|---|---|---|---|
+| idle | 5 | 894 ms | 5/5 pass |
+| 48 CPU burners on 24 cores | 5 | 1.6–2.0 s | 5/5 pass |
+| 48 burners + test pinned to 2 cores (`affinity 3`) | 4 | 1.8–2.9 s | 4/4 pass |
+
+The runner's sweep took **35,980 ms** — roughly 40× the idle local figure and ~12× the deliberately
+constrained one — so the condition is not merely "slow", and this host cannot reach it. Because a
+blind re-run could only return green or red *without a reason*, the next leg instead carries a
+**diagnostic** (`packages/support/test/lifecycle.test.ts`): on failure it prints the whole
+`SweepResult`, the liveness of the intermediate parent and the child at assertion time, and the
+platform — which distinguishes the three possible causes (`sweepWin32` can only omit a child if it is
+absent from the CIM snapshot, has a different `ParentProcessId`, or has `CreationDate` before the
+61-second cut). Diagnostic only: no assertion, threshold or timeout changed.
+
 ## New candidate commit
 
 Recorded after the final gate run; see the closing message.
