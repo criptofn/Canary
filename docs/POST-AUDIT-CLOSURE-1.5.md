@@ -50,6 +50,54 @@ defect was in this candidate's own published claim.
 - The HARDENED **live** measurement was deliberately **stopped** when a concurrent force-rebuild landed
   mid-run. A measurement spanning changing bytes is not evidence; it is re-run against a frozen tree.
 
+## CI results (draft PR #8, run `36094994575`, sha `0b7bae9`)
+
+| leg | result |
+|---|---|
+| core ubuntu | **SUCCESS** |
+| standalone ubuntu / windows / macos | **SUCCESS** |
+| golden regression proof (axios 0.27.2 → 1.0.0) | **SUCCESS** |
+| **core windows** | **FAILURE — 1211 tests, 1205 pass, 1 fail, 5 skipped** |
+
+Three test-portability defects in the NEW v1.5 tests were found by the ubuntu leg and fixed
+(a Windows-only sandbox-kind assertion; a hardcoded Windows path separator; and a PROJECT-attribution
+test that depended on Git being installed at `C:\Program Files\Git\cmd`, i.e. on the runner's software
+inventory). Ubuntu then went green, confirming all three.
+
+### OPEN BLOCKER — the one Windows failure, and it looks like a PRODUCT defect
+
+```
+not ok 1 - setup accepts --toolchain-dir with spaces, records it, and the sealed step sees it
+  setup exited 2:
+
+  + C:\Users\runneradmin\AppData\Local\Temp\canary-v15st-unit-gSmlhm\a tool chain with spaces\bin
+  the plan's own program is still pinned to an absolute path; these directories exist for what your
+  check spawns itself. Revoke with: canary setup --clear-toolchain-dirs
+
+  smoke test (running your own project scripts):
+  ✗ tests: npm run test (exit 3)
+    the authorized directory never reached the child PATH
+
+  NEEDS ATTENTION — PROJECT CHECK FAILURE — your project's own checks did not pass (tests).
+  That is your project talking, not Canary.
+```
+
+**This is not a test defect.** The product accepted and sealed an operator-authorized directory whose
+path contains spaces, and then that directory **never reached the sealed child's PATH** — which is
+precisely the defect BLOCKER 6 exists to close, reappearing for a path shape the audit did not cover.
+`setup` additionally reported it as `PROJECT CHECK FAILURE` and blamed the project, which is the second
+half of BLOCKER 6 undoing itself in this case.
+
+**It does not reproduce locally**: the same suite passes on this machine (37/37 after a forced
+rebuild). One environmental difference is a candidate and has NOT been confirmed: the GitHub runner
+checks out to **`D:\a\Canary\Canary`** while `TEMP` is on **`C:`**, so the authorized directory lives
+on a different drive from the repository. **No mechanism is claimed** — it needs a host that can
+reproduce it.
+
+**Consequence, stated plainly:** `FINDING 6` is fixed for the cases the probe measures, and is
+**NOT GREEN on the Windows runner**. `H` below records the gates, and the Windows core leg is a
+required gate, so the closure is **not complete** and the candidate stays unreleased.
+
 ## New candidate commit
 
 Recorded after the final gate run; see the closing message.
