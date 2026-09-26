@@ -75,7 +75,7 @@ Canary's vocabulary to use it.
 
 ```bash
 npm install -g ./canary-rn-cli-1.4.0.tgz     # Node.js 22 or newer
-canary --version                             # canary 1.4.0
+canary --version                             # canary 1.5.0
 ```
 
 Download that tarball from the
