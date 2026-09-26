@@ -1,8 +1,13 @@
 # Canary v1.5 — post-audit closure report
 
 **Audited candidate:** `a004f5544af6ea62e1f3a4c036af8c8358e23462` (branch `codex/v15-evidence-release`).
-**Auditor:** independent (GPT-5.6). **Closure branch head:** reported in the closing message; the
-CI-verified code commit is `e51b6fc` and every later commit on the branch is documentation only.
+**Auditor:** independent (GPT-5.6). **Candidate head:** `d3f6a9c5da730d9828be5b5751861b92a028cfd2`,
+tested by GitHub Actions run
+[`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720) (all six legs green).
+**Provenance:** `e51b6fc` is the **last product-source change** — the audited product fixes and the
+local release batteries belong to it; `c605f2a` and `d3f6a9c` changed documentation, a test
+diagnostic, audit tooling, the productization registration and CI plumbing, with **no product-source
+behaviour change**.
 **Status: NOT RELEASED.** No tag, no merge, no v1.6 work. Handed back for a second audit.
 
 An independent audit reproduced **four new blockers** and the **three known real-world defects**.
@@ -206,6 +211,40 @@ that is *not* evidence it is fixed. The only delta between the failing run and t
 is: **the leg is green; the flake is documented, unexplained, and still open.** It is recorded here
 rather than silently closed, and it is the first thing a second audit should try to reproduce.
 
+### Fifth (final) Windows / CI attempt (`36168541720`, sha `d3f6a9c`) — ALL SIX LEGS SUCCESS
+
+This run tested the **exact second-auditor candidate head** — the bytes produced by the
+documentation pass described in the next section — rather than the older product commit.
+
+| leg | result |
+|---|---|
+| `build + unit/integration tests (offline)` (ubuntu-latest) | **SUCCESS** — 4.6 min |
+| `build + unit/integration tests (offline)` (windows-latest) | **SUCCESS** — 1,211 tests, **1,206 pass, 0 fail, 5 skipped** |
+| `standalone single executable` (ubuntu / windows / macos-14) | **SUCCESS** |
+| `golden regression proof (axios 0.27.2 -> 1.0.0)` | **SUCCESS** |
+
+Run `completed / success` on head `d3f6a9c5da730d9828be5b5751861b92a028cfd2`, finished
+`2026-09-25T21:25:17Z`. The Windows core leg is **terminal**: **1,211 tests, 1,206 pass, 0 fail,
+5 skipped, 0 cancelled, 0 todo**, **zero `not ok`** lines, test step ≈ **215.4 min** inside a
+**224.1-min** job against the **300-min** cap — completed, **not** timed out and **not** cancelled.
+The one `skipped` step in that job (`architecture-closure-mutations.mjs`) is `if: runner.os == 'Linux'`
+by design; it ran and passed on the ubuntu leg.
+
+**The sweep passed, and that is still not a fix.** `sweepDescendants finds and kills a live parent's
+child process` reported `ok`, and the improved diagnostic produced **zero `cimObservation` output** —
+because its failure path **did not fire**. So: the intermittent Windows descendant-sweep failure did
+**not** recur, this is the **second consecutive green observation**, and it remains
+**NOT FIXED and UNEXPLAINED**. No product change was made between the original failure and either
+green run; the only delta is a **test-failure diagnostic**, which cannot alter product behaviour.
+A missed descendant would be a containment failure, so this stays at the top of the second-auditor
+queue rather than being closed by repetition.
+
+**Runtime, recorded and not explained away.** The Windows core leg took **224.1 min** here against
+**170.9 min** on `e51b6fc` — about **31 % slower**, leaving **≈ 76 min** before the 300-min cap.
+Whether that is runner variance, host load or something in these bytes is **not established**, and it
+is **not** classified as a product defect. The timeout was **not** raised, and no threshold was
+touched. It is recorded because a cap timeout would present as a red leg that is not a code defect.
+
 ## Second-auditor pass — documentation consistency, and a diagnostic that can be investigated
 
 A second auditor found **no reopened original finding**, and **two** things that had to be corrected
@@ -215,7 +254,7 @@ claimed it did. Both are addressed in this pass. **No product behaviour changed.
 
 | ITEM | WHAT WAS WRONG | WHAT THIS PASS DID |
 |---|---|---|
-| Claim/evidence matrix | still carried `83.21 % / −16.79 %` as **SUPPORTED BUT LIMITED** while a later section of the same file withdrew it; findings 5 and 6 still described as pending; a block declaring release gates un-run that had since gone green | one current truth: the headline is **REJECTED / WITHDRAWN** with **no replacement percentage**; findings 5/6 closed **with their stated limitations**; and the verification table names **which commit each result covers** — `e51b6fc` for CI and the local gates, later commits documentation-only |
+| Claim/evidence matrix | still carried `83.21 % / −16.79 %` as **SUPPORTED BUT LIMITED** while a later section of the same file withdrew it; findings 5 and 6 still described as pending; a block declaring release gates un-run that had since gone green | one current truth: the headline is **REJECTED / WITHDRAWN** with **no replacement percentage**; findings 5/6 closed **with their stated limitations**; and the verification table now names **which commit each result covers** — `e51b6fc` is the last product-source change and owns the product fixes and the local batteries, while the **candidate head `d3f6a9c`** owns the CI result |
 | Audit kit | asked a reviewer to attack a number this project had already withdrawn, and declared un-run gates that had run | §7.0 is now the **Windows descendant sweep** as the highest-priority open target (the failure, the 14 negative local attempts, why green ≠ fixed); the token target is "**can any effect be resolved at all — the project claims NONE**"; §8 separates CLOSED findings, the OPEN flake, unsupported claims and release state |
 | Closure document | its last paragraph contradicted its own successful CI section | replaced by the current-state table below, with provenance, the sweep as **OPEN / UNEXPLAINED**, and the release untagged / unreleased / unmerged |
 | README | called v1.3.0 the newest published artifact while the tree was described as a candidate for v1.4, quoted the superseded −19.3 % / −13.4 % pair, and led with a token claim that is withdrawn | v1.4.0 named as the latest **published** release, the source tree as the **unreleased v1.5 candidate**, the withdrawal stated where a reader meets it first, and the four evidence documents linked |
@@ -244,20 +283,21 @@ than implied to be covered.
 
 | ITEM | STATE | COVERS WHICH BYTES |
 |---|---|---|
-| Original seven audited findings | **CLOSED for the measured / reproduced cases** — each row above names its regression and its remaining limitation | fixes are in `e51b6fc` |
+| Original seven audited findings | **CLOSED for the measured / reproduced cases** — each row above names its regression and its remaining limitation | product fixes are in **`e51b6fc`**, the last product-source change |
 | Full unit suite | **GREEN** — 1,288 tests / 216 suites: **1,284 pass, 0 fail, 4 skipped**, exit 0 | `e51b6fc` |
 | Productization battery | **GREEN** — **104 PASS / 0 FAIL / 3 SKIP**, exit 0, 91.4 min | `e51b6fc` |
 | HARDENED boundary, live | **GREEN 6/6** — measured on the author's host only; a host that cannot confine is `HOST UNSUPPORTED` | `e51b6fc` |
-| CI, six legs | **GREEN** — run `36131430147`, `completed / success` | **`e51b6fc`** (the audited code commit) |
-| Windows core leg | **TERMINAL SUCCESS** — 1,211 tests, **1,206 pass, 0 fail, 5 skipped**, **170.9 min** against a 300-min cap, 0 `not ok` | `e51b6fc` |
-| Intermittent Windows descendant-sweep failure | **OPEN / UNEXPLAINED / DID NOT RECUR** — one hosted failure (`sweep killed [7564] but not 2144`, 35,980 ms), 14 negative local attempts, next run green with **no product change in between** (only a test diagnostic). **Green is not fixed** | failure seen on `447f4fb`; not observed on `e51b6fc` |
-| Windows sweep observability | **DIAGNOSTIC IMPROVED** — the next failure prints the sweep input, expected child, the cut used, the four exclusion shapes and a fresh CIM observation. **Not a fix, and not claimed as one** | this commit |
+| Candidate head | **`d3f6a9c`** — documentation, a test diagnostic, audit tooling, the productization registration and CI plumbing; **no product-source behaviour change** | `d3f6a9c` |
+| CI, six legs | **GREEN** — run [`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720), `completed / success` | **`d3f6a9c`** — the exact candidate head |
+| Windows core leg | **TERMINAL SUCCESS on `d3f6a9c`** — 1,211 tests, **1,206 pass, 0 fail, 5 skipped, 0 cancelled, 0 todo**, test step ≈ **215.4 min** in a **224.1-min** job against a 300-min cap, 0 `not ok`. The previous green on `e51b6fc` was **170.9 min** (**≈ 31 % slower**, **≈ 76 min** headroom) — recorded as operational, **not** a product defect, and the timeout was **not** raised | `d3f6a9c`; runtime compared with `e51b6fc` |
+| Intermittent Windows descendant-sweep failure | **OPEN / UNEXPLAINED / DID NOT RECUR** — one hosted failure (`sweep killed [7564] but not 2144`, 35,980 ms), 14 negative local attempts, then **two consecutive green runs** with **no product change in between** (only a test diagnostic); the improved diagnostic produced **zero `cimObservation` output** because its failure path did not fire. **Green is not fixed** | failure seen on `447f4fb`; not observed on `e51b6fc` or `d3f6a9c` |
+| Windows sweep observability | **DIAGNOSTIC IMPROVED** — the next failure prints the sweep input, expected child, the cut used, the four exclusion shapes and a fresh CIM observation. **Not a fix, and not claimed as one** | diagnostic added in `c605f2a`; silent on `d3f6a9c` |
 | Everyday token-saving claim | **NONE** — `83.21 % / −16.79 %` withdrawn with no replacement; the two COMPLETE runs disagree in sign (80.74 % / −19.26 % and 102.91 % / +2.91 %); the pooled −10.19 % is smaller than the run-to-run spread | `e51b6fc` |
 | Standing MCP payload | **~438 tokens**, measured provider-natively; in-session 6/6 guarded vs 0/6 plain — a cost measurement, not a saving | `e51b6fc` |
 | v1.5 tagged | **NO** — no `v1.5*` tag exists | — |
 | v1.5 released | **NO** — no v1.5 release exists | — |
 | Merged to `main` | **NO** — `main` is `4271e6e` (`v1.4.0`, the latest published artifact) | — |
-| Second external audit | **STILL PENDING** — this document is the hand-back | — |
+| Second external audit | **IN PROGRESS** — a second auditor reviewed this closure, found no reopened original finding, and has independently verified CI run `36168541720` on `d3f6a9c`. The intermittent Windows sweep is the outstanding open target | — |
 
 **READY FOR A SECOND AUDIT: YES** — on the grounds that the repository now tells one internally
 consistent truth, every gate that has been run is green **except** the sweep result, which is written
@@ -266,5 +306,7 @@ as OPEN rather than as green, and the token claim is absent rather than smaller.
 **STILL NOT RELEASABLE ON MY OWN AUTHORITY:** the sweep result is unexplained and
 containment-shaped; a second auditor has not yet had it. **NOT TAGGED. NOT RELEASED. NOT MERGED.**
 
-New candidate head and its changed files are reported in the closing message.
+**Candidate head: `d3f6a9c5da730d9828be5b5751861b92a028cfd2`** — pushed so the second auditor can
+inspect it, and the exact bytes CI run `36168541720` tested. This final recording is **documentation
+only** and changes no executable, test, tooling or workflow file.
 

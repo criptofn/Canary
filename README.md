@@ -104,8 +104,12 @@ runtime dependencies**.
 > saving: the standing MCP payload is genuinely inside the guarded sessions (6/6 guarded
 > advertised it, 0/6 plain) and costs **~438 provider-native tokens** per session — **not** the
 > ~1,432 that a `bytes ÷ 4` derivation implied. One intermittent Windows containment-sweep
-> failure is **open and unexplained** (recorded as open, not re-rolled until green); every other
-> release gate that has run is green, on the code commit `e51b6fc`. Evidence:
+> failure is **open and unexplained** (recorded as open, not re-rolled until green). Provenance of
+> the gates that have run: **`e51b6fc` is the last product-source change** — the audited product
+> fixes and the local release batteries belong to it — while the **latest fully CI-tested candidate
+> is `d3f6a9c`, all six legs green in run
+> [`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720)** (Windows core
+> terminal success: 1,211 tests, 1,206 pass, 0 fail, 5 skipped). Evidence:
 > [`docs/AUDIT-KIT-1.5.md`](docs/AUDIT-KIT-1.5.md) ·
 > [`docs/CLAIM-EVIDENCE-MATRIX-1.5.md`](docs/CLAIM-EVIDENCE-MATRIX-1.5.md) ·
 > [`docs/POST-AUDIT-CLOSURE-1.5.md`](docs/POST-AUDIT-CLOSURE-1.5.md) ·

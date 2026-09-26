@@ -9,10 +9,13 @@ reproduce it, what limits it, and its status. Statuses are the only five permitt
 No claim below is listed as "basically works". Where this release does not have the evidence, the
 status says so — that is the point of the table, not a gap in it.
 
-**State of this candidate:** the audited code commit is `e51b6fc` (all six CI legs green there);
-later commits on the branch are documentation only. **v1.5 is not tagged, not released and not
-merged** — `main` is still `4271e6e` (`v1.4.0`). One intermittent Windows containment-sweep failure
-is **open and unexplained**; the everyday token-saving claim is **withdrawn with no replacement**.
+**State of this candidate:** the candidate head is **`d3f6a9c`**, and GitHub Actions run
+[`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720) tested **exactly those
+bytes** — all six legs green. `e51b6fc` is the **last product-source change**; the commits after it
+changed documentation, test diagnostics, audit tooling and CI plumbing, and **did not change
+product-source behaviour**. **v1.5 is not tagged, not released and not merged** — `main` is still
+`4271e6e` (`v1.4.0`). One intermittent Windows containment-sweep failure is **open and unexplained**;
+the everyday token-saving claim is **withdrawn with no replacement**.
 Full evidence trail: [`POST-AUDIT-CLOSURE-1.5.md`](POST-AUDIT-CLOSURE-1.5.md).
 
 Column notes: **EVIDENCE** names the artefact, not a promise. **REPRODUCE** is the exact command a
@@ -89,18 +92,21 @@ person outside this project runs. **LIMITATION** is part of the claim.
 ## Verification state at this matrix's revision — which commit each result covers
 
 Stated here rather than buried, because an audit kit that hides its own gaps is worthless.
-**Which bytes a result covers is part of the result.** The CI evidence below covers the
-**code** commit `e51b6fc`; every later commit on this branch is documentation only and is
-**not** covered by that run.
+**Which bytes a result covers is part of the result.** Read the right-hand column as the provenance
+of each row: **`e51b6fc` is the last product-source change** — the audited product fixes and the
+local release batteries belong to it — while **`d3f6a9c` is the candidate head**, and the CI result
+belongs to those exact bytes. The commits between them (`c605f2a`, `d3f6a9c`) changed documentation,
+test diagnostics, audit tooling, the productization registration and CI plumbing; **they did not
+change product-source behaviour.**
 
 | Item | Status |
 |---|---|
 | Full productization battery on the final v1.5 tree | **RUN — GREEN.** **104 PASS / 0 FAIL / 3 SKIP**, exit 0, 91.4 min, on `e51b6fc`. An earlier attempt was stopped deliberately at **25 probes / 341 PASS / 3 FAIL / 6 SKIP** so the one real defect it found could be fixed without corrupting the run (`session-evidence/v15-final-verify-productization.log`); the fix is described below, and the battery was then re-run to green |
 | Full unit suite on the final v1.5 tree | **RUN — GREEN.** 1,288 tests / 216 suites: **1,284 pass, 0 fail, 4 skipped**, exit 0, on `e51b6fc` |
 | Source/dist freshness | **RUN.** A forced rebuild was required: the first `tsc -b` reported exit 0 **without re-emitting** the changed module — the documented v1.2 trap. With `tsc -b <pkg> --force`, the emitted file carries the change, and `v12-dist-tripwire.mjs` reports **PASS (38 files)** |
-| CI legs for the v1.5 code commit | **RUN — ALL SIX GREEN** on `e51b6fc` (run [`36131430147`](https://github.com/criptofn/Canary/actions/runs/36131430147)): core ubuntu, core windows, standalone ubuntu/windows/macos, golden proof. The branch head `a803132` is **documentation-only after that commit** and no CI run covers it |
-| Windows core leg reaching terminal SUCCESS for v1.5 | **RUN — SUCCESS** on `e51b6fc`: **1,211 tests, 1,206 pass, 0 fail, 5 skipped**, **170.9 min** against a 300-min cap, **zero `not ok`** lines. The leg is **terminal** — completed, not timed out, not cancelled |
-| The intermittent Windows descendant-sweep failure | **OPEN / UNEXPLAINED / DID NOT RECUR.** One hosted run failed `sweepDescendants finds and kills a live parent's child process` (`sweep killed [7564] but not 2144`, 35,980 ms); the next run was green with **no product fix in between** — the only delta was a **test-failure diagnostic**, which cannot change product behaviour. **Green is not fixed**, a missed descendant is a containment concern, and it is the first thing a second audit should try to reproduce. 14 local attempts (idle, 48-way load, 2-core pinned) could not reach it |
+| CI legs for the v1.5 candidate | **RUN — ALL SIX GREEN** on **`d3f6a9c`**, run [`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720), `completed / success`: core ubuntu, core windows, standalone ubuntu/windows/macos, golden proof. That run tests the **exact candidate head**. The earlier run `36131430147` was green on `e51b6fc`, the last product-source change |
+| Windows core leg reaching terminal SUCCESS for v1.5 | **RUN — SUCCESS on `d3f6a9c`** (run `36168541720`): **1,211 tests, 1,206 pass, 0 fail, 5 skipped, 0 cancelled, 0 todo**, **zero `not ok`** lines, test step ≈ **215.4 min** inside a **224.1-min** job against a **300-min cap**. The leg is **terminal** — completed, not timed out, not cancelled. The previous green run on `e51b6fc` took **170.9 min**, so this leg ran **≈ 31 % slower** and left **≈ 76 min** of headroom; recorded as an operational observation, **not** classified as a product defect and **not** met by raising the timeout |
+| The intermittent Windows descendant-sweep failure | **OPEN / UNEXPLAINED / DID NOT RECUR.** One hosted run failed `sweepDescendants finds and kills a live parent's child process` (`sweep killed [7564] but not 2144`, 35,980 ms); the two runs since were green with **no product fix in between** — the only delta was a **test-failure diagnostic**, which cannot change product behaviour. The sweep test **passed** on `d3f6a9c` and the improved diagnostic produced **zero `cimObservation` output**, because its failure path did not fire: **a second consecutive green observation is not evidence of a fix**. **Green is not fixed**, a missed descendant is a containment concern, and it is the first thing a second audit should try to reproduce. 14 local attempts (idle, 48-way load, 2-core pinned) could not reach it |
 | HARDENED boundary, live | **RUN — GREEN 6/6** on the measured host (`v15-hardened-boundary.mjs`, exit 0). Disposable measurement; a host that cannot confine is `HOST UNSUPPORTED`, never PASS |
 | Mutation / security gates | **RUN — GREEN** inside the battery: master-pass mutation battery, 1.1 P0 trust-boundary mutations, M10.2 adversarial authority, dist-mutation guard, HARDENED provider boundary, architecture closure matrix |
 | Real-world evidence (≥3 non-Canary repos, ≥6 agent tasks, false-done example) | **RUN** — `docs/REAL-WORLD-EVIDENCE-1.5.md`, bundle at `tooling/benchmark/results/session-evidence/v15-realworld/`. Findings in section G below |

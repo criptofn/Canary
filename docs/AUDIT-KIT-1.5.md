@@ -153,9 +153,12 @@ the highest-value thing to attack:
   on the author's machine).
 - It did **not** reproduce locally in **14** attempts (idle; 48 CPU burners on 24 cores; burners with
   the test pinned to 2 cores) — 0 failures, 1.6–2.9 s at worst.
-- The next CI run was **green** — and that is **not** evidence it is fixed: **no product change was
+- The CI runs since were **green** — and that is **not** evidence it is fixed: **no product change was
   made between the failing run and the green one.** The only delta was a **diagnostic in a test
-  failure message**, which cannot alter product behaviour.
+  failure message**, which cannot alter product behaviour. The latest green is run `36168541720` on
+  the candidate head `d3f6a9c`, where the sweep test passed and the improved diagnostic produced
+  **no output at all** because its failure path never fired — a **second consecutive
+  green observation**, still not a repair.
 - **Therefore: green ≠ fixed.** A missed descendant is a **containment** concern: `sweepWin32`
   enumerates one CIM snapshot and can omit a child only if (a) the child is absent from that
   snapshot, (b) its `ParentProcessId` is not the parent being queued, (c) its `CreationDate` is null
@@ -247,7 +250,25 @@ each row states where its fix stops.
 descendant-sweep failure in §7.0. It did not recur; **no product change was made between the failing
 run and the green one**, so the green leg is not evidence of a fix. The failure diagnostic was
 improved so the next occurrence distinguishes the four exclusion shapes — that improves
-**observability only**, and it is **not** claimed to fix anything.
+**observability only**, and it is **not** claimed to fix anything. On the latest run the sweep test
+**passed** and the diagnostic produced **no `cimObservation` output at all**, because its failure path
+never fired: that is **one more green observation, not a repair**, and it is the **second consecutive**
+one.
+
+**WHERE TO REVIEW, EXACTLY.** The candidate under review is **`d3f6a9c`**, and GitHub Actions run
+[`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720) tested **exactly those
+bytes** — all six legs green, including the Windows core leg as a **terminal** success (1,211 tests,
+1,206 pass, 0 fail, 5 skipped, 0 cancelled, 0 todo, zero `not ok`). `e51b6fc` remains the **last
+product-source change** — the audited product fixes and the local release batteries belong to it —
+while `c605f2a` and `d3f6a9c` changed documentation, a test diagnostic, audit tooling, the
+productization registration and CI plumbing, with **no product-source behaviour change**.
+
+**Operational observation, recorded and deliberately not explained away:** the Windows core leg ran
+**224.1 min** on `d3f6a9c` against **170.9 min** on `e51b6fc` — about **31 % slower**, leaving
+**≈ 76 min** before the **300-min** cap (the cap is unchanged, and the timeout was **not** raised).
+Whether that is runner variance, load, or something in these bytes is **not established here**, and
+it is **not** classified as a product defect without evidence. It is recorded because a leg that
+times out would look like a code failure when it is not.
 
 **UNSUPPORTED / UNMEASURED claims** — no everyday token-saving percentage (withdrawn, no
 replacement); no correctness advantage (neither arm was more correct); no general real-world
@@ -256,10 +277,7 @@ overhead justification (H1–H5 returned `NOT PROVEN` on correct agent code); Cu
 performed.
 
 **Release state:** **NOT TAGGED, NOT RELEASED, NOT MERGED.** `main` is `4271e6e` (`v1.4.0`, the
-latest published artifact). The audited code commit is `e51b6fc` — **all six CI legs green there**,
-including the Windows core leg as a **terminal** success (1,211 tests, 1,206 pass, 0 fail, 5 skipped,
-170.9 min of a 300-min cap). Every later commit on this branch is **documentation only** and is not
-covered by that run.
+latest published artifact).
 
 **What has run, so you do not have to wonder:** full unit suite (1,284 pass / 0 fail / 4 skipped),
 productization battery (104 PASS / 0 FAIL / 3 SKIP), mutation/security gates, HARDENED live 6/6,
