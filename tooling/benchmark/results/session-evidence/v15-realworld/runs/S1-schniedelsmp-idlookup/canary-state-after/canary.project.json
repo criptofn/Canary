@@ -1,0 +1,25 @@
+{
+  "schema": "canary-project/1",
+  "scopes": [
+    {
+      "path": ".",
+      "checks": [
+        {
+          "name": "gradle-test",
+          "kind": "tests",
+          "argv": [
+            "C:/Program Files/Eclipse Adoptium/jdk-21.0.12.101-hotspot/bin/java.exe",
+            "-Xmx64m",
+            "-Xms64m",
+            "-javaagent:C:/Users/Johannes/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/lib/agents/gradle-instrumentation-agent-8.13.jar",
+            "-Dorg.gradle.appname=gradle",
+            "-classpath",
+            "C:/Users/Johannes/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/lib/gradle-gradle-cli-main-8.13.jar",
+            "org.gradle.launcher.GradleMain",
+            "test"
+          ]
+        }
+      ]
+    }
+  ]
+}

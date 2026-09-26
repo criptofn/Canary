@@ -74,24 +74,47 @@ Canary's vocabulary to use it.
 ## Install
 
 ```bash
-npm install -g ./canary-rn-cli-1.3.0.tgz     # Node.js 22 or newer
-canary --version                             # canary 1.3.0
+npm install -g ./canary-rn-cli-1.4.0.tgz     # Node.js 22 or newer
+canary --version                             # canary 1.5.0
 ```
 
 Download that tarball from the
-[v1.3.0 release](https://github.com/criptofn/Canary/releases/tag/v1.3.0) and check
+[v1.4.0 release](https://github.com/criptofn/Canary/releases/tag/v1.4.0) and check
 it against the published `.sha256`. It is ONE self-contained bundle with **zero
 runtime dependencies**.
 
-> **Honest version note.** `v1.3.0` is the newest *published* artifact: the tag,
-> the GitHub release and the tarball below were all verified against it on
-> 2026-09-20. This document describes the **source tree**, which is the `v1.4.0`
-> candidate; build from source for exactly what is described here:
-> `npm ci && npm run build`, then `node apps/cli/dist/src/main.js`. **No `v1.4.0`
-> artifact has been published** — there is no tarball, tag or GitHub release for
-> it, so the download above does not contain every behaviour described below.
-> v1.3's own bytes are described, with their measured numbers and their known
-> limitations, in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
+> **Honest version note.** **`v1.4.0` is the newest *published* artifact** — tag `v1.4.0` →
+> `4271e6e`, the tip of `main`; the release, its tarball and its sidecar were verified
+> against it, and the published bytes and digest are recorded in
+> [`docs/RELEASE-1.4.md`](docs/RELEASE-1.4.md). This document describes the **source tree**,
+> which is the **unreleased v1.5 candidate**: under audit, **not tagged, not released, not
+> merged**. Build from source for exactly what is described here: `npm ci && npm run build`,
+> then `node apps/cli/dist/src/main.js`. v1.3's own bytes are described, with their measured
+> numbers and their known limitations, in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
+
+> **v1.5 status, stated where you will see it first: the token-saving headline is WITHDRAWN.**
+> The v1.5 candidate published `83.21 % of Plain (−16.79 %)` for the everyday path. An
+> independent audit found that aggregate pooled a cell measured by the **fallback estimator**
+> rather than the declared provider-native ledger, and the replacement run measured a tree
+> that was **edited while it ran**. Under the corrected rule
+> ([`tooling/benchmark/eligibility.mjs`](tooling/benchmark/eligibility.mjs)) the **two COMPLETE
+> runs disagree in sign** — 80.74 % (−19.26 %) and 102.91 % (**+2.91 %**) — and their spread is
+> larger than any delta pooled across them. **v1.5 therefore claims no token-saving percentage
+> at all**: not a smaller one, not a different one. What survives is a measured **cost**, not a
+> saving: the standing MCP payload is genuinely inside the guarded sessions (6/6 guarded
+> advertised it, 0/6 plain) and costs **~438 provider-native tokens** per session — **not** the
+> ~1,432 that a `bytes ÷ 4` derivation implied. One intermittent Windows containment-sweep
+> failure is **open and unexplained** (recorded as open, not re-rolled until green). Provenance of
+> the gates that have run: **`e51b6fc` is the last product-source change** — the audited product
+> fixes and the local release batteries belong to it — while the **latest fully CI-tested candidate
+> is `d3f6a9c`, all six legs green in run
+> [`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720)** (Windows core
+> terminal success: 1,211 tests, 1,206 pass, 0 fail, 5 skipped). Evidence:
+> [`docs/AUDIT-KIT-1.5.md`](docs/AUDIT-KIT-1.5.md) ·
+> [`docs/CLAIM-EVIDENCE-MATRIX-1.5.md`](docs/CLAIM-EVIDENCE-MATRIX-1.5.md) ·
+> [`docs/POST-AUDIT-CLOSURE-1.5.md`](docs/POST-AUDIT-CLOSURE-1.5.md) ·
+> [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
+
 
 ## Use your coding agent normally
 
@@ -173,9 +196,11 @@ same answer compactly and for free.
 Not part of the ordinary loop, and **measured to cost more than the everyday path**
 (see [the arm map](#what-the-benchmarks-actually-show): the `work` → `finish`
 ceremony ran at **177.8 %** of a plain agent's tokens, where the everyday shape ran
-at **92.7 %**, with identical correctness). Reach for it when a change needs
-evidence rather than a green suite — for example when someone else's work must be
-verified before it reaches your branch.
+at **92.7 %** in the **historical v1.3** measurement, with identical correctness).
+That 92.7 % is **historical and superseded** — the v1.5 everyday figure is
+**withdrawn**, so no current everyday percentage exists. Reach for the candidate path
+when a change needs evidence rather than a green suite — for example when someone
+else's work must be verified before it reaches your branch.
 
 ```bash
 # operator, BEFORE the handoff — declare each stated requirement, then bind it
@@ -234,7 +259,13 @@ Agents are reported by what they can actually do, not by what we wish they could
 capability is reported the same way: **`LOCAL`** is what this build can honestly
 claim today, and `HARDENED` is not available yet
 ([why](docs/CAPABILITY-LEVELS.md), and
-[what a real boundary would require](docs/TRUST-ARCHITECTURE.md)). Full matrix,
+[what a real boundary would require](docs/TRUST-ARCHITECTURE.md)). **`LOCAL`
+proof is same-user and operator-selected**: the caller who runs `canary setup
+--yes` chooses the plan and the starting commit that are checked, and nothing
+checks that the caller is not the worker — so a worker with your authority can
+re-run `setup` and complete against a plan and baseline it sealed itself.
+`HARDENED` is the worker-independent path (a broker with a different OS
+identity), and it is not available in this build. Full matrix,
 including what is deliberately *not* supported:
 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md). Upgrading an existing
 installation: [docs/MIGRATION-1.0-TO-1.1.md](docs/MIGRATION-1.0-TO-1.1.md).
@@ -249,13 +280,24 @@ claims.
 
 ## What the benchmarks actually show
 
-> **What it costs, in one paragraph.** Canary can cut model-token use by up to **87 %**.
+> **What it costs, in one paragraph.** There is **no supported everyday token-saving figure** — the
+> one this release published is withdrawn, and the corrected data cannot resolve an effect. What can
+> still be said is narrower and it is stated with its own limit below: on short, well-bounded
+> **confined** tasks in our replicated experiments, measured savings ranged from roughly **27 % to
+> 87 %** (best pairing, not typical, not universal).
 >
-> On short, well-bounded confined tasks in our replicated experiments, measured savings ranged from
-> roughly **27 % to 87 %**.
->
-> On the measured authored everyday workflow, Canary used **7.3 % fewer model tokens than Plain in
-> aggregate** at equal measured correctness, while adding independent completion verification.
+> On the everyday workflow, this release **WITHDRAWS its token-saving figure**. The v1.5 candidate
+> published `83.21 % of Plain (-16.79 %)`; an independent audit found the aggregate pooled a cell
+> measured by the **fallback estimator** rather than the declared provider-native ledger, and this
+> closure found the same class of defect again in the follow-up run (a tree edited mid-measurement).
+> Under the corrected accounting there are now **two COMPLETE runs and they disagree in sign**:
+> **80.74 % (-19.26 %)** and **102.91 % (+2.91 %)** - a **22.17-point spread** against a **44.3 %
+> drift in the plain arm alone**. Pooling them gives 89.81 % (-10.19 %), which is **smaller than the
+> spread between runs of the identical configuration**; the aggregate probe prints that warning
+> itself. **No saving claim is supported, and none is made.** The standing MCP payload IS now inside
+> the measurement and costs ~438 tokens (measured, not derived), so the **accounting** is fixed -
+> the **saving** is not supported. See
+> [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
 >
 > **The qualification, which is part of the claim, not a footnote to it:**
 >
@@ -265,19 +307,23 @@ claims.
 > - **87 % is not typical and not universal.** It is the best pairing in a 3×3 replication of the
 >   single most favourable cell, not an average, and the long stateful task is repeatedly *more*
 >   expensive than Plain under confined transport;
-> - **Canary does not always save tokens.** The ≤75 % aggregate target was not met, and this release
->   makes no such claim;
-> - per task, the everyday saving ranges from **17.1 % lower to essentially parity (+0.02 %)** — it is
->   not uniform.
-> - **the 92.7 % does not include one recurring cost, and that is stated here rather than left in an
->   appendix.** The tool server `setup` registers is re-advertised on **every turn** — measured from
->   the real server over the real transport at **5,726 bytes per turn** (1,475 B of instructions +
->   4,251 B of tool definitions), of which **1,923 B (33.6 %) is expert-only ceremony**
->   (`canary_work` / `canary_finish`) that an everyday user never calls
->   ([`tooling/probes/v13-standing-context.mjs`](tooling/probes/v13-standing-context.mjs)). The
->   benchmark harness launches the agent without the MCP server, so **the real everyday footprint is
->   somewhat worse than 92.7 %, not better.** Removing Canary's entire standing footprint would return
->   about **2 points**, which is why ≤ 75 % is neither claimed nor reachable by trimming Canary itself.
+> - **Canary does not always save tokens.** The ≤75 % aggregate target was not met (the best measured
+>   everyday aggregate is **withdrawn** and no current figure is claimed), and this release makes no such claim;
+> - per task, the **withdrawn** generation was not uniform: it ranged from **43.8 % MORE expensive to
+>   38.7 % cheaper**, and on the smallest fixture Canary cost more in **both** of those runs. Those
+>   per-cell observations stand as observations; the **aggregates** built from them
+>   (**−19.3 %** and **−13.4 %**) are **superseded**, because that dataset is the one the audit
+>   disqualified. The corrected pair of COMPLETE runs is **−19.26 %** and **+2.91 %** — read those,
+>   not these.
+> - **the standing payload is now accounted for — and it was overstated before.** The tool server
+>   `setup` registers is re-advertised on **every turn** — measured from the real server over the real
+>   transport at **5,726 bytes** (1,475 B of instructions + 4,251 B of tool definitions), of which
+>   **1,923 B (33.6 %) is expert-only ceremony** (`canary_work` / `canary_finish`) that an everyday user
+>   never calls ([`tooling/probes/v13-standing-context.mjs`](tooling/probes/v13-standing-context.mjs)).
+>   Its cost is **~438 tokens per session, MEASURED provider-natively** — **not** the ~1,432 that
+>   `bytes ÷ 4` implied, which overstated it **3.3×**. v1.5 now passes `--mcp-config` in the benchmark,
+>   in the measurement (proven in-session), so the accounting is now right; the historical 92.7 % did not
+>   include it. The v1.5 saving figure is nevertheless **withdrawn** — see the corrected data above.
 
 **The arm map — which Canary *shape* costs what.** Same three fixtures, same
 model, same starting bytes, same hidden oracle. **`plain` means not using Canary at
@@ -296,21 +342,36 @@ understated the result: the `plain` arm was never gated.)
 | **total** | **409,824** | **379,792 — 92.7 %** | **728,564 — 177.8 %** | **642,861 — 156.9 %** |
 | correctness | 12/12, 15/15, 406/406 | *same* | *same* | *same* |
 
+*(The table above is the HISTORICAL v1.3 measurement and is kept as a record. It is not Canary's
+current footprint — see the bullets.)*
+
 Read it this way, because it is the only reading the numbers support:
 
-- **HISTORICAL MEASUREMENT (v1.3, one recorded run per cell): the everyday shape — install once,
-  then use your agent normally — used 7.3 % fewer model tokens than Plain in aggregate (92.7 % of
-  Plain) at equal measured correctness, with no false done.** Per task the measured range is
-  **17.1 % lower to essentially parity (+0.02 %)**: bug-sum was 100.02 % of Plain, i.e. technically
-  0.02 % *above* it. The saving is not uniform and this README does not claim it is.
-  The long stateful task does **not** explode on this shape (17 turns, 96.1 % of Plain).
-  **KNOWN LIMITATION — part of this claim, not a footnote to it:** that measurement launched the
-  agent **without** the MCP server, so it excludes a standing payload of **5,726 bytes per turn**
-  (the next-but-one bullet measures it). **The true current everyday footprint is therefore somewhat
-  worse than 92.7 %, and "7.3 % fewer tokens" must not be quoted as the current, complete everyday
-  result.** No replacement percentage is stated here, because producing one would require a new fair
-  measurement that **has not been run** — and inventing a number without it is the one thing this
-  project does not do.
+- **HISTORICAL (v1.3, one recorded run per cell): 92.7 % of Plain, −7.3 % in aggregate**, at equal
+  measured correctness with no false done. Per task that run measured **17.1 % lower to essentially
+  parity (+0.02 %)**. **It is historical, and it understates Canary's cost:** that run launched the agent
+  **without** the MCP server, so it excluded a standing payload of 5,726 bytes per turn.
+- **CURRENT (v1.5): NO TOKEN-SAVING CLAIM IS MADE. The earlier v1.5 figure was withdrawn.** The
+  candidate published `83.21 % of Plain (-16.79 %)`. An independent audit showed the aggregate pooled a
+  cell whose tokens came from the **fallback estimator** instead of the declared provider-native ledger;
+  this closure then found the same class of defect in the replacement run, whose **six cells carry five
+  different instrument digests** because the tree was edited while it measured. Under the corrected
+  contract (`tooling/benchmark/eligibility.mjs`) a cell counts only if its run completed on the declared
+  ledger, and a run counts only if every cell is eligible **and all cells share one instrument**;
+  anything else is reported **INCOMPLETE** and contributes no ratio at all.
+  What the corrected data shows: there are **two COMPLETE runs and they disagree in sign** —
+  **−19.26 %** (80.74 %) and **+2.91 %** (102.91 %, Canary *more* expensive) — a **22.17-point spread**
+  against a **44.3 % drift in the plain arm alone** (376,688 → 543,518) on identical configuration.
+  Pooling them gives **−10.19 %**, which is **smaller than the spread between runs of the identical
+  configuration**, and the aggregate probe prints that warning itself. The post-closure run `r4` is
+  also the only one whose tree was **frozen** while it measured, so it is the only one whose six cells
+  are unambiguously one experiment.
+  **This benchmark, at n=1 per cell on Canary-authored fixtures, cannot resolve an effect of this size
+  in either direction.** Method, every cell and every limit:
+  [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
+- **The standing payload costs ~438 tokens per session, MEASURED — not the ~1,432 that `bytes ÷ 4`
+  implied.** JSON tool schemas tokenise far better than four bytes per token, so the derived figure
+  overstated the payload by **3.3×**. `bytes ÷ 4` must not be quoted as tokens.
 - **The ceremony costs more than it saves** (+77.8 %) with identical correctness,
   which is why it is documented here as expert mode rather than the ordinary path.
 - **The confined transport is a trade, not a win**: 2–6× cheaper on short,
@@ -318,8 +379,10 @@ Read it this way, because it is the only reading the numbers support:
   above is measured WITHOUT the opt-in per-batch check; see the full benchmark
   below for what that flag does.)
 
-**The ≤75 % token target is not met in aggregate — but it IS met on two cells, replicated.** The everyday
-shape's best is 92.7 %. A full benchmark of the confined path with the opt-in per-batch check puts it at
+**The ≤75 % token target is not met — and since the v1.5 withdrawal there is no current everyday figure
+at all.** The historical 92.7 % excluded the standing payload, and the v1.5 replacement was withdrawn
+(see above), so the everyday path currently has **no supported aggregate number**.
+A full benchmark of the confined path with the opt-in per-batch check puts it at
 **86.8 % of plain by median, 110.5 % by mean** — about parity, not a saving — with equal correctness on every
 cell that could run at all. Per cell the picture is sharper and more favourable: on the two short bound cells
 it beats the target in **all six replicated runs** (**13.1-36.5 %** and **54.0-73.3 %** of plain), and the
@@ -331,8 +394,10 @@ because either one alone hides the other.
 > benchmark harness's own printed words — *"an experiment outside the configuration the fixture was
 > authored and validated for; do not present it as that fixture's measurement."* That applies to **both**
 > arms equally, so the ratios are like-for-like, but no absolute confined figure here is a fixture's
-> validated measurement. The everyday/`guarded` numbers are the exception: `guarded` **is** the arm those
-> fixtures were authored for, which is why the 92.7 % is the stronger of the two measurements.
+> validated measurement. The everyday/`guarded` numbers were the exception in *design*: `guarded` **is**
+> the arm those fixtures were authored for. That design advantage did **not** survive measurement — the
+> everyday aggregate is **withdrawn** and no current figure is claimed — so the historical **92.7 %** is
+> quoted only as history, never as the stronger current measurement.
 
 Short version, with the full ledgers linked below — and stated the way the
 evidence supports it:
@@ -379,7 +444,10 @@ the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`]
 What Canary does **not** claim is as much a part of the product as what it does.
 
 - **`LOCAL` is not an OS isolation boundary.** A same-UID worker can replace the
-  local root of trust; those limits are documented, not papered over
+  local root of trust, **or simply re-run `canary setup --yes`** and make a
+  different plan and starting commit the ones that are checked — `setup` never
+  checks the caller's identity, so this is expected onboarding behaviour at
+  `LOCAL`, not a defect. Those limits are documented, not papered over
   ([`docs/CAPABILITY-LEVELS.md`](docs/CAPABILITY-LEVELS.md)).
 - **`HARDENED` is not available in this release.** The provider/broker
   architecture exists and refuses to serve without a proven separation, but

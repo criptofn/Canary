@@ -49,6 +49,17 @@ position are in [`docs/RELEASE-1.4.md`](docs/RELEASE-1.4.md).
   complete result**, and that removing Canary's entire standing footprint would return about
   2 points — which is why ≤ 75 % is not claimed. **No replacement percentage is offered**, because
   stating one requires a new fair measurement that has not been run.
+  > **SUPERSEDED IN v1.5 — that measurement has now been run.** It is kept here as the record of the
+  > position at v1.4. The v1.5 result: the standing MCP payload is now **inside** the measurement
+  > (proven in-session, not merely configured — `agent.mcpToolsAdvertised` true for 3/3 guarded
+  > trials, false for 0/3 plain), its cost is **measured provider-natively at ~438 tokens per
+  > session** — not the ~1,432 that `bytes ÷ 4` implied, which **overstated it 3.3×** — and the
+  > everyday path measured **83.21 % of Plain (−16.79 %)** across two full runs at equal correctness
+  > with no false done in either arm. Per task the range is **+43.8 % MORE expensive to −38.7 %
+  > cheaper**; `bug-sum` cost more with Canary in **both** runs; the plain arm itself drifted **27 %**
+  > between the two runs on identical configuration, so the *direction* is measured and the *size* is
+  > not stable (**n=1 per cell**). The ≤ 75 % target remains **not met**. See
+  > [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
 - **Everyday-path messages are translated, not weakened.** `setup`'s trust-store refusal, its
   seal refusal and `result` no longer open with internal vocabulary (`REFUSED — <raw throw>`,
   "sealed in the trust store", "no sealed checks, no proof"); the last-resort handler no longer

@@ -81,6 +81,125 @@ function killIfAlive(pid: number): void {
   } catch { /* already gone */ }
 }
 
+/**
+ * v1.5 post-audit — DIAGNOSTIC ONLY, used exclusively to build the message of a FAILING assertion.
+ *
+ * WHY. `sweepDescendants finds and kills a live parent's child process` failed once on the hosted
+ * Windows runner (`sweep killed [7564] but not 2144`, 35,980 ms; 894 ms on a dev machine) and never
+ * reproduced in 14 local attempts. The old message named only the sweep result, the liveness of the
+ * two processes and the platform, which cannot say WHICH exclusion happened. `sweepWin32` dequeues a
+ * child only if it is (a) present in its one CIM snapshot, (b) keyed under the parent PID it is
+ * expanding (`[int]$p.ParentProcessId`), (c) carrying a non-null `CreationDate` at or after the cut
+ * (`spawnedAtMs - 60_000`, the explicit `$c.CreationDate -and` guard being the null case) — and it
+ * lands in `killed` only if (d) its `Stop-Process` succeeded. A blind re-run of this test could
+ * therefore return green or red without a reason, which is the false-red/false-green pattern this
+ * project exists to remove.
+ *
+ * WHAT THIS ADDS, and nothing else: on failure it takes a FRESH, throwaway `Get-CimInstance`
+ * Win32_Process observation for the two known PIDs and prints ProcessId / ParentProcessId /
+ * CreationDate / presence for each, alongside the liveness the test already measures, the sweep
+ * input, the expected child and the cut the sweep used. `CreationDate` is immutable for a live
+ * process, so a fresh read of a still-running child is comparable with the filter that rejected it.
+ *
+ * WHAT IT MUST NEVER DO: change an assertion, a threshold, a timeout or a kill; turn a failure into
+ * a pass; or be consulted by product code. It cannot: it runs only after a check has already failed,
+ * and its output is only ever the text of that failure.
+ */
+type CimRow = { pid: number; present: boolean; ppid: number | null; createdIso: string | null };
+
+function parseCimLine(line: string): CimRow | null {
+  const m = /^row=(\d+);present=(true|false)(?:;ppid=(-?\d+);creationDate=(.*))?$/.exec(line.trim());
+  if (m === null) return null;
+  const pid = Number(m[1] ?? '');
+  if (!Number.isFinite(pid)) return null;
+  const present = m[2] === 'true';
+  const ppid = m[3] === undefined ? null : Number(m[3]);
+  const created = m[4] === undefined || m[4] === 'null' ? null : m[4];
+  return { pid, present, ppid: ppid !== null && Number.isFinite(ppid) ? ppid : null, createdIso: created };
+}
+
+/** Fresh, throwaway CIM observation. Never throws: a diagnostic that fails must say so, not mask
+ *  the failure it was collected for. */
+function cimObservation(pids: number[]): string[] {
+  if (process.platform !== 'win32') {
+    return ['cimObservation: not applicable (sweepWin32 did not run on this platform)'];
+  }
+  const script =
+    "$ErrorActionPreference='SilentlyContinue';" +
+    '$all=@(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_ -ne $null });' +
+    `Write-Output ('snapshotCount=' + $all.Count);` +
+    `foreach($want in @(${pids.map((p) => Math.trunc(p)).join(',')})){` +
+    `$hit=$all | Where-Object { [int]$_.ProcessId -eq $want } | Select-Object -First 1;` +
+    `if($null -eq $hit){ Write-Output ('row=' + $want + ';present=false') } else {` +
+    `$cd=$hit.CreationDate;` +
+    `$cdText=if($null -eq $cd){'null'}else{([DateTime]$cd).ToUniversalTime().ToString('o')};` +
+    `Write-Output ('row=' + $want + ';present=true;ppid=' + [int]$hit.ParentProcessId + ';creationDate=' + $cdText) } }`;
+  try {
+    const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
+      { timeout: 30_000, encoding: 'utf8', windowsHide: true });
+    if (r.error) return [`cimObservation: unavailable (${r.error.message})`];
+    if (r.status !== 0) return [`cimObservation: unavailable (powershell exit ${String(r.status)})`];
+    const lines = (r.stdout ?? '').split('\n').map((l) => l.trim()).filter((l) => l !== '');
+    return lines.length > 0 ? lines : ['cimObservation: empty output'];
+  } catch (e) {
+    return [`cimObservation: unavailable (${e instanceof Error ? e.message : String(e)})`];
+  }
+}
+
+/** Which of the four exclusion shapes the fresh observation is consistent with. Observation only —
+ *  it never asserts, and where two shapes remain possible it says both. */
+function shapeFromObservation(row: CimRow | null, parentPid: number,
+  cutIso: string, childAlive: boolean): string {
+  if (row === null) return 'shape: could not parse the row';
+  if (!row.present) {
+    return childAlive
+      ? 'shape (a) SNAPSHOT MISS: the child is ALIVE by tasklist but absent from a fresh CIM '
+        + 'snapshot, so the sweep had nothing to dequeue'
+      : 'shape: absent from the fresh snapshot and not alive (it exited before the sweep)';
+  }
+  if (row.createdIso === null) {
+    return 'shape (c-null) CREATIONDATE NULL: `$c.CreationDate -and ...` rejects a null date';
+  }
+  const created = new Date(row.createdIso);
+  const cut = new Date(cutIso);
+  if (Number.isFinite(created.getTime()) && created.getTime() < cut.getTime()) {
+    return `shape (c-cut) CREATIONDATE BEFORE CUT: child ${row.createdIso} < cut ${cutIso} — the `
+      + '61-second clock slack is the only thing that can reject it here';
+  }
+  if (row.ppid !== parentPid) {
+    return `shape (b) PARENT MISMATCH: fresh snapshot says ParentProcessId=${String(row.ppid)}, `
+      + `the sweep expanded ${parentPid}`;
+  }
+  return childAlive
+    ? 'shape (d) or a snapshot difference: present with the right parent and a date after the cut, '
+      + 'so the sweep could have enqueued it — either its `Stop-Process` failed, or the snapshot the '
+      + 'sweep took differed from this one'
+    : 'present with the right parent and date, and no longer alive: it died without appearing in '
+      + '`killed` (killed between the sweep and this observation, or the sweep\'s report lost it)';
+}
+
+/** The full failure message for the Windows assertion: everything needed to decide WHY. */
+function sweepFailureDiagnostic(parentPid: number, childPid: number, spawnedAtMs: number): string {
+  const cutIso = new Date(spawnedAtMs - 60_000).toISOString();
+  const parts: string[] = [
+    `sweepInputParentPid=${parentPid}`,
+    `expectedChildPid=${childPid}`,
+    `spawnedAtMs=${spawnedAtMs}`,
+    `cutUsedBySweep=${cutIso}`,
+    `aliveAtAssertionParent=${String(isAlive(parentPid))}`,
+    `aliveAtAssertionChild=${String(isAlive(childPid))}`,
+  ];
+  const observed = cimObservation([parentPid, childPid]);
+  for (const line of observed) {
+    parts.push(`cimObservation ${line}`);
+    const row = parseCimLine(line);
+    if (row !== null && row.pid === childPid) {
+      parts.push(shapeFromObservation(row, parentPid, cutIso, isAlive(childPid)));
+    }
+  }
+  return parts.join(' | ');
+}
+
 describe('audit F5 — sweep mechanism (live parent, positive proof)', () => {
   it('sweepDescendants finds and kills a live parent\'s child process', async () => {
     // Intermediate parent that spawns a child then sits on a timer, so the
@@ -105,10 +224,36 @@ describe('audit F5 — sweep mechanism (live parent, positive proof)', () => {
     });
     try {
       assert.ok(isAlive(kidPid), 'precondition: child should be alive before sweep');
-      const res = sweepDescendants(mid.pid, Date.now() - 1000);
-      assert.equal(res.failed, false, 'sweep must not fail');
+      // The sweep's own clock: `cut = spawnedAtMs - 60_000` inside sweepWin32.
+      const spawnedAtMs = Date.now() - 1_000;
+      const res = sweepDescendants(mid.pid, spawnedAtMs);
+      /*
+       * v1.5 post-audit: this assertion fired ONCE on the hosted Windows runner and never locally.
+       *
+       *   error: 'sweep killed [7564] but not 2144'   duration_ms: 35980   (894 ms on a dev machine)
+       *
+       * `killed` holding ONE pid is consistent with the BFS never having enqueued the child, which
+       * `sweepWin32` can only cause in four ways: the child is missing from the CIM snapshot, its
+       * ParentProcessId is not the intermediate parent, its CreationDate is null or falls before the
+       * cut (`spawnedAtMs - 60_000`), or its `Stop-Process` failed. The old message could not tell
+       * those apart, so a blind re-run could only produce a green or a red WITHOUT A REASON.
+       *
+       * The failure message now carries the whole sweep result, the liveness of both processes at
+       * assertion time, the sweep's input and cut, and a fresh throwaway `Get-CimInstance`
+       * observation of both PIDs with the shape it is consistent with. It is built ONLY when an
+       * assertion is about to fail. DIAGNOSTIC ONLY — no assertion, threshold, timeout or kill was
+       * changed, and nothing here can turn a failure into a pass.
+       */
+      assert.equal(res.failed, false,
+        'sweep must not fail'
+        + (res.failed ? ` | diagnostic: ${sweepFailureDiagnostic(mid.pid!, kidPid, spawnedAtMs)}` : ''));
       assert.ok(res.killed.includes(kidPid),
-        `sweep killed ${JSON.stringify(res.killed)} but not ${kidPid}`);
+        `sweep killed ${JSON.stringify(res.killed)} but not ${kidPid}`
+        + ` | result=${JSON.stringify(res)}`
+        + ` | platform=${process.platform}`
+        + (res.killed.includes(kidPid)
+          ? ''
+          : ` | diagnostic: ${sweepFailureDiagnostic(mid.pid!, kidPid, spawnedAtMs)}`));
       assert.ok(await untilDead(kidPid), `child ${kidPid} survived the sweep`);
     } finally {
       killIfAlive(kidPid);

@@ -292,6 +292,51 @@ const STEPS = [
   // says so with explicit SKIP lines — a SKIP is never a PASS, and `gatingMeasured` in the capability
   // table is exactly what that arm is evidence for.
   ['v1.4 codex stop hook (a second measured completion gate)', process.execPath, ['tooling/probes/v14-codex-stop-hook.mjs'], {}],
+  // v1.5 §4A/§4E: the FIRST RUN as a journey, against a real installed artifact in a scratch repo —
+  // install -> setup -> verified completion -> FAILED completion (block decision + evidence path that
+  // exists) -> repair -> uninstall, plus the five first-run error paths. It asserts semantics and
+  // required actions, never prose, so the wording can improve without turning the chain red. It
+  // reports a source-side improvement the built artifact predates as `PENDING-REBUILD … NOT a pass`
+  // rather than asserting it, so the chain stays honest between a source edit and the next build.
+  ['v1.5 first run (install -> setup -> gate -> fail -> repair -> uninstall, asserted)', process.execPath, ['tooling/probes/v15-first-run.mjs'], {}],
+  // v1.5 POST-AUDIT (independent GPT-5.6 audit of a004f55). Each of these is the focused proof for a
+  // confirmed finding, registered here so the release battery re-checks the finding rather than
+  // trusting the commit message that fixed it. All three are deterministic and cost no model tokens.
+  //   BLOCKERS 1+7: a worker that REWRITES an existing check must not inherit independent authority,
+  //   and a legitimate check outside a test path must not be a false red. LESS false red, no MORE
+  //   false green — one predicate caused both, so one probe covers both.
+  ['v1.5 check provenance (rewritten existing check is worker-authored; sealed-script check is not a false red)', process.execPath, ['tooling/probes/v15-check-provenance.mjs'], {}],
+  //   BLOCKER 2: a token headline may only rest on completed runs using the declared provider-native
+  //   ledger, and on cells that all share ONE instrument. Prints NO ratio for an incomplete run.
+  ['v1.5 token aggregate contract (ineligible cells and unstable instruments cannot enter a headline)', process.execPath, ['tooling/probes/v15-everyday-aggregate.mjs'], {}],
+  //   BLOCKER 6: the sealed step must resolve the toolchain the project's own checks need, and must
+  //   attribute an environment failure to CANARY rather than to the project.
+  ['v1.5 sealed toolchain (the environment names the missing tool instead of blaming the project)', process.execPath, ['tooling/probes/v15-sealed-toolchain.mjs'], {}],
+  //   BLOCKER 4: every attempt gets immutable identity. MEASURED cause: the run-task probe wrote fixed
+  //   filenames into one directory per task, so a SECOND attempt truncated the FIRST's stream, ledger,
+  //   record and diff while leaving behind files it never wrote. The result was a directory that looked
+  //   like one run and was two. This probe refuses an occupied attempt and proves the earlier attempt's
+  //   bytes are untouched.
+  ['v1.5 attempt provenance (one attempt per directory; an occupied attempt is refused, never mixed)', process.execPath, ['tooling/probes/v15-attempt-provenance.mjs'], {}],
+  //   THE LAST WINDOWS CI BLOCKER, made portable. The Windows core leg failed one test because it
+  //   compared the child's PATH against the authorized directory AS THE TEST SPELLED IT, while the
+  //   product seals `fs.realpathSync.native(dir)` — the same class as the v1.4 short-name failure:
+  //   one assertion comparing two spellings of one directory. 8.3 short names are disabled on this
+  //   host, so a JUNCTION stands in for the short name and produces the identical shape: two
+  //   spellings, one directory. The probe proves the sealed child receives the directory, that a RAW
+  //   comparison would call it absent (the CI symptom, reproduced without a short name), and that a
+  //   directory which was never authorized is still refused.
+  ['v1.5 path spelling (two spellings of one directory are not "absent")', process.execPath, ['tooling/probes/v15-path-spelling.mjs'], {}],
+  //   THE SECOND-AUDITOR FINDING, as a tripwire. A reviewer found the public audit set telling two
+  //   stories at once: the matrix still carried the withdrawn `83.21 % / -16.79 %` as SUPPORTED in one
+  //   section and WITHDRAWN in another; the audit kit still asked for an attack on that number; the
+  //   closure document's last paragraph declared gates NOT RUN that had gone green; the README still
+  //   called v1.3.0 the newest published artifact. Every one was caught by a human reading carefully.
+  //   This probe checks the CONTEXT of each withdrawn figure (a marker within ±4 lines), the absence of
+  //   statements the closure made false, and the presence of the current truth in the documents'
+  //   words. It cannot check whether prose is true; it checks that the documents do not contradict
+  //   each other about what this project claims.
+  ['v1.5 evidence consistency (the public audit set tells one truth)', process.execPath, ['tooling/probes/v15-evidence-consistency.mjs'], {}],
   // v1.3: the AGENT side of the integration — `claude mcp list` proves the agent reads Canary's entry
   // and reports honestly whether it honours it. Host-bound: an explicit SKIP where no CLI exists, and a
   // SKIP is never a pass.
@@ -309,7 +354,8 @@ const STEPS = [
   // whether the <=75% token target is reachable by removing turns. Costs no model tokens.
   ['v1.3 gate cost (how often does the gate refuse, and what would removing it save?)', process.execPath, ['tooling/probes/v13-gate-cost.mjs'], {}],
   // v1.3: the docs describe the SIMPLER product — the everyday path leads, and the candidate path is
-  // never presented without its measured cost (177.8% vs 92.7%).
+  // never presented without its measured cost (177.8% vs the everyday figure, which v1.5 re-measured
+  // at 83.21% WITH the standing MCP payload included; the historical 92.7% excluded it).
   ['v1.3 doc first path (do the docs still lead with the everyday path?)', process.execPath, ['tooling/probes/v13-doc-first-path.mjs'], {}],
   // v1.3: the property the invisible candidate/promotion lifecycle exists to provide, attacked directly —
   // a forged green checkpoint record on a repository whose checks fail must not allow a completion.

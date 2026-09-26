@@ -1,0 +1,455 @@
+{
+  "schema": "canary-benchmark-trial/2",
+  "label": "v15-everyday-r3-stateful-replay-guarded-1",
+  "task": "stateful-replay",
+  "arm": "guarded",
+  "variant": "normal",
+  "instrument": {
+    "version": "bench-81a356e2d0b4",
+    "hash": "81a356e2d0b435ecc47cf8f24a9eededa70af0ed805ab52c8f742e12f9746910",
+    "files": 243,
+    "product": {
+      "files": 37,
+      "hash": "71af5c4fd5e0b33c43a1a6e13ecbbda9ed97b4a30570caeb4aff05edead952a3"
+    }
+  },
+  "fixture": {
+    "task": "stateful-replay",
+    "oracleKind": "correctness",
+    "startsGreen": true,
+    "intent": "repair tenant ledger consistency",
+    "requirements": [
+      "All mutation entry points preserve tenant isolation and fresh reads, including after journal replay."
+    ],
+    "benchmarkConfigs": [
+      {
+        "arm": "plain",
+        "registerRequirements": false
+      },
+      {
+        "arm": "workflow",
+        "registerRequirements": false
+      }
+    ],
+    "what": "State transitions spanning cache, batch mutation and replay; no implementation paths given in task."
+  },
+  "startedAt": "2026-09-24T19:27:55.980Z",
+  "runRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-bench-stateful-replay-guarded-pLozZI",
+  "configMismatch": {
+    "declared": [
+      {
+        "arm": "plain",
+        "registerRequirements": false
+      },
+      {
+        "arm": "workflow",
+        "registerRequirements": false
+      }
+    ],
+    "ran": {
+      "arm": "guarded",
+      "registerRequirements": false
+    }
+  },
+  "agent": {
+    "command": "claude",
+    "model": "qwen3.8-flash",
+    "exitCode": 0,
+    "secs": 183.8,
+    "timedOut": false,
+    "mcpConfig": "fixture .mcp.json (standing Canary payload included)",
+    "settingsSources": "project,local",
+    "forwardedEnvKeys": [
+      "ENABLE_TOOL_SEARCH",
+      "ANTHROPIC_AUTH_TOKEN",
+      "ANTHROPIC_BASE_URL",
+      "ANTHROPIC_MODEL",
+      "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL",
+      "ANTHROPIC_DEFAULT_OPUS_MODEL",
+      "CLAUDE_CODE_SUBAGENT_MODEL"
+    ],
+    "mcpToolsAdvertised": true
+  },
+  "prompt": "# Repair the tenant ledger\r\n\r\nRepair the ledger's public API to satisfy docs/CONTRACT.md. Find the relevant implementation locations yourself. Preserve the API; do not weaken checks or change the contract.\r\n\r\nAll mutation entry points preserve tenant isolation and fresh reads, including after journal replay.\r\n\r\nThe quick suite (node run-tests.js) is deliberately only a smoke test. The repository also contains public contract checks declared in canary.project.json; both benchmark arms may read and run all of them. Add tests as appropriate. There are no unstated requirements in the hidden oracle.",
+  "setup": {
+    "exitCode": 2,
+    "secs": 1.4,
+    "readme": "NEEDS ATTENTION",
+    "hookInstalled": true,
+    "hookCommand": "{\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"node \\\"C:\\\\Users\\\\Johannes\\\\Desktop\\\\canary\\\\apps\\\\cli\\\\dist\\\\src\\\\main.js\\\" checkpoint\",\"timeout\":1800}]}]}}",
+    "stdoutTail": "        generatedMessage: true,\n        code: 'ERR_ASSERTION',\n        actual: 'two',\n        expected: 'one',\n        operator: 'strictEqual',\n        diff: 'simple'\n      }\n      Node.js v26.7.0\n\nNEEDS ATTENTION — Canary is wired here, but your project's own checks did not pass (tests). That is your project talking, not Canary.\nnext: fix the failing checks (ask the agent), then: canary doctor\n"
+  },
+  "canary": {
+    "doctorExitCode": 0,
+    "verdict": "READY",
+    "hookFired": true,
+    "hookBlocked": false,
+    "checkpointBefore": {
+      "status": "fail",
+      "source": "setup",
+      "at": "2026-09-24T19:27:57.360Z",
+      "failed": [
+        "tests"
+      ]
+    },
+    "checkpointAfterAgent": {
+      "status": "pass",
+      "source": "checkpoint",
+      "at": "2026-09-24T19:30:58.590Z",
+      "failed": []
+    },
+    "checkpointAfterDoctor": {
+      "status": "pass",
+      "source": "doctor",
+      "at": "2026-09-24T19:31:02.322Z",
+      "failed": []
+    },
+    "candidates": [],
+    "promotionBundles": [],
+    "acceptedPromotionBundles": [],
+    "lastVerdictBundles": [
+      {
+        "bundle": "2026-09-24T19-27-57-164Z-setup",
+        "status": "fail",
+        "classification": null,
+        "reason": null,
+        "unproven": null
+      },
+      {
+        "bundle": "2026-09-24T19-30-58-029Z-checkpoint",
+        "status": "pass",
+        "classification": null,
+        "reason": null,
+        "unproven": null
+      },
+      {
+        "bundle": "2026-09-24T19-31-01-721Z-doctor",
+        "status": "pass",
+        "classification": null,
+        "reason": null,
+        "unproven": null
+      }
+    ],
+    "baseMoved": false,
+    "stdoutTail": "running the verification plan:\n✓ tests: C:\\Program Files\\nodejs\\node.exe checks/contract.cjs (exit 0)\n\nREADY — wiring verified; the checks just ran and passed, and no proof obligation is open.\nnext: nothing to do — the agent finishes, Canary checks\n"
+  },
+  "agentResult": {
+    "isError": false,
+    "parseFailure": false,
+    "subtype": "success",
+    "numTurns": 17,
+    "durationMs": 179516,
+    "costUsd": 0.56821025,
+    "usage": {
+      "inputTokens": 78,
+      "outputTokens": 11505,
+      "cacheReadTokens": 219478,
+      "cacheCreationTokens": 27273,
+      "totalTokens": 258334,
+      "source": "result.usage (session, excludes earlier fresh input)"
+    },
+    "sessionUsage": {
+      "input": 78,
+      "output": 11505,
+      "cacheRead": 219478,
+      "cacheCreation": 27273,
+      "total": 258334,
+      "models": [
+        {
+          "name": "qwen3.8-flash",
+          "costUsd": 0.56821025
+        }
+      ]
+    },
+    "streamedUsageUsable": false,
+    "finalText": "Both suites pass. The work is complete — here's the summary.\n\n## What was broken (against `docs/CONTRACT.md`)\n\n1. **Tenant isolation** — `src/storage.js:1` keyed rows by `id` alone, so equal ids in different tenants overwrote each other.\n2. **Replay lost deletions** — `src/replay.js:1` filtered to `op === 'put'`, so `open(exportJournal())` resurrected every deleted pair.\n3. **`batch` ignored the event op** — `src/api.js:15` always did `rows.set(...)`, so a `{op:'delete'}` event in a batch never deleted anything (and bypassed the shared apply path).\n4. **Stale cache on every mutation path** — `get` cached both hits and misses, but `put`/`remove`/`batch` never invalidated, so cached values (including cached misses) went stale after any mutation.\n\n## Fixes\n\n- `src/storage.js` — key is now `JSON.stringify([tenant, id])`: collision-free for arbitrary strings, including ones containing delimiter characters.\n- `src/replay.js` — replays both `put` and `delete` events, in order.\n- `src/api.js` —\n  - `apply()` now deletes the affected cache key, so every mutation path (`put`, `remove`, `batch`, and replay during `open`) keeps reads fresh;\n  - `batch` routes each event through `mutate`, so ops are honored, applied in call order, and journaled.\n\n`exportJournal` detachment and journal seeding from `history` already satisfied the contract and were left intact.\n\n## Tests added\n\n`run-tests.js` went from a 1-case smoke test to 11 cases, one per contract obligation: call order, cached-hit and cached-miss freshness on each mutation path, batch deletes, tenant independence, delimiter-collision keys, export detachment (mutate the result → state and later exports unaffected), journal order/ops, history input not aliased, full replay equivalence including deletions, and repeated replay staying equivalent. The sealed check `checks/contract.cjs` and `canary.project.json` were left untouched.\n\n**Current status:** `node run-tests.js` → `11 passing`; `node checks/contract.cjs` → `contract checks passed`."
+  },
+  "visible": {
+    "exitCode": 0,
+    "passing": 11,
+    "failing": 0,
+    "tail": "11 passing\n"
+  },
+  "visibleBefore": {
+    "exitCode": 0,
+    "passing": 1,
+    "failing": 0
+  },
+  "hidden": {
+    "exitCode": 0,
+    "passing": 406,
+    "total": 406,
+    "oracleError": false,
+    "stderrTail": "",
+    "tail": "hidden oracle: 406/406 behaviour checks passed\n"
+  },
+  "tamper": {
+    "changedFiles": [
+      ".claude/settings.json",
+      ".codex/hooks.json",
+      ".mcp.json",
+      "run-tests.js",
+      "src/api.js",
+      "src/replay.js",
+      "src/storage.js"
+    ],
+    "touchedTests": false,
+    "deletedFiles": [],
+    "assertionTokensBefore": 3,
+    "assertionTokensAfter": 42,
+    "assertionsRemoved": -39,
+    "weakenedTests": false,
+    "testFiles": [
+      {
+        "file": "run-tests.js",
+        "tokens": 42
+      }
+    ]
+  },
+  "claimsDone": true,
+  "falseDone": false,
+  "stream": {
+    "lines": 2209,
+    "parseErrors": 0,
+    "unknownTypes": {
+      "system:init": 1,
+      "system:thinking_tokens": 2157
+    },
+    "sawResult": true,
+    "assistantEvents": 34,
+    "messages": 13,
+    "turns": 17,
+    "usage": {
+      "input": 78,
+      "output": 11505,
+      "cacheRead": 219478,
+      "cacheCreation": 27273,
+      "total": 258334,
+      "source": "result.usage (session, excludes earlier fresh input)"
+    },
+    "streamedUsage": {
+      "input": 169786,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheCreation": 0,
+      "total": 169786
+    },
+    "streamedUsageUsable": false,
+    "bytes": {
+      "toolResultTotal": 8203,
+      "largestToolResult": 2008,
+      "canaryVisible": 0,
+      "hookOutput": 0
+    },
+    "commands": {
+      "total": 5,
+      "canary": 0,
+      "checks": 2,
+      "canaryCommands": []
+    },
+    "hooks": {
+      "count": 0,
+      "canaryCount": 0,
+      "names": [],
+      "events": []
+    },
+    "gate": {
+      "messages": 0,
+      "bytes": 0,
+      "samples": []
+    },
+    "tail": {
+      "lastFileEditTurn": 10,
+      "turnsAfterLastEdit": 2,
+      "tokensAfterLastEdit": null,
+      "tokensAvailable": false,
+      "shareOfTokensAfterLastEdit": null
+    },
+    "toolCalls": 16,
+    "perTurn": [
+      {
+        "turn": 0,
+        "usage": {
+          "input": 12870,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12870
+        },
+        "tools": [
+          "Bash"
+        ]
+      },
+      {
+        "turn": 1,
+        "usage": {
+          "input": 12888,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12888
+        },
+        "tools": [
+          "Bash"
+        ]
+      },
+      {
+        "turn": 2,
+        "usage": {
+          "input": 12906,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12906
+        },
+        "tools": [
+          "Read",
+          "Read"
+        ]
+      },
+      {
+        "turn": 3,
+        "usage": {
+          "input": 12924,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12924
+        },
+        "tools": [
+          "Read",
+          "Read"
+        ]
+      },
+      {
+        "turn": 4,
+        "usage": {
+          "input": 12942,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12942
+        },
+        "tools": [
+          "Read",
+          "Read"
+        ]
+      },
+      {
+        "turn": 5,
+        "usage": {
+          "input": 12960,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12960
+        },
+        "tools": [
+          "Read"
+        ]
+      },
+      {
+        "turn": 6,
+        "usage": {
+          "input": 12996,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 12996
+        },
+        "tools": [
+          "Bash"
+        ]
+      },
+      {
+        "turn": 7,
+        "usage": {
+          "input": 13046,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 13046
+        },
+        "tools": [
+          "Bash"
+        ]
+      },
+      {
+        "turn": 8,
+        "usage": {
+          "input": 13064,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 13064
+        },
+        "tools": [
+          "Edit",
+          "Edit"
+        ]
+      },
+      {
+        "turn": 9,
+        "usage": {
+          "input": 13240,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 13240
+        },
+        "tools": [
+          "Edit"
+        ]
+      },
+      {
+        "turn": 10,
+        "usage": {
+          "input": 13258,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 13258
+        },
+        "tools": [
+          "Write"
+        ]
+      },
+      {
+        "turn": 11,
+        "usage": {
+          "input": 13337,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 13337
+        },
+        "tools": [
+          "Bash"
+        ]
+      },
+      {
+        "turn": 12,
+        "usage": {
+          "input": 13355,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheCreation": 0,
+          "total": 13355
+        },
+        "tools": []
+      }
+    ]
+  },
+  "claim": {
+    "kind": "success",
+    "successPhrases": [
+      "11 passing",
+      "work is complete"
+    ],
+    "failurePhrases": []
+  },
+  "regression": false,
+  "candidates": [],
+  "finishedAt": "2026-09-24T19:31:03.744Z"
+}

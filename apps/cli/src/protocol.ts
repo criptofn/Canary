@@ -91,6 +91,23 @@ export interface ProtocolEnvelope {
   next?: string;
   /** Where the full evidence lives — context stays out of the model's window. */
   evidencePath?: string;
+  /**
+   * `canary provider status` only (v1.5): the honest, machine-readable answer to
+   * "is HARDENED real HERE, and if not, what exactly is missing?".
+   *
+   * Every field is a MEASURED fact, never a declaration: `hostPrimitives` is what
+   * the host was observed to offer (presence is explicitly NOT proof), and
+   * `deploymentMeasured` is `null` until a boundary measurement actually validates
+   * in this store. A consumer must not read `hostPrimitives !== null` as HARDENED.
+   */
+  provider?: {
+    hardenedAvailable: boolean;
+    controlsAvailable: number;
+    controlsTotal: number;
+    controlsMissing: string[];
+    hostPrimitives: string | null;
+    deploymentMeasured: 'production' | 'confined-caller' | null;
+  };
 }
 
 /** Exactly one JSON object on stdout. Everything else is a line of prose. */

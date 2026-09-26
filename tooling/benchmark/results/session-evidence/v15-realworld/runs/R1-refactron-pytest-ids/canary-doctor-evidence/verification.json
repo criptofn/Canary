@@ -1,0 +1,145 @@
+{
+  "schema": "canary-verification/1",
+  "at": "2026-09-24T05:28:51.613Z",
+  "source": "doctor",
+  "status": "fail",
+  "trustClass": "CANARY_OBSERVED",
+  "note": "Written from Canary's OWN execution. Agent reports and printed summaries are claims, not evidence; this bundle is never read back to produce a verdict.",
+  "canaryEntry": "C:\\Users\\Johannes\\Desktop\\canary\\apps\\cli\\dist\\src\\main.js",
+  "runtime": {
+    "node": "v26.7.0",
+    "execPath": "C:\\Program Files\\nodejs\\node.exe",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "cwd": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\refactron",
+  "candidate": {
+    "resolved": true,
+    "head": "1fe40d8505bbb0cac703c976401c17213abf1e9d",
+    "tree": "c62d126b711dc4226f6fb02393461ee63f63eeea",
+    "dirty": true
+  },
+  "envOverrides": [],
+  "execPolicy": "canary-sanitized/1",
+  "steps": [
+    {
+      "kind": "typecheck",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\refactron",
+      "ok": true,
+      "exitCode": 0,
+      "execArgv": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+        "run",
+        "typecheck"
+      ],
+      "exec": {
+        "file": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+        "digest": "3ce7cba6f5128dd5f54c98b6a5036b0f850496878cc2e21044b675fe3c594e3e",
+        "via": "node-entry",
+        "policy": "canary-sanitized/1"
+      },
+      "startedAt": "2026-09-24T05:28:19.589Z",
+      "endedAt": "2026-09-24T05:28:22.469Z",
+      "stdout": {
+        "sha256": "27b7755830c8c305388d0816ccce899e56be64f2611ab9a5c628f389cf193bb7",
+        "bytes": 45,
+        "file": "1-typecheck.out.log"
+      },
+      "stderr": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0,
+        "file": "1-typecheck.err.log"
+      },
+      "observedCounts": null
+    },
+    {
+      "kind": "tests",
+      "argv": [
+        "npm",
+        "run",
+        "test"
+      ],
+      "cwd": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\refactron",
+      "ok": false,
+      "exitCode": 1,
+      "execArgv": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+        "run",
+        "test"
+      ],
+      "exec": {
+        "file": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+        "digest": "3ce7cba6f5128dd5f54c98b6a5036b0f850496878cc2e21044b675fe3c594e3e",
+        "via": "node-entry",
+        "policy": "canary-sanitized/1"
+      },
+      "startedAt": "2026-09-24T05:28:22.470Z",
+      "endedAt": "2026-09-24T05:28:49.170Z",
+      "stdout": {
+        "sha256": "99a47f3cecb66f21e302c9d59c5fe03915ac10d6430620cc724b1e5ece3fb5a2",
+        "bytes": 10211,
+        "file": "2-tests.out.log"
+      },
+      "stderr": {
+        "sha256": "a0b850c0bc0cc5e02a5ad364aa0f8cf686261a2da6b0541db749018ec7b951bb",
+        "bytes": 12849,
+        "file": "2-tests.err.log"
+      },
+      "observedCounts": null
+    },
+    {
+      "kind": "build",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\refactron",
+      "ok": true,
+      "exitCode": 0,
+      "execArgv": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+        "run",
+        "build"
+      ],
+      "exec": {
+        "file": "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js",
+        "digest": "3ce7cba6f5128dd5f54c98b6a5036b0f850496878cc2e21044b675fe3c594e3e",
+        "via": "node-entry",
+        "policy": "canary-sanitized/1"
+      },
+      "startedAt": "2026-09-24T05:28:49.170Z",
+      "endedAt": "2026-09-24T05:28:51.548Z",
+      "stdout": {
+        "sha256": "26b148f68f865a58a671952b7a36148dab80a1fd4312bced5087eaafd1f7c872",
+        "bytes": 160,
+        "file": "3-build.out.log"
+      },
+      "stderr": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0,
+        "file": "3-build.err.log"
+      },
+      "observedCounts": null
+    }
+  ],
+  "provenance": {
+    "planDigest": "a2284855e441114f4164d3f8ae43677ea664e3d7f310ecd893a80a180ac24e40",
+    "baseline": {
+      "at": "2026-09-24T04:25:20.729Z",
+      "resolved": true,
+      "head": "1fe40d8505bbb0cac703c976401c17213abf1e9d",
+      "tree": "c62d126b711dc4226f6fb02393461ee63f63eeea",
+      "dirty": false
+    },
+    "taskDigest": null
+  }
+}

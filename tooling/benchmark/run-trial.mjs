@@ -572,6 +572,32 @@ function runAgent() {
       '--allowedTools', 'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
     ];
     /*
+     * v1.5 — THE STANDING MCP PAYLOAD IS NOW IN THE MEASUREMENT, because leaving it
+     * out was the one thing that made the old everyday number unfair.
+     *
+     * MEASURED (tooling/probes/v15-mcp-standing-payload.mjs, this host): `canary setup`
+     * writes `.mcp.json`, and a real Claude Code session loads it, so a real Canary
+     * user pays for its instructions and tool schemas on every session — but
+     * `--strict-mcp-config` WITHOUT `--mcp-config` meant the server was never launched
+     * in a trial, so the provider-native total never contained it. That is a
+     * CONFIGURATION gap, not an estimator gap, and excluding it flattered Canary.
+     *
+     * The same probe measured the cost provider-natively: two otherwise identical
+     * sessions differ by ~438 tokens with the payload present (corroborated by the
+     * cached prefix differing by 434), NOT the ~1,432 that `bytes / 4` implied.
+     *
+     * The asymmetry is the POINT and is not a defect: the `plain` arm never runs
+     * `canary setup`, so it has no `.mcp.json` and correctly gets no standing Canary
+     * payload. What a Canary user actually pays is what the Canary arm now measures.
+     */
+    const mcpConfig = path.join(projectDir, '.mcp.json');
+    if (fs.existsSync(mcpConfig)) {
+      args.push('--mcp-config', mcpConfig);
+      record.agent.mcpConfig = 'fixture .mcp.json (standing Canary payload included)';
+    } else {
+      record.agent.mcpConfig = null;
+    }
+    /*
      * THE AGENT'S OUTPUT IS CAPTURED TO FILES, NOT PIPES — and the measurement is identical.
      *
      * WHY (MEASURED on this host, 2026-09: `tooling/probes/v12-host-capabilities.mjs`): a
@@ -657,6 +683,16 @@ const checkpointAfterAgent = readCheckpoint();
 
 const ledger = parseStream(stdoutRedacted);
 record.agent.model = ledger.model;
+/*
+ * v1.5 — EVIDENCE THAT THE STANDING PAYLOAD WAS ACTUALLY IN THE SESSION.
+ *
+ * `record.agent.mcpConfig` proves only that the flag was PASSED. This proves the
+ * model was SHOWN the Canary server's tools, which is where the token cost comes
+ * from — so a claim that the standing payload is inside the measurement rests on
+ * an observation in the record rather than on the harness's intent. Scanned from
+ * the redacted stream, exactly like every other derived field here.
+ */
+record.agent.mcpToolsAdvertised = /mcp__canary/i.test(stdoutRedacted);
 record.stream = {
   lines: ledger.lines,
   parseErrors: ledger.parseErrors,

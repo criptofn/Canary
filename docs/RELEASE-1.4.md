@@ -1,8 +1,23 @@
 # Canary 1.4.0 — "last known-gaps release"
 
-> **Status: RELEASE CANDIDATE. Not published.** These bytes are frozen on branch
-> `codex/v14-last-known-gaps`. There is no tag, no GitHub release and no push of this branch.
-> The newest *published* artifact remains `v1.3.0`.
+> **Status: RELEASED — tag `v1.4.0`.** Published 2026-09-23 by the `canary-release` workflow
+> (run `35840990945`): <https://github.com/criptofn/Canary/releases/tag/v1.4.0>. Tag `v1.4.0`
+> points at `4271e6e`, the tip of `main`.
+>
+> **Documentation correction (v1.5 pre-flight, 2026-09-24).** While these bytes were a candidate,
+> this header said "RELEASE CANDIDATE. Not published", the artifact table below quoted the **local
+> Windows** build (`209,117 B` / `f82203f3…`) and the newest published artifact was `v1.3.0`. All
+> three statements became false at release. The table now quotes the **published** CI artifact, and
+> the local build is recorded as a cross-host observation rather than a digest to check against.
+>
+> A second defect was found in the same pre-flight: the release existed on GitHub as a **draft**
+> until 2026-09-24, so it was invisible to anonymous readers (`releases/tag/v1.4.0` returned 404 and
+> `releases/latest` still resolved to `v1.3.0`) even though its assets were correct and attested.
+> The cause was in `release.yml`, not in the artifact: the step `gh release view "$TAG" || gh
+> release create "$TAG" …` treats a **draft** as "already created", so a pre-existing draft could
+> never be published by the workflow. The draft flag was cleared (assets byte-identical before and
+> after), and the workflow is fixed on the v1.5 branch to refuse a draft instead of silently
+> accepting one.
 
 v1.4 closes the concrete product gaps that were already known after v1.3. It is the last planned
 internal development release: after it, the next phase is real repositories, real agent runs and
@@ -23,6 +38,14 @@ dist-mutation guard, architecture closure, provider boundary and production cust
 these bytes.
 
 ## The token position (read this before quoting any number)
+
+> **SUPERSEDED for current claims by v1.5.** The figures in this section are the HISTORICAL v1.3
+> measurement and are kept as a record. They **exclude** the standing MCP payload, so they must not be
+> quoted as Canary's current footprint. The current, fully-accounted measurement — standing payload
+> included, and evidenced as actually present in the session — is in
+> [`BENCHMARK-EVERYDAY-1.5.md`](BENCHMARK-EVERYDAY-1.5.md): **83.21 % of Plain (−16.79 %)** across two
+> runs, at equal correctness, with the payload's real cost measured at **~438 tokens** per session
+> rather than the **~1,432** that `bytes ÷ 4` implied.
 
 **HISTORICAL MEASUREMENT (v1.3, one recorded run per cell) — not a current, complete number.** The
 everyday result is roughly parity with a modest saving, and that is the whole claim.
@@ -161,7 +184,7 @@ drifted.
   exists yet"**. That was stale prose hiding a mechanism that exists — and a stale apology is as
   wrong as an overclaim.
 
-## Installing this candidate
+## Installing this release
 
 ```sh
 npm install -g ./canary-rn-cli-1.4.0.tgz     # Node.js 22 or newer
@@ -204,16 +227,58 @@ Unchanged from v1.3 except as noted:
   host limitation: it was two product defects (the containment sweep's per-process WMI queries and
   an existence-after-resolution bug in `verifyArtifacts` under 8.3 short temp paths), both fixed.
 
-## The release candidate artifact
+## The published release artifact
 
 | | |
 |---|---|
 | file | `canary-rn-cli-1.4.0.tgz` |
-| size | **209,117 bytes** |
-| SHA-256 | `f82203f3f7009d2e9e31d3144db28d8d46108eed76f9a87b721f13cfc4b3aca4` |
+| size | **208,993 bytes** |
+| SHA-256 | `42ed2056e8b77b212d07ec92814cb2e67f908bf76733114e072605e7e5e5505c` |
 | entries | **16** — exactly the pack allowlist (`dist/main.js`, `tools/windows-boundary` ×7, `tooling/test-support/fixtures` ×6, `package.json`, `LICENSE`) |
 | runtime dependencies | **none** (the manifest declares no `dependencies`, `peerDependencies` or `optionalDependencies`) |
 | licence | `package/LICENSE` ships in the tarball (Apache-2.0 §4(a)) |
+
+These are the bytes downloaded back from the published release, not a local build: the SHA-256
+above was computed from the downloaded asset and equals the published `.sha256` sidecar exactly.
+
+> **Cross-host packaging observation, stated rather than hidden — cause now MEASURED.** Packaging is
+> deterministic **on a given host**: re-running `node tooling/pack.mjs` on the Windows machine that
+> produced the candidate reproduces `209,117 bytes` / `f82203f3f7009d2e9e31d3144db28d8d46108eed76f9a87b721f13cfc4b3aca4`
+> exactly. It is **not byte-identical between hosts**, and the cause is fully isolated: this
+> repository sets `core.autocrlf=true`, so a Windows checkout materialises the packed text files
+> with **CRLF** while the Linux CI checkout has **LF**, and `tooling/pack.mjs` packs those working-tree
+> bytes verbatim. Extracting both tarballs and comparing entry by entry, **13 of the 16 entries
+> differ, each by exactly its CRLF count**:
+>
+> | entry | CRLF / delta (bytes) |
+> |---|---|
+> | `tools/windows-boundary/CanaryBroker.cs` | 522 |
+> | `tools/windows-boundary/CanaryConfinedLauncher.cs` | 336 |
+> | `tooling/test-support/fixtures/confined-caller.cjs` | 208 |
+> | `tools/windows-boundary/production-tool.cjs` | 131 |
+> | `tooling/test-support/fixtures/boundary-native-child.cs` | 118 |
+> | `tooling/test-support/fixtures/medium-pipe.ps1` | 60 |
+> | `tooling/test-support/fixtures/boundary-native-parent.cs` | 38 |
+> | `tooling/test-support/fixtures/boundary-native-run.ps1` | 29 |
+> | `tools/windows-boundary/production-child.cjs` | 19 |
+> | `tools/windows-boundary/production-native.ps1` | 18 |
+> | `tools/windows-boundary/production-heartbeat.ps1` | 12 |
+> | `tooling/test-support/fixtures/confined-listener.cjs` | 10 |
+> | `tools/windows-boundary/production-host.ps1` | 8 |
+>
+> That is **1,509 bytes uncompressed**, which gzip reduces to the observed **124-byte** tarball
+> difference. `package/dist/main.js`, `package/LICENSE` and `package/package.json` are byte-identical
+> across hosts — so the **generated bundle is reproducible**, and only checked-out text differs.
+>
+> **Consequences, in order of importance.** An attestation covers the artifact built *by the release
+> workflow*, so a locally built tarball must never be presented as if it carried that provenance, and
+> a digest recorded in documentation must say **which host built it**. Because these files are part of
+> the measured toolchain (`toolsDigest`), a source-build on Windows is a **different** measured
+> deployment from the published one — that is sound (each install measures its own bytes) but it does
+> mean "rebuild from the git tree and compare to the published digest" is **not** a valid audit step
+> on Windows. Recorded as a known limitation; deliberately **not** promoted into a v1.5 workstream,
+> because it blocks no required v1.5 gate. Normalising line endings inside `pack.mjs` would change
+> shipped bytes and belongs to a future release with its own regression.
 
 Verified on the artifact itself, not on the source tree: it installs into a prefix whose path
 **contains spaces**, `canary --version` prints `canary 1.4.0`, and the whole everyday journey runs

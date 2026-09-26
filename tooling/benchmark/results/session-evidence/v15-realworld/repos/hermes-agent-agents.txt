@@ -1,0 +1,11 @@
+﻿repo: C:\Users\Johannes\Desktop\canary-ws5-scratch\hermes-agent
+agent integrations (GATED = can block a completion; ADVISORY = the agent is told and may ignore it):
+  GATED    Claude Code — detected [hook installed here, agent tools registered]
+  GATED    OpenAI Codex CLI — detected [hook installed here, agent tools registered; Codex runs a project hook only after a one-time review and trust (`/hooks`) — until then the hook is written but gates nothing]
+  UNMEASURED Cursor — not detected [Canary's completion hook is installed here — whether this harness honours it is UNMEASURED]
+  ADVISORY Any command-line agent — detected [AGENTS.md block not installed]
+note: Claude Code holds a project MCP server at "pending approval" until you approve it once in an interactive session — the entry is written; the tools appear after you approve.
+note: OpenAI Codex CLI — Codex runs a project hook only after a one-time review and trust (`/hooks`) — until then the hook is written but gates nothing.
+
+CONNECTED — Claude Code, OpenAI Codex CLI can gate completions here — the hook is installed in this repository. (OpenAI Codex CLI gates once the hook is trusted.)
+next: to confirm end to end: canary doctor

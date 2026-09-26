@@ -1,0 +1,44 @@
+﻿# H1 worker commit 4f35b9c — does the worker's own check discriminate the worker's fix?
+# A) the worker's tree as committed
+> hermes-agent@0.1.0 test
+> node scripts/smoke-test.js
+
+Hermes smoke test passed
+A_EXIT=0
+
+# B) ONLY the pre-fix source restored (git checkout 7d0eb49 -- src/workflows/fileOrganizer.js);
+#    the worker's own check file is untouched
+> hermes-agent@0.1.0 test
+> node scripts/smoke-test.js
+
+node.exe : node:internal/modules/run_main:107
+In Zeile:1 Zeichen:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (node:internal/modules/run_main:107:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'fresh.txt',
++   'old-report.txt'
+  ]
+
+    at file:///C:/Users/Johannes/Desktop/canary-ws5-scratch/hermes-agent/scripts/smoke-test.js:49:10 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: [ 'fresh.txt', 'old-report.txt' ],
+  expected: [ 'fresh.txt' ],
+  operator: 'deepStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v26.7.0
+B_EXIT=1
+
+# restored: git status --porcelain -> '?? .claude/,?? .codex/,?? .mcp.json'

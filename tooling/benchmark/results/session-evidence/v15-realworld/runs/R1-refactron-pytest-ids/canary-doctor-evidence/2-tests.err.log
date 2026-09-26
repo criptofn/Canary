@@ -1,0 +1,233 @@
+
+[31m⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 12 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m tests/integration/verify-engine.test.ts[2m > [22mRefactronVerifier on python-legacy-mini[2m > [22mpasses a no-op plan
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m tests/integration/verify-engine.test.ts:[2m20:22[22m[39m
+    [90m 18| [39m    [35mconst[39m plan[33m:[39m [33mRefactorPlan[39m [33m=[39m { changes[33m:[39m [][33m,[39m preconditions[33m:[39m [] }[33m;[39m
+    [90m 19| [39m    [35mconst[39m r [33m=[39m [35mawait[39m v[33m.[39m[34mverify[39m(plan)[33m;[39m
+    [90m 20| [39m    [34mexpect[39m(r[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m   | [39m                     [31m^[39m
+    [90m 21| [39m    [34mexpect[39m(r[33m.[39mgates[33m.[39msyntax[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m 22| [39m    [34mexpect[39m(r[33m.[39mgates[33m.[39mimports[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/verify-engine.test.ts[2m > [22mRefactronVerifier on python-legacy-mini[2m > [22mrejects a plan that breaks imports
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m tests/integration/verify-engine.test.ts:[2m61:35[22m[39m
+    [90m 59| [39m    [35mconst[39m r [33m=[39m [35mawait[39m v[33m.[39m[34mverify[39m(plan)[33m;[39m
+    [90m 60| [39m    [34mexpect[39m(r[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mfalse[39m)[33m;[39m
+    [90m 61| [39m    [34mexpect[39m(r[33m.[39mgates[33m.[39msyntax[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m   | [39m                                  [31m^[39m
+    [90m 62| [39m    [34mexpect[39m(r[33m.[39mgates[33m.[39mimports[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mfalse[39m)[33m;[39m
+    [90m 63| [39m  }[33m,[39m [34m120_000[39m)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/integration/verify-engine.test.ts[2m > [22mRefactronVerifier on python-legacy-mini[2m > [22mrejects a plan that breaks tests
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m tests/integration/verify-engine.test.ts:[2m86:35[22m[39m
+    [90m 84| [39m    [35mconst[39m r [33m=[39m [35mawait[39m v[33m.[39m[34mverify[39m(plan)[33m;[39m
+    [90m 85| [39m    [34mexpect[39m(r[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mfalse[39m)[33m;[39m
+    [90m 86| [39m    [34mexpect[39m(r[33m.[39mgates[33m.[39msyntax[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m   | [39m                                  [31m^[39m
+    [90m 87| [39m    [34mexpect[39m(r[33m.[39mgates[33m.[39mimports[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m 88| [39m    [34mexpect[39m(r[33m.[39mgates[33m.[39mtests[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mfalse[39m)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/unit/verify/gates-tests.test.ts[2m > [22mtestsGate[2m > [22mpasses when shadow tree tests pass
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m tests/unit/verify/gates-tests.test.ts:[2m91:22[22m[39m
+    [90m 89| [39m    const r = await testsGate({ shadowRoot: h.path, changes: [] }, roo…
+    [90m 90| [39m    [35mawait[39m h[33m.[39m[34mcleanup[39m()[33m;[39m
+    [90m 91| [39m    [34mexpect[39m(r[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m   | [39m                     [31m^[39m
+    [90m 92| [39m  }[33m,[39m [34m60_000[39m)[33m;[39m
+    [90m 93| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/unit/verify/gates-tests.test.ts[2m > [22mtestsGate[2m > [22mtreats a cross-tree flake (heals on a fresh shadow) as flaky (id surfaced)
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m tests/unit/verify/gates-tests.test.ts:[2m140:24[22m[39m
+    [90m138| [39m      // otherwise heal (and be consumed) during the retried baseline …
+    [90m139| [39m      const r = await testsGate({ shadowRoot: h.path, changes: [] }, r…
+    [90m140| [39m      [34mexpect[39m(r[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m   | [39m                       [31m^[39m
+    [90m141| [39m      [34mexpect[39m(r[33m.[39mflakySuspects)[33m.[39m[34mtoContain[39m([32m'test_flaky.py::test_flaky'[39m)[33m;[39m
+    [90m142| [39m    } [35mfinally[39m {
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/unit/verify/gates-tests.test.ts[2m > [22mtestsGate[2m > [22mfails when a new failure persists on retry (genuine regression, not flaky)
+[31m[1mAssertionError[22m: expected 'baseline tests already fail before re…' to match /tests fail after refactoring/[39m
+
+[32m- Expected:[39m 
+/tests fail after refactoring/
+
+[31m+ Received:[39m 
+"baseline tests already fail before refactoring; fix them first.
+
+Der Befehl \"python3\" ist entweder falsch geschrieben oder
+konnte nicht gefunden werden."
+
+[36m [2m❯[22m tests/unit/verify/gates-tests.test.ts:[2m181:30[22m[39m
+    [90m179| [39m    [35mawait[39m h[33m.[39m[34mcleanup[39m()[33m;[39m
+    [90m180| [39m    [34mexpect[39m(r[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mfalse[39m)[33m;[39m
+    [90m181| [39m    [34mexpect[39m(r[33m.[39mblockingReason)[33m.[39m[34mtoMatch[39m([36m/tests fail after refactoring/[39m)[33m;[39m
+    [90m   | [39m                             [31m^[39m
+    [90m182| [39m    [34mexpect[39m(r[33m.[39mflakySuspects [33m??[39m [])[33m.[39m[34mtoEqual[39m([])[33m;[39m
+    [90m183| [39m  }[33m,[39m [34m60_000[39m)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/unit/verify/runner-env-redaction.test.ts[2m > [22mthe redaction survives the spawn, not just the function[2m > [22ma child process cannot read REFACTRON_TOKEN, but still has PATH
+[31m[1mAssertionError[22m: expected '' to contain 'tok=[unset]'[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- tok=[unset][39m
+
+[36m [2m❯[22m tests/unit/verify/runner-env-redaction.test.ts:[2m112:24[22m[39m
+    [90m110| [39m        timeoutMs[33m:[39m [34m30_000[39m[33m,[39m
+    [90m111| [39m      } [35mas[39m never)) [35mas[39m unknown [35mas[39m { stdout[33m:[39m string }[33m;[39m
+    [90m112| [39m      [34mexpect[39m(r[33m.[39mstdout)[33m.[39m[34mtoContain[39m([32m'tok=[unset]'[39m)[33m;[39m
+    [90m   | [39m                       [31m^[39m
+    [90m113| [39m      [34mexpect[39m(r[33m.[39mstdout)[33m.[39m[34mtoContain[39m([32m'path=[yes]'[39m)[33m;[39m
+    [90m114| [39m    } [35mfinally[39m {
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/unit/verify/runners-run.test.ts[2m > [22mrunRunner[2m > [22mreturns exit code 0 on success
+[31m[1mAssertionError[22m: expected 1 to be +0 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+[36m [2m❯[22m tests/unit/verify/runners-run.test.ts:[2m12:24[22m[39m
+    [90m 10| [39m      timeoutMs[33m:[39m [34m5_000[39m[33m,[39m
+    [90m 11| [39m    })[33m;[39m
+    [90m 12| [39m    [34mexpect[39m(r[33m.[39mexitCode)[33m.[39m[34mtoBe[39m([34m0[39m)[33m;[39m
+    [90m   | [39m                       [31m^[39m
+    [90m 13| [39m  })[33m;[39m
+    [90m 14| [39m  [34mit[39m([32m'returns nonzero on failure'[39m[33m,[39m [35masync[39m () [33m=>[39m {
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/unit/verify/runners-run.test.ts[2m > [22mrunRunner[2m > [22mreturns nonzero on failure
+[31m[1mAssertionError[22m: expected 1 to be 17 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 17[39m
+[31m+ 1[39m
+
+[36m [2m❯[22m tests/unit/verify/runners-run.test.ts:[2m21:24[22m[39m
+    [90m 19| [39m      timeoutMs[33m:[39m [34m5_000[39m[33m,[39m
+    [90m 20| [39m    })[33m;[39m
+    [90m 21| [39m    [34mexpect[39m(r[33m.[39mexitCode)[33m.[39m[34mtoBe[39m([34m17[39m)[33m;[39m
+    [90m   | [39m                       [31m^[39m
+    [90m 22| [39m  })[33m;[39m
+    [90m 23| [39m  // Per-test timeout 15s: this test deliberately exercises execa's ti…
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/unit/verify/runners-run.test.ts[2m > [22mrunRunner[2m > [22mreports timeout
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m tests/unit/verify/runners-run.test.ts:[2m33:24[22m[39m
+    [90m 31| [39m      timeoutMs[33m:[39m [34m500[39m[33m,[39m
+    [90m 32| [39m    })[33m;[39m
+    [90m 33| [39m    [34mexpect[39m(r[33m.[39mtimedOut)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m   | [39m                       [31m^[39m
+    [90m 34| [39m  }[33m,[39m [34m15_000[39m)[33m;[39m
+    [90m 35| [39m  [34mit[39m([32m'retries baseline on flake'[39m[33m,[39m [35masync[39m () [33m=>[39m {
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/unit/verify/runners-run.test.ts[2m > [22mrunRunner[2m > [22mretries baseline on flake
+[31m[1mAssertionError[22m: expected 1 to be +0 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 1[39m
+
+[36m [2m❯[22m tests/unit/verify/runners-run.test.ts:[2m41:24[22m[39m
+    [90m 39| [39m      { retries[33m:[39m [34m2[39m[33m,[39m onAttempt[33m:[39m () [33m=>[39m attempt[33m++[39m }[33m,[39m
+    [90m 40| [39m    )[33m;[39m
+    [90m 41| [39m    [34mexpect[39m(r[33m.[39mexitCode)[33m.[39m[34mtoBe[39m([34m0[39m)[33m;[39m
+    [90m   | [39m                       [31m^[39m
+    [90m 42| [39m    [34mexpect[39m(attempt)[33m.[39m[34mtoBeGreaterThanOrEqual[39m([34m1[39m)[33m;[39m
+    [90m 43| [39m  })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/12]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m tests/unit/verify/verifier-on-gate-complete.test.ts[2m > [22mRefactronVerifier callbacks[2m > [22mcalls onGateComplete once per gate (syntax, imports, tests) in order on success
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m tests/unit/verify/verifier-on-gate-complete.test.ts:[2m44:22[22m[39m
+    [90m 42| [39m    [35mconst[39m plan[33m:[39m [33mRefactorPlan[39m [33m=[39m { changes[33m:[39m [][33m,[39m preconditions[33m:[39m [] }[33m;[39m
+    [90m 43| [39m    [35mconst[39m r [33m=[39m [35mawait[39m verifier[33m.[39m[34mverify[39m(plan)[33m;[39m
+    [90m 44| [39m    [34mexpect[39m(r[33m.[39mpassed)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m   | [39m                     [31m^[39m
+    [90m 45| [39m    expect(calls.map((c) => c.gate)).toEqual(['syntax', 'imports', 'te…
+    [90m 46| [39m    [90m// onGateStart fires once per gate, before completion, in order.[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/12]⎯[22m[39m
+

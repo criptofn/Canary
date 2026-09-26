@@ -1,0 +1,34 @@
+
+> Task :compileJava
+
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :compileTestJava UP-TO-DATE
+> Task :processTestResources NO-SOURCE
+> Task :testClasses UP-TO-DATE
+
+> Task :test FAILED
+
+IdLookupTest > twoKeysSharingOneValueAreStillAmbiguous() FAILED
+    org.opentest4j.AssertionFailedError at IdLookupTest.java:38
+
+[Incubating] Problems report is available at: file:///C:/Users/Johannes/Desktop/canary-ws5-scratch/schniedelsmp/build/reports/problems/problems-report.html
+4 actionable tasks: 2 executed, 2 up-to-date
+
+--- stderr ---
+Hinweis: Einige Eingabedateien verwenden oder überschreiben eine veraltete API.
+Hinweis: Wiederholen Sie die Kompilierung mit -Xlint:deprecation, um Details zu erhalten.
+
+8 tests completed, 1 failed
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+> There were failing tests. See the report at: file:///C:/Users/Johannes/Desktop/canary-ws5-scratch/schniedelsmp/build/reports/tests/test/index.html
+
+* Try:
+> Run with --scan to get full insights.
+
+BUILD FAILED in 5s
+

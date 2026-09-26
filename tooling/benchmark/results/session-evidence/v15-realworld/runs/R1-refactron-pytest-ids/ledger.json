@@ -1,0 +1,31 @@
+{
+  "label": "R1",
+  "arm": "canary",
+  "repo": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\refactron",
+  "startedAt": "2026-09-24T05:02:45.854Z",
+  "wallSeconds": 1500.1,
+  "agentExitCode": null,
+  "spawnError": null,
+  "timedOut": true,
+  "streamLines": 13258,
+  "streamParseErrors": 0,
+  "sawResultEvent": false,
+  "resultSubtype": null,
+  "resultIsError": null,
+  "model": "qwen3.8-flash",
+  "numTurns": null,
+  "durationMsProvider": null,
+  "usage": null,
+  "totalCostUsdProvider": null,
+  "forwardedEnvKeys": [
+    "ENABLE_TOOL_SEARCH",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL"
+  ],
+  "assistantEvents": 139
+}

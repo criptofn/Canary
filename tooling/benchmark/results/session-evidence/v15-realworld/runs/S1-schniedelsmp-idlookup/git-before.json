@@ -1,0 +1,6 @@
+{
+  "head": "4255fa14049b479b479be1148df20bf0d097926c",
+  "tree": "8992b8704b99c9bba2d4e6baa116347c5aacca07",
+  "status": "M src/main/java/net/schniedelsmp/smp/util/IdLookup.java\n M src/test/java/net/schniedelsmp/smp/util/IdLookupTest.java\n?? .claude/\n?? .codex/\n?? .mcp.json",
+  "tracked": 102
+}

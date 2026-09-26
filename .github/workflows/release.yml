@@ -106,14 +106,45 @@ jobs:
           # `gh release create <tag> <assets...>` call failed twice with
           # `HTTP 422: Validation Failed (uploads.github.com...)`, leaving a
           # PUBLISHED release with ZERO assets while the job reported the failure.
-          # The two operations are now separate and explicit, and the asset list is
-          # READ BACK so an upload that does not land fails the job.
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          # The two operations are now separate and explicit.
+          #
+          # MEASURED (v1.5 pre-flight, 2026-09-24): the split below then shipped
+          # v1.4.0 as a DRAFT. `gh release view <tag>` SUCCEEDS on a draft, so the
+          # `|| gh release create` guard treated a pre-existing draft as "already
+          # created", skipped the create, uploaded assets into the draft and
+          # reported success — while the release stayed invisible to anonymous
+          # readers (`releases/tag/v1.4.0` returned 404 and `releases/latest` still
+          # resolved to v1.3.0). The step now (a) reads the draft flag explicitly,
+          # (b) publishes a draft instead of silently accepting it, and (c) asserts
+          # the END STATE — published, not draft, with both assets — so "the job is
+          # green" can no longer mean "the release is invisible".
+          STATE="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' 2>/dev/null || echo absent)"
+          case "$STATE" in
+            absent)
+              gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+              ;;
+            true)
+              echo "NOTE: a DRAFT release already exists for $GITHUB_REF_NAME; publishing it — this workflow's contract is a PUBLISHED release."
+              gh release edit "$GITHUB_REF_NAME" --draft=false
+              ;;
+            false)
+              echo "release $GITHUB_REF_NAME is already published; uploading assets into it"
+              ;;
+            *)
+              echo "FAIL: could not determine the release state for $GITHUB_REF_NAME (got '$STATE')"
+              exit 1
+              ;;
+          esac
           gh release upload "$GITHUB_REF_NAME" pack/npm/*.tgz pack/npm/*.tgz.sha256 --clobber
-          gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[] | "\(.name) \(.size) bytes"'
+          gh release view "$GITHUB_REF_NAME" --json isDraft,assets --jq '.assets[] | "\(.name) \(.size) bytes"'
+          DRAFT="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')"
           COUNT="$(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets | length')"
+          if [ "$DRAFT" != "false" ]; then
+            echo "FAIL: release $GITHUB_REF_NAME is still a DRAFT (isDraft=$DRAFT) and is therefore invisible to anonymous readers"
+            exit 1
+          fi
           if [ "$COUNT" -lt 2 ]; then echo "FAIL: expected tarball + checksum, found $COUNT asset(s)"; exit 1; fi
+          echo "OK: $GITHUB_REF_NAME is PUBLISHED (not draft) with $COUNT assets"
 
       # Registry publishing is optional and fails closed on its own precondition:
       # it needs a repository secret NPM_TOKEN whose account owns the npm scope

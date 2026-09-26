@@ -10,16 +10,23 @@
 // receives before the model has done anything — and attributes them per tool, because a tool that
 // the everyday user never calls is still paid for on every turn.
 //
-// It also records the shape the BENCHMARK measures. `tooling/benchmark/run-trial.mjs` runs the agent
-// with `--strict-mcp-config` and no `--mcp-config`, which is deliberate (it keeps a developer's own
-// MCP servers out of the measurement) but has a second consequence: the fixture's own `.mcp.json`,
-// written by the `canary setup` the trial just ran, is not loaded either. The measured canary arms
-// are therefore the Stop-hook-only shape, and the payload measured below is NOT in the 92.7% figure.
-// That is reported as an OPEN finding rather than asserted, because closing it is a harness decision
-// and a probe that fails when someone fixes something is a bad probe.
+// It also records the shape the BENCHMARK measures. Historically
+// `tooling/benchmark/run-trial.mjs` ran the agent with `--strict-mcp-config` and NO
+// `--mcp-config`, which kept a developer's own MCP servers out of the measurement but had a
+// second consequence: the fixture's own `.mcp.json`, written by the `canary setup` the trial
+// just ran, was not loaded either. The measured canary arms were therefore the Stop-hook-only
+// shape, and the payload measured below was NOT in the 92.7% figure.
 //
-// ESTIMATES ARE LABELLED. Everything in the PASS/FAIL checks is measured. The token arithmetic at
-// the end is derived (bytes/4) and says so; it is not evidence and no verdict depends on it.
+// v1.5 CLOSED THAT. `run-trial.mjs` now passes `--mcp-config <fixture>/.mcp.json` whenever the
+// fixture has one (i.e. for every arm that ran `canary setup`), so the standing payload IS
+// inside the measurement, and the everyday figure was re-derived from a fresh run
+// (`docs/BENCHMARK-EVERYDAY-1.5.md`). A4 below now asserts that state, so a regression that
+// silently drops the payload — and thereby flatters Canary — fails this probe.
+//
+// ESTIMATES ARE LABELLED. Everything in the PASS/FAIL checks is measured. The token arithmetic
+// in the measurement section is provider-native (measured by
+// `tooling/probes/v15-mcp-standing-payload.mjs`); the bytes/4 figure is kept only as a labelled
+// cross-check that the two disagree by a large factor, which is itself worth knowing.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -119,29 +126,43 @@ try {
     assert(!tools.some((t) => /accept/i.test(t.name)), 'canary_accept was advertised');
   });
 
-  check('A4-the-benchmark-measured-arms-exclude-this-payload-and-say-so', () => {
+  check('A4-the-benchmark-INCLUDES-this-payload-and-cannot-silently-drop-it', () => {
     const trial = fs.readFileSync(path.join(repo, 'tooling/benchmark/run-trial.mjs'), 'utf8');
     assert(trial.includes("'--strict-mcp-config'"),
       'the trial harness no longer pins hermeticity; re-read what the measured arms contain');
-    assert(!trial.includes("'--mcp-config'"),
-      'the trial harness now passes an --mcp-config, so the measured arms may INCLUDE the standing '
-      + 'payload; the 92.7% figure and the audit note must be re-derived before it is quoted again');
+    // v1.5 — the assertion is INVERTED from its historical form on purpose. It used to fail
+    // when the harness started passing `--mcp-config`, with the message "the 92.7% figure
+    // must be re-derived before it is quoted again". That re-derivation has now happened
+    // (docs/BENCHMARK-EVERYDAY-1.5.md), so the probe pins the NEW correct state: the payload
+    // must be passed, because dropping it again would understate Canary's cost.
+    assert(trial.includes("'--mcp-config'"),
+      'the trial harness no longer passes an --mcp-config, so the measured canary arms EXCLUDE the '
+      + 'standing MCP payload again. That flatters Canary: the everyday figure in '
+      + 'docs/BENCHMARK-EVERYDAY-1.5.md was measured WITH the payload inside. Restore the flag or '
+      + 're-derive the published figure');
+    assert(/mcpConfig/.test(trial),
+      'the harness no longer RECORDS whether the payload was loaded, so a trial cannot show whether '
+      + 'the standing cost was inside its own measurement');
   });
 
-  // ── derived arithmetic, clearly not a measurement ──
-  const approxTokens = Math.round(standingBytes / 4);
-  console.log(`\nESTIMATE (derived: bytes/4, NOT measured) — the standing payload is ~${approxTokens} tokens, re-sent each turn:`);
+  // ── the standing payload's TOKEN cost: MEASURED provider-natively in v1.5 ──
+  // `v15-mcp-standing-payload.mjs` differences two otherwise identical sessions that
+  // differ only by `--mcp-config`, so this number is an observation, not a derivation.
+  const MEASURED_TOKENS = 438;
+  console.log(`\nMEASURED (provider-native; tooling/probes/v15-mcp-standing-payload.mjs) — the standing payload is ~${MEASURED_TOKENS} tokens, re-sent each turn:`);
   for (const n of [5, 10, 17, 25]) {
-    console.log(`ESTIMATE   ${String(n).padStart(2)} turns -> ~${(approxTokens * n).toLocaleString('en-US')} token-equivalents of re-read context`);
+    console.log(`MEASURED   ${String(n).padStart(2)} turns -> ~${(MEASURED_TOKENS * n).toLocaleString('en-US')} token-equivalents of re-read context`);
   }
-  console.log('ESTIMATE   at 17 turns this is ~6% of the measured everyday arm (379,792 tokens); it is a real term, not the lever.');
+  const approxTokens = Math.round(standingBytes / 4);
+  console.log(`CROSS-CHECK (derived: bytes/4, NOT measured) — ${standingBytes} B / 4 = ~${approxTokens} tokens.`);
+  console.log(`            The derived figure OVERSTATES the measured one by ${(approxTokens / MEASURED_TOKENS).toFixed(1)}x, because`);
+  console.log('            JSON tool schemas tokenise far better than 4 bytes/token. Do not quote bytes/4 as tokens.');
 
   const open = [];
-  open.push('the-benchmark-excludes-the-standing-payload: run-trial.mjs runs the agent with '
-    + '--strict-mcp-config and no --mcp-config, so the fixture\'s own .mcp.json never loads and the '
-    + 'measured canary arms are the Stop-hook-only shape. The ' + standingBytes + ' B measured here are '
-    + 'therefore NOT inside the 92.7% figure. The plain-vs-guarded COMPARISON stays fair (neither arm '
-    + 'loads an MCP server), but the real everyday footprint is larger than the arm that was measured.');
+  console.log('RESOLVED the-benchmark-excludes-the-standing-payload: v1.5 made run-trial.mjs pass '
+    + '--mcp-config, so the ' + standingBytes + ' B measured here ARE inside the everyday figure, and the '
+    + 'figure was re-derived from a fresh run (docs/BENCHMARK-EVERYDAY-1.5.md). The historical 92.7% '
+    + 'excluded them and must not be quoted as current.');
   if (CEREMONY.every((n) => tools.some((t) => t.name === n))) {
     open.push('the-everyday-path-advertises-the-expert-ceremony: canary_work and canary_finish are in a '
       + 'flat module-level TOOLS array with no mode gating, so every client pays ' + ceremonyBytes + ' B per turn '

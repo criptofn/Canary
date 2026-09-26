@@ -1,0 +1,84 @@
+{
+  "schema": "canary-verification/1",
+  "at": "2026-09-24T05:12:15.591Z",
+  "source": "checkpoint",
+  "status": "pass",
+  "trustClass": "CANARY_OBSERVED",
+  "note": "Written from Canary's OWN execution. Agent reports and printed summaries are claims, not evidence; this bundle is never read back to produce a verdict.",
+  "canaryEntry": "C:\\Users\\Johannes\\Desktop\\canary\\apps\\cli\\dist\\src\\main.js",
+  "runtime": {
+    "node": "v26.7.0",
+    "execPath": "C:\\Program Files\\nodejs\\node.exe",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "cwd": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\schniedelsmp",
+  "candidate": {
+    "resolved": true,
+    "head": "d7f64361890da57ccdd5f194a9e275d757689f38",
+    "tree": "afb7dfaccf33da56a360a4ad7bf792913fc3471e",
+    "dirty": true
+  },
+  "envOverrides": [],
+  "execPolicy": "canary-sanitized/1",
+  "steps": [
+    {
+      "kind": "tests",
+      "argv": [
+        "C:/Program Files/Eclipse Adoptium/jdk-21.0.12.101-hotspot/bin/java.exe",
+        "-Xmx64m",
+        "-Xms64m",
+        "-javaagent:C:/Users/Johannes/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/lib/agents/gradle-instrumentation-agent-8.13.jar",
+        "-Dorg.gradle.appname=gradle",
+        "-classpath",
+        "C:/Users/Johannes/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/lib/gradle-gradle-cli-main-8.13.jar",
+        "org.gradle.launcher.GradleMain",
+        "test"
+      ],
+      "cwd": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\schniedelsmp",
+      "ok": true,
+      "exitCode": 0,
+      "execArgv": [
+        "C:/Program Files/Eclipse Adoptium/jdk-21.0.12.101-hotspot/bin/java.exe",
+        "-Xmx64m",
+        "-Xms64m",
+        "-javaagent:C:/Users/Johannes/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/lib/agents/gradle-instrumentation-agent-8.13.jar",
+        "-Dorg.gradle.appname=gradle",
+        "-classpath",
+        "C:/Users/Johannes/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/lib/gradle-gradle-cli-main-8.13.jar",
+        "org.gradle.launcher.GradleMain",
+        "test"
+      ],
+      "exec": {
+        "file": "C:/Program Files/Eclipse Adoptium/jdk-21.0.12.101-hotspot/bin/java.exe",
+        "digest": "82051fdab26319d77d20cc0065045d05ec00b3e3d05f44935d7c06b96b621d55",
+        "via": "trusted-path",
+        "policy": "canary-sanitized/1"
+      },
+      "startedAt": "2026-09-24T05:12:02.642Z",
+      "endedAt": "2026-09-24T05:12:15.572Z",
+      "stdout": {
+        "sha256": "db5a449812bbb4596cea6f9fa74cbaa76bad13b46c729064338bdbade71a3a0b",
+        "bytes": 291,
+        "file": "1-tests.out.log"
+      },
+      "stderr": {
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0,
+        "file": "1-tests.err.log"
+      },
+      "observedCounts": null
+    }
+  ],
+  "provenance": {
+    "planDigest": "223f7961d995f43d7fbb2a5e999621b5144eaeec78dda6ad3e87f5b869861b86",
+    "baseline": {
+      "at": "2026-09-24T05:10:54.840Z",
+      "resolved": true,
+      "head": "d7f64361890da57ccdd5f194a9e275d757689f38",
+      "tree": "afb7dfaccf33da56a360a4ad7bf792913fc3471e",
+      "dirty": false
+    },
+    "taskDigest": null
+  }
+}

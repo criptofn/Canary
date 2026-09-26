@@ -289,6 +289,10 @@ export function probeTrustLevel(s: TrustStore): { level: TrustLevel; reasons: st
   return { level: 'LOCAL', reasons: [
     'records are sealed outside the repo with an Ed25519 key this store owns',
     'the same uid that runs the worker can also write this store — sealing detects, it does not prevent; HARDENED requires a broker with a different identity and is NOT claimed',
+    // v1.5 audit finding: re-sealing a DIFFERENT plan/baseline needs no privilege either, so
+    // "sealed" must never be read as "the worker could not have chosen what is sealed". This is
+    // the level's selection story, and it is stated wherever the level is reported.
+    'the same user — including the worker — can re-run `canary setup --yes` and re-seal a different plan and baseline: LOCAL proof is same-user and operator-selected, not worker-independent',
   ] };
 }
 
@@ -321,6 +325,9 @@ export function probeTrustLevelReadOnly(s: TrustStore): { level: TrustLevel; rea
   return { level: 'LOCAL', reasons: [
     'records are sealed outside the repo with an Ed25519 key this store owns',
     'the same uid that runs the worker can also write this store — sealing detects, it does not prevent; HARDENED requires a broker with a different identity and is NOT claimed',
+    // v1.5 audit finding: which plan and which baseline are sealed is chosen by a caller the
+    // product never checks, so a worker with this user's authority can re-seal its own commit.
+    'the same user — including the worker — can re-run `canary setup --yes` and re-seal a different plan and baseline: LOCAL proof is same-user and operator-selected, not worker-independent',
     'read-only assessment: this command wrote nothing, so writability was checked by access rather than by a write probe (canary doctor measures it by writing)',
   ] };
 }

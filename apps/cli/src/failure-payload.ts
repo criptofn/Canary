@@ -46,6 +46,7 @@ const clip = (s: string, max = MAX_LINE_CHARS): string => (s.length <= max ? s :
  * print. Best-effort is the honest description: this is a DISPLAY aid, the log path is the
  * authority. Each pattern is one real format:
  *   `not ok 1 - some test`            TAP (node:test)
+ *   `✖ some test (1.23ms)`            node:test's SPEC reporter — `node --test`'s DEFAULT output
  *   `  1) some test`                  mocha
  *   `FAILED tests/x.py::test_y - ...` pytest short summary
  *   `file.test.js :: some test`       the repository's own plain-reporting runners
@@ -55,6 +56,12 @@ export function extractFailureIdentities(text: string, limit = MAX_IDENTITIES_PE
   const seen = new Set<string>();
   const patterns = [
     /^\s*not ok \d+\s*-\s*(.+?)\s*$/,
+    // MEASURED (v1.5 clean-room first run, `node --test` on a Node project): without this
+    // pattern a failing spec-reporter run reached the agent with NO test name at all —
+    // only `AssertionError ... actual: 'hello, Ada!'` — while README promises the block "names
+    // the check and the failing test". The `(…ms)` duration anchor is load-bearing: node also
+    // prints the header `✖ failing tests:`, which is a heading, not an identity.
+    /^\s*\u2716\s+(.+?)\s*\(\d+(?:\.\d+)?\s*ms\)\s*$/,
     /^\s*\d+\)\s+(.+?)\s*$/,
     /^(?:FAILED|ERROR)\s+(\S+)/,
     /^\s*(\S+\.[A-Za-z0-9]+)\s*::\s*(.+?)\s*$/,

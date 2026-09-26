@@ -1,0 +1,5 @@
+{
+  "head": "4f35b9c51d787b3a2f05c91a2ae0c8377a2b5840",
+  "status": "M scripts/smoke-test.js\n M src/workflows/fileOrganizer.js\n?? .claude/\n?? .codex/\n?? .mcp.json",
+  "untracked": ".claude/settings.json\n.codex/hooks.json\n.mcp.json"
+}

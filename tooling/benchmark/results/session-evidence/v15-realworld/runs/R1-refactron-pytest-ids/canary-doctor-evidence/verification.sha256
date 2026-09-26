@@ -1,0 +1,5 @@
+{
+  "file": "verification.json",
+  "sha256": "7ab85a6eb768df04525a9641564f8a5734053adffa0333f0c082b0db03ba481b",
+  "label": "tamper-evidence only — NOT a signature; no key exists"
+}

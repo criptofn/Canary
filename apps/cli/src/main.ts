@@ -77,7 +77,14 @@ usage:
                                           derivation checks ON THIS MACHINE — NOT a committed-
                                           proof comparison; that is prove/check. exit 0 on
                                           self-consistency, else NOT SELF-CONSISTENT, exit 3)
-  canary setup [--yes]      one-command onboarding for a Node project (AI-harness auto-wiring)
+  canary setup [--yes] [--toolchain-dir <abs dir>]...
+                            one-command onboarding for a Node project (AI-harness auto-wiring).
+                            --toolchain-dir (repeatable) authorizes ONE executable directory
+                            for the checks your project runs: build tools a project spawns
+                            itself (java, python, git) are invisible to Canary's restricted
+                            step environment on purpose, because a program planted earlier on
+                            the calling PATH would run as Canary's own authority. A directory
+                            inside the repository is refused; --clear-toolchain-dirs revokes
   canary status             lazy reconnect: does Canary already know this repo, and is its
                             wiring sound? READ-ONLY — no project commands executed, zero
                             writes (a few read-only git metadata reads);
@@ -444,6 +451,6 @@ main(process.argv.slice(2))
     console.error('Canary hit an internal error and stopped. That is a defect in Canary, not a statement about your project.');
     console.error(`  what happened: ${e instanceof Error ? e.message : String(e)}`);
     console.error('  what it means: this run verified NOTHING — do not read it as a pass, and not as a failure of your code either.');
-    console.error('  what to do: re-run the same command with CANARY_VERBOSE=1 for the full detail, then report it with `canary --version`, `canary status --json` and `canary doctor --json`.');
+    console.error('  what to do: if the message above names a path you can fix (a FILE where Canary needs a directory, or a location this account cannot write), fix that first and re-run; otherwise re-run with CANARY_VERBOSE=1 for the full detail, then report it with `canary --version`, `canary status --json` and `canary doctor --json`.');
     finish(3);
   });

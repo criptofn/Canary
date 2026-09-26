@@ -1,0 +1,66 @@
+{
+  "version": "product-0.1",
+  "installedAt": "2026-09-24T05:10:54.840Z",
+  "pm": "universal",
+  "plan": [
+    {
+      "kind": "tests",
+      "script": "gradle-test",
+      "adapter": "universal",
+      "argv": [
+        "C:/Program Files/Eclipse Adoptium/jdk-21.0.12.101-hotspot/bin/java.exe",
+        "-Xmx64m",
+        "-Xms64m",
+        "-javaagent:C:/Users/Johannes/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/lib/agents/gradle-instrumentation-agent-8.13.jar",
+        "-Dorg.gradle.appname=gradle",
+        "-classpath",
+        "C:/Users/Johannes/.gradle/wrapper/dists/gradle-8.13-bin/5xuhj0ry160q40clulazy9h7d/gradle-8.13/lib/gradle-gradle-cli-main-8.13.jar",
+        "org.gradle.launcher.GradleMain",
+        "test"
+      ],
+      "pm": "universal"
+    }
+  ],
+  "baseline": {
+    "at": "2026-09-24T05:10:54.840Z",
+    "resolved": true,
+    "head": "d7f64361890da57ccdd5f194a9e275d757689f38",
+    "tree": "afb7dfaccf33da56a360a4ad7bf792913fc3471e",
+    "dirty": false
+  },
+  "planAuthority": {
+    "at": "2026-09-24T05:10:53.606Z",
+    "planDigest": "223f7961d995f43d7fbb2a5e999621b5144eaeec78dda6ad3e87f5b869861b86",
+    "scriptDigests": {
+      "gradle-test": "57f2e57ae6cd107347806b608a971842c2f6eb4f6d876a4730755cfee2b49e7b"
+    },
+    "proofBindings": {}
+  },
+  "cliPath": "C:\\Users\\Johannes\\Desktop\\canary\\apps\\cli\\dist\\src\\main.js",
+  "hookCommand": "node \"C:\\Users\\Johannes\\Desktop\\canary\\apps\\cli\\dist\\src\\main.js\" checkpoint",
+  "hookCommands": [
+    "node \"C:\\Users\\Johannes\\Desktop\\canary\\apps\\cli\\dist\\src\\main.js\" checkpoint"
+  ],
+  "codexHookCommands": [
+    "node \"C:\\Users\\Johannes\\Desktop\\canary\\apps\\cli\\dist\\src\\main.js\" checkpoint"
+  ],
+  "mcpArgSignatures": [
+    "[\"C:\\\\Users\\\\Johannes\\\\Desktop\\\\canary\\\\apps\\\\cli\\\\dist\\\\src\\\\main.js\",\"mcp\"]"
+  ],
+  "touched": [
+    {
+      "path": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\schniedelsmp\\.claude\\settings.json",
+      "created": false
+    },
+    {
+      "path": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\schniedelsmp\\.codex\\hooks.json",
+      "created": false,
+      "kind": "codex-hooks"
+    },
+    {
+      "path": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\schniedelsmp\\.mcp.json",
+      "created": false,
+      "kind": "mcp"
+    }
+  ]
+}

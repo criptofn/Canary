@@ -1,0 +1,2 @@
+Ignoring 19 permissions.allow entries from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects["C:/Users/Johannes/Desktop/canary-ws5-scratch/refactron"].hasTrustDialogAccepted: true in C:\Users\Johannes\.claude.json.
+[claude-code:unrecognized_model] {"model":"qwen3.8-flash","query_source":"sdk"}
