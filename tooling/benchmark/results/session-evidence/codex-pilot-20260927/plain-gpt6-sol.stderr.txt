@@ -1,0 +1,11 @@
+2026-09-27T20:00:56.509176Z  WARN codex_state::runtime: failed to run startup maintenance for logs db at C:\Users\Johannes\.codex\logs_2.sqlite: error returned from database: (code: 11) database disk image is malformed
+Reading additional input from stdin...
+2026-09-27T20:00:57.438494Z  WARN codex_models_manager::model_info: Unknown model gpt-6-sol is used. This will use fallback model metadata.
+2026-09-27T20:00:57.613114Z  WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/
+2026-09-27T20:00:57.613140Z  WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/
+2026-09-27T20:00:57.657503Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell
+2026-09-27T20:00:57.825521Z  WARN codex_models_manager::model_info: Unknown model gpt-6-sol is used. This will use fallback model metadata.
+2026-09-27T20:00:57.896993Z  WARN codex_models_manager::model_info: Unknown model gpt-6-sol is used. This will use fallback model metadata.
+2026-09-27T20:01:00.021641Z  WARN codex_core::session_startup_prewarm: startup websocket prewarm setup failed: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account."}}
+2026-09-27T20:01:00.404630Z  WARN codex_mcp::rmcp_client: MCP server startup failed server_name="brave-search" error=handshaking with MCP server failed: connection closed: initialize response: connection closed: initialize response
+2026-09-27T20:01:01.851726Z  WARN codex_mcp::rmcp_client: failed to initialize MCP client during shutdown: MCP startup failed: handshaking with MCP server failed: connection closed: initialize response: connection closed: initialize response

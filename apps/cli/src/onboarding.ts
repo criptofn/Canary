@@ -3633,7 +3633,10 @@ export function cmdDoctor(rawArgs: string[]): number {
     // plainly — READY here means "your checks passed", never "your change is proven".
     o.say(`note: ${unproven.length} observation(s) about this diff are UNPROVEN and are not covered by any authorized requirement — the plan passing does not prove them (NO PROOF, NO DONE).`);
   }
-  for (const ob of obligations) o.detail(`obligation [${ob.id}] ${ob.status.toUpperCase()} (${ob.mode}): ${ob.note}`);
+  for (const ob of obligations) {
+    if (ob.caveat) o.say(`evidence caveat [${ob.id}]: ${ob.caveat}`);
+    o.detail(`obligation [${ob.id}] ${ob.status.toUpperCase()} (${ob.mode}): ${ob.note}`);
+  }
   // M3 (verbose-only — trust classes are evidence internals, not default UX):
   o.detail('trust: this READY is CANARY_OBSERVED — Canary executed the checks in this very invocation. Agent words are AGENT_REPORTED and never sufficient for a PASS; no class is promoted by copying bytes into a Canary-owned file (evidence is never read back for verdicts).');
   if (cfg.planAuthority) o.detail('authority: every command that just ran is one setup sealed — script-text drift is blocked before execution, not excused after it passes.');

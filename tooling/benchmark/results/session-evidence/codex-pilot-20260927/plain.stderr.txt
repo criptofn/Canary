@@ -1,0 +1,7 @@
+2026-09-27T19:53:25.275876Z  WARN codex_state::runtime: failed to run startup maintenance for logs db at C:\Users\Johannes\.codex\logs_2.sqlite: error returned from database: (code: 11) database disk image is malformed
+Reading additional input from stdin...
+2026-09-27T19:53:26.266279Z  WARN codex_models_manager::model_info: Unknown model gpt-6-luna is used. This will use fallback model metadata.
+2026-09-27T19:53:26.785298Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell
+2026-09-27T19:53:27.003014Z  WARN codex_models_manager::model_info: Unknown model gpt-6-luna is used. This will use fallback model metadata.
+2026-09-27T19:53:27.067399Z  WARN codex_models_manager::model_info: Unknown model gpt-6-luna is used. This will use fallback model metadata.
+2026-09-27T19:53:29.697085Z  WARN codex_core::session_startup_prewarm: startup websocket prewarm setup failed: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-6-luna' model is not supported when using Codex with a ChatGPT account."}}

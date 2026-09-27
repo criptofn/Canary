@@ -107,6 +107,25 @@ test('a discriminating check allows the same candidate to finish and promote', (
   assert.equal(canary(root, 'doctor').code, 0); assert.notEqual(hook(root).decision, 'block');
 });
 
+test('doctor visibly labels worker-authored regression evidence as non-independent', () => {
+  const root = fixture('worker-authored-evidence');
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+
+  const human = canary(root, 'doctor');
+  assert.equal(human.code, 0, human.out);
+  assert.match(human.out, /READY/);
+  assert.match(human.out, /NOT independent authority/);
+  assert.match(human.out, /tests\/greet\.test\.cjs \(EXISTING check rewritten by this session\)/);
+
+  const json = spawnSync(process.execPath, [CLI, 'doctor', '--json'], {
+    cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000,
+  });
+  assert.equal(json.status, 0, json.stderr);
+  assert.equal(JSON.parse(json.stdout).status, 'READY');
+  assert.match(json.stderr, /NOT independent authority/);
+});
+
 test('no change and documentation-only changes retain their comparison exemptions', () => {
   const root = fixture('no-change');
   assert.equal(canary(root, 'doctor').code, 0);

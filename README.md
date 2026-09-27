@@ -279,7 +279,9 @@ actually executed and passed in that run. Nothing executed → NEEDS
 ATTENTION, never a fake green. This auto-watched plan runner is the everyday
 path; the much stronger **attested proof pipeline** (`canary prove` /
 `canary check`, below) is a separate, different promise for release-grade
-claims.
+claims. If the only check that distinguishes a change uses assertions the worker
+added or rewrote, `doctor` prints an evidence caveat: the check is change-sensitive,
+but its contents are not independent authority.
 
 ## What the benchmarks actually show
 
