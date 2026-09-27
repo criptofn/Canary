@@ -264,11 +264,9 @@ const STEPS = [
   // and that repeated runs agree.
   ['trust-store isolation (can stale temp state decide a test?)', process.execPath, ['tooling/probes/v14-trust-store-isolation.mjs'], {}],
   // v1.4 — MEASURED (GitHub Windows run 35636516908): the post-exit containment sweep asked WMI one
-  // question PER PROCESS, exceeded its budget on the hosted runner, and reported the LOOK as
-  // unconfirmable — which invalidated every round of every pipeline (27 of 29 real failures, ~334s
-  // each). This pins the fix's shape (one snapshot, a non-empty table required) and, against a real
-  // live tree, the property the fix must not break: survivors are still found and killed.
-  ['containment sweep cost + honesty (one snapshot, real survivors still killed)', process.execPath, ['tooling/probes/v14-sweep-scale.mjs'], {}],
+  // identity checks and, against a real live tree, the property the fix must not break: survivors are
+  // still found and killed.
+  ['containment sweep cost + honesty (one tree snapshot, bounded identity checks, survivors killed)', process.execPath, ['tooling/probes/v14-sweep-scale.mjs'], {}],
   // v1.4 — the same Windows leg was red for a second, independent reason: a DELETED artifact was
   // reported as "resolves outside the artifacts directory" whenever the host's temp path has an 8.3
   // SHORT name (`C:\Users\RUNNER~1\...`), which no developer machine reproduces because `Johannes`
@@ -299,6 +297,7 @@ const STEPS = [
   // reports a source-side improvement the built artifact predates as `PENDING-REBUILD … NOT a pass`
   // rather than asserting it, so the chain stays honest between a source edit and the next build.
   ['v1.5 first run (install -> setup -> gate -> fail -> repair -> uninstall, asserted)', process.execPath, ['tooling/probes/v15-first-run.mjs'], {}],
+  ['Windows process cleanup stress (6 idle + 6 under load)', process.execPath, ['tooling/probes/win-sweep-stress.mjs'], {}],
   // v1.5 POST-AUDIT (independent GPT-5.6 audit of a004f55). Each of these is the focused proof for a
   // confirmed finding, registered here so the release battery re-checks the finding rather than
   // trusting the commit message that fixed it. All three are deterministic and cost no model tokens.
@@ -563,11 +562,28 @@ const SKIP_AWARE = new Set([
   // the wired/protocol arms run regardless). Where either is absent the probe prints
   // explicit SKIP lines and exits 3 — the host bound is named, never counted as PASS.
   'v1.4 codex stop hook (a second measured completion gate)',
+  'Windows process cleanup stress (6 idle + 6 under load)',
+]);
+// These diagnostics start real Claude Code sessions. Their CLI-level
+// --max-budget-usd value was observed to overshoot, so this runner cannot
+// currently enforce the user's total provider spend. Keep them listed and
+// visible, but never start a paid session from the default productization gate.
+const COST_GATED = new Map([
+  ['v1.3 posttool feedback (DIAGNOSTIC live-integration; deterministic properties gate)',
+    'cost-gated: live Claude sessions were not run; provider-level spend cannot be reliably capped'],
+  ['benchmark: agent-driven token ledger (stream-json parsed for phase cost + visible bytes)',
+    'cost-gated: live Claude session was not run; provider-level spend cannot be reliably capped'],
 ]);
 const results = []; // [label, 'PASS'|'SKIP'|'FAIL'|'INCOMPLETE'|'NOT RUN', note]
 const runStep = (cmd, args, timeout) => spawnSync(cmd, args, { cwd: CANARY, encoding: 'utf8', shell: SH && cmd === 'npm', timeout, maxBuffer: 64 * 1024 * 1024 });
 for (const [label, cmd, args] of STEPS) {
   console.log(`\n=== ${label} ===`);
+  const costGate = COST_GATED.get(label);
+  if (costGate) {
+    console.log(`SKIP  ${costGate}`);
+    results.push([label, 'SKIP', costGate]);
+    continue;
+  }
   // v1.4 — a per-step budget, because one flat timeout killed a step whose MEASURED legitimate
   // runtime class exceeds it (master-pass: ~993 s against a 900 s cap). Finite everywhere still:
   // a real deadlock must be caught, it just must not be confused with a slow valid workload.
@@ -630,7 +646,9 @@ if (failed || incomplete || notRun) {
   console.log(`VERIFY-PRODUCTIZATION: NOT GREEN (${bits.join('; ')}${passed ? `; ${passed} PASS, ${skipped} SKIP` : ''})`);
 } else if (skipped) {
   const zeroExec = results.filter(([, v, n]) => v === 'SKIP' && /^host-bound: 0 check\(s\) EXECUTED/.test(n)).length;
-  console.log(`VERIFY-PRODUCTIZATION: PASS WITH HOST-BOUND SKIP (${passed} PASS, ${skipped} SKIP — NOT full ${STEPS.length}/${STEPS.length} acceptance on this host; the SKIP lines above name what was not reproducible here${zeroExec ? `; ${zeroExec} SKIP step(s) EXECUTED ZERO checks — environment absent, accepted as nothing` : ''})`);
+  const costGated = results.filter(([, v, n]) => v === 'SKIP' && n.startsWith('cost-gated:')).length;
+  const hostSkipped = skipped - costGated;
+  console.log(`VERIFY-PRODUCTIZATION: PASS WITH EXPLICIT SKIPS (${passed} PASS, ${skipped} SKIP — no skipped probe counts as a pass${hostSkipped ? `; ${hostSkipped} host-bound` : ''}${costGated ? `; ${costGated} live cost-gated and NOT RUN` : ''}${zeroExec ? `; ${zeroExec} host-bound SKIP step(s) executed zero checks` : ''})`);
 } else {
   console.log(`VERIFY-PRODUCTIZATION: PASS (${passed}/${STEPS.length} steps green)`);
 }

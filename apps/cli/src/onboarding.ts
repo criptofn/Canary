@@ -72,8 +72,8 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, scopeDir, SCOPES_FILE, SCOPES_SCHEMA, sealPlanAuthority, sha256, stepArgv } from './project.js';
 // v1.5 BLOCKER 6: the sealed toolchain (operator-authorized executable directories) and the
 // MEASURED decision of whether a failing check is the project's fault or Canary's own environment.
-import { attributeFailures, inventoryOperatorToolchain, npmScriptDirs, pathEntries, validateToolchainDir, type AttributeInput, type FailureAttribution, type ToolchainSeal } from './sealed-toolchain.js';
-import { emitEnvelope, PROTOCOL_RESULT, PROTOCOL_STATUS, type ProtocolEnvelope, type ProtocolIntegration } from './protocol.js';
+import { attributeFailures, inventoryOperatorToolchain, npmScriptDirs, pathEntries, TOOLCHAIN_CANDIDATES, validateToolchainDir, type AttributeInput, type FailureAttribution, type ToolchainSeal } from './sealed-toolchain.js';
+import { emitEnvelope, PROTOCOL_RESULT, PROTOCOL_SETUP_CHECK, PROTOCOL_STATUS, type ProtocolEnvelope, type ProtocolIntegration } from './protocol.js';
 import { decideFastPath } from './fastpath.js';
 import { AGENT_INTEGRATIONS, hasAdvisory, installAdvisory, removeAdvisory } from './agents.js';
 import type { PlanAuthority, PlanStep } from './project.js';
@@ -156,6 +156,8 @@ export interface CanaryConfig {
    *  match exactly these, so a key Canary did not write is never pruned or replaced. Absent on
    *  configs written before v1.3, which simply means "no MCP entry is owned here". */
   mcpArgSignatures?: string[];
+  /** MCP tool profile written by setup. Older configs upgrade to everyday. */
+  mcpProfile?: 'everyday' | 'expert';
   touched: TouchedFile[];
   /** M4 baseline: repo identity stamped by Canary at setup time — "state when
    *  Canary was wired". Optional: configs written before M4 have no provable
@@ -264,6 +266,7 @@ function validConfigShape(v: unknown): v is CanaryConfig {
   const c = v as Record<string, unknown>;
   const isStr = (x: unknown): boolean => typeof x === 'string';
   return isStr(c.version) && isStr(c.installedAt) && isStr(c.pm) && isStr(c.cliPath) && isStr(c.hookCommand)
+    && (c.mcpProfile === undefined || c.mcpProfile === 'everyday' || c.mcpProfile === 'expert')
     // 1.1: a step's optional fields are shape-checked HERE, so a hand-edited
     // config with a malformed argv is 'corrupt' (documented self-heal) rather
     // than a runtime throw at execution time. An empty argv can never execute,
@@ -482,7 +485,7 @@ function pruneOwned(doc: Record<string, unknown>, ownedCommands: Set<string>): n
  * .canary/backups/. Returns the touched-file record for uninstall.
  */
 export function installStopHook(
-  root: string, command: string, priorCommands: Set<string>, backupsDir: string,
+  root: string, command: string, priorCommands: Set<string>, backupsDir: string, dryRun = false,
 ): { ok: boolean; touched?: TouchedFile; problem?: string } {
   const file = settingsPath(root);
   try { assertPlainTarget(file); } catch {
@@ -508,6 +511,8 @@ export function installStopHook(
   const hooks = (doc.hooks ??= {}) as Record<string, unknown[]>;
   const stop = (hooks.Stop ??= []) as Array<{ hooks: unknown[] }>;
   stop.push({ hooks: [{ type: 'command', command, timeout: 1800 }] });
+
+  if (dryRun) return { ok: true, touched: { path: file, created: !existed } };
 
   if (existed) {
     fs.mkdirSync(backupsDir, { recursive: true });
@@ -570,7 +575,7 @@ export function codexHooksPath(root: string): string { return path.join(root, CO
  * case with the file byte-unchanged.
  */
 export function installCodexStopHook(
-  root: string, command: string, priorCommands: Set<string>, backupsDir: string,
+  root: string, command: string, priorCommands: Set<string>, backupsDir: string, dryRun = false,
 ): { ok: boolean; touched?: TouchedFile; problem?: string } {
   const dir = path.join(root, CODEX_DIR);
   // The file is not the whole story: `.codex` itself can be a junction/symlink to somewhere else.
@@ -609,6 +614,8 @@ export function installCodexStopHook(
   // `timeout` is SECONDS in Codex's schema (default 600). No `matcher`: the vendor ignores one on
   // `Stop`, and writing a field that means nothing would be decoration.
   stop.push({ hooks: [{ type: 'command', command, timeout: CODEX_HOOK_TIMEOUT_SECONDS, statusMessage: CODEX_STATUS_MESSAGE }] });
+
+  if (dryRun) return { ok: true, touched: { path: file, created: !existed, kind: 'codex-hooks' } };
 
   if (existed) {
     fs.mkdirSync(backupsDir, { recursive: true });
@@ -659,7 +666,10 @@ export function mcpConfigPath(root: string): string { return path.join(root, MCP
  *  the user's terminal. Pinning removes a whole class of "the server never started" reports that would
  *  otherwise be blamed on Canary. */
 export function mcpServerCommand(cliPath: string): string { return sea.isSea() ? cliPath : process.execPath; }
-export function mcpServerArgs(cliPath: string): string[] { return sea.isSea() ? ['mcp'] : [cliPath, 'mcp']; }
+export type McpProfile = 'everyday' | 'expert';
+export function mcpServerArgs(cliPath: string, profile: McpProfile = 'everyday'): string[] {
+  return [...(sea.isSea() ? ['mcp'] : [cliPath, 'mcp']), '--profile', profile];
+}
 export const mcpArgSignature = (args: readonly string[]): string => JSON.stringify([...args]);
 
 /** Is OUR entry present — matched by argv signature, never by the key alone? */
@@ -696,6 +706,7 @@ export function pruneOwnedMcp(doc: Record<string, unknown>, owned: Set<string>):
  */
 export function installMcpServer(
   root: string, cliPath: string, priorSignatures: Set<string>, backupsDir: string,
+  profile: McpProfile = 'everyday', dryRun = false,
 ): { ok: boolean; touched?: TouchedFile; problem?: string } {
   const file = mcpConfigPath(root);
   try { assertPlainTarget(file); } catch {
@@ -711,7 +722,7 @@ export function installMcpServer(
   if (doc.mcpServers !== undefined && (typeof doc.mcpServers !== 'object' || doc.mcpServers === null || Array.isArray(doc.mcpServers))) {
     return { ok: false, problem: `${rel(root, file)} has an "mcpServers" section that is not an object — fix it and re-run setup. Nothing was changed.` };
   }
-  const args = mcpServerArgs(cliPath);
+  const args = mcpServerArgs(cliPath, profile);
   const signature = mcpArgSignature(args);
   const owned = new Set([signature, ...priorSignatures]);
   const existing = (doc.mcpServers as Record<string, unknown> | undefined)?.[MCP_SERVER_KEY];
@@ -727,6 +738,8 @@ export function installMcpServer(
   // servers at all. (A test caught exactly that: a re-run left the document empty.)
   const map = (doc.mcpServers ??= {}) as Record<string, unknown>;
   map[MCP_SERVER_KEY] = { command: mcpServerCommand(cliPath), args };
+
+  if (dryRun) return { ok: true, touched: { path: file, created: !existed, kind: 'mcp' } };
 
   if (existed) {
     fs.mkdirSync(backupsDir, { recursive: true });
@@ -2528,14 +2541,14 @@ export class Out {
   context(partial: Partial<ProtocolEnvelope>): void { this.ctx = { ...this.ctx, ...partial }; }
   // CONNECTED / NOT CONNECTED are the canary status (read-only) family: state
   // facts, deliberately NOT READY (only a completed plan run earns READY).
-  verdict(v: 'READY' | 'NOT PROVEN' | 'CONNECTED' | 'NOT CONNECTED' | 'NEEDS ATTENTION' | 'UNSUPPORTED', why: string, next?: string) {
+  verdict(v: 'READY' | 'NOT PROVEN' | 'CONNECTED' | 'NOT CONNECTED' | 'NEEDS ATTENTION' | 'UNSUPPORTED' | 'SETUP ELIGIBLE' | 'SETUP NEEDS ATTENTION', why: string, next?: string) {
     this.line('');
     this.line(v === 'READY' ? `READY — ${why}` : `${v} — ${why}`);
     if (next) this.line(`next: ${next}`);
     if (!this.json) return;
     // READY and CONNECTED are the only non-blocking verdicts; every other one
     // is a refusal, which is exit 2 across Canary's command surface.
-    const exitCode = this.ctx.exitCode ?? ((v === 'READY' || v === 'CONNECTED') ? 0 : 2);
+    const exitCode = this.ctx.exitCode ?? ((v === 'READY' || v === 'CONNECTED' || v === 'SETUP ELIGIBLE') ? 0 : 2);
     const env: ProtocolEnvelope = {
       schema: this.ctx.schema ?? PROTOCOL_STATUS, ...this.ctx,
       command: this.ctx.command ?? 'canary', status: v, exitCode,
@@ -2554,6 +2567,74 @@ export function parseGlobals(args: string[]): { opts: GlobalOpts; rest: string[]
     fast: args.includes('--fast'),
   };
   return { opts, rest: args.filter((a) => a !== '--verbose' && a !== '--yes' && a !== '--json' && a !== '--fast') };
+}
+
+function takeSetupOptions(args: string[]): { rest: string[]; check: boolean; profile?: McpProfile; problems: string[] } {
+  const rest: string[] = [];
+  const problems: string[] = [];
+  let check = false;
+  let profile: McpProfile | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === '--check') { check = true; continue; }
+    if (arg === '--mcp-profile') {
+      const value = args[++i];
+      if (value !== 'everyday' && value !== 'expert') problems.push('--mcp-profile must be everyday or expert');
+      else if (profile !== undefined && profile !== value) problems.push('conflicting --mcp-profile values were provided');
+      else profile = value;
+      continue;
+    }
+    if (arg.startsWith('--mcp-profile=')) {
+      const value = arg.slice('--mcp-profile='.length);
+      if (value !== 'everyday' && value !== 'expert') problems.push('--mcp-profile must be everyday or expert');
+      else if (profile !== undefined && profile !== value) problems.push('conflicting --mcp-profile values were provided');
+      else profile = value;
+      continue;
+    }
+    rest.push(arg);
+  }
+  return { rest, check, ...(profile ? { profile } : {}), problems };
+}
+
+function setupCheckResult(
+  o: Out,
+  root: string,
+  plan: Array<{ kind: string; display: string; executable: string }>,
+  harnesses: Array<{ name: string; supported: boolean }>,
+  problems: string[],
+  next: string,
+): number {
+  const inventory = inventoryOperatorToolchain(process.env.PATH ?? '');
+  const relevant = new Set(['python', 'python3', 'pytest', 'java', 'javac', 'gradle', 'mvn', 'go', 'cargo', 'rustc', 'dotnet', 'git']);
+  const availableToolchains = TOOLCHAIN_CANDIDATES
+    .filter((name) => relevant.has(name) && inventory[name] !== null)
+    .map((name) => ({ name, path: inventory[name]!, authorized: false as const }));
+  const setupCheck = {
+    plan,
+    availableToolchains,
+    harnesses,
+    limitations: [
+      'No project command was run; the setup smoke test is still required.',
+      'Tools launched inside project scripts cannot all be discovered before those scripts run.',
+      'Tool paths found in the shell remain unauthorized until explicitly added with --toolchain-dir.',
+      'Harness approval and trust-store write access are confirmed only during setup.',
+    ],
+  };
+  const exitCode = problems.length === 0 ? 0 : 2;
+  o.context({ command: 'setup', schema: PROTOCOL_SETUP_CHECK, root, setupCheck, ...(problems.length ? { problems } : {}), next, exitCode });
+  o.say(`repo: ${root}`);
+  o.say('setup plan (read-only; project commands were not run):');
+  for (const step of plan) o.say(`  ✓ ${step.kind}: ${step.display} [${step.executable}]`);
+  if (availableToolchains.length) {
+    o.say('toolchains found on the shell PATH (not authorized):');
+    for (const tool of availableToolchains) o.say(`  · ${tool.name}: ${tool.path}`);
+  }
+  for (const harness of harnesses) o.say(`harness: ${harness.name} — ${harness.supported ? 'supported' : 'not supported'}`);
+  for (const limitation of setupCheck.limitations) o.say(`note: ${limitation}`);
+  for (const problem of problems) o.say(`  - ${problem}`);
+  o.verdict(exitCode === 0 ? 'SETUP ELIGIBLE' : 'SETUP NEEDS ATTENTION',
+    exitCode === 0 ? 'the declared checks and managed files can be prepared on this host' : 'setup has the listed blockers', next);
+  return exitCode;
 }
 /** The directory argument = first non-flag token, anywhere in the args. Never mistake --run for a path. */
 export function dirArg(rest: string[]): string | undefined { return rest.find((a) => !a.startsWith('--')); }
@@ -2592,8 +2673,13 @@ export function takeToolchainDirs(args: string[]): { dirs: string[]; rest: strin
 }
 
 export async function cmdSetup(rawArgs: string[]): Promise<number> {
-  const { opts, rest } = parseGlobals(rawArgs);
+  const setupArgs = takeSetupOptions(rawArgs);
+  const { opts, rest } = parseGlobals(setupArgs.rest);
   const o = new Out(opts.verbose, opts.json);
+  if (setupArgs.problems.length > 0 || (setupArgs.check && opts.yes)) {
+    o.say(`REFUSED — ${setupArgs.problems.join('; ') || '--check cannot be combined with --yes'}. Nothing was changed.`);
+    return 3;
+  }
   const toolchainArgs = takeToolchainDirs(rest);
   const root = findRepoRoot(dirArg(toolchainArgs.rest) ?? process.cwd());
   if (!root) { o.verdict('UNSUPPORTED', 'this folder is not inside a git repository.', 'cd into your project and try again'); return 2; }
@@ -2651,10 +2737,12 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // be fine — the human asked for these checks, so shipping a plan without them
   // silently would be exactly the failure this feature exists to prevent.
   if (composed.problems.length) {
+    if (setupArgs.check) return setupCheckResult(o, root, [], detectHarnesses(root).found.map((h) => ({ name: h.name, supported: h.supported })), composed.problems, 'fix the scope declaration, then rerun: canary setup --check');
     o.verdict('NEEDS ATTENTION', `the nested-scope declaration (${SCOPES_FILE}) is not usable: ${composed.problems.join('; ')}.`, `fix ${SCOPES_FILE} (or delete it to go back to root-only discovery), then run setup again`);
     return 2;
   }
   if (composed.scopes.length === 0) {
+    if (setupArgs.check) return setupCheckResult(o, root, [], detectHarnesses(root).found.map((h) => ({ name: h.name, supported: h.supported })), ['no supported project declaration was found'], 'declare a supported project check, then rerun: canary setup --check');
     o.verdict('UNSUPPORTED', `${root} is a git repo, but Canary found no project it can model at its root (looked for package.json, pyproject.toml / setup.py / tox.ini, Cargo.toml, go.mod / go.work).`, `if your checks live in subdirectories, declare them in ${SCOPES_FILE} (e.g. { "schema": "${SCOPES_SCHEMA}", "scopes": [{ "path": "web", "ecosystem": "node" }] }), then run setup again`);
     return 2;
   }
@@ -2664,11 +2752,43 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // is the absolute path — never a name that a later PATH could re-point
   const pin = pinPlanPrograms(composed.plan);
   if (pin.problems.length) {
+    if (setupArgs.check) return setupCheckResult(o, root, [], detectHarnesses(root).found.map((h) => ({ name: h.name, supported: h.supported })), pin.problems, 'install or explicitly locate the required program, then rerun: canary setup --check');
     o.verdict('NEEDS ATTENTION', `Canary could not pin a program these checks need: ${pin.problems.join('; ')}.`, 'install it (or declare its absolute path in the project), then run setup again'); return 2;
   }
   const plan = pin.plan;
   const pm = rootDisc?.pm ?? composed.scopes[0]!.adapter.id;
   const note = rootDisc?.note ?? composed.notes.join('; ');
+  const prev = readConfig(root);
+  const prevUsable = !!prev && prev !== 'corrupt' && !untrustedConfigReason(root, prev);
+  const setupPrevCfg = prevUsable ? prev as CanaryConfig : null;
+  const mcpProfile: McpProfile = setupArgs.profile ?? setupPrevCfg?.mcpProfile ?? 'everyday';
+  if (setupArgs.check) {
+    const harnesses = detectHarnesses(root);
+    const issues: string[] = [];
+    if (plan.length === 0) issues.push('no executable verification checks were discovered');
+    if (!harnesses.integrable) issues.push('no supported agent harness was detected');
+    const hookCommand = buildHookCommand(CLI_ENTRY);
+    if (hookCommand === null && harnesses.integrables.some((h) => h.name === 'claude-code' || h.name === 'codex')) {
+      issues.push('Canary could not form a safe hook command for this CLI path');
+    }
+    if (hookCommand && harnesses.integrables.some((h) => h.name === 'claude-code')) {
+      const checkHook = installStopHook(root, hookCommand, new Set(setupPrevCfg?.hookCommands ?? []), path.join(root, CONFIG_DIR, 'backups'), true);
+      if (!checkHook.ok) issues.push(`Claude Code hook: ${checkHook.problem}`);
+    }
+    if (hookCommand && harnesses.integrables.some((h) => h.name === 'codex')) {
+      const checkHook = installCodexStopHook(root, hookCommand, new Set(setupPrevCfg?.codexHookCommands ?? []), path.join(root, CONFIG_DIR, 'backups'), true);
+      if (!checkHook.ok) issues.push(`Codex hook: ${checkHook.problem}`);
+    }
+    const checkMcp = installMcpServer(root, CLI_ENTRY, new Set(setupPrevCfg?.mcpArgSignatures ?? []), path.join(root, CONFIG_DIR, 'backups'), mcpProfile, true);
+    if (!checkMcp.ok) issues.push(`MCP tools: ${checkMcp.problem}`);
+    const planRows = plan.map((step, index) => ({
+      kind: step.kind,
+      display: stepDisplay(pm, step),
+      executable: pin.plan[index]!.argv?.[0] ?? pm,
+    }));
+    return setupCheckResult(o, root, planRows, harnesses.found.map((h) => ({ name: h.name, supported: h.supported })), issues,
+      issues.length ? 'resolve the listed setup issue, then rerun: canary setup --check' : `to install and run these checks: canary setup --mcp-profile ${mcpProfile}`);
+  }
   let seal: PlanAuthority;
   try {
     // ONE seal over the whole composite plan. Each step is digested by what its
@@ -2730,11 +2850,10 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   }
 
   // read prior config (self-heal: reuse recorded hook commands for dedupe)
-  const prev = readConfig(root);
+  // `prev` was read before the no-write setup check above; use that same snapshot.
   if (prev === 'corrupt') o.detail('previous .canary config was unreadable — it will be rewritten');
   // only THIS installation's own record may seed hook-command dedupe — a cloned
   // config must never teach setup which user entries to strip (S1)
-  const prevUsable = !!prev && prev !== 'corrupt' && !untrustedConfigReason(root, prev);
   const priorCommands = new Set<string>(prevUsable ? [...(prev as CanaryConfig).hookCommands, (prev as CanaryConfig).hookCommand] : []);
   // The Codex ownership record is separate on purpose: `.codex/hooks.json` may only be pruned by
   // the commands this installation recorded for THAT file.
@@ -2750,7 +2869,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // "the gate speaks at the end" into "the agent can check while it works", with the same write
   // discipline as the hook above and no new authority (mcp.ts exposes only request tools).
   const priorMcp = new Set<string>(prevUsable ? ((prev as CanaryConfig).mcpArgSignatures ?? []) : []);
-  const mcp = installMcpServer(root, CLI_ENTRY, priorMcp, backupsDir);
+  const mcp = installMcpServer(root, CLI_ENTRY, priorMcp, backupsDir, mcpProfile);
   if (!mcp.ok) { o.verdict('NEEDS ATTENTION', `could not register Canary's tools for your agent safely: ${mcp.problem}`, 'fix that file, then run setup again'); return 2; }
   // M4 baseline: stamped NOW by Canary's own probes. Honest label — "state when
   // Canary was wired", not a claim about the agent's past. `dirty` measures
@@ -2821,7 +2940,8 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
     // Absent when Codex is not wired here, so a Claude-only setup keeps writing byte-identical config.
     ...(codex?.touched ? { codexHookCommands: [...new Set([hookCommand, ...priorCodexCommands])] } : {}),
-    mcpArgSignatures: [...new Set([mcpArgSignature(mcpServerArgs(CLI_ENTRY)), ...priorMcp])],
+    mcpProfile,
+    mcpArgSignatures: [...new Set([mcpArgSignature(mcpServerArgs(CLI_ENTRY, mcpProfile)), ...priorMcp])],
     touched: [...(res?.touched ? [res.touched] : []), ...(codex?.touched ? [codex.touched] : []), mcp.touched!],
   };
   // 1.1 P0 — the authority gets a SEALED COPY outside the repo before any repo
@@ -2858,6 +2978,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // config write threw above, quarantine stands (fail-closed).
   try { fs.rmSync(path.join(root, CONFIG_DIR, QUARANTINE_FILE), { force: true }); } catch { /* absent is the common case */ }
   if (wantsClaude) o.say(`Claude Code will run Canary automatically when the agent finishes a turn here.${prev && prev !== 'corrupt' ? ' (re-run: existing Canary hook refreshed, no duplicates)' : ''}`);
+  o.say(`MCP tools: ${mcpProfile} profile (${mcpProfile === 'everyday' ? '4 everyday tools' : '4 everyday tools plus 2 expert isolation tools'}).`);
   if (codex?.touched) {
     /**
      * v1.4 §C — THE TRUST REQUIREMENT IS SAID OUT LOUD, because it is the difference between a file
@@ -2937,8 +3058,10 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     o.step(r);
     if (!r.ok) { allOk = false; failed.push(r); }
   }
-  writeVerificationBundle(root, 'setup', ran, allOk ? 'pass' : 'fail', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
-  writeCheckpoint(root, allOk ? 'pass' : 'fail', failed.map((f) => f.kind), 'setup');
+  const setupEvidence = writeVerificationBundle(root, 'setup', ran, allOk ? 'pass' : 'fail', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
+  writeCheckpoint(root, allOk ? 'pass' : 'fail', failed.map((f) => f.kind), 'setup', {
+    checks: ran, hookResponse: 'not-applicable', evidencePath: setupEvidence ?? undefined,
+  });
   if (allOk) {
     /**
      * A GREEN PLAN IS NOT A PROVEN TASK — DO NOT SAY READY WHILE A REGISTERED REQUIREMENT IS UNBOUND.
@@ -2995,7 +3118,15 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   return 2;
 }
 
-function writeCheckpoint(root: string, status: string, failed: string[], source: string): void {
+type CheckpointHookResponse = 'blocked' | 'continued' | 'message-and-continue' | 'not-applicable' | 'unknown';
+
+function writeCheckpoint(
+  root: string,
+  status: string,
+  failed: string[],
+  source: string,
+  details: { checks?: StepResult[]; hookResponse?: CheckpointHookResponse; next?: string; evidencePath?: string | undefined } = {},
+): void {
   try {
     // never write evidence through a committed link pointing outside the repo (S3)
     const p = path.join(root, CONFIG_DIR, CHECKPOINT_FILE);
@@ -3003,8 +3134,48 @@ function writeCheckpoint(root: string, status: string, failed: string[], source:
     fs.mkdirSync(path.join(root, CONFIG_DIR), { recursive: true });
     // assertPlainTarget lives inside writeFileAtomic — a dangling link that passed
     // the ancestor walk is refused there rather than CREATED outside via the write.
-    writeFileAtomic(p, JSON.stringify({ at: new Date().toISOString(), status, failed, source }, null, 2) + '\n');
+    const checks = (details.checks ?? []).slice(0, 32).map((step) => ({
+      kind: String(step.kind).slice(0, 40),
+      display: String(step.display).slice(0, 240),
+      exitCode: step.exitCode,
+      ok: step.ok === true,
+    }));
+    writeFileAtomic(p, JSON.stringify({
+      at: new Date().toISOString(), status, failed: failed.slice(0, 32).map((x) => String(x).slice(0, 80)), source,
+      checks,
+      hookResponse: details.hookResponse ?? 'not-applicable',
+      sessionEnd: 'unknown',
+      ...(details.next ? { next: details.next.slice(0, 500) } : {}),
+      ...(details.evidencePath ? { evidencePath: details.evidencePath.slice(0, 1000) } : {}),
+    }, null, 2) + '\n');
   } catch { /* evidence is best-effort; never crash the harness hook over it */ }
+}
+
+/** Decode a bounded, historical-only checkpoint for display. It never feeds a verdict. */
+function lastVerificationFromCheckpoint(value: unknown): ProtocolEnvelope['lastVerification'] | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const cp = value as Record<string, unknown>;
+  if (typeof cp.at !== 'string' || typeof cp.source !== 'string' || typeof cp.status !== 'string') return undefined;
+  const failed = Array.isArray(cp.failed)
+    ? cp.failed.filter((x): x is string => typeof x === 'string').slice(0, 32).map((x) => x.slice(0, 80))
+    : [];
+  const checks = Array.isArray(cp.checks) ? cp.checks.slice(0, 32).flatMap((item) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
+    const row = item as Record<string, unknown>;
+    if (typeof row.kind !== 'string' || typeof row.display !== 'string' || typeof row.ok !== 'boolean') return [];
+    return [{ kind: row.kind.slice(0, 40), display: row.display.slice(0, 240),
+      exitCode: typeof row.exitCode === 'number' && Number.isInteger(row.exitCode) ? row.exitCode : null, ok: row.ok }];
+  }) : [];
+  const hookResponse: CheckpointHookResponse = cp.hookResponse === 'blocked' || cp.hookResponse === 'continued'
+    || cp.hookResponse === 'message-and-continue' || cp.hookResponse === 'not-applicable'
+    ? cp.hookResponse : 'unknown';
+  return {
+    at: cp.at.slice(0, 80), source: cp.source.slice(0, 40), status: cp.status.slice(0, 40), failed, checks,
+    hookResponse, sessionEnd: 'unknown',
+    ...(typeof cp.next === 'string' ? { next: cp.next.slice(0, 500) } : {}),
+    ...(typeof cp.evidencePath === 'string' ? { evidencePath: cp.evidencePath.slice(0, 1000) } : {}),
+    historical: true,
+  };
 }
 
 // The config-trust checks doctor performs BEFORE it spends anything on a plan
@@ -3372,7 +3543,9 @@ export function cmdDoctor(rawArgs: string[]): number {
     return 2;
   }
   const evidenceDir = writeVerificationBundle(root, 'doctor', ran, failed.length ? 'fail' : 'pass', { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null });
-  writeCheckpoint(root, failed.length ? 'fail' : 'pass', failed.map((f) => f.kind), 'doctor');
+  writeCheckpoint(root, failed.length ? 'fail' : 'pass', failed.map((f) => f.kind), 'doctor', {
+    checks: ran, hookResponse: 'not-applicable', evidencePath: evidenceDir ?? undefined,
+  });
   if (failed.length) {
     o.context({ problems: failed.map((f) => `${f.kind} failed: ${f.display}`) });
     // v1.5 blocker 6: the same MEASURED attribution setup prints. Doctor is the gate a worker meets
@@ -3412,6 +3585,9 @@ export function cmdDoctor(rawArgs: string[]): number {
   const objectiveOpen = unproven.filter((x) => x.mode === 'objective');
   const subjectiveOpen = unproven.filter((x) => x.mode !== 'objective');
   if (unmet.length > 0) {
+    writeCheckpoint(root, 'fail', ['obligation'], 'doctor', {
+      checks: ran, hookResponse: 'not-applicable', next: unmet.map((x) => x.note).join('; '), evidencePath: evidenceDir ?? undefined,
+    });
     o.context({ problems: unmet.map((x) => x.note) });
     o.verdict('NEEDS ATTENTION', `the sealed checks pass, but a proof obligation is objectively violated — ${unmet.map((x) => x.note).join('; ')}`, 'restore the deleted verification files (git checkout -- <path>) — or a human reviews this deletion; then: canary doctor');
     return 2;
@@ -3438,6 +3614,9 @@ export function cmdDoctor(rawArgs: string[]): number {
     const because = objectiveOpen.length > 0
       ? `${objectiveOpen.length} objective obligation(s) have no adequate proof`
       : `${subjectiveOpen.length} authorized requirement(s) need a human's explicit acceptance`;
+    writeCheckpoint(root, 'unproven', unproven.map((x) => x.id), 'doctor', {
+      checks: ran, hookResponse: 'not-applicable', next: because, evidencePath: evidenceDir ?? undefined,
+    });
     o.verdict('NOT PROVEN',
       `the checks passed, but the task is not proven: ${because} — a green plan is not a proven deliverable (NO PROOF, NO DONE).`,
       objectiveOpen.length > 0
@@ -3548,7 +3727,10 @@ export async function cmdCheckpoint(): Promise<number> {
   // decides WHICH commands may run as proof at all.
   const drift = adapterFor(cfg).drift(root, cfg);
   if (drift) {
-    writeCheckpoint(root, 'fail', ['authority'], 'checkpoint'); // state, not a bundle: nothing was executed
+    writeCheckpoint(root, 'fail', ['authority'], 'checkpoint', {
+      hookResponse: input.stop_hook_active === true ? 'message-and-continue' : 'blocked',
+      next: 'restore the sealed verification plan or rerun setup after reviewing it',
+    }); // state, not a bundle: nothing was executed
     if (input.stop_hook_active === true) {
       // same no-loop posture as a failed plan: one repair turn, then honest stop
       return emit({ systemMessage: `Canary: verification authority is still changed (${drift.slice(0, 200)}) after one repair attempt — stopping anyway; a human should look.` });
@@ -3576,13 +3758,18 @@ export async function cmdCheckpoint(): Promise<number> {
     if (!r.ok) failed.push(r);
   }
   if (infra) {
-    writeVerificationBundle(root, 'checkpoint', ran, 'infra', prov);
-    writeCheckpoint(root, 'infra', failed.map((f) => f.kind), 'checkpoint');
+    const evidenceDir = writeVerificationBundle(root, 'checkpoint', ran, 'infra', prov);
+    writeCheckpoint(root, 'infra', failed.map((f) => f.kind), 'checkpoint', {
+      checks: ran, hookResponse: 'message-and-continue', next: 'run canary doctor to inspect and retry the checks',
+      evidencePath: evidenceDir ?? undefined,
+    });
     return emit({ systemMessage: `Canary could not run the checks (${infra.slice(0, 160)}) — this completion is UNVERIFIED, not a pass.` });
   }
   if (failed.length === 0) {
-    writeVerificationBundle(root, 'checkpoint', ran, 'pass', prov);
-    writeCheckpoint(root, 'pass', [], 'checkpoint');
+    const evidenceDir = writeVerificationBundle(root, 'checkpoint', ran, 'pass', prov);
+    writeCheckpoint(root, 'pass', [], 'checkpoint', {
+      checks: ran, hookResponse: 'continued', evidencePath: evidenceDir ?? undefined,
+    });
     // M6 (spec M5): the plan passing is the FLOOR, not the finish. Evaluate
     // this task's proof obligations against what Canary observed in THIS
     // invocation (plan outcome + contained git diff). Objective violation
@@ -3611,11 +3798,16 @@ export async function cmdCheckpoint(): Promise<number> {
     const unproven = obligations.filter((x) => x.status === 'unproven');
     const objectiveOpen = unproven.filter((x) => x.mode === 'objective');
     if (unmet.length > 0) {
-      writeCheckpoint(root, 'fail', ['obligation'], 'checkpoint'); // state, like the authority gate: the plan DID pass — the obligation did not
       const why = unmet.map((x) => x.note).join('; ');
       if (input.stop_hook_active === true) {
+        writeCheckpoint(root, 'fail', ['obligation'], 'checkpoint', {
+          checks: ran, hookResponse: 'message-and-continue', next: why, evidencePath: evidenceDir ?? undefined,
+        }); // the plan passed; the obligation did not
         return emit({ systemMessage: `Canary: a proof obligation is still unmet (${why.slice(0, 200)}) after one repair attempt — stopping anyway; a human should look.` });
       }
+      writeCheckpoint(root, 'fail', ['obligation'], 'checkpoint', {
+        checks: ran, hookResponse: 'blocked', next: why, evidencePath: evidenceDir ?? undefined,
+      });
       // the advice must actually fix BOTH attributable shapes: `git checkout --`
       // restores from the INDEX, which is exactly where a staged deletion lives
       // (review #3) — restore from HEAD across index and worktree instead.
@@ -3626,7 +3818,7 @@ export async function cmdCheckpoint(): Promise<number> {
       // requirement with no adequate proof must stay NOT PROVEN, and "the plan is green" is not a
       // discharge of it.
       if (objectiveOpen.length > 0) {
-        writeCheckpoint(root, 'unproven', objectiveOpen.map((x) => x.id), 'checkpoint');
+        const obligationNext = objectiveOpen.map((x) => x.note).join('; ');
         /**
          * BLOCK ONLY WHAT THE WORKER CAN ACTUALLY CLOSE (v1.2, Mission 2).
          *
@@ -3657,13 +3849,22 @@ export async function cmdCheckpoint(): Promise<number> {
         if (byWorker.length > 0) {
           const why = byWorker.map((x) => x.note).join(' | ');
           if (input.stop_hook_active === true) {
+            writeCheckpoint(root, 'unproven', objectiveOpen.map((x) => x.id), 'checkpoint', {
+              checks: ran, hookResponse: 'message-and-continue', next: obligationNext, evidencePath: evidenceDir ?? undefined,
+            });
             return emit({ systemMessage: `Canary: NOT PROVEN (${why.slice(0, 1200)}) — after one repair attempt. Stopping anyway; a human should look, or accept it with: canary accept`.slice(0, 2000) });
           }
+          writeCheckpoint(root, 'unproven', objectiveOpen.map((x) => x.id), 'checkpoint', {
+            checks: ran, hookResponse: 'blocked', next: obligationNext, evidencePath: evidenceDir ?? undefined,
+          });
           return emit({ decision: 'block', reason: `Canary blocked completion: NOT PROVEN — ${why.slice(0, 1200)}`.slice(0, 1400) });
         }
 
         // Every open objective duty is operator-only. Say so, and let the turn end.
         const operatorWhy = byOperator.map((x) => x.note).join(' ');
+        writeCheckpoint(root, 'unproven', objectiveOpen.map((x) => x.id), 'checkpoint', {
+          checks: ran, hookResponse: 'message-and-continue', next: obligationNext, evidencePath: evidenceDir ?? undefined,
+        });
         return emit({ systemMessage: `Canary: the sealed checks passed, but the work is NOT PROVEN: ${byOperator.length} duty(ies) remain open and NONE of them is yours to close — each needs the OPERATOR (bind the requirement to a check the sealed plan runs, then re-run canary setup) or a HUMAN (canary accept). This is not a failure of your change: do NOT keep working on it, do NOT edit checks to make it disappear, and do NOT report it as done. Finish now and report exactly what is still open. Details: ${operatorWhy}`.slice(0, 2000) });
       }
       // Subjective / operator-only duties: an agent cannot accept a duty for a human, and — MEASURED
@@ -3671,6 +3872,9 @@ export async function cmdCheckpoint(): Promise<number> {
       // registered requirements burned 1.5M and 1.7M tokens over 41 and 45 turns for work that was
       // already green, because the message read as an instruction it could satisfy. So this says
       // plainly that the duty is not the worker's, and that finishing and reporting IS the correct end.
+      writeCheckpoint(root, 'unproven', unproven.map((x) => x.id), 'checkpoint', {
+        checks: ran, hookResponse: 'message-and-continue', next: unproven.map((x) => x.note).join('; '), evidencePath: evidenceDir ?? undefined,
+      });
       return emit({ systemMessage: `Canary: the sealed checks passed. ${unproven.length} duty(ies) remain OPEN, and NONE of them is yours to close — each needs an operator or a human. This is not a failure of your change: do NOT keep trying to satisfy them, do NOT edit checks to make them disappear, and do NOT report them as done. Finish now and report exactly what is still open. Details: ${unproven.map((x) => x.note).join(' ')}`.slice(0, 2000) });
     }
     /**
@@ -3689,8 +3893,12 @@ export async function cmdCheckpoint(): Promise<number> {
      */
     const caveats = obligations.filter((x) => x.status === 'met' && x.caveat !== undefined);
     if (caveats.length > 0) {
+      writeCheckpoint(root, 'pass', [], 'checkpoint', {
+        checks: ran, hookResponse: 'message-and-continue', next: caveats.map((x) => x.caveat).join('; '), evidencePath: evidenceDir ?? undefined,
+      });
       return emit({ systemMessage: `Canary: the sealed checks passed — with a caveat. ${caveats.map((x) => `${x.id}: ${x.caveat}`).join(' ')}`.slice(0, 2000) });
     }
+    writeCheckpoint(root, 'pass', [], 'checkpoint', { checks: ran, hookResponse: 'continued', evidencePath: evidenceDir ?? undefined });
     return 0; // silent even if an agent claim contradicts — claims never BLOCK, and never CREATE a pass
   }
   // The full runner output is written NEXT TO the evidence bundle and referred to by path, so
@@ -3698,13 +3906,19 @@ export async function cmdCheckpoint(): Promise<number> {
   // re-run the suite to see more. Measured before this: the block carried up to 4000 characters
   // of raw output, which is roughly a thousand tokens per failed attempt, on every attempt.
   const bundleDir = writeVerificationBundle(root, 'checkpoint', ran, 'fail', prov);
-  writeCheckpoint(root, 'fail', failed.map((f) => f.kind), 'checkpoint');
   if (input.stop_hook_active === true) {
+    writeCheckpoint(root, 'fail', failed.map((f) => f.kind), 'checkpoint', {
+      checks: ran, hookResponse: 'message-and-continue', next: 'run canary doctor to inspect the full failure',
+      evidencePath: bundleDir ?? undefined,
+    });
     // already one repair attempt this turn — never loop the agent; surface honestly instead
     // v1.5 §4D — MEASURED (clean-room first run): this message named what failed and why Canary
     // stopped, but gave the human it hands off to no next action. One clause, no mechanism change.
     return emit({ systemMessage: `Canary: checks still failing (${failed.map((f) => f.kind).join(', ')}) after one repair attempt — stopping anyway; a human should look. Run: canary doctor` });
   }
+  writeCheckpoint(root, 'fail', failed.map((f) => f.kind), 'checkpoint', {
+    checks: ran, hookResponse: 'blocked', next: 'repair the observed failures and finish again', evidencePath: bundleDir ?? undefined,
+  });
   // M2: an agent claim may only ANNOTATE this already-decided block, and only
   // as a truthful claim-vs-observation contrast. Verdict authority: Canary's own
   // execution (exit code). Absent/unparseable claim => no note at all.
@@ -4025,6 +4239,7 @@ export function cmdResult(rawArgs: string[]): number {
   if (distrust) { o.verdict('NOT CONNECTED', `Canary found a local config it does not trust (${distrust}) — it will not report results from it.`, 'run: canary setup --yes (rewrites it as this machine\'s own)'); return 2; }
   const problems = readOnlyProblems(root, cfg, false); // state only: no commands, no liveness spawn
   const cp = parseJsonOrNull(path.join(root, CONFIG_DIR, CHECKPOINT_FILE));
+  const lastVerification = lastVerificationFromCheckpoint(cp);
   const task = readTaskRecord(root);
   o.context({
     checks: protocolChecks(cfg),
@@ -4033,11 +4248,25 @@ export function cmdResult(rawArgs: string[]): number {
     // The full record (bundles, checkpoints, claims) lives here; the envelope
     // names it instead of pasting it, so an agent's context stays small.
     evidencePath: path.join(root, CONFIG_DIR),
+    ...(lastVerification ? { lastVerification } : {}),
     ...(task ? { next: `task registered: ${task.kinds.join('+')} (${task.requirementCount} requirement(s))` } : {}),
   });
   o.say(`repo: ${root}`);
   o.say(`checks: ${cfg.plan.map((s) => `${s.kind}:${s.script}`).join(', ')}`);
-  o.say(`last checkpoint: ${cp ? `${cp.status} (${cp.source}) at ${cp.at}` : 'none — no completion has been checked here yet'}`);
+  o.say(`last checkpoint: ${lastVerification ? `${lastVerification.status} (${lastVerification.source}) at ${lastVerification.at} — historical only` : 'none — no completion has been checked here yet'}`);
+  if (lastVerification) {
+    if (lastVerification.checks.length > 0) {
+      const passed = lastVerification.checks.filter((x) => x.ok).length;
+      const failed = lastVerification.checks.length - passed;
+      o.say(`checks in that run: ${passed} passed, ${failed} failed${lastVerification.failed.includes('obligation') ? '; proof obligation remained open' : ''}`);
+      for (const check of lastVerification.checks) o.say(`  ${check.ok ? '✓' : '✗'} ${check.kind}: ${check.display} (exit ${check.exitCode === null ? 'unknown' : check.exitCode})`);
+    } else {
+      o.say('checks in that run: none recorded (older checkpoint or a pre-check block)');
+    }
+    o.say(`hook response: ${lastVerification.hookResponse}; session end: unknown`);
+    if (lastVerification.next) o.say(`recorded next step: ${lastVerification.next}`);
+    if (lastVerification.evidencePath) o.say(`full evidence: ${lastVerification.evidencePath}`);
+  }
   if (problems.length) {
     o.context({ problems });
     o.verdict('NEEDS ATTENTION', 'a recorded result cannot be treated as current: the wiring is not sound here.', 'run: canary setup --yes');
@@ -4045,7 +4274,7 @@ export function cmdResult(rawArgs: string[]): number {
     return 2;
   }
   o.verdict('CONNECTED',
-    cp ? `last recorded completion: ${cp.status} (${cp.source}) at ${cp.at} — a past run, not a claim about now`
+    lastVerification ? `last recorded completion: ${lastVerification.status} (${lastVerification.source}) at ${lastVerification.at} — a past run, not a claim about now`
       : 'no completion has been checked here yet — the wiring is sound, but nothing has been proven',
     'to check the code now: canary doctor');
   return 0;

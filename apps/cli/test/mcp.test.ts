@@ -29,10 +29,10 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-mcp-test-'));
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
 
 /** One MCP session: feed these JSON-RPC lines, get back the parsed responses. */
-function session(lines: unknown[], cwd = TMP): { stdout: string[]; parsed: Array<Record<string, unknown>>; status: number | null; raw: string } {
+function session(lines: unknown[], cwd = TMP, args: string[] = []): { stdout: string[]; parsed: Array<Record<string, unknown>>; status: number | null; raw: string } {
   assert.ok(fs.existsSync(CLI), `build first: ${CLI} missing`);
   const input = lines.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n') + '\n';
-  const r = spawnSync(process.execPath, [CLI, 'mcp'], { cwd, input, encoding: 'utf8', timeout: 180_000, maxBuffer: 32 * 1024 * 1024 });
+  const r = spawnSync(process.execPath, [CLI, 'mcp', ...args], { cwd, input, encoding: 'utf8', timeout: 180_000, maxBuffer: 32 * 1024 * 1024 });
   const raw = r.stdout ?? '';
   const stdout = raw.split(/\r?\n/).filter((l) => l.trim() !== '');
   const parsed = stdout.map((l) => JSON.parse(l) as Record<string, unknown>);
@@ -105,7 +105,7 @@ describe('tools: a fixed template over operations the CLI already had', () => {
   });
 
   it('states the authority limit in the initialize instructions', () => {
-    const r = resultOf(session([req(1, 'initialize', { protocolVersion: '2025-06-18' })]).parsed[0]!);
+    const r = resultOf(session([req(1, 'initialize', { protocolVersion: '2025-06-18' })], TMP, ['--profile', 'everyday']).parsed[0]!);
     const info = r.serverInfo as { name: string };
     assert.equal(info.name, 'canary');
     assert.equal(r.protocolVersion, '2025-06-18', 'a supported client revision is honoured');
@@ -118,9 +118,39 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     // than working without Canary: 92.7 % of plain, equal correctness, no false done. The RELIABILITY
     // half is deliberate — the aggressive variant that FORBADE self-verification produced a false done
     // and a false green — so the model keeps the decision to check and only loses the repetition.
-    assert.match(instructions, /verification in this repository is AUTOMATIC/i);
-    assert.match(instructions, /do not repeat a check you have just run/i);
-    assert.match(instructions, /may, and should, call canary_doctor/i);
+    assert.match(instructions, /automatic completion hook/i);
+    assert.match(instructions, /Do not run canary_doctor just to repeat/i);
+    assert.match(instructions, /Use canary_result for a read-only summary/i);
+    assert.doesNotMatch(instructions, /canary_work|canary_finish/);
+  });
+
+  it('everyday profile exposes the four common tools and cuts at least 30% of the MCP payload', () => {
+    const messages = (profile: string[]) => session([
+      req(1, 'initialize', { protocolVersion: '2025-06-18' }), req(2, 'tools/list'),
+    ], TMP, profile).parsed;
+    const everyday = messages(['--profile', 'everyday']);
+    const expert = messages(['--profile', 'expert']);
+    const everydayTools = resultOf(everyday[1]!).tools as Array<Record<string, unknown>>;
+    const expertTools = resultOf(expert[1]!).tools as Array<Record<string, unknown>>;
+    assert.deepEqual(everydayTools.map((t) => t.name), ['canary_result', 'canary_status', 'canary_agents', 'canary_doctor']);
+    assert.deepEqual(expertTools.map((t) => t.name), [...EXPECTED]);
+    const bytes = (rows: Array<Record<string, unknown>>) => Buffer.byteLength(JSON.stringify({
+      instructions: resultOf(rows[0]!).instructions, tools: resultOf(rows[1]!).tools,
+    }));
+    assert.ok(bytes(everyday) <= bytes(expert) * 0.7,
+      `everyday payload should be at least 30% smaller (everyday=${bytes(everyday)}, expert=${bytes(expert)})`);
+    assert.match(String(resultOf(everyday[0]!).instructions), /Use canary_result/);
+    assert.doesNotMatch(String(resultOf(everyday[0]!).instructions), /canary_work|canary_finish/);
+    assert.match(String(resultOf(expert[0]!).instructions), /canary_work.*canary_finish/);
+  });
+
+  it('refuses expert-only tools in the everyday profile and rejects malformed profile options', () => {
+    const refused = session([req(1, 'tools/call', { name: 'canary_work', arguments: { name: 'x', intent: 'isolate' } })], TMP, ['--profile', 'everyday']).parsed[0]!;
+    assert.equal(resultOf(refused).isError, true);
+    assert.match(String((resultOf(refused).content as Array<{ text: string }>)[0]!.text), /expert tool profile/);
+    const invalid = spawnSync(process.execPath, [CLI, 'mcp', '--profile', 'unknown'], { input: '', encoding: 'utf8', timeout: 30_000 });
+    assert.equal(invalid.status, 3);
+    assert.match(invalid.stderr, /Nothing was run/);
   });
 
   it('honours an unknown protocol revision by answering with its own', () => {

@@ -158,7 +158,7 @@ check('no document still asserts a statement the closure made false', () => {
  * check by reading the sentence it sits in; losing one means the claim changed.
  */
 const PINS = [
-  ['readme', 'v1.4.0 is the newest *published* artifact'],
+  ['readme', 'The latest published artifact is **v1.5.0**'],
   ['readme', 'the token-saving headline is WITHDRAWN'],
   ['readme', 'claims no token-saving percentage at all'],
   ['readme', '~438 provider-native tokens'],

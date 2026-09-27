@@ -24,15 +24,16 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
 
-import { runCommand, sweepDescendants, posixSessionMember, type RunOutcome, type WorkspaceLayout } from '../src/index.js';
+import { runCommand, sweepDescendants, parseWin32SweepOutput, posixSessionMember, type RunOutcome, type WorkspaceLayout } from '../src/index.js';
 
 const NODE = process.execPath;
 const NODE_DIR = path.dirname(NODE);
+const survivorArgs = ['-e', 'setTimeout(()=>{}, 300000)'];
 
 const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-lifecycle-'));
 after(() => fs.rmSync(TMP_ROOT, { recursive: true, force: true }));
 
-const survivorArgs = ['-e', 'setTimeout(()=>{}, 300000)'];
+const PROCESS_TREE_FIXTURE = path.resolve(import.meta.dirname, '..', '..', 'test', 'fixtures', 'process-tree-parent.cjs');
 
 function workspace(): WorkspaceLayout {
   const root = fs.mkdtempSync(path.join(TMP_ROOT, 'run-'));
@@ -87,11 +88,10 @@ function killIfAlive(pid: number): void {
  * WHY. `sweepDescendants finds and kills a live parent's child process` failed once on the hosted
  * Windows runner (`sweep killed [7564] but not 2144`, 35,980 ms; 894 ms on a dev machine) and never
  * reproduced in 14 local attempts. The old message named only the sweep result, the liveness of the
- * two processes and the platform, which cannot say WHICH exclusion happened. `sweepWin32` dequeues a
- * child only if it is (a) present in its one CIM snapshot, (b) keyed under the parent PID it is
- * expanding (`[int]$p.ParentProcessId`), (c) carrying a non-null `CreationDate` at or after the cut
- * (`spawnedAtMs - 60_000`, the explicit `$c.CreationDate -and` guard being the null case) — and it
- * lands in `killed` only if (d) its `Stop-Process` succeeded. A blind re-run of this test could
+ * two processes and the platform, which cannot say WHICH exclusion happened. `sweepWin32` queues a
+ * child only if it is present in the tree snapshot, keyed under the expanded parent PID, and has a
+ * non-null `CreationDate` within two seconds of the root's spawn. It is reported as killed only if
+ * `Stop-Process` succeeds; a final snapshot checks the same process identity for survivors. A blind re-run could
  * therefore return green or red without a reason, which is the false-red/false-green pattern this
  * project exists to remove.
  *
@@ -164,7 +164,7 @@ function shapeFromObservation(row: CimRow | null, parentPid: number,
   const cut = new Date(cutIso);
   if (Number.isFinite(created.getTime()) && created.getTime() < cut.getTime()) {
     return `shape (c-cut) CREATIONDATE BEFORE CUT: child ${row.createdIso} < cut ${cutIso} — the `
-      + '61-second clock slack is the only thing that can reject it here';
+      + 'two-second clock slack is the only time filter that can reject it here';
   }
   if (row.ppid !== parentPid) {
     return `shape (b) PARENT MISMATCH: fresh snapshot says ParentProcessId=${String(row.ppid)}, `
@@ -180,7 +180,7 @@ function shapeFromObservation(row: CimRow | null, parentPid: number,
 
 /** The full failure message for the Windows assertion: everything needed to decide WHY. */
 function sweepFailureDiagnostic(parentPid: number, childPid: number, spawnedAtMs: number): string {
-  const cutIso = new Date(spawnedAtMs - 60_000).toISOString();
+  const cutIso = new Date(spawnedAtMs - 2_000).toISOString();
   const parts: string[] = [
     `sweepInputParentPid=${parentPid}`,
     `expectedChildPid=${childPid}`,
@@ -205,12 +205,7 @@ describe('audit F5 — sweep mechanism (live parent, positive proof)', () => {
     // Intermediate parent that spawns a child then sits on a timer, so the
     // sweep runs while the parent is still alive (mechanism, not race, is
     // what this test pins down).
-    const mid = spawn(process.execPath, ['-e',
-      "const { spawn } = require('node:child_process');" +
-      `const c = spawn(process.execPath, ${JSON.stringify(survivorArgs)},` +
-      "  { stdio: 'ignore', windowsHide: true });" +
-      'c.unref(); console.log(String(c.pid));; setTimeout(()=>{}, 60000);',
-    ], { stdio: ['ignore', 'pipe', 'ignore'], detached: true, windowsHide: true });
+    const mid = spawn(process.execPath, [PROCESS_TREE_FIXTURE], { stdio: ['ignore', 'pipe', 'ignore'], detached: true, windowsHide: true });
     let out = '';
     mid.stdout?.setEncoding('utf8');
     mid.stdout?.on('data', (d: string) => { out += d; });
@@ -224,7 +219,7 @@ describe('audit F5 — sweep mechanism (live parent, positive proof)', () => {
     });
     try {
       assert.ok(isAlive(kidPid), 'precondition: child should be alive before sweep');
-      // The sweep's own clock: `cut = spawnedAtMs - 60_000` inside sweepWin32.
+      // Include one second of test scheduling slack; the production sweep allows two.
       const spawnedAtMs = Date.now() - 1_000;
       const res = sweepDescendants(mid.pid, spawnedAtMs);
       /*
@@ -235,7 +230,7 @@ describe('audit F5 — sweep mechanism (live parent, positive proof)', () => {
        * `killed` holding ONE pid is consistent with the BFS never having enqueued the child, which
        * `sweepWin32` can only cause in four ways: the child is missing from the CIM snapshot, its
        * ParentProcessId is not the intermediate parent, its CreationDate is null or falls before the
-       * cut (`spawnedAtMs - 60_000`), or its `Stop-Process` failed. The old message could not tell
+       * cut (`spawnedAtMs - 2_000`), or its `Stop-Process` failed. The old message could not tell
        * those apart, so a blind re-run could only produce a green or a red WITHOUT A REASON.
        *
        * The failure message now carries the whole sweep result, the liveness of both processes at
@@ -254,11 +249,28 @@ describe('audit F5 — sweep mechanism (live parent, positive proof)', () => {
         + (res.killed.includes(kidPid)
           ? ''
           : ` | diagnostic: ${sweepFailureDiagnostic(mid.pid!, kidPid, spawnedAtMs)}`));
+      if (process.platform === 'win32') {
+        assert.ok(isAlive(mid.pid!), 'sweeping a process tree must not kill the caller-supplied root process');
+        assert.ok(!res.killed.includes(mid.pid!), 'the root PID is never reported as a descendant kill');
+      }
       assert.ok(await untilDead(kidPid), `child ${kidPid} survived the sweep`);
     } finally {
       killIfAlive(kidPid);
       killIfAlive(mid.pid!);
     }
+  });
+});
+
+describe('Windows sweep output contract', () => {
+  it('accepts a complete descendant-only result and fails on survivors, cap, or malformed output', () => {
+    assert.deepEqual(parseWin32SweepOutput('snapshot=42\nlimit=0\nkilled=21,22\nsurvivors=\n'), { killed: [21, 22], failed: false });
+    assert.deepEqual(parseWin32SweepOutput('snapshot=42\nlimit=0\nkilled=\nsurvivors=22\n'), {
+      killed: [], failed: true, reason: 'surviving process ids: 22',
+    });
+    assert.equal(parseWin32SweepOutput('snapshot=42\nlimit=1\nkilled=21\nsurvivors=\n').failed, true,
+      'a partially traversed tree is never reported as clear');
+    assert.equal(parseWin32SweepOutput('snapshot=42\nkilled=\n').failed, true,
+      'a truncated output protocol is never read as an empty tree');
   });
 });
 

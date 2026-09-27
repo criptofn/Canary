@@ -8,8 +8,8 @@
  *   canary report [evidence.json] [out.html] render the human-readable report
  *                                          (no args: the latest run's evidence)
  *   --- productization surface (see onboarding.ts for its doctrine) ---
- *   canary setup    [--yes]                  detect project+harness, wire automatic
- *                                          verification, smoke-run it (READY only on proof)
+ *   canary setup    [--check] [--yes]        inspect setup or install + smoke-run
+ *                                          (--check is read-only; READY only after proof)
  *   canary doctor                            runs the checks NOW; READY only from this run
  *   canary uninstall                         remove exactly Canary's own changes
  *   canary checkpoint                        harness-internal: verify at completion boundary
@@ -77,8 +77,9 @@ usage:
                                           derivation checks ON THIS MACHINE — NOT a committed-
                                           proof comparison; that is prove/check. exit 0 on
                                           self-consistency, else NOT SELF-CONSISTENT, exit 3)
-  canary setup [--yes] [--toolchain-dir <abs dir>]...
-                            one-command onboarding for a Node project (AI-harness auto-wiring).
+  canary setup [--check] [--yes] [--mcp-profile everyday|expert] [--toolchain-dir <abs dir>]...
+                            inspect setup without changes (--check), or install and smoke-run it.
+                            MCP defaults to four everyday tools; expert adds work/finish.
                             --toolchain-dir (repeatable) authorizes ONE executable directory
                             for the checks your project runs: build tools a project spawns
                             itself (java, python, git) are invisible to Canary's restricted
@@ -90,9 +91,11 @@ usage:
                             writes (a few read-only git metadata reads);
                             CONNECTED / NEEDS ATTENTION / NOT CONNECTED. A statement about
                             STATE, never a claim that anything passes
+  canary mcp [--profile everyday|expert]
+                            MCP server on stdio; manual invocations default to the legacy expert profile
   canary result             the same state answer as the status command, for PROGRAMS:
                             compact, versioned JSON on stdout (checks, sealed authority,
-                            MEASURED custody level, harness capability, last checkpoint)
+                            MEASURED custody level, harness capability, recent historical checks)
                             and no log dump — full evidence stays in the files the envelope
                             names. Never runs the plan, so it is free to call
   canary agents             which agents work in this repo and at what capability:

@@ -736,9 +736,11 @@ function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
   // F-6: same trusted absolute System32 resolution (bare-name fail-safe is
   // unchanged), plus the sanitized environment on the spawn below.
   const psExe = resolveSystemTool('WindowsPowerShell', 'v1.0', 'powershell.exe');
-  // 60s clock slack: CIM CreationDate truncates to seconds.
-  const cut = new Date(spawnedAtMs - 60_000).toISOString();
-  // ONE SNAPSHOT, NOT ONE QUERY PER PROCESS. MEASURED (v1.4 release gate, GitHub
+  // CIM CreationDate is only precise to a second on supported hosts. Two
+  // seconds of slack covers truncation without admitting an unrelated process
+  // that reused a parent PID minutes before this child was spawned.
+  const cut = new Date(spawnedAtMs - 2_000).toISOString();
+  // ONE TREE SNAPSHOT plus two bounded identity checks, NOT ONE QUERY PER PROCESS. MEASURED (v1.4 release gate, GitHub
   // Windows runner, run 35636516908): the previous shape issued
   // `Get-CimInstance -Filter "ParentProcessId=$p"` for EVERY node of the BFS. A
   // fixture command that spawns a whole test suite has a large descendant tree,
@@ -747,36 +749,42 @@ function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
   // round of every pipeline became "not a valid test run" — 27 of the 29 real
   // Windows CI failures, each costing ~334s of sweeps.
   //
-  // A single snapshot carries the same information (Windows keeps the numeric
-  // PPID of a dead parent) at one query. The traversal then runs inside this one
-  // PowerShell, and the kills are attempted AFTER it — from the snapshot, so a
-  // process the BFS discovered cannot be missed because its parent died mid-sweep.
+  // One full-tree snapshot carries the needed PPID lineage (Windows retains the
+  // numeric PPID of a dead parent). Traversal is in memory; one bounded snapshot
+  // before kills checks PID creation identity, and one after them checks for
+  // same-identity survivors. There is no process-by-process WMI query loop.
   //
-  // The row count is printed FIRST and required to be a positive number by the
-  // caller: a snapshot that silently came back empty (`Get-CimInstance` failing
-  // under -ErrorAction SilentlyContinue) would otherwise be indistinguishable
-  // from a genuine "no survivors" — the one reading the honesty law forbids.
+  // Output is a small, strict protocol: snapshot count, whether the traversal
+  // hit its cap, successfully requested kills, and same-identity survivors.
+  // The input root itself is only traversed; it is never put in the kill list.
   const script =
-    `$ErrorActionPreference='Continue';` +
+    `$ErrorActionPreference='Stop';` +
     `$cut=[DateTime]::Parse('${cut}').ToUniversalTime();` +
-    `$all=@(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_ -ne $null });` +
-    `Write-Output $all.Count;` +
-    `$byParent=@{};` +
-    `foreach($p in $all){ $pp=[int]$p.ParentProcessId; if(-not $byParent.ContainsKey($pp)){ $byParent[$pp]=New-Object System.Collections.ArrayList }; [void]$byParent[$pp].Add($p) };` +
+    `$all=@(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop | Where-Object { $_ -ne $null });` +
+    `if($all.Count -le 0){ throw 'empty process snapshot' };` +
+    `Write-Output ('snapshot=' + $all.Count);` +
+    `$byParent=@{}; foreach($proc in $all){ $pp=[int]$proc.ParentProcessId; if(-not $byParent.ContainsKey($pp)){ $byParent[$pp]=New-Object System.Collections.ArrayList }; [void]$byParent[$pp].Add($proc) };` +
     `$q=New-Object System.Collections.Generic.Queue[int]; $q.Enqueue(${pid});` +
-    `$seen=New-Object System.Collections.Generic.List[int];` +
-    `$done=New-Object System.Collections.Generic.HashSet[int];` +
-    `while($q.Count -and $done.Count -lt ${SWEEP_MAX_PROCESSES}){` +
-    `$p=$q.Dequeue(); if(-not $done.Add($p)){continue};` +
-    `$seen.Add($p);` +
-    `if($byParent.ContainsKey($p)){ foreach($c in $byParent[$p]){` +
-    `if($c.CreationDate -and $c.CreationDate.ToUniversalTime() -ge $cut){ $q.Enqueue([int]$c.ProcessId) } } } };` +
-    `$k=@();` +
-    `foreach($id in $seen){ try{ Stop-Process -Id $id -Force -ErrorAction Stop; $k+=$id }catch{} };` +
-    `$k -join ','`;
+    `$seen=New-Object System.Collections.Generic.HashSet[int];` +
+    `$desc=New-Object System.Collections.Generic.List[object];` +
+    `$done=New-Object System.Collections.Generic.HashSet[int]; $limited=$false;` +
+    `while($q.Count -gt 0){ $parent=$q.Dequeue(); if(-not $done.Add($parent)){continue}; if(-not $byParent.ContainsKey($parent)){continue};` +
+    `foreach($child in $byParent[$parent]){ $childId=[int]$child.ProcessId; if($childId -eq ${pid} -or -not $child.CreationDate -or $child.CreationDate.ToUniversalTime() -lt $cut -or -not $seen.Add($childId)){continue};` +
+    `if($desc.Count -ge ${SWEEP_MAX_PROCESSES}){ $limited=$true; break }; $desc.Add($child); $q.Enqueue($childId) }; if($limited){break} };` +
+    `$before=@(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop | Where-Object { $_ -ne $null });` +
+    `$k=New-Object System.Collections.Generic.List[int];` +
+    `for($i=$desc.Count-1; $i -ge 0; $i--){ $row=$desc[$i]; $id=[int]$row.ProcessId; $created=$row.CreationDate.ToUniversalTime().Ticks;` +
+    `$live=$before | Where-Object { [int]$_.ProcessId -eq $id -and $_.CreationDate -and $_.CreationDate.ToUniversalTime().Ticks -eq $created } | Select-Object -First 1;` +
+    `if($null -ne $live){ try{ Stop-Process -Id $id -Force -ErrorAction Stop; $k.Add($id) }catch{} } };` +
+    `$after=@(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop | Where-Object { $_ -ne $null });` +
+    `$survivors=New-Object System.Collections.Generic.List[int]; foreach($row in $desc){ $id=[int]$row.ProcessId; $created=$row.CreationDate.ToUniversalTime().Ticks;` +
+    `$still=$after | Where-Object { [int]$_.ProcessId -eq $id -and $_.CreationDate -and $_.CreationDate.ToUniversalTime().Ticks -eq $created } | Select-Object -First 1; if($null -ne $still){$survivors.Add($id)} };` +
+    `Write-Output ('limit=' + $(if($limited){1}else{0}));` +
+    `Write-Output ('killed=' + ($k -join ','));` +
+    `Write-Output ('survivors=' + ($survivors -join ','))`;
   const r = spawnSync(psExe,
     ['-NoProfile', '-NonInteractive', '-Command', script],
-    // One enumeration instead of 30+ queries; the budget is per sweep and a
+    // Three bounded enumerations instead of 30+ per-process queries; the budget is per sweep and a
     // timeout still fails CLOSED (never "no survivors") and now names its cause.
     { timeout: 60_000, windowsHide: true, encoding: 'utf8', shell: false, env: containmentEnv() });
   const why = r.error !== undefined && r.error !== null
@@ -791,24 +799,37 @@ function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
     process.stderr.write(`containment sweep could not run: ${why}\n`);
     return { killed: [], failed: true };
   }
-  const lines = (r.stdout ?? '').split('\n').map((l) => l.trim()).filter((l) => l !== '');
-  const surveyed = Number(lines[0]);
-  if (!Number.isFinite(surveyed) || surveyed <= 0) {
-    process.stderr.write(`containment sweep could not run: the process snapshot came back empty or unreadable (first line: '${String(lines[0] ?? '')}')\n`);
-    return { killed: [], failed: true };
+  const result = parseWin32SweepOutput(r.stdout ?? '');
+  if (result.failed) process.stderr.write(`containment sweep incomplete: ${result.reason ?? 'Windows process descendants survived or traversal reached its limit'}\n`);
+  return { killed: result.killed, failed: result.failed };
+}
+
+/** Strictly decode Windows sweep output. Unknown/truncated output is failure, never an empty tree. */
+export function parseWin32SweepOutput(stdout: string): SweepResult & { reason?: string } {
+  const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const fields = new Map<string, string>();
+  for (const line of lines) {
+    const match = /^(snapshot|limit|killed|survivors)=(.*)$/.exec(line);
+    if (!match || fields.has(match[1]!)) return { killed: [], failed: true, reason: `unrecognised output: ${line.slice(0, 160)}` };
+    fields.set(match[1]!, match[2]!);
   }
-  const text = lines.slice(1).join('');
-  // Shape check: anything beyond the count and one CSV line is output this
-  // parser does not understand, and an unparsed listing must never be read as
-  // "nothing survived".
-  if (lines.length > 2 || (lines.length === 2 && !/^[0-9,]*$/.test(lines[1] as string))) {
-    process.stderr.write(`containment sweep could not run: unrecognised powershell output (${lines.slice(1).join(' / ').slice(0, 200)})\n`);
-    return { killed: [], failed: true };
+  const snapshot = Number(fields.get('snapshot'));
+  const limit = fields.get('limit');
+  if (!Number.isSafeInteger(snapshot) || snapshot <= 0 || (limit !== '0' && limit !== '1')
+      || !fields.has('killed') || !fields.has('survivors')) {
+    return { killed: [], failed: true, reason: 'missing or malformed snapshot/limit/result fields' };
   }
-  const killed = text
-    ? text.split(',').map(Number).filter((n) => Number.isFinite(n) && n > 0)
-    : [];
-  return { killed, failed: false };
+  const parsePids = (value: string): number[] | null => {
+    if (value === '') return [];
+    if (!/^[1-9]\d*(?:,[1-9]\d*)*$/.test(value)) return null;
+    const values = value.split(',').map(Number);
+    return values.every(Number.isSafeInteger) ? values : null;
+  };
+  const killed = parsePids(fields.get('killed')!);
+  const survivors = parsePids(fields.get('survivors')!);
+  if (killed === null || survivors === null) return { killed: [], failed: true, reason: 'malformed process id list' };
+  const failed = limit === '1' || survivors.length > 0;
+  return { killed, failed, ...(failed ? { reason: limit === '1' ? `process traversal exceeded ${SWEEP_MAX_PROCESSES} descendants` : `surviving process ids: ${survivors.join(',')}` } : {}) };
 }
 
 export const ExitCode = {

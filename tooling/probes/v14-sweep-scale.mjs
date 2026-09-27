@@ -13,15 +13,17 @@
  * valid test run" -> INFRASTRUCTURE_FAILURE. That is 27 of the 29 real failures
  * in that run, each costing ~334 s of sweeps.
  *
- * THE FIX (packages/support): ONE snapshot of the process table, the BFS inside
- * that same PowerShell, kills attempted after the traversal, and a row count
- * that must come back positive -- so a snapshot that silently failed can never
- * be read as "nothing survived".
+ * THE FIX (packages/support): one full-table snapshot for the BFS, then two
+ * bounded identity checks around termination. The first snapshot's row count
+ * must come back positive, so an empty/unreadable enumeration can never be read
+ * as "nothing survived". This is three bounded table enumerations total, not
+ * one WMI query for every process visited.
  *
  * WHAT THIS PROBE PINS DOWN
  *   A. SHAPE (deterministic, catches a revert): the built sweep contains no
- *      per-process `ParentProcessId=` query, and issues exactly one
- *      `Get-CimInstance -ClassName Win32_Process`.
+ *      per-process `ParentProcessId=` query, and issues exactly three bounded
+ *      `Get-CimInstance -ClassName Win32_Process` enumerations: tree, before,
+ *      and after.
  *   B. THE PROPERTY THE CHANGE MUST NOT BREAK (live evidence): against a real
  *      intermediate parent holding SEVERAL live descendants, the sweep still
  *      reports success and kills every one of them.
@@ -54,7 +56,7 @@ if (!fs.existsSync(BUILT)) {
 const { sweepDescendants } = await import(`file://${BUILT.replace(/\\/g, '/')}`);
 
 // ---------------------------------------------------------------- A. shape ---
-console.log('=== A. the sweep asks the OS ONCE, not once per process ===');
+console.log('=== A. the sweep uses bounded snapshots, not one query per process ===');
 const src = fs.readFileSync(BUILT, 'utf8');
 // Comments are excluded on purpose: the fix's own rationale quotes the OLD
 // shape (`Get-CimInstance -Filter "ParentProcessId=$p"`), and a shape guard that
@@ -69,9 +71,11 @@ info('per-process ParentProcessId queries', perProcessQueries);
 info('whole-table enumerations', snapshots);
 check('no per-process WMI query remains (the O(N) shape that timed out)', perProcessQueries === 0,
   `found ${perProcessQueries}`);
-check('exactly one process-table enumeration per sweep', snapshots === 1, `found ${snapshots}`);
+check('one tree snapshot plus bounded pre/post identity checks (not one query per process)',
+  snapshots === 3, `expected tree + pre-kill + survivor snapshots, found ${snapshots}`);
 check('the enumeration result is required to be non-empty before "no survivors" is reported',
-  /surveyed <= 0/.test(src) && /came back empty or unreadable/.test(src));
+  /\$all=@\(Get-CimInstance -ClassName Win32_Process/.test(src)
+    && /if\(\$all\.Count -le 0\)\{ throw 'empty process snapshot' \};/.test(src));
 
 // ------------------------------------------------------------- B. live tree ---
 console.log('\n=== B. a real tree with several survivors is still swept ===');
@@ -142,5 +146,5 @@ if (failures > 0) {
   console.log(`SWEEP-SCALE: FAIL (${failures} check(s) failed)`);
   process.exit(1);
 }
-console.log('SWEEP-SCALE: PASS - one snapshot per sweep, real survivors still killed, no false failures.');
+console.log('SWEEP-SCALE: PASS - one tree snapshot plus bounded identity checks, real survivors still killed, no false failures.');
 process.exit(0);

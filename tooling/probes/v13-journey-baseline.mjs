@@ -1,10 +1,9 @@
 // v1.3 PHASE A — the everyday developer journey, OBSERVED rather than inferred.
 //
-// This probe answers one question with recorded output: what does a competent developer who has
-// never heard of Canary actually experience, from `git init` to "my change is verified"?
+// This probe records the fresh setup/default MCP experience and the separate candidate lifecycle.
 //
-// It measures the journey a NORMAL user takes — no `canary bind`, no provider, no confinement,
-// no expert commands — and records:
+// The candidate lifecycle below invokes expert CLI commands directly; the MCP section measures the
+// configured everyday profile and its explicit expert opt-in separately. No provider is used.
 //
 //   A. what `canary setup --yes` does on a fresh repository (and whether it needs a human);
 //   B. whether the ordinary path (`work` -> commit in candidate -> `finish`) can COMPLETE,
@@ -28,15 +27,6 @@ const check = (name, ok, detail) => {
   results.push({ name, ok, detail });
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name} — ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`);
 };
-/** An OBSERVED GAP that this slice does not close. Recorded, printed, and deliberately NOT asserted:
- *  a baseline that turned a known-open finding into a red would be lying about which invariants hold,
- *  and one that hid it would lose the finding. */
-const openFindings = [];
-const finding = (name, detail) => {
-  openFindings.push({ name, detail });
-  console.log(`OPEN  ${name} — ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`);
-};
-
 const env = { ...process.env, CANARY_TRUST_STORE: path.join(temp, 'local-trust') };
 const run = (exe, args, cwd, expect = 0, input) => {
   const r = spawnSync(exe, args, { cwd, env, encoding: 'utf8', windowsHide: true, timeout: 300000, ...(input === undefined ? {} : { input }) });
@@ -217,12 +207,7 @@ try {
    */
   check('a-direct-edit-whose-checks-discriminate-earns-its-READY', /READY/.test(naiveText),
     (naiveText.match(/^.*(READY|NOT PROVEN|NEEDS ATTENTION|UNSUPPORTED).*$/m) ?? ['(none)'])[0].trim().slice(0, 120));
-  finding('the-everyday-path-does-not-isolate-or-promote (no candidate, no frozen task authority)',
-    'covered for false acceptance by the discrimination gate (F2); the missing piece is the invisible '
-    + 'lifecycle, not a verdict. The GUARANTEE that lifecycle exists to provide is measured separately and '
-    + 'holds: tooling/probes/v13-verified-bytes.mjs plants a checkpoint record byte-identical to a real '
-    + 'green run on a repository whose checks FAIL, and the completion is still refused — with controls '
-    + 'either side, so the result is not an always-blocking gate');
+  console.log('INFO everyday MCP stays compact; isolated candidate work and promotion are available in the expert profile.');
 
   // ────────────────────── D. `canary agents` when `.claude/` exists but NO hook is installed ──
   const noHook = path.join(temp, 'claude-no-hook');
@@ -334,7 +319,8 @@ try {
   console.log(JSON.stringify(g1, null, 2));
   console.log('===== end mcp =====\n');
 
-  check('G1-setup-registers-canary-as-an-mcp-server', !!g1.mcpServers?.canary?.args?.includes('mcp'),
+  check('G1-setup-registers-the-everyday-MCP-profile', !!g1.mcpServers?.canary?.args?.includes('mcp')
+    && JSON.stringify(g1.mcpServers.canary.args.slice(-2)) === JSON.stringify(['--profile', 'everyday']),
     JSON.stringify(g1.mcpServers?.canary ?? null));
   check('G2-a-stranger-s-entry-is-preserved-byte-for-byte',
     JSON.stringify(g1.mcpServers?.someoneelse) === JSON.stringify({ command: 'node', args: ['their-server.js'] }),
@@ -374,21 +360,33 @@ try {
     JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
     '',
   ].join('\n');
-  const srv = run(process.execPath, [cli, 'mcp'], foreign, null, rpc);
-  const replies = (srv.stdout ?? '').split('\n').filter((l) => l.trim().startsWith('{')).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  const init = replies.find((r) => r.id === 1);
-  const list = replies.find((r) => r.id === 2);
-  const names = (list?.result?.tools ?? []).map((t) => t.name).sort();
-  check('G7-the-mcp-server-answers-a-real-handshake-and-lists-its-tools',
-    !!init?.result?.serverInfo && names.length === 6, { server: init?.result?.serverInfo?.name, tools: names });
-  check('G8-the-accept-power-is-not-exposed-as-a-tool',
-    !names.some((n) => /accept/i.test(n)), names.join(', '));
+  const mcpTools = (profile) => {
+    const args = profile === undefined ? [cli, 'mcp'] : [cli, 'mcp', '--profile', profile];
+    const srv = run(process.execPath, args, foreign, null, rpc);
+    const replies = (srv.stdout ?? '').split('\n').filter((l) => l.trim().startsWith('{')).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    return {
+      init: replies.find((r) => r.id === 1),
+      names: (replies.find((r) => r.id === 2)?.result?.tools ?? []).map((t) => t.name).sort(),
+    };
+  };
+  const everyday = mcpTools('everyday');
+  const expert = mcpTools('expert');
+  const everydayExpected = ['canary_agents', 'canary_doctor', 'canary_result', 'canary_status'];
+  check('G7-the-configured-everyday-profile-lists-the-four-common-tools',
+    !!everyday.init?.result?.serverInfo && JSON.stringify(everyday.names) === JSON.stringify(everydayExpected),
+    { server: everyday.init?.result?.serverInfo?.name, tools: everyday.names });
+  check('G8-the-expert-profile-adds-isolated-work-and-finish',
+    !!expert.init?.result?.serverInfo && expert.names.length === 6
+    && expert.names.includes('canary_work') && expert.names.includes('canary_finish'),
+    { server: expert.init?.result?.serverInfo?.name, tools: expert.names });
+  check('G9-the-accept-power-is-not-exposed-as-a-tool',
+    !expert.names.some((n) => /accept/i.test(n)), expert.names.join(', '));
 
   // Exactly removable: uninstall takes Canary's entry and leaves the stranger's.
   const un = canary(['uninstall'], foreign, null);
   const afterDoc = fs.existsSync(path.join(foreign, '.mcp.json'))
     ? JSON.parse(fs.readFileSync(path.join(foreign, '.mcp.json'), 'utf8')) : {};
-  check('G9-uninstall-removes-exactly-our-entry-and-keeps-the-stranger-s',
+  check('G10-uninstall-removes-exactly-our-entry-and-keeps-the-stranger-s',
     un.status === 0 && afterDoc.mcpServers?.canary === undefined
     && JSON.stringify(afterDoc.mcpServers?.someoneelse) === JSON.stringify({ command: 'node', args: ['their-server.js'] }),
     { exit: un.status, remaining: Object.keys(afterDoc.mcpServers ?? {}) });
@@ -396,10 +394,6 @@ try {
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${failed.length === 0 ? 'PASS' : 'FAIL'} v13 journey baseline — ${results.length - failed.length}/${results.length} observations held`);
   for (const f of failed) console.log(`  FAILED: ${f.name}`);
-  if (openFindings.length > 0) {
-    console.log(`${openFindings.length} recorded open finding(s) — NOT asserted, NOT a pass:`);
-    for (const f of openFindings) console.log(`  OPEN: ${f.name}`);
-  }
   process.exitCode = failed.length === 0 ? 0 : 1;
 } finally {
   try { fs.rmSync(temp, { recursive: true, force: true }); } catch { /* best effort */ }

@@ -100,11 +100,19 @@ describe('1.1 protocol: one JSON object, and no verdict changes', () => {
 
     const r = canary(['result', '--json', root]);
     assert.equal(r.status, 0, r.stderr);
-    const env = JSON.parse(r.stdout) as { schema: string; command: string; status: string; checks: unknown[]; evidencePath: string };
+    const env = JSON.parse(r.stdout) as {
+      schema: string; command: string; status: string; checks: unknown[]; evidencePath: string;
+      lastVerification?: { status: string; historical: boolean; checks: Array<{ ok: boolean }>; hookResponse: string; sessionEnd: string };
+    };
     assert.equal(env.schema, 'canary-result/1');
     assert.equal(env.command, 'result');
     assert.equal(env.status, 'CONNECTED');
     assert.equal(env.checks.length, 1);
+    assert.equal(env.lastVerification?.status, 'pass');
+    assert.equal(env.lastVerification?.historical, true);
+    assert.deepEqual(env.lastVerification?.checks.map((x) => x.ok), [true]);
+    assert.equal(env.lastVerification?.hookResponse, 'not-applicable');
+    assert.equal(env.lastVerification?.sessionEnd, 'unknown');
     assert.match(env.evidencePath, /\.canary$/, 'the envelope points at the state, it does not paste it');
     assert.ok(r.stdout.length < 4000, `the envelope must stay compact, got ${r.stdout.length} bytes`);
     // and it never executes the plan or writes anything

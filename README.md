@@ -74,23 +74,21 @@ Canary's vocabulary to use it.
 ## Install
 
 ```bash
-npm install -g ./canary-rn-cli-1.4.0.tgz     # Node.js 22 or newer
+npm install -g ./canary-rn-cli-1.5.0.tgz     # Node.js 22 or newer
 canary --version                             # canary 1.5.0
 ```
 
 Download that tarball from the
-[v1.4.0 release](https://github.com/criptofn/Canary/releases/tag/v1.4.0) and check
-it against the published `.sha256`. It is ONE self-contained bundle with **zero
+[v1.5.0 release](https://github.com/criptofn/Canary/releases/tag/v1.5.0) and check
+it against the published `.sha256`. The verified package SHA-256 is
+`cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386`. It is ONE self-contained bundle with **zero
 runtime dependencies**.
 
-> **Honest version note.** **`v1.4.0` is the newest *published* artifact** — tag `v1.4.0` →
-> `4271e6e`, the tip of `main`; the release, its tarball and its sidecar were verified
-> against it, and the published bytes and digest are recorded in
-> [`docs/RELEASE-1.4.md`](docs/RELEASE-1.4.md). This document describes the **source tree**,
-> which is the **unreleased v1.5 candidate**: under audit, **not tagged, not released, not
-> merged**. Build from source for exactly what is described here: `npm ci && npm run build`,
-> then `node apps/cli/dist/src/main.js`. v1.3's own bytes are described, with their measured
-> numbers and their known limitations, in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
+> **Version note.** The latest published artifact is **v1.5.0** (tag `v1.5.0`, commit
+> `6471ef6a74dd89ff11a7083fb9c54dca6c2b1334`). Its published CLI package was verified
+> against the SHA-256 above. Build from source when you specifically need the checkout's
+> current working tree: `npm ci && npm run build`, then `node apps/cli/dist/src/main.js`.
+> v1.3's own bytes are described in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
 
 > **v1.5 status, stated where you will see it first: the token-saving headline is WITHDRAWN.**
 > The v1.5 candidate published `83.21 % of Plain (−16.79 %)` for the everyday path. An
@@ -120,13 +118,18 @@ runtime dependencies**.
 
 ```bash
 cd your-repo
+canary setup --check    # optional read-only preflight; runs no project checks and writes nothing
 canary setup --yes      # detect the project, seal its checks, wire your agent
 ```
 
-That is the whole first-use path. `setup` prints the checks it found, smoke-runs
-them once, and ends in `READY` — or tells you exactly what it could not do. It
-wires Claude Code automatically (merging with, never overwriting, your existing
-hooks), registers Canary's tools for the agent, and touches nothing else.
+`setup --check` reports the checks and toolchains it can see without running
+project commands, writing files, or authorizing tool paths. It cannot discover
+every tool a project script may launch; actual setup still runs the checks.
+`setup` prints the checks it found, smoke-runs them once, and ends in `READY` —
+or tells you exactly what it could not do. It wires Claude Code automatically
+(merging with, never overwriting, your existing hooks) and registers Canary's
+four everyday MCP tools. Add `--mcp-profile expert` only when the agent needs
+isolated `work` / `finish` operations.
 
 Then just ask your agent for the change. You do not run anything else.
 
@@ -567,7 +570,8 @@ The two tiers share one binary; `canary` below is the linked command, or
 **Everyday** — what an ordinary user actually types:
 
 ```bash
-canary setup     [--yes]     # detect the project + the agents, PIN the toolchain, wire, smoke-run
+canary setup --check [--json] # read-only preflight: plan, visible toolchains, managed-file conflicts
+canary setup     [--yes] [--mcp-profile everyday|expert] # install + smoke-run; everyday is default
 canary doctor                # runs your checks NOW: READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED
 canary status                # read-only state, runs nothing: CONNECTED / NEEDS ATTENTION / NOT CONNECTED
 canary result    [--json]    # the same state as ONE compact JSON object — free, for agents and scripts
@@ -716,7 +720,7 @@ Three ways to get it, in increasing order of what you must already have:
 
 | You have | Use | Result |
 |---|---|---|
-| A Node.js 22+ installation | install `canary-rn-cli-1.2.0.tgz` from the [v1.2.0 release](https://github.com/criptofn/Canary/releases/tag/v1.2.0) (check it against the published `.sha256`), or build it yourself with `node tooling/pack.mjs`, or run straight from a checkout with `node apps/cli/dist/src/main.js` | one self-contained bundle, zero runtime dependencies |
+| A Node.js 22+ installation | install `canary-rn-cli-1.5.0.tgz` from the [v1.5.0 release](https://github.com/criptofn/Canary/releases/tag/v1.5.0) (check it against the published `.sha256`), or build it yourself with `node tooling/pack.mjs`, or run straight from a checkout with `node apps/cli/dist/src/main.js` | one self-contained bundle, zero runtime dependencies |
 | No Node.js, and a supported host | `npm run standalone` (see `tooling/standalone.mjs`) | ONE executable with Node embedded |
 | A source checkout | `npm ci && npm run build` | the development tree |
 
