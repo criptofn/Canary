@@ -1,0 +1,41 @@
+{
+  "schema": "canary-validation-oracle/1",
+  "label": "H1",
+  "expected": "pass",
+  "probe": "tooling/probes/v15-validation-oracle.mjs",
+  "probeSha256": "af6836fcde8b30eb1d94770c346af5dafb4174052bcb2a65bf10be53444d9ce5",
+  "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\candidate\\H1",
+  "runtimeRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\candidate\\H1",
+  "startingHead": null,
+  "startedAt": "2026-09-27T02:49:18.070Z",
+  "sourceFiles": [
+    {
+      "path": "src/workflows/fileOrganizer.js",
+      "exists": true,
+      "sha256": "33acf78c3c429040c90e0bfa7953b2a800d1926e27ef58b935f6a6d11447c60a"
+    }
+  ],
+  "finishedAt": "2026-09-27T02:49:18.148Z",
+  "command": {
+    "executable": "C:\\Program Files\\nodejs\\node.exe",
+    "args": [
+      "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\post-v15-validation-2026-09-27\\oracle-controls-final5\\oracle-results\\candidate\\H1\\oracle.mjs"
+    ],
+    "cwd": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\candidate\\H1"
+  },
+  "generatedArtifacts": [
+    "oracle.mjs"
+  ],
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "spawnError": null,
+  "compileExitCode": null,
+  "runtimeExitCode": null,
+  "testPassed": true,
+  "expectedFailureObserved": false,
+  "metExpected": true,
+  "status": "complete",
+  "stdoutSha256": "3ebdc58379d996cfef9581fb31dbc9b228a11ae1415547b05f64b2a91aeac718",
+  "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

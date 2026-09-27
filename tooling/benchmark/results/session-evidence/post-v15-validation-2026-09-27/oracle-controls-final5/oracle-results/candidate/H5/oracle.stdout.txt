@@ -1,0 +1,1 @@
+PASS H5 independent ordered-case and markdown contract

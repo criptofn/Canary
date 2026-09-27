@@ -1,0 +1,21 @@
+{
+  "schema": "canary-v15-windows-sweep-diagnostic/1",
+  "probePath": "tooling/probes/v15-windows-sweep-diagnostic.mjs",
+  "probeSha256": "df5e709d7b6c33863b7d56f329a504f25c6a67ff1304844d39adcfad0fb8a3fc",
+  "testFile": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\packages\\support\\dist\\test\\lifecycle.test.js",
+  "testSha256": "9ce5f8c63430fb06b46cb37cf4e6ab5dfe30e260f6f0fe288d8a0171c5caba5c",
+  "node": "v26.7.0",
+  "nodePath": "C:\\Program Files\\nodejs\\node.exe",
+  "platform": "win32",
+  "release": "10.0.26200",
+  "cpus": 24,
+  "runs": 18,
+  "runTimeoutMs": 180000,
+  "loadWorkers": 8,
+  "schedule": [
+    "idle",
+    "loaded",
+    "loaded"
+  ],
+  "startedAt": "2026-09-27T01:49:03.644Z"
+}

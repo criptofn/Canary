@@ -1,0 +1,15 @@
+{
+  "number": 10,
+  "scenario": "idle",
+  "startedAt": "2026-09-27T01:49:59.707Z",
+  "finishedAt": "2026-09-27T01:50:05.487Z",
+  "elapsedMs": 5779,
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "spawnError": null,
+  "loadWorkerPids": [],
+  "stdoutSha256": "21b5f30f534f186f76109c23f7f4aaa9e33342b949fa9fa1e8b4cef513a3d984",
+  "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "passed": true
+}

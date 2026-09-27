@@ -1,0 +1,14 @@
+
+> Task :compileJava
+
+> Task :processResources UP-TO-DATE
+> Task :classes
+> Task :compileTestJava
+> Task :processTestResources NO-SOURCE
+> Task :testClasses
+> Task :test
+
+[Incubating] Problems report is available at: file:///C:/Users/Johannes/AppData/Local/Temp/canary-v15-baselines-20260927/S1/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 4s
+4 actionable tasks: 3 executed, 1 up-to-date

@@ -1,0 +1,18 @@
+{
+  "schema": "canary-validation-oracle/1",
+  "label": "H1",
+  "expected": "fail",
+  "probe": "tooling/probes/v15-validation-oracle.mjs",
+  "probeSha256": "af6836fcde8b30eb1d94770c346af5dafb4174052bcb2a65bf10be53444d9ce5",
+  "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\H1",
+  "runtimeRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\H1",
+  "startingHead": null,
+  "startedAt": "2026-09-27T02:49:17.836Z",
+  "sourceFiles": [
+    {
+      "path": "src/workflows/fileOrganizer.js",
+      "exists": true,
+      "sha256": "888d6024df25745cf6d7ed2cab36f3c70cbb1f2faaf02ee700a6b7cb9740bb3e"
+    }
+  ]
+}

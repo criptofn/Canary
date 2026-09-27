@@ -1,0 +1,22 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'fresh.txt',
++   'old.txt'
+  ]
+
+    at file:///C:/Users/Johannes/Desktop/canary/_canary-data/worktrees/canary-post-v15-product-validation/tooling/benchmark/results/session-evidence/post-v15-validation-2026-09-27/oracle-controls-final5/oracle-results/baseline/H1/oracle.mjs:7:407 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: [ 'fresh.txt', 'old.txt' ],
+  expected: [ 'fresh.txt' ],
+  operator: 'deepStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v26.7.0

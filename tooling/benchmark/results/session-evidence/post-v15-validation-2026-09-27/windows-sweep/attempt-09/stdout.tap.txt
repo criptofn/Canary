@@ -1,0 +1,41 @@
+▶ audit F5 — sweep mechanism (live parent, positive proof)
+  ✖ sweepDescendants finds and kills a live parent's child process (1825.8021ms)
+✖ audit F5 — sweep mechanism (live parent, positive proof) (1827.2876ms)
+▶ audit F5 — containment through runCommand
+  ✔ normal exit-0 of a child that left a helper behind: sweep clean, no survivors (986.3738ms)
+  ✔ a clean exit with no descendants sweeps nothing and does not fail (524.0375ms)
+  ✔ timeout: tree kill + sweep leave no survivors and do not fail (2884.6127ms)
+  ✔ the swept child PID itself is never listed as killed (only descendants) (543.058ms)
+✔ audit F5 — containment through runCommand (4938.7222ms)
+▶ audit S1 — POSIX session-membership predicate (setpgid escapees)
+  ✔ a member of the child session is caught even after it setpgid()s (0.2342ms)
+  ✔ a member of the child group is caught (0.1253ms)
+  ✔ an unrelated process is not swept (0.1417ms)
+✔ audit S1 — POSIX session-membership predicate (setpgid escapees) (0.756ms)
+ℹ tests 8
+ℹ suites 3
+ℹ pass 7
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6850.8063
+
+✖ failing tests:
+
+test at packages\support\dist\test\lifecycle.test.js:177:5
+✖ sweepDescendants finds and kills a live parent's child process (1825.8021ms)
+  AssertionError [ERR_ASSERTION]: sweep killed [61128] but not 40712 | result={"killed":[61128],"failed":false} | platform=win32 | diagnostic: sweepInputParentPid=61128 | expectedChildPid=40712 | spawnedAtMs=1790473792095 | cutUsedBySweep=2026-09-27T01:48:52.095Z | aliveAtAssertionParent=false | aliveAtAssertionChild=false | cimObservation snapshotCount=348 | cimObservation row=61128;present=false | cimObservation row=40712;present=false | shape: absent from the fresh snapshot and not alive (it exited before the sweep)
+      at TestContext.<anonymous> (file:///C:/Users/Johannes/Desktop/canary/_canary-data/worktrees/canary-post-v15-product-validation/packages/support/dist/test/lifecycle.test.js:225:20)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1889:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

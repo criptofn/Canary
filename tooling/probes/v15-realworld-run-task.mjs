@@ -51,6 +51,7 @@
  * USAGE
  *   node tooling/probes/v15-realworld-run-task.mjs \
  *     --repo <abs path> --task-file <file> --label <id> --out <run root for that task> \
+ *     --cli <installed main.js> --artifact-sha256 <published tgz SHA-256> \
  *     [--attempt <id>] [--new-attempt] [--arm canary|plain] [--timeout-min 20]
  *     [--extra-path <dir>[;<dir>...]] [--agent-cmd <exe>] [--agent-arg <arg> ...]
  *
@@ -69,10 +70,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
-const CLI = path.join(REPO_ROOT, 'apps', 'cli', 'dist', 'src', 'main.js');
 const PROBE = 'tooling/probes/v15-realworld-run-task.mjs';
 const LAYOUT_VERSION = 1;
+const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
 // ---------------------------------------------------------------- args
 function arg(name, dflt = null) {
@@ -91,20 +91,51 @@ const taskFile = arg('task-file');
 const label = arg('label');
 const outDir = arg('out');
 const attemptArg = arg('attempt');
+const cliArg = arg('cli');
+const artifactSha256 = arg('artifact-sha256');
 const newAttempt = process.argv.includes('--new-attempt');
 const arm = arg('arm', 'canary');
 const timeoutMin = Number(arg('timeout-min', '20'));
+const maxBudgetArg = arg('max-budget-usd');
+const pilotBudgetUsd = maxBudgetArg === null ? null : Number(maxBudgetArg);
 const extraPath = arg('extra-path', '');
 const agentCmd = arg('agent-cmd', 'claude');
 const agentExtraArgs = argAll('agent-arg');
 if (!repo || !taskFile || !label || !outDir) {
-  console.error('usage: --repo <dir> --task-file <file> --label <id> --out <run root> [--attempt <id>] [--new-attempt] [--arm canary|plain] [--timeout-min N] [--extra-path <dirs>] [--agent-cmd <exe>] [--agent-arg <arg> ...]');
+  console.error('usage: --repo <dir> --task-file <file> --label <id> --out <run root> --cli <installed main.js> --artifact-sha256 <published tgz SHA-256> [--attempt <id>] [--new-attempt] [--arm canary|plain] [--timeout-min N] [--extra-path <dirs>] [--agent-cmd <exe>] [--agent-arg <arg> ...]');
   process.exit(2);
 }
+if (!Number.isFinite(timeoutMin) || timeoutMin <= 0 || timeoutMin > 30) {
+  console.error('usage error: --timeout-min must be greater than zero and no greater than 30');
+  process.exit(2);
+}
+if (maxBudgetArg !== null && (!Number.isFinite(pilotBudgetUsd) || pilotBudgetUsd <= 0 || pilotBudgetUsd > 2.5)) {
+  console.error('usage error: --max-budget-usd must be a finite positive number no greater than 2.50');
+  process.exit(2);
+}
+if (pilotBudgetUsd !== null && agentExtraArgs.includes('--max-budget-usd')) {
+  console.error('usage error: use --max-budget-usd for the enforced per-session cap; do not pass it again with --agent-arg');
+  process.exit(2);
+}
+if (!cliArg || !artifactSha256 || !/^[0-9a-f]{64}$/i.test(artifactSha256)) {
+  console.error('usage error: --cli and a 64-hex --artifact-sha256 are required; the development build is never selected implicitly');
+  process.exit(2);
+}
+const CLI = path.resolve(cliArg);
+if (!fs.statSync(CLI, { throwIfNoEntry: false })?.isFile()) {
+  console.error(`usage error: --cli is not a file: ${CLI}`);
+  process.exit(2);
+}
+const cliSha256 = sha256(fs.readFileSync(CLI));
+const versionRun = spawnSync(process.execPath, [CLI, '--version'], { encoding: 'utf8', timeout: 10_000, windowsHide: true });
+if (versionRun.status !== 0 || !/^canary 1\.5\.0\s*$/m.test(versionRun.stdout ?? '')) {
+  console.error(`usage error: --cli must report canary 1.5.0 (exit ${String(versionRun.status)}): ${(versionRun.stdout ?? '').trim()}`);
+  process.exit(2);
+}
+const cliVersion = (versionRun.stdout ?? '').trim();
 
 const nowIso = () => new Date().toISOString();
 const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
-const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
 // A refusal is a first-class outcome: it prints FAIL, names the next action, and writes
 // NOTHING (no artifact, no directory, no partial attempt).
@@ -249,8 +280,14 @@ writeArtifact('attempt.json', `${JSON.stringify({
   attemptDir,
   taskId: label,
   arm,
+  maxBudgetUsd: pilotBudgetUsd,
   repo,
   agentCommand,
+  agentExtraArgs,
+  cliPath: CLI,
+  cliVersion,
+  cliSha256,
+  artifactSha256: artifactSha256.toLowerCase(),
   argv: process.argv.slice(2),
   cwd: process.cwd(),
   startedAt,
@@ -314,6 +351,7 @@ const checkpointMtimeBefore = (() => { try { return fs.statSync(checkpointPath).
 const mcpConfig = path.join(repo, '.mcp.json');
 const args = [
   ...agentExtraArgs,
+  ...(pilotBudgetUsd === null ? [] : ['--max-budget-usd', String(pilotBudgetUsd)]),
   '-p', prompt,
   '--output-format', 'stream-json', '--verbose',
   '--permission-mode', 'acceptEdits',
@@ -377,26 +415,47 @@ const model = (() => {
   for (const e of assistantEvents) { const m = e.message?.model; if (m) return m; }
   return null;
 })();
+const streamText = rawStream;
+const sawStopHookFeedback = /Stop hook feedback/i.test(streamText);
+const sawCanaryBlockText = /Canary blocked completion/i.test(streamText);
+const sawCanarySystemMessage = /Canary (could not|found|:)/i.test(streamText);
+const sawStopGuardMessage = /after one repair attempt|stopping anyway/i.test(streamText);
 /**
  * The `result` event's `usage` is the CLI's own provider-native session total.
  * `num_turns`, `duration_ms` and `total_cost_usd` come from the same event.
  * Nothing here is estimated: if a field is absent it stays null.
  */
 const usage = result?.usage ?? null;
+const nativeCostUsd = result?.total_cost_usd ?? null;
+const agentSessionOutcome = (() => {
+  if (run.spawnError) return 'spawn_error';
+  if (run.timedOut) return 'timed_out';
+  if (result === null) return 'missing_terminal_result';
+  if (result.is_error === true || result.subtype !== 'success' || run.code !== 0) return 'ended_with_error';
+  if (sawStopGuardMessage) return 'completed_after_canary_stop_guard';
+  if (sawCanaryBlockText) return 'completed_after_block_and_repair';
+  return 'completed';
+})();
 const ledger = {
   layout: LAYOUT_VERSION, attemptId, runRoot, attemptDir,
   label, arm, repo, agentCommand, startedAt, wallSeconds,
+  canary: { path: CLI, version: cliVersion, binarySha256: cliSha256, artifactSha256: artifactSha256.toLowerCase() },
   agentExitCode: run.code ?? null, spawnError: run.spawnError ?? null, timedOut: run.timedOut === true,
+  agentSessionOutcome,
   streamLines: rawStream.split(/\r?\n/).filter((l) => l.trim()).length,
   streamParseErrors: parseErrors,
   sawResultEvent: result !== null,
   resultSubtype: result?.subtype ?? null,
   resultIsError: result?.is_error ?? null,
+  stopReason: result?.stop_reason ?? null,
   model,
   numTurns: result?.num_turns ?? null,
   durationMsProvider: result?.duration_ms ?? null,
   usage,
-  totalCostUsdProvider: result?.total_cost_usd ?? null,
+  totalCostUsdProvider: nativeCostUsd,
+  perSessionBudgetUsd: pilotBudgetUsd,
+  costWithinSessionBudget: pilotBudgetUsd === null || (Number.isFinite(nativeCostUsd) && nativeCostUsd <= pilotBudgetUsd),
+  sawStopHookFeedback, sawCanaryBlockText, sawCanarySystemMessage, sawStopGuardMessage,
   forwardedEnvKeys: forwardedKeys,
   assistantEvents: assistantEvents.length,
 };
@@ -406,11 +465,6 @@ writeArtifact('ledger.json', `${JSON.stringify(ledger, null, 2)}\n`);
 // user-role text ("Stop hook feedback: …"); hook events are not emitted for a
 // project-level Stop hook. "The hook fired" and "the model was told why" are two
 // different claims and both are recorded.
-const streamText = rawStream;
-const sawStopHookFeedback = /Stop hook feedback/i.test(streamText);
-const sawCanaryBlockText = /Canary blocked completion/i.test(streamText);
-const sawCanarySystemMessage = /Canary (could not|found|:)/i.test(streamText);
-
 // ---------------------------------------------------------------- checkpoint state AFTER
 const checkpointAfter = readCheckpointRaw();
 const checkpointMtimeAfter = (() => { try { return fs.statSync(checkpointPath).mtimeMs; } catch { return null; } })();
@@ -439,6 +493,36 @@ if (!hookFiredDuringRun) {
   writeArtifact('checkpoint-manual.stdout.txt', `${driven.stdout}\n`);
   writeArtifact('checkpoint-manual.stderr.txt', `${driven.stderr}\n`);
 }
+const checkpointFinal = readCheckpointRaw();
+const checkpointMtimeFinal = (() => { try { return fs.statSync(checkpointPath).mtimeMs; } catch { return null; } })();
+
+function classifyVerification(manual, finalCheckpoint) {
+  let response = null;
+  try { response = manual?.stdout ? JSON.parse(manual.stdout) : null; } catch { /* output may be empty on silent success */ }
+  let checkpoint = null;
+  try { checkpoint = finalCheckpoint ? JSON.parse(finalCheckpoint) : null; } catch { /* preserve unknown */ }
+  const responseText = String(response?.systemMessage ?? response?.reason ?? '');
+  const searchable = `${responseText}\n${streamText}`;
+  const decision = response?.decision ?? null;
+  const checkpointStatus = checkpoint?.status ?? null;
+  let evidenceStatus = 'unknown';
+  if (/after one repair attempt|stopping anyway/i.test(searchable)) evidenceStatus = 'stopped_after_repair_attempt';
+  else if (/NOT PROVEN|UNVERIFIED|could not verify|could not run|nothing was verified/i.test(searchable)) evidenceStatus = 'unverified_or_unproven';
+  else if (decision === 'block' || checkpointStatus === 'fail') evidenceStatus = 'failed';
+  else if (checkpointStatus === 'infra') evidenceStatus = 'unverified_infrastructure';
+  else if (checkpointStatus === 'unproven') evidenceStatus = 'unproven';
+  else if (/sealed checks passed/i.test(searchable) && /with a caveat/i.test(searchable)) evidenceStatus = 'passed_with_evidence_caveat';
+  else if (checkpointStatus === 'pass') evidenceStatus = 'passed';
+  return {
+    checkpointStatus,
+    blockDecisionObserved: decision === 'block' || sawCanaryBlockText,
+    finalCheckpointDecision: decision,
+    stopGuardMessageObserved: sawStopGuardMessage,
+    evidenceStatus,
+    message: responseText || null,
+  };
+}
+const verification = classifyVerification(driven, checkpointFinal);
 
 /**
  * The checkpoint EVENTS of THIS attempt, with the timestamps that decide provenance:
@@ -453,9 +537,14 @@ writeArtifact('checkpoint-events.json', `${JSON.stringify({
   startedAt,
   before: { raw: checkpointBefore, mtimeMs: checkpointMtimeBefore },
   after: { raw: checkpointAfter, mtimeMs: checkpointMtimeAfter },
+  afterManual: { raw: checkpointFinal, mtimeMs: checkpointMtimeFinal },
   hookFiredDuringRun,
   checkpointDrivenManually: driven !== null,
   manual: driven,
+  verification,
+  agentSessionOutcome,
+  stopReason: result?.stop_reason ?? null,
+  resultSubtype: result?.subtype ?? null,
 }, null, 2)}\n`);
 
 // ---------------------------------------------------------------- diff + record
@@ -474,10 +563,13 @@ const record = {
   prompt,
   checkpointBefore,
   checkpointAfter,
+  checkpointFinal,
   hookFiredDuringRun,
   seenByModel: { sawStopHookFeedback, sawCanaryBlockText, sawCanarySystemMessage },
   checkpointDrivenManually: driven !== null,
   manuallyDriven: driven,
+  verification,
+  agentSessionOutcome,
   gitBefore: before,
   gitAfter: { head: after.head, status: after.status, untracked: after.untracked },
   claimedFilesTouchedOutsideRepo: null,
@@ -488,6 +580,13 @@ writeArtifact('record.json', `${JSON.stringify(record, null, 2)}\n`);
 check('agent process started and exited', () => assert(run.spawnError == null, `spawn error: ${run.spawnError}`));
 check('stream is parseable NDJSON', () => assert(parseErrors <= 1, `${parseErrors} unparseable line(s) (at most one truncated trailing line is tolerated on a killed run)`));
 check('agent produced a terminal result event', () => assert(result !== null, 'no `result` event in the stream'));
+if (pilotBudgetUsd !== null) {
+  check('native provider cost is present', () => assert(Number.isFinite(nativeCostUsd), 'result event has no finite total_cost_usd; pilot accounting is incomplete'));
+  check('native provider cost stays within the enforced session cap', () => assert(Number.isFinite(nativeCostUsd) && nativeCostUsd <= pilotBudgetUsd,
+    `native cost ${String(nativeCostUsd)} exceeds per-session cap ${pilotBudgetUsd}`));
+  check('agent session ended successfully within its time limit', () => assert(agentSessionOutcome === 'completed' || agentSessionOutcome === 'completed_after_block_and_repair',
+    `agent session outcome is ${agentSessionOutcome}, result=${result?.subtype}, exit=${String(run.code)}, timedOut=${String(run.timedOut)}`));
+}
 check('a Canary checkpoint decision was obtained (hook or manually driven)', () => {
   if (hookFiredDuringRun) return assert(checkpointAfter != null, 'hook fired but no checkpoint file');
   assert(driven != null, 'checkpoint was never driven');

@@ -1,0 +1,24 @@
+{
+  "number": 11,
+  "scenario": "loaded",
+  "startedAt": "2026-09-27T01:50:05.552Z",
+  "finishedAt": "2026-09-27T01:50:11.858Z",
+  "elapsedMs": 6298,
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "spawnError": null,
+  "loadWorkerPids": [
+    69340,
+    19112,
+    71304,
+    19956,
+    64820,
+    72116,
+    70580,
+    54984
+  ],
+  "stdoutSha256": "f20707d3089590238af6e23be4232330becf71c728b2390e6574d812cd45cf5c",
+  "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "passed": true
+}

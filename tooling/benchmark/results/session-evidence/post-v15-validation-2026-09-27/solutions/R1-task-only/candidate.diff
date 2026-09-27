@@ -1,0 +1,92 @@
+diff --git a/src/verify/failure-ids.ts b/src/verify/failure-ids.ts
+index 89b0263..7c6e590 100644
+--- a/src/verify/failure-ids.ts
++++ b/src/verify/failure-ids.ts
+@@ -16,19 +16,41 @@ import { summarizeVitestFailures } from './summarize-vitest.js';
+ 
+ // pytest short-summary lines: `FAILED <nodeid> - <repr>` and, for collection
+ // failures, `ERROR <nodeid-or-path>`. The nodeid runs up to the ` - ` repr
+-// separator (space-hyphen-space) or end of line. A parametrized id can contain
+-// an internal ` - `, which would truncate it, but the truncation is identical
+-// across runs so the delta comparison still holds.
++// separator (space-hyphen-space) or end of line — but a parametrized nodeid
++// can contain its own ` - ` inside the trailing `[params]` bracket
++// (`test_p[a - b]`), and truncating there would collapse `test_p[a - b]` and
++// `test_p[a - c]` into one id, hiding a new regression behind a pre-existing
++// failure in the sibling param. So the separator is the first ` - ` at bracket
++// depth zero: `[params]` is kept verbatim, which keeps distinct nodeids
++// distinct while still dropping only the repr — the one part that can differ
++// between runs of the same failing test — so ids stay stable across runs.
+ const PYTEST_LINE = /^(?:FAILED|ERROR)\s+(.+)$/;
+ const PYTEST_REPR_SEP = ' - ';
+ 
++// Cut a pytest summary field at the first ` - ` separator that is not inside a
++// `[parametrization]` bracket. If none is found (e.g. an unbalanced `[` inside
++// a param value keeps the depth open), the whole field is kept: that can split
++// one test into run-specific ids, which only ever makes the delta report MORE
++// new failures — parse gaps never make the gate lenient.
++function stripPytestRepr(field: string): string {
++  let depth = 0;
++  for (let i = 0; i < field.length; i++) {
++    const ch = field[i];
++    if (ch === '[') depth++;
++    else if (ch === ']') {
++      if (depth > 0) depth--;
++    } else if (depth === 0 && ch === ' ' && field.startsWith(PYTEST_REPR_SEP, i)) {
++      return field.slice(0, i).trim();
++    }
++  }
++  return field;
++}
++
+ function addPytestIds(text: string, ids: Set<string>): void {
+   for (const raw of text.split('\n')) {
+     const m = raw.trim().match(PYTEST_LINE);
+     if (!m) continue;
+-    let nodeid = m[1]!.trim();
+-    const sep = nodeid.indexOf(PYTEST_REPR_SEP);
+-    if (sep !== -1) nodeid = nodeid.slice(0, sep).trim();
++    const nodeid = stripPytestRepr(m[1]!.trim());
+     if (nodeid) ids.add(nodeid);
+   }
+ }
+diff --git a/tests/unit/verify/failure-ids.test.ts b/tests/unit/verify/failure-ids.test.ts
+index 5286831..9c6054d 100644
+--- a/tests/unit/verify/failure-ids.test.ts
++++ b/tests/unit/verify/failure-ids.test.ts
+@@ -31,6 +31,35 @@ describe('extractFailureIds (pytest)', () => {
+   it('returns an empty set for an all-passing run', () => {
+     expect(extractFailureIds('.... 4 passed in 0.10s').size).toBe(0);
+   });
++
++  it('keeps parametrized node ids that contain " - " inside their brackets distinct', () => {
++    // Regression: truncating at the FIRST " - " collapsed both of these to
++    // "tests/test_x.py::test_p[a", so a new failure in one param hid behind a
++    // pre-existing failure in the sibling param and the delta never saw it.
++    const stdout = [
++      'FAILED tests/test_x.py::test_p[a - b] - AssertionError: first',
++      'FAILED tests/test_x.py::test_p[a - c] - AssertionError: second',
++    ].join('\n');
++    const ids = extractFailureIds(stdout);
++    expect([...ids].sort()).toEqual([
++      'tests/test_x.py::test_p[a - b]',
++      'tests/test_x.py::test_p[a - c]',
++    ]);
++  });
++
++  it('keeps a parametrized id stable across runs when only the repr differs', () => {
++    const baseline = extractFailureIds('FAILED tests/test_x.py::test_p[a - b] - assert 1 == 2');
++    const changed = extractFailureIds('FAILED tests/test_x.py::test_p[a - b] - assert 1 == 3');
++    expect([...changed]).toEqual([...baseline]);
++    expect([...baseline]).toEqual(['tests/test_x.py::test_p[a - b]']);
++  });
++
++  it('still strips a repr that itself contains brackets around a " - "', () => {
++    // Guard against a "last separator" fix: the real separator is the first
++    // " - " at bracket depth zero, whatever the repr says afterwards.
++    const ids = extractFailureIds('FAILED test_demo.py::test_x - assert [1 - 2] == [3 - 4]');
++    expect([...ids]).toEqual(['test_demo.py::test_x']);
++  });
+ });
+ 
+ describe('extractFailureIds (vitest)', () => {

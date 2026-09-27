@@ -47,9 +47,11 @@ import path from 'node:path';
 const REPO = path.resolve(import.meta.dirname, '..', '..');
 const PROBE = path.join(REPO, 'tooling', 'probes', 'v15-realworld-run-task.mjs');
 const NODE = process.execPath;
+const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
 const KEEP = process.argv.includes('--keep');
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
+const ARTIFACT_SHA256 = sha256(fs.readFileSync(CLI));
 const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
 const readText = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 const list = (dir) => { try { return fs.readdirSync(dir).sort(); } catch { return []; } };
@@ -190,6 +192,15 @@ try {
     if (g.status !== 0) throw new Error(`git ${a.join(' ')} failed: ${g.stderr}`);
   }
   fs.writeFileSync(taskFile, 'Stub task for the provenance regression: change nothing and finish.\n');
+  const implicitCli = run([
+    PROBE, '--repo', fixtureRepo, '--task-file', taskFile,
+    '--label', 'implicit-cli-must-refuse', '--out', path.join(temp, 'implicit-cli-run'),
+  ]);
+  check('the real-world runner refuses to guess a development CLI', () => {
+    assert(implicitCli.status === 2, `expected usage exit 2, got ${implicitCli.status}\n${implicitCli.stdout}${implicitCli.stderr}`);
+    assert(/development build is never selected implicitly/.test(`${implicitCli.stdout}${implicitCli.stderr}`), `no explicit refusal:\n${implicitCli.stdout}${implicitCli.stderr}`);
+    assert(!fs.existsSync(path.join(temp, 'implicit-cli-run')), 'the refused call created an output directory');
+  });
   /**
    * The stub harness. It is NOT an agent: it emits the NDJSON shape the probe parses and
    * exits 0. Every artifact the probe produces for a stub run records the exact command,
@@ -208,7 +219,7 @@ try {
     '',
   ].join('\n'));
 
-  const setup = run([path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js'), 'setup', '--yes'], { cwd: fixtureRepo });
+  const setup = run([CLI, 'setup', '--yes'], { cwd: fixtureRepo });
   check('fixture: the sealed plan is set up (setup --yes ends READY)', () => {
     assert(setup.status === 0 && /READY/.test(setup.stdout), `exit ${setup.status}\n${setup.stdout}${setup.stderr}`);
   });
@@ -227,6 +238,7 @@ try {
 
   const probeArgs = (outRoot, extra = []) => [
     PROBE, '--repo', fixtureRepo, '--task-file', taskFile, '--label', 'T1-stub-task', '--out', outRoot,
+    '--cli', CLI, '--artifact-sha256', ARTIFACT_SHA256,
     '--timeout-min', '2', '--agent-cmd', NODE, '--agent-arg', '--', '--agent-arg', stub, ...extra,
   ];
   probeCmd = (outRoot, extra = []) => run(probeArgs(outRoot, extra));
@@ -252,6 +264,10 @@ try {
     assert(meta !== null, 'no attempt.json');
     eq(meta.attemptId, 'attempt-1', 'attempt.json attemptId');
     eq(meta.taskId, 'T1-stub-task', 'attempt.json taskId');
+    eq(meta.cliVersion, 'canary 1.5.0', 'attempt.json CLI version');
+    eq(meta.cliPath, CLI, 'attempt.json CLI path');
+    eq(meta.cliSha256, sha256(fs.readFileSync(CLI)), 'attempt.json CLI bytes');
+    eq(meta.artifactSha256, ARTIFACT_SHA256, 'attempt.json artifact digest');
     assert(meta.agentCommand.startsWith(NODE), `agentCommand does not name the stub: ${meta.agentCommand}`);
     assert(/^[0-9a-f]{40}$/.test(meta.startingRepoIdentity?.head ?? ''), `no starting HEAD: ${JSON.stringify(meta.startingRepoIdentity)}`);
     assert(Date.parse(meta.startedAt) <= Date.parse(readJson(path.join(a1, 'ledger.json')).startedAt), 'attempt.json was not written at the start');

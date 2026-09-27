@@ -1,0 +1,181 @@
+{
+  "schema": "canary-validation-oracle-controls/1",
+  "startedAt": "2026-09-27T02:49:28.556Z",
+  "finishedAt": "2026-09-27T02:49:28.557Z",
+  "worktree": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation",
+  "scratchRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-baselines-20260927",
+  "archiveRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927",
+  "archiveHashes": {
+    "H1": {
+      "baseline": "080ba032e1784f5d2edce2344a5e8ec83d558ed3acf70312fbf63187b803f4e6",
+      "candidate": "8f622744d8bb5342cb72071206c6ccb3ef997b1befbf663ca3f42854db62ee1e"
+    },
+    "H2": {
+      "baseline": "5e805d93c180d4e047b04352a1f7fa5d82fc06e7d967454deea1019d540e72e9",
+      "candidate": "e32b4c151385fdd05a99bc50d8c78457392054f3b2c401c4f28a9db54a8052f9"
+    },
+    "H3": {
+      "baseline": "080ba032e1784f5d2edce2344a5e8ec83d558ed3acf70312fbf63187b803f4e6",
+      "candidate": "b152529e99610b98de0c0a81b23cf53ea0c39e7d0045f3b98259f9eed2b4534a"
+    },
+    "H5": {
+      "baseline": "5e805d93c180d4e047b04352a1f7fa5d82fc06e7d967454deea1019d540e72e9",
+      "candidate": "cd4d613bb6faa24ead3c9a4f4d5f90b6948f797c3059ae8d53e4d31edbc0d058"
+    },
+    "R1": {
+      "baseline": "cc708d79921d33022004a7684e8d8bd087bb91729a0eb27466ce5af4d6abf467",
+      "candidate": "1d87055b0157167207b37dadeeaac00aa53d07cfdc7de8b594880c247099ccfa"
+    },
+    "S1": {
+      "baseline": "113c6bc4f8fcfbb615282eb712995d2af39554c1e54e9167a5c59bdad9bca63c",
+      "candidate": "1ef41487bed4bdebb5ea08970442b059267b49f69ddc3e57f9944afa353d92a9"
+    }
+  },
+  "oracle": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\probes\\v15-validation-oracle.mjs",
+  "cli": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-release-validation\\installed\\node_modules\\@canary-rn\\cli\\dist\\main.js",
+  "artifactSha256": "cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386",
+  "candidateHeads": {
+    "H1": "e6ed172dc22861b90487b3392b859542d53f8d30",
+    "H2": "9bf544223ac7fabecd533a2b9c4af35b764efc08",
+    "H3": "560307cedbb2efc33104799fcfb42ee62ffa3824",
+    "H5": "21696b29dec8b514d66367095549d504c06160b6",
+    "R1": "d906039823003ce78b089b377d732e7d3aab1702",
+    "S1": "1663020d827895019b79e5c1b0b59972feaaff83"
+  },
+  "controls": [
+    {
+      "label": "H1",
+      "role": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\H1",
+      "expected": "fail",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS H1 independent oracle expected fail; observed fail",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "H1",
+      "role": "candidate",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\candidate\\H1",
+      "expected": "pass",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS H1 independent oracle expected pass; observed pass",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "H2",
+      "role": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\H2",
+      "expected": "fail",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS H2 independent oracle expected fail; observed fail",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "H2",
+      "role": "candidate",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\candidate\\H2",
+      "expected": "pass",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS H2 independent oracle expected pass; observed pass",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "H3",
+      "role": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\H3",
+      "expected": "fail",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS H3 independent oracle expected fail; observed fail",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "H3",
+      "role": "candidate",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\candidate\\H3",
+      "expected": "pass",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS H3 independent oracle expected pass; observed pass",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "H5",
+      "role": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\H5",
+      "expected": "fail",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS H5 independent oracle expected fail; observed fail",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "H5",
+      "role": "candidate",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\candidate\\H5",
+      "expected": "pass",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS H5 independent oracle expected pass; observed pass",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "R1",
+      "role": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\R1",
+      "expected": "fail",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS R1 independent oracle expected fail; observed fail",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "R1",
+      "role": "candidate",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\candidate\\R1",
+      "expected": "pass",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS R1 independent oracle expected pass; observed pass",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "S1",
+      "role": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\S1",
+      "expected": "fail",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS S1 independent oracle expected fail; observed fail",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "label": "S1",
+      "role": "candidate",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\candidate\\S1",
+      "expected": "pass",
+      "exitCode": 0,
+      "signal": null,
+      "stdout": "PASS S1 independent oracle expected pass; observed pass",
+      "stderr": "",
+      "passed": true
+    }
+  ],
+  "status": "complete",
+  "statement": "All six hidden oracles fail on the original baseline and pass on the prepared task candidate."
+}

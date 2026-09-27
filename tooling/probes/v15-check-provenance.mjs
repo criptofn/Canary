@@ -32,7 +32,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const repo = fileURLToPath(new URL('../../', import.meta.url));
-const cli = path.join(repo, 'apps/cli/dist/src/main.js');
+const cliArg = process.argv.indexOf('--cli');
+const cli = path.resolve(cliArg === -1 ? path.join(repo, 'apps/cli/dist/src/main.js') : process.argv[cliArg + 1]);
 const GIT = 'C:\\Program Files\\Git\\cmd\\git.exe';
 
 let pass = 0, fail = 0;

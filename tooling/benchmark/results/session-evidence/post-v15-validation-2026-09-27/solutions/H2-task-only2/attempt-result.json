@@ -1,0 +1,29 @@
+{
+  "schema": "canary-release-validation-solution/1",
+  "label": "H2",
+  "probe": "tooling/probes/v15-prepare-validation-solution.mjs",
+  "probeSha256": "accc0760552d172b6dfcc54483b80f514e61dfc7f8da6ee496a57166f780c9f2",
+  "canaryPath": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-release-validation\\installed\\node_modules\\@canary-rn\\cli\\dist\\main.js",
+  "canaryBinarySha256": "3cfdfece2581b1036e1b01905be39d97161d03f683110cf40910570a5235d5e2",
+  "publishedArtifactSha256": "cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386",
+  "taskPath": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\v15-realworld\\tasks\\H2-invoice-classification.md",
+  "taskSha256": "bb30f51c7d3bd0325fed06da89fd50ed0ee1d1bf2e20bfd8f04d5e0d24c76af1",
+  "baselineHead": "003d2f741cbf9921fa24fe9329b81f3c6eda1e7b",
+  "operation": {
+    "kind": "filtered recorded diff; excluded the unrelated simulation-length hunk and matrix change",
+    "sourcePath": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\v15-realworld\\runs\\H2-hermes-invoices\\agent.diff"
+  },
+  "candidateSourceSha256": "1f430c4b406a97ef87ec73451b8408f3efe047e2fcae52f9caf92e36974baecb",
+  "startingRepoIdentity": {
+    "head": "003d2f741cbf9921fa24fe9329b81f3c6eda1e7b",
+    "tree": "e803e95e6d300548a4b9e7ef1bc0562793c9661f",
+    "status": ""
+  },
+  "finalRepoIdentity": {
+    "head": "9bf544223ac7fabecd533a2b9c4af35b764efc08",
+    "tree": "7dd88dcc4f378e0315368751f327f46736313359",
+    "status": ""
+  },
+  "finishedAt": "2026-09-27T01:39:18.075Z",
+  "status": "complete"
+}

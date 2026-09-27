@@ -1,0 +1,51 @@
+{
+  "schema": "canary-validation-oracle/1",
+  "label": "R1",
+  "expected": "pass",
+  "probe": "tooling/probes/v15-validation-oracle.mjs",
+  "probeSha256": "af6836fcde8b30eb1d94770c346af5dafb4174052bcb2a65bf10be53444d9ce5",
+  "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\candidate\\R1",
+  "runtimeRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-baselines-20260927\\R1",
+  "startingHead": null,
+  "startedAt": "2026-09-27T02:49:25.534Z",
+  "sourceFiles": [
+    {
+      "path": "src/verify/failure-ids.ts",
+      "exists": true,
+      "sha256": "795eb4a6508aaa939163581ee10cedc939f3adb18d8c2530de74afe519143641"
+    },
+    {
+      "path": "src/verify/summarize-vitest.ts",
+      "exists": true,
+      "sha256": "7df79a56d3c2dd107001e8acbca9b8cf90c98f10e505f3a3b4859f8b93fcc3c4"
+    }
+  ],
+  "finishedAt": "2026-09-27T02:49:26.581Z",
+  "command": {
+    "executable": "C:\\Program Files\\nodejs\\node.exe",
+    "args": [
+      "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-baselines-20260927\\R1\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "--root",
+      "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\post-v15-validation-2026-09-27\\oracle-controls-final5\\oracle-results\\candidate\\R1",
+      "--reporter=verbose",
+      "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\post-v15-validation-2026-09-27\\oracle-controls-final5\\oracle-results\\candidate\\R1\\failure-ids.oracle.test.ts"
+    ],
+    "cwd": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-baselines-20260927\\R1"
+  },
+  "generatedArtifacts": [
+    "failure-ids.oracle.test.ts"
+  ],
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "spawnError": null,
+  "compileExitCode": null,
+  "runtimeExitCode": null,
+  "testPassed": true,
+  "expectedFailureObserved": false,
+  "metExpected": true,
+  "status": "complete",
+  "stdoutSha256": "d320669e747ca742bbd37e03cb90adca45181411c7d2eae8eeab8ed0c6399c44",
+  "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

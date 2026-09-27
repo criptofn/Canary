@@ -1,0 +1,29 @@
+
+> hermes-agent@0.1.0 test
+> node scripts/smoke-test.js
+
+
+--- stderr ---
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
+
+  [
+    'fresh.txt',
++   'old-report.txt'
+  ]
+
+    at file:///C:/Users/Johannes/AppData/Local/Temp/canary-v15-baselines-20260927/H1/scripts/smoke-test.js:49:10 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: [ 'fresh.txt', 'old-report.txt' ],
+  expected: [ 'fresh.txt' ],
+  operator: 'deepStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v26.7.0
+

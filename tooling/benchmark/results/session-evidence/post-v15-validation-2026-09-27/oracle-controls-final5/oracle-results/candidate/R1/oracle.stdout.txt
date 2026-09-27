@@ -1,0 +1,10 @@
+
+ RUN  v3.2.7 C:/Users/Johannes/Desktop/canary/_canary-data/worktrees/canary-post-v15-product-validation/tooling/benchmark/results/session-evidence/post-v15-validation-2026-09-27/oracle-controls-final5/oracle-results/candidate/R1
+
+ ✓ failure-ids.oracle.test.ts > distinguishes parametrized pytest ids across the delta and preserves repr stability 2ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  04:49:25
+   Duration  491ms (transform 62ms, setup 0ms, collect 69ms, tests 2ms, environment 0ms, prepare 105ms)
+

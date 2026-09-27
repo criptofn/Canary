@@ -1,0 +1,107 @@
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/cli/help-drift.test.ts [ tests/unit/cli/help-drift.test.ts ]
+Error: dist CLI not found at C:\Users\Johannes\AppData\Local\Temp\canary-v15-baselines-20260927\R1\dist\cli\index.js. Run `npm run build` before `npm test`. This is deliberately a throw and not a skip: every assertion below is about the shipped binary, and skipping on a missing build is how six of them silently stopped running in CI.
+ ❯ tests/unit/cli/help-drift.test.ts:37:9
+     35| 
+     36| if (!existsSync(CLI)) {
+     37|   throw new Error(
+       |         ^
+     38|     `dist CLI not found at ${CLI}. Run \`npm run build\` before \`npm …
+     39|       'This is deliberately a throw and not a skip: every assertion be…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/verify-diff.test.ts > verifyDiff with a NAME=VALUE prefix on testCmd (issue #95) > a change that BREAKS the suite can never read SAFE, whatever the prefix
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/verify-diff.test.ts:584:51
+    582|       // decline below it survives only for spawns we cannot make equi…
+    583|       expect(viaConsoleScript.coverage.tool).toBe('none');
+    584|       expect(viaConsoleScript.gates.tests.passed).toBe(true);
+       |                                                   ^
+    585|       expect(String(viaConsoleScript.reason)).not.toContain('not exerc…
+    586|       // Disclosure is not optional. An earlier revision of this test …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  tests/integration/verify-diff.test.ts > verifyDiff with a NAME=VALUE prefix on testCmd (issue #95) > a console-script testCmd cannot read SAFE when the gate imports another copy
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/verify-diff.test.ts:637:43
+    635|         // PYTHONPATH line above makes the package unimportable, the b…
+    636|         // fails, and UNPROVEN arrives for a reason unrelated to the b…
+    637|         expect(report.gates.tests.passed).toBe(true);
+       |                                           ^
+    638|         // An exact verdict, not `not.toBe('SAFE')`, so a spurious UNS…
+    639|         // satisfy it either.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  tests/unit/cli/verify-diff-wiring.test.ts > runVerifyDiffCommand: test-scope note wiring (#120) > prints the narrowed-scope note
+AssertionError: expected '[UNPROVEN] baseline tests already fai…' to contain 'Re-run without the filter'
+
+- Expected
++ Received
+
+- Re-run without the filter
++ [UNPROVEN] baseline tests already fail before refactoring; fix them first.
++
++ sh: line 1: pytest: command not found
++   note: could not determine whether the test command runs the whole suite (selects specific paths: tests/test_a.py); the verdict assumes it does.
++
+
+ ❯ tests/unit/cli/verify-diff-wiring.test.ts:108:22
+    106|       // in the verdict REASON line, so asserting only that lets this …
+    107|       // the wiring deleted. Verified by re-running against a stripped…
+    108|       expect(stdout).toContain('Re-run without the filter');
+       |                      ^
+    109|       expect(stdout).toContain('narrowed the suite');
+    110|       expect(stdout).toContain('tests/test_a.py');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  tests/unit/cli/verify-diff-wiring.test.ts > runVerifyDiffCommand: test-scope note wiring (#120) > --json carries testScope, and prints no human notes
+AssertionError: expected 'unknown' to be 'narrowed' // Object.is equality
+
+Expected: "narrowed"
+Received: "unknown"
+
+ ❯ tests/unit/cli/verify-diff-wiring.test.ts:139:38
+    137|       ]);
+    138|       const report = JSON.parse(stdout);
+    139|       expect(report.testScope.scope).toBe('narrowed');
+       |                                      ^
+    140|       expect(report.testScope.source).toBe('override');
+    141|       expect(report.testScope.signals.join(' ')).toContain('tests/test…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  tests/unit/cli/verify-diff-wiring.test.ts > runVerifyDiffCommand: test-scope note wiring (#120) > prints the scope note BEFORE the changed-test-files note
+AssertionError: expected -1 to be greater than -1
+ ❯ tests/unit/cli/verify-diff-wiring.test.ts:212:23
+    210|       const scopeAt = stdout.indexOf('Re-run without the filter');
+    211|       const testFilesAt = stdout.indexOf('this diff modifies test file…
+    212|       expect(scopeAt).toBeGreaterThan(-1);
+       |                       ^
+    213|       expect(testFilesAt).toBeGreaterThan(-1);
+    214|       expect(scopeAt).toBeLessThan(testFilesAt);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+

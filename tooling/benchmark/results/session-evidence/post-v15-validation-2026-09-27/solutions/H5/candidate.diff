@@ -1,0 +1,28 @@
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index 6441623..cf3dcb7 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -23,7 +23,7 @@ assert.equal(matchesMatrixNormTask("Frobenius Spektralnorm INT4 NPU"), true);
+ const math = buildMatrixNormBriefing("Frobenius Spektralnorm INT4 NPU");
+ assert.match(math.markdown, /Frobenius-Norm/);
+ assert.ok(math.scores.frobenius > math.scores.spectral);
+-assert.equal(math.simulation.length, 8);
++assert.equal(math.simulation.length, 12);
+ 
+ const preview = await previewOrganization({ root: ".", maxAgeDays: 9999 });
+ assert.ok(Array.isArray(preview.moves));
+diff --git a/src/agent/matrixNormCore.js b/src/agent/matrixNormCore.js
+index 1caf599..c62c28a 100644
+--- a/src/agent/matrixNormCore.js
++++ b/src/agent/matrixNormCore.js
+@@ -135,7 +135,9 @@ function simulateNormStability() {
+     { name: "dense 16x16", rows: 16, cols: 16, mode: "dense" },
+     { name: "wide 8x32", rows: 8, cols: 32, mode: "dense" },
+     { name: "rank-1 dominant", rows: 16, cols: 16, mode: "rank1" },
+-    { name: "two close singular directions", rows: 16, cols: 16, mode: "two-close" }
++    { name: "two close singular directions", rows: 16, cols: 16, mode: "two-close" },
++    { name: "dense 32x32", rows: 32, cols: 32, mode: "dense" },
++    { name: "very wide 4x64", rows: 4, cols: 64, mode: "dense" }
+   ];
+ 
+   const rows = [];

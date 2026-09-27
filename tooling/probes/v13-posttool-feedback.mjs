@@ -40,6 +40,10 @@ let failures = 0;
  * The probe is NOT deleted and nothing is hidden: a live failure still prints its FAIL line with
  * its raw evidence, and a deterministic failure still fails the release. */
 let liveFailures = 0;
+let dataUnavailable = false;
+let accountingUnavailable = false;
+const model = 'qwen3.8-flash';
+const maxBudgetUsd = 0.10;
 const check = (name, fn) => {
   try { fn(); console.log(`PASS ${name}`); }
   catch (e) { failures++; console.log(`FAIL ${name}\n     ${String(e?.message ?? e).split('\n').join('\n     ')}`); }
@@ -102,6 +106,7 @@ function runSession(root) {
     "Create a file named data.txt in the current directory containing exactly: one\n"
     + "Then state, verbatim, any verification or check message that was shown to you after the file was written. "
     + "If none was shown, say NONE.",
+    '--model', model, '--max-budget-usd', String(maxBudgetUsd),
     '--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits',
     '--strict-mcp-config', '--setting-sources', 'project,local', '--allowedTools', 'Write', 'Read'],
   { cwd: root, encoding: 'utf8', timeout: 420_000, windowsHide: true, env: agentEnv() });
@@ -138,9 +143,16 @@ function runSession(root) {
 try {
   const root = build();
   const run = runSession(root);
+  const nativeCostUsd = Number.isFinite(run.result?.total_cost_usd) ? run.result.total_cost_usd : null;
   const tokens = run.usage ? (run.usage.input_tokens ?? 0) + (run.usage.output_tokens ?? 0)
     + (run.usage.cache_read_input_tokens ?? 0) + (run.usage.cache_creation_input_tokens ?? 0) : null;
-  console.log(`INFO session: exit ${run.status}; result ${run.result?.subtype ?? 'MISSING'}; tokens ${tokens ?? 'n/a'}`);
+  console.log(`INFO model/budget: ${model} / $${maxBudgetUsd.toFixed(2)}`);
+  console.log(`INFO session: exit ${run.status}; result ${run.result?.subtype ?? 'MISSING'}; tokens ${tokens ?? 'n/a'}; provider cost ${nativeCostUsd === null ? 'MISSING' : `$${nativeCostUsd.toFixed(6)}`}`);
+  accountingUnavailable = nativeCostUsd === null;
+  if (nativeCostUsd !== null && nativeCostUsd > maxBudgetUsd) {
+    failures++;
+    console.log(`FAIL provider-native cost exceeded the enforced $${maxBudgetUsd.toFixed(2)} cap`);
+  }
   console.log(`INFO marker delivered via: ${run.carrier}`);
   const said = run.assistantTexts.find((t) => /CHECK FAILED|expected two/i.test(t));
   if (said) console.log(`INFO the model repeated the check result: ${said.trim().slice(0, 200)}`);
@@ -187,6 +199,10 @@ try {
   console.log(`\nINFO everyday (guarded) records with a usable command ledger: ${rows.length}`);
   for (const r of rows) console.log(`INFO   ${r.n.replace(/^v12tok-guarded-|\.json$/g, '')}: turns=${r.turns} modelRunChecks=${r.checks} canaryCommands=${r.canary}`);
 
+  if (rows.length === 0) {
+    dataUnavailable = true;
+    console.log('SKIP D1/D2: no stored everyday guarded command-ledger records; this corpus cannot establish the ceiling or Canary command count');
+  } else {
   check('D1-the-everyday-path-has-little-self-checking-left-to-remove', () => {
     assert(rows.length > 0,
       'no guarded record carried stream.commands.checks, so the ceiling of the mid-task lever cannot be '
@@ -215,6 +231,7 @@ try {
       + 'both the standing-context OPEN finding and the audit must be re-derived');
     console.log(`INFO   canary commands = 0 across all ${withLedger.length} everyday records — the tool surface is not in that figure`);
   });
+  }
 
   // v1.4 §11 — the two verdicts are separated so a live-model flake cannot silently gate a release
   // and a real (deterministic) failure cannot hide behind a skip.
@@ -222,8 +239,11 @@ try {
     console.log(`\nFAIL v1.3 posttool feedback — a DETERMINISTIC property does not hold on this host (${failures} failure(s))`);
     process.exit(1);
   }
-  if (liveFailures > 0) {
-    console.log(`\nSKIP v1.3 posttool feedback — LIVE-INTEGRATION DIAGNOSTIC: the deterministic properties hold, but the live model session did not show the delivery this time (${liveFailures} live check(s)). MEASURED as nondeterministic: PASS -> FAIL -> PASS on identical bytes. NOT a pass, and NOT a product failure.`);
+  if (liveFailures > 0 || dataUnavailable || accountingUnavailable) {
+    if (liveFailures > 0) console.log(`SKIP live integration: ${liveFailures} live check(s) did not observe feedback; outcome is model-dependent`);
+    if (accountingUnavailable) console.log('SKIP native cost accounting was absent; the bounded live-session result is not used as a cost measurement');
+    if (dataUnavailable) console.log('SKIP everyday feedback ceiling remains unmeasured without stored guarded-run ledgers');
+    console.log('\nSKIP v1.3 posttool feedback — required diagnostic evidence unavailable; no product claim inferred');
     process.exit(3);
   }
   console.log('\nPASS v1.3 posttool feedback — mid-task check delivery WORKS on this host (deterministic properties AND the live delivery)');

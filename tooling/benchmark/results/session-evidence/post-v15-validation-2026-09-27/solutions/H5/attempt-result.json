@@ -1,0 +1,28 @@
+{
+  "schema": "canary-release-validation-solution/1",
+  "label": "H5",
+  "probe": "tooling/probes/v15-prepare-validation-solution.mjs",
+  "probeSha256": "1d04b923e16f66dd414e96a38a39e3062f78aab6f15d5522ec6a4dcc4b9c0476",
+  "canaryPath": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-release-validation\\installed\\node_modules\\@canary-rn\\cli\\dist\\main.js",
+  "canaryBinarySha256": "3cfdfece2581b1036e1b01905be39d97161d03f683110cf40910570a5235d5e2",
+  "publishedArtifactSha256": "cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386",
+  "taskPath": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\v15-realworld\\tasks\\H5-simulation-cases.md",
+  "taskSha256": "0bbe106004de16dbf583a9c94e8677ba4605bebc81e29e57a540a09d43f1e8ba",
+  "baselineHead": "62ac1ffb128038d3969c39ba39025a5adb762df0",
+  "operation": {
+    "kind": "task-spec reconstruction; added only the two requested simulation cases and row-count regression"
+  },
+  "candidateSourceSha256": "433952336dd622ff95f6ff5aa36600a836252287bee5edb7d51ba698d0353444",
+  "startingRepoIdentity": {
+    "head": "62ac1ffb128038d3969c39ba39025a5adb762df0",
+    "tree": "e803e95e6d300548a4b9e7ef1bc0562793c9661f",
+    "status": ""
+  },
+  "finalRepoIdentity": {
+    "head": "21696b29dec8b514d66367095549d504c06160b6",
+    "tree": "c7a4b045f2f7c4c75c44ff55b459652e30ee3d21",
+    "status": ""
+  },
+  "finishedAt": "2026-09-27T01:32:52.972Z",
+  "status": "complete"
+}

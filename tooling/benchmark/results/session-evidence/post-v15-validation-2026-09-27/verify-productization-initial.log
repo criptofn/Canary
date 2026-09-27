@@ -1,0 +1,2179 @@
+
+> canary-reliability-network@1.5.0 verify:productization
+> node tooling/verify-productization.mjs
+
+
+=== build (tsc -b --force) ===
+
+
+=== build (npm run build, incremental) ===
+> canary-reliability-network@1.5.0 build
+> tsc -b
+
+=== dist tripwire (is the compiled artifact mutated?) ===
+PASS  dist-tripwire  38 compiled file(s) checked; no mutation marker present — the artifact matches a real build
+
+=== dist freshness (does dist correspond to source, or can stale bytes be tested?) ===
+=== 1. fresh build (the release path: tsc -b --force) ===
+PASS the forced build succeeds - exit 0
+PASS the build emitted compiled files - 262 file(s)
+PASS the probe picked a file that exists - apps/cli/dist/src/candidate.js
+=== 2. deliberately make dist STALE ===
+PASS the sentinel is present (dist is now stale)
+     stale hash differs from fresh      true
+=== 3. can the stale bytes survive the RELEASE verification path? ===
+PASS the release build path succeeds - exit 0
+PASS the sentinel is GONE after the release build path - a stale compiled file cannot be tested after `tsc -b --force`
+PASS every emitted file hashes back to the fresh baseline - 262 file(s) identical
+=== CONTROL: what the INCREMENTAL path does with the same sentinel ===
+     (reported, not asserted: this is the trap that makes --force necessary)
+     tsc -b exit                        0
+     sentinel survived `tsc -b`         YES - the trap is real on this project
+     => `npm run build` can exit 0 while dist still holds bytes that do not match source.
+     => that is why `npm test` now builds with --force and why verify:productization forces first.
+=== restore ===
+PASS dist is left freshly built for whatever runs next
+DIST-FRESHNESS: PASS - stale compiled bytes cannot survive the release build path.
+
+=== release-gate budgets + cascade isolation (is a timeout distinguishable from a failure?) ===
+=== budgets are finite, and big enough for the measured workload ===
+PASS the default budget is finite and positive (a deadlock must still be caught)
+PASS every explicit budget is finite and positive
+PASS an unknown step still gets the finite default
+PASS EVERY measured step's budget exceeds its measured legitimate runtime by >= 1.5x
+PASS the master-pass step specifically is no longer under its measured class
+=== a timeout is INCOMPLETE, never FAIL and never PASS ===
+PASS ETIMEDOUT is INCOMPLETE (not a failed assertion)
+PASS a timed-out step is not a PASS even if it somehow exited 0
+PASS a real non-zero exit is FAIL
+PASS exit 0 is PASS, and exit 3 is SKIP only for a skip-aware step
+=== cascade isolation: a dist-rewriting step that does not finish STOPS the chain ===
+PASS the destructive steps are declared
+PASS a non-PASS destructive step stops the chain — for INCOMPLETE and for FAIL alike
+PASS a read-only step that fails does NOT stop the chain (there is nothing to contaminate)
+PASS restoreDist genuinely rebuilds trusted bytes
+BATTERY-BUDGET: PASS — budgets are finite and adequate, a timeout is INCOMPLETE, and a killed destructive step stops the chain.
+
+=== trust-store isolation (can stale temp state decide a test?) ===
+=== A. no test derives its trust store from a recyclable identifier ===
+PASS every CANARY_TRUST_STORE in apps/cli/test is a fresh mkdtemp (or an explicit per-test path)
+=== B/C. a stale store corrupts nothing, and a damaged store still fails closed ===
+PASS an UNRELATED stale store does not affect a run with its own fresh store
+PASS pointing a run AT the damaged store still REFUSES (fail-closed preserved)
+=== D. repeated runs give the SAME verdict ===
+PASS two consecutive M2+M9 runs agree exactly
+TRUST-STORE-ISOLATION: PASS — isolated stores, an unrelated stale store is inert, a damaged store still refuses, and runs are deterministic.
+
+=== containment sweep cost + honesty (one snapshot, real survivors still killed) ===
+=== A. the sweep asks the OS ONCE, not once per process ===
+per-process ParentProcessId queries 0
+whole-table enumerations           1
+PASS no per-process WMI query remains (the O(N) shape that timed out) - found 0
+PASS exactly one process-table enumeration per sweep - found 1
+PASS the enumeration result is required to be non-empty before "no survivors" is reported
+=== B. a real tree with several survivors is still swept ===
+intermediate parent pid            53324
+live descendants                   59496 71292 57360 7784 64820 69008
+PASS precondition: 6 descendants are alive before the sweep
+sweep result                       {"killed":[53324,59496,71292,57360,7784,64820,69008],"failed":false}
+sweep wall time                    0.6s
+PASS the sweep reports success (a look that ran, not one that could not)
+PASS every live descendant is named as killed - killed [53324,59496,71292,57360,7784,64820,69008]
+PASS every descendant is actually gone afterwards
+PASS the sweep stays far inside the budget it used to exhaust - 0.6s
+=== C. honesty: "no child" is not a failed look ===
+sweepDescendants(undefined)        {"killed":[],"failed":false}
+PASS no pid -> no kill, and NOT failed
+sweepDescendants(dead child)       {"killed":[],"failed":false}
+PASS a child that left nothing behind -> not failed (no false alarm)
+SWEEP-SCALE: PASS - one snapshot per sweep, real survivors still killed, no false failures.
+
+=== 8.3 short-name suite (does the suite still hold when TEMP is spelled the way a runner spells it?) ===
+LONG_DIR  C:\Users\Johannes\AppData\Local\Temp\canary-shorttemp-em95FU\a-long-directory-name
+SHORT_DIR C:\Users\Johannes\AppData\Local\Temp\CAB255~1\A-LONG~1
+child TEMP/TMP/TMPDIR = C:\Users\Johannes\AppData\Local\Temp\CAB255~1\A-LONG~1
+files: 5, per-file budget 900s
+PASS apps/cli/dist/test/prove.test.js - 0.6s, exit 0, 0 failing line(s)
+PASS apps/cli/dist/test/verify-tree.test.js - 114.7s, exit 0, 0 failing line(s)
+PASS apps/cli/dist/test/trust-wiring.test.js - 5.1s, exit 0, 0 failing line(s)
+PASS apps/cli/dist/test/attested-channel.test.js - 84.8s, exit 0, 0 failing line(s)
+PASS apps/cli/dist/test/cli.test.js - 42.5s, exit 0, 0 failing line(s)
+  PASS      0.6s  apps/cli/dist/test/prove.test.js
+  PASS    114.7s  apps/cli/dist/test/verify-tree.test.js
+  PASS      5.1s  apps/cli/dist/test/trust-wiring.test.js
+  PASS     84.8s  apps/cli/dist/test/attested-channel.test.js
+  PASS     42.5s  apps/cli/dist/test/cli.test.js
+SHORTTEMP-SUITE: PASS - 5 file(s) green with TEMP spelled as an 8.3 short name.
+
+=== doc consistency (do the release documents still match the repository?) ===
+PASS FINAL STANDINGS does not state a commit count (it cannot be correct in a committed file)
+PASS FINAL STANDINGS fixture count matches the fixtures directory
+PASS FINAL STANDINGS trial count matches the results directory
+PASS FINAL STANDINGS clean-trial count matches the clean records
+PASS README.md states the result as a negative
+PASS CHANGELOG.md states the result as a negative
+PASS docs/V1.2-BENCHMARK.md states the result as a negative
+PASS every fixture declares the configuration it is authored for
+PASS no release document presents the contaminated +82.7% aggregate as the measured delta
+doc consistency: all 9 checks held (178 commits, 29 v1.2 trials, 20 fixtures)
+
+=== v1.3 the everyday journey (setup -> completion gate -> agent tools) ===
+        "their-server.js"
+      ]
+    },
+    "canary": {
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\apps\\cli\\dist\\src\\main.js",
+        "mcp"
+      ]
+    }
+  }
+}
+===== end mcp =====
+PASS G1-setup-registers-canary-as-an-mcp-server — {"command":"C:\\Program Files\\nodejs\\node.exe","args":["C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\apps\\cli\\dist\\src\\main.js","mcp"]}
+PASS G2-a-stranger-s-entry-is-preserved-byte-for-byte — {"command":"node","args":["their-server.js"]}
+PASS G3-writing-the-mcp-entry-does-not-make-the-repo-look-changed — repo: C:\Users\Johannes\AppData\Local\Temp\canary-journey-0rotGs\g-mcp
+PASS G4-the-completion-gate-still-allows-a-wired-repo-with-no-change — ALLOW (silence — the documented "nothing needed" signal)
+PASS G5-re-running-setup-is-byte-identical — 385 bytes before and after
+PASS G6-a-foreign-server-under-our-key-is-REFUSED-not-replaced — {"exit":2,"entry":{"command":"node","args":["not-ours.js"]},"unchanged":true}
+PASS G7-the-mcp-server-answers-a-real-handshake-and-lists-its-tools — {"server":"canary","tools":["canary_agents","canary_doctor","canary_finish","canary_result","canary_status","canary_work"]}
+PASS G8-the-accept-power-is-not-exposed-as-a-tool — canary_agents, canary_doctor, canary_finish, canary_result, canary_status, canary_work
+PASS G9-uninstall-removes-exactly-our-entry-and-keeps-the-stranger-s — {"exit":0,"remaining":["someoneelse"]}
+PASS v13 journey baseline — 24/24 observations held
+1 recorded open finding(s) — NOT asserted, NOT a pass:
+  OPEN: the-everyday-path-does-not-isolate-or-promote (no candidate, no frozen task authority)
+
+=== v1.4 codex stop hook (a second measured completion gate) ===
+PASS H3-the-users-own-hooks-matcher-groups-and-top-level-keys-survive-untouched — {"unrelatedStop":{"type":"command","command":"node \"C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v14-codex-SidVZf\\unrelated-hook.js\"","timeout":5},"topLevelKeys":["description","hooks"],"stopHandlers":2}
+PASS H4-setup-says-out-loud-that-Codex-will-not-run-the-hook-until-it-is-trusted — harness: OpenAI Codex CLI — Stop hook installed into this project (.codex/hooks.json) — Codex runs a project hook only after you review and trust it once (/hooks), so an untrusted hook gates nothing |   Codex will NOT run it until you revie
+PASS H5-a-second-setup-is-byte-identical-and-does-not-stack-a-second-handler — 713 bytes before and after; 2 Stop handler(s) total
+PASS H6-canary-status-reports-the-wiring-sound-in-this-state — exit 0, CONNECTED
+PASS H7-agents-reports-Codex-GATED-with-the-trust-step-on-the-same-row —   GATED    OpenAI Codex CLI — detected [hook installed here, agent tools registered; Codex runs a project hook only after a one-time review and trust (`/hooks`) — until then the hook is written but gates nothing. What you approve is one Stop hook running `canary checkpoint`: it runs this repository'
+PASS P0-the-recorded-command-parses-to-the-expected-argv — node "C:\Users\Johannes\Desktop\canary\_canary-data\worktrees\canary-post-v15-product-validation\apps\cli\dist\src\main.js" checkpoint  →  C:\Program Files\nodejs\node.exe C:\Users\Johannes\Desktop\canary\_canary-data\worktrees\canary-post-v15-product-validation\apps\cli\dist\src\main.js checkpoint
+PASS P1-a-PASSING-sealed-plan-is-a-silent-allow-(exit-0, no block decision) — {"exit":0,"stdout":"(silent)"}
+PASS P2-a-FAILING-sealed-plan-prints-a-parsed-block-decision-with-a-non-empty-reason — {"exit":0,"stdout":"{\"decision\":\"block\",\"reason\":\"Canary verification failed: tests (npm run test, exit 1). Fix this before finishing.\\n  full output: C:\\\\Users\\\\Johannes\\\\AppData\\\\Local\\\\Temp\\\\canary-v14-codex-SidVZf\\\\repo\\\\.canary\\\\evidence\\\\2026-09-27T03-02-26-832Z-checkpoint\\\\tests.log\"}"}
+PASS P3-the-block-came-from-the-FAILING-CHECK-not-from-authority-drift-or-an-unverified-path — Canary verification failed: tests (npm run test, exit 1). Fix this before finishing.
+PASS P4-the-loop-guard-stop_hook_active-must-NOT-block-again — {"exit":0,"decision":null,"systemMessage":"Canary: checks still failing (tests) after one repair attempt — stopping anyway; a human should look. Run: canary doctor"}
+INFO codex entry point: C:\Users\Johannes\AppData\Roaming\npm\node_modules\@openai\codex\bin\codex.js
+INFO version: codex-cli 0.154.0
+INFO isolated CODEX_HOME: C:\Users\Johannes\AppData\Local\Temp\canary-v14-codex-SidVZf\codex-home (a copy of auth.json + the project-trust entry; the operator's own ~/.codex is not modified)
+INFO codex session: exit 0, 1 turn(s) started, checkpoint record fail/checkpoint, checkpoint bundles written DURING the session: 2
+INFO the model acted on Canary's reason (it named Canary's evidence artifact): true
+INFO the user's own Stop handler also ran in that session: true
+INFO session: {"type":"item.completed","item":{"id":"item_0","type":"error","message":"`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation."}}
+INFO session: {"type":"item.completed","item":{"id":"item_1","type":"error","message":"`--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation."}}
+INFO session: WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "C:\\Users\\Johannes\\AppData\\Local\\Temp\\" (codex_home: AbsolutePathBuf("C:\\Users\\Johannes\\A
+INFO session: 2026-09-27T03:02:42.722934Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "Rejected(\"`\\\"C:\\\\\\\\Users\\\\\\\\Johannes\\\\\\\\.cache\\\\\\\\codex-runtimes\\\\\\\\codex-primary-r
+INFO session: 2026-09-27T03:02:47.170035Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "Rejected(\"`\\\"C:\\\\\\\\Users\\\\\\\\Johannes\\\\\\\\.cache\\\\\\\\codex-runtimes\\\\\\\\codex-primary-r
+PASS E1-the-real-codex-session-EXECUTED-Canarys-hook-(its-checkpoint-record-reappeared) — fail via checkpoint
+PASS E2-the-session-CONTINUED-on-Canarys-decision-(the hook ran a SECOND time) — {"checkpointBundles":2,"turns":1,"reasonTextEchoedInJsonl":true}
+PASS H8-uninstall-removes-exactly-the-Canary-handler-and-keeps-the-users-file — {"exit":0,"remaining":["node \"C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v14-codex-SidVZf\\unrelated-hook.js\""]}
+PASS v14 codex Stop hook — 15/15 observation(s) held
+
+=== v1.5 first run (install -> setup -> gate -> fail -> repair -> uninstall, asserted) ===
+PASS: doctor refuses a green plan as a proven task (NOT PROVEN, never READY)
+PASS: doctor names the next action for the unbound requirement
+repo: C:\Users\Johannes\AppData\Local\Temp\canary-v15-firstrun-UOqI7N\unwritable-store
+package manager: npm (no lockfile found — defaulted to npm)
+verification plan (from what this project already declares — Canary runs only your own checks; change them in their own files):
+  ✓ tests: npm run test
+harness: Claude Code — hook installed into this project
+harness: OpenAI Codex CLI — Stop hook installed into this project (.codex/hooks.json) — Codex runs a project hook only after you review and trust it once (/hooks), so an untrusted hook gates nothing
+Canary hit an internal error and stopped. That is a defect in Canary, not a statement about your project.
+  what happened: ENOTDIR: not a directory, mkdir 'C:\Users\Johannes\AppData\Local\Temp\canary-v15-firstrun-UOqI7N\unwritable-store\.canary\backups'
+  what it means: this run verified NOTHING — do not read it as a pass, and not as a failure of your code either.
+  what to do: if the message above names a path you can fix (a FILE where Canary needs a directory, or a location this account cannot write), fix that first and re-run; otherwise re-run with CANARY_VERBOSE=1 for the full detail, then report it with `canary --version`, `canary status --json` and `canary doctor --json`.
+PASS: unwritable store: exits non-zero
+PASS: unwritable store: never claims READY
+PASS: unwritable store: names a next action
+PASS: unwritable store: keeps its factual detail
+PASS: unwritable store: says the run verified nothing (an internal stop is not a verdict)
+PASS: unwritable store: still names a next action, in the shape that path uses
+==================== SUMMARY ====================
+surface:  installed tarball
+PASS:     66
+FAIL:     0
+PENDING-REBUILD (source-side changes this artifact predates; NOT passes): 0
+SKIP (host-bound; never a pass): 0
+ALL ASSERTIONS PASSED (a PENDING-REBUILD line is not one of them)
+
+=== v1.5 check provenance (rewritten existing check is worker-authored; sealed-script check is not a false red) ===
+PASS BLOCKER 1: a rewritten EXISTING check does NOT produce a silent, uncaveated pass
+     gate said: {"systemMessage":"Canary: the sealed checks passed — with a caveat. regression-evidence: the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (tests/greeting.test.cjs (EXISTING check rew
+PASS BLOCKER 1: the gate labels the evidence as worker-authored
+PASS BLOCKER 1: the caveat says an EXISTING check was REWRITTEN (not merely "added")
+PASS BLOCKER 7: a sealed-script check outside a test path is NOT a false red
+     gate said: {"systemMessage":"Canary: the sealed checks passed — with a caveat. regression-evidence: the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (scripts/smoke-test.js (
+PASS BLOCKER 7: it is admitted as evidence, and still labelled worker-authored (no new false green)
+     {"systemMessage":"Canary: the sealed checks passed — with a caveat. regression-evidence: the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (scripts/smoke-test.js (EXISTING check rewritten by this session
+PASS CONTROL: an UNCHANGED trusted check still BLOCKS a breaking change
+     {"decision":"block","reason":"Canary verification failed: tests (npm run test, exit 1). Fix this before finishing.\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  actual: 'Goodbye!',\n  full output: C:\\Users\\Jo
+PASS CONTROL: an unchanged operator check is NOT mislabelled as worker-authored
+     {"decision":"block","reason":"Canary verification failed: tests (npm run test, exit 1). Fix this before finishing.\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  actual: '
+RESULT: check provenance — 7 pass, 0 fail
+
+=== v1.5 token aggregate contract (ineligible cells and unstable instruments cannot enter a headline) ===
+   UNSTABLE INSTRUMENT: 5 different instruments across 6 cells
+                     - bce58a1773c4d69bbb286e26…
+                     - 34acba0571de9f81aa2f3031…
+                     - 5c2f4374899648165bae6051…
+                     - d5cb71e8388c9020f84f9a11…
+                     - 81a356e2d0b435ecc47cf8f2…
+                     the tree changed WHILE this run was measuring, so the cells are not one dataset
+v15-everyday-r4   COMPLETE   plain=  376,688 guarded=  387,649  ratio=102.91% delta=2.91%
+     1 ineligible cell(s); the audited one is refused for using the fallback estimator
+PASS the audited defect is REPRODUCED from the records, not merely asserted
+=== headline (COMPLETE runs only) ===
+v15-everyday      plain=  543,518 guarded=  438,818 ratio=80.74% delta=-19.26%
+v15-everyday-r4   plain=  376,688 guarded=  387,649 ratio=102.91% delta=2.91%
+POOLED            plain=  920,206 guarded=  826,467 ratio=89.81% delta=-10.19%
+VARIANCE, stated rather than hidden:
+  complete runs        : 2 (v15-everyday, v15-everyday-r4)
+  per-run ratio range  : 80.74% .. 102.91%  (spread 22.17 points)
+  plain arm run-to-run : 376,688 .. 543,518 (44.3% drift on IDENTICAL configuration)
+  n=1 per cell; no confidence interval is claimed.
+  WARNING: the pooled delta (-10.19%) is SMALLER than the spread between runs of the
+           identical configuration. The direction is measured; the size is not stable.
+PASS the withdrawn a004f55 headline is NOT reproduced from eligible cells
+     INCOMPLETE (no ratio reported): v15-everyday-r2, v15-everyday-r3
+PASS every INCOMPLETE run is reported as incomplete and contributes nothing
+RESULT: aggregate reproduced under the eligibility contract
+
+=== v1.5 sealed toolchain (the environment names the missing tool instead of blaming the project) ===
+    sealed PATH = C:\Users\Johannes\AppData\Local\Temp\canary-v15-sealed-toolchain-K9bbCl\inside\node_modules\.bin;C:\Users\Johannes\AppData\Local\Temp\canary-v15-sealed-toolchain-K9bbCl\node_modules\.bin;C:\Users\Johannes\AppData\Local\Temp\node_modules\.bin;C:\Users\Johannes\AppData\Local\node_modules\.bin;C:\Users\Johannes\AppData\node_modules\.bin;C:\Users\Johannes\node_modules\.bin;C:\Users\node_modules\.bin;C:\node_modules\.bin;C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\run-script\lib\node-gyp-bin;C:\Program Files\nodejs;C:\WINDOWS\System32;C:\WINDOWS
+    verdict line:
+      NEEDS ATTENTION — CANARY SEALED ENVIRONMENT CANNOT RESOLVE REQUIRED TOOLCHAIN — the tests check ("test") needed git (your environment had it at C:\Program Files\Git\cmd when Canary was set up). Canary runs your checks without your shell's PATH on purpose (a program planted earlier on that PATH would be executed as Canary's own authority). This is NOT your project failing.
+PASS A2 the sealed step PATH is BUILT, not inherited (fewer entries than the shell, different text)
+     visible outside but NOT inside: git, java, python
+PASS A3 a program the ambient shell resolves can be invisible to the sealed step (the defect)
+PASS D1 the verdict is the ENVIRONMENT outcome, with the required vocabulary
+PASS D2 Canary does NOT blame the project for its own restriction (the false attribution is gone)
+PASS E1 the remediation NAMES the missing executable and a command that can be run
+PASS D5 the COMPLETION GATE tells the agent the environment is the cause, not the project
+PASS B1 the calling PATH is still IGNORED: a planted `git.cmd` earlier on it is never executed
+--- authorizing (operator act): "C:\Program Files\Git\cmd" "C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot\bin" "C:\Users\Johannes\AppData\Local\hermes\hermes-agent\venv\Scripts"
+    setup exit 0; sealed PATH entries 15
+    sealed PATH = C:\Users\Johannes\AppData\Local\Temp\canary-v15-sealed-toolchain-K9bbCl\inside\node_modules\.bin;C:\Users\Johannes\AppData\Local\Temp\canary-v15-sealed-toolchain-K9bbCl\node_modules\.bin;C:\Users\Johannes\AppData\Local\Temp\node_modules\.bin;C:\Users\Johannes\AppData\Local\node_modules\.bin;C:\Users\Johannes\AppData\node_modules\.bin;C:\Users\Johannes\node_modules\.bin;C:\Users\node_modules\.bin;C:\node_modules\.bin;C:\Program Files\nodejs\node_modules\npm\node_modules\@npmcli\run-script\lib\node-gyp-bin;C:\Program Files\nodejs;C:\WINDOWS\System32;C:\WINDOWS;C:\Program Files\Git\cmd;C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot\bin;C:\Users\Johannes\AppData\Local\hermes\hermes-agent\venv\Scripts
+    resolves: git=yes java=yes python=yes python3=no node=yes npm=yes
+PASS C1 an operator-authorized directory is appended to the sealed step PATH (after the trusted dirs)
+PASS C2 the SAME project check now PASSES inside Canary (the defect is closed, not hidden)
+     (host has no python3 — not asserted)
+PASS C3 every tool the AMBIENT environment provided now resolves inside Canary too
+PASS C4 a path with SPACES is authorized and used verbatim
+PASS C5 a directory INSIDE the repository is REFUSED (a worker cannot authorize its own shim)
+PASS D3 a genuinely failing project check is reported as a PROJECT CHECK FAILURE (no overclaim in reverse)
+PASS D4 a project that merely PRINTS a "not found" line cannot move the attribution
+artifacts: C:\Users\Johannes\AppData\Local\Temp\canary-v15-sealed-toolchain-K9bbCl
+SEALED-TOOLCHAIN PROBE PASSED
+
+=== v1.5 attempt provenance (one attempt per directory; an occupied attempt is refused, never mixed) ===
+PASS agent produced a terminal result event
+PASS a Canary checkpoint decision was obtained (hook or manually driven)
+PASS no secret leaked into the raw stream file
+PASS every artifact of this attempt was written INSIDE its own attempt directory
+--- T1-stub-task/attempt-2: HOOK DID NOT FIRE — checkpoint driven MANUALLY
+--- wall 0.1s, turns 1, usage {"input_tokens":1,"output_tokens":1}
+--- attempt directory: C:\Users\Johannes\AppData\Local\Temp\canary-v15-attempt-prov-W1fE0H\run\attempt-2
+--- STUB AGENT: this attempt is a provenance/harness measurement, NOT real-world evidence.
+--- RUN COMPLETE
+PASS run 3 (--new-attempt): a SECOND attempt directory is opened and completes
+PASS run 3: the first attempt is byte-identical after the second attempt ran (the two attempts do NOT mix)
+PASS run 3: each attempt is separately recoverable from its own directory
+PASS run 3: attempt-2 owns its own manual checkpoint — it never inherits attempt-1's files
+FAIL attempt identity: run root C:\Users\Johannes\AppData\Local\Temp\canary-v15-attempt-prov-W1fE0H\run-legacy holds un-attributed (pre-layout) evidence: record.json, ledger.json, agent.stream.raw.txt, agent.stream.jsonl, agent.stderr.raw.txt, agent.stderr.txt, git-before.json, git-after.json, agent.diff, hook-input.json, checkpoint-manual.stdout.txt, checkpoint-manual.stderr.txt
+FAIL attempt identity: a new attempt directory written beside it would be indistinguishable from those files, and the probe never mixes layout generations in one run root
+FAIL attempt identity: pass --new-attempt --attempt <id> to state explicitly that the new attempt is separate (the existing files are never read and never touched), or use a fresh --out
+REFUSED: nothing was written. An attempt directory is immutable; a second run must get its own.
+PASS run 4 (run root holding pre-layout evidence): REFUSED, and the flat evidence is untouched
+PASS run 5 (--new-attempt --attempt <id>): a named new attempt is allowed beside flat evidence and does not touch it
+PASS run 5: the flat evidence of the run root is byte-identical after the new attempt ran
+PASS run 5: the new attempt never READ the un-attributed evidence beside it
+PASS run 6 (explicit occupied attempt id): REFUSED
+PASS run 7 (unsafe attempt id): REFUSED and nothing is created outside the run root
+PASS run 8 (a fresh run root, first attempt named explicitly): completes as attempt-1
+23 passed, 0 failed
+
+=== v1.5 path spelling (two spellings of one directory are not "absent") ===
+PASS the two spellings really are different strings for one directory
+PASS setup accepted the authorized directory and its sealed step executed
+PASS the sealed child REALLY received the directory (canonical comparison)
+     child PATH holds the CANONICAL spelling; the RAW spelling "C:\Users\Johannes\AppData\Local\Temp\canary-pathspell-9g5HH7\alias-parent\linked\a tool chain with spaces\bin" is absent
+     — which is exactly the CI failure message, produced without a short name
+PASS THE CI SYMPTOM REPRODUCED: a RAW spelling comparison would call that directory absent
+PASS a canonical comparison never mistakes "spelled differently" for "absent"
+PASS the fix did NOT relax the check: a directory genuinely absent is still refused
+RESULT: path spelling — 6 pass, 0 fail
+
+=== v1.5 evidence consistency (the public audit set tells one truth) ===
+PASS every withdrawn or observation-only figure sits in a context that marks it — 71 occurrence(s) checked across 6 documents
+PASS no document still asserts a statement the closure made false — 8 retired statements absent from 6 documents
+PASS the current truth is still stated, in every document that must state it — 25 pins held
+PASS the two COMPLETE runs travel together, in every document that quotes one — complete-run pairs and the withdrawal are consistent
+PASS — evidence consistency: 0 failure(s) across 6 documents
+
+=== v1.3 agent integration (the agent reads what setup wrote) ===
+PASS setup writes an MCP entry that names THIS Canary
+--- claude mcp list ---
+Checking MCP server health…
+plugin:repowise:repowise: repowise mcp - √ Connected
+plugin:context7:context7: https://mcp.context7.com/mcp (HTTP) - √ Connected
+serena: uvx --from git+https://github.com/oraios/serena serena start-mcp-server --context claude-code --project-from-cwd - √ Connected
+refactron: refactron-mcp  - √ Connected
+canary: C:\Program Files\nodejs\node.exe C:\Users\Johannes\Desktop\canary\_canary-data\worktrees\canary-post-v15-product-validation\apps\cli\dist\src\main.js mcp - ⏸ Pending approval (run `claude` to approve)
+--- end ---
+PASS the agent CLI READS Canary from the project entry
+OBSERVED integration state: PENDING HUMAN APPROVAL (Claude Code asks once, in an interactive session)
+  This is the harness's consent gate, not Canary's code: Canary writes the entry and the
+  server answers the protocol (see the journey probe); Claude Code decides when to honour it.
+PASS the agent does not report our server as BROKEN
+=== agent integration: ALL PASS (1 host-reported state above, reported not asserted) ===
+
+=== v1.3 everyday vocabulary (a ratchet on the words a user must decode) ===
+--- the completion gate's actual message (what the AGENT reads) ---
+  decision=block
+  Canary blocked completion: NOT PROVEN — the sealed checks pass on the base commit too, so they carry no evidence about this change (greeting.cjs): existing behaviour that must be preserved needs a check that FAILS without the change and passes with it. Add or bind one (a sealed proof obligation), or a human accepts the risk from an interactive terminal — a green plan alone does not close this
+--- default output vocabulary ---
+  setup --yes              0  {}
+  status                   7  {"sealed":2,"seal":2,"authority":2,"candidate":1}
+  doctor                   1  {"obligation":1}
+  agents                   0  {}
+  the completion gate      5  {"sealed":2,"seal":2,"obligation":1}
+  TOTAL                   13  {"sealed":4,"seal":4,"authority":2,"candidate":1,"obligation":2}
+--- the same detail under --verbose ---
+  {"sealed":7,"seal":11,"authority":5,"candidate":2,"promote":1,"obligation":2}
+PASS the probe provoked the refusal it means to measure
+PASS the ordinary path speaks at most 13 internal term(s)
+PASS the internals are still reachable under --verbose
+PASS the JSON envelope is unchanged by the prose (same fields, same verdict)
+=== everyday vocabulary: PASS (default budget 13) ===
+
+=== v1.3 standing context (what Canary advertises per turn) ===
+INFO standing payload: 5726 B = 1475 B instructions + 4251 B tool definitions (6 tools)
+INFO    1139 B  canary_work
+INFO     788 B  canary_doctor
+INFO     784 B  canary_finish
+INFO     570 B  canary_result
+INFO     529 B  canary_agents
+INFO     434 B  canary_status
+INFO ceremony (canary_work, canary_finish): 1923 B = 33.6% of the standing payload
+PASS A1-the-server-answers-the-handshake-with-instructions-a-client-really-receives
+PASS A2-the-standing-payload-is-measured-and-attributed-per-tool
+PASS A3-acceptance-is-still-not-advertised-as-a-tool
+PASS A4-the-benchmark-INCLUDES-this-payload-and-cannot-silently-drop-it
+MEASURED (provider-native; tooling/probes/v15-mcp-standing-payload.mjs) — the standing payload is ~438 tokens, re-sent each turn:
+MEASURED    5 turns -> ~2,190 token-equivalents of re-read context
+MEASURED   10 turns -> ~4,380 token-equivalents of re-read context
+MEASURED   17 turns -> ~7,446 token-equivalents of re-read context
+MEASURED   25 turns -> ~10,950 token-equivalents of re-read context
+CROSS-CHECK (derived: bytes/4, NOT measured) — 5726 B / 4 = ~1432 tokens.
+            The derived figure OVERSTATES the measured one by 3.3x, because
+            JSON tool schemas tokenise far better than 4 bytes/token. Do not quote bytes/4 as tokens.
+RESOLVED the-benchmark-excludes-the-standing-payload: v1.5 made run-trial.mjs pass --mcp-config, so the 5726 B measured here ARE inside the everyday figure, and the figure was re-derived from a fresh run (docs/BENCHMARK-EVERYDAY-1.5.md). The historical 92.7% excluded them and must not be quoted as current.
+PASS v1.3 standing context — 5726 B advertised per turn
+OPEN FINDINGS (recorded, not asserted): 2
+  OPEN the-everyday-path-advertises-the-expert-ceremony: canary_work and canary_finish are in a flat module-level TOOLS array with no mode gating, so every client pays 1923 B per turn (the audit measured that surface as costing 177.8% of plain when it is DRIVEN). Removing them from tools/list is a CAPABILITY decision, not an overhead cleanup — MCP has no hidden tool, so gating them makes them uncallable by any agent. Not taken here.
+  OPEN the-instructions-invite-a-doctor-call-beside-automatic-verification: the same text says verification is AUTOMATIC and then tells the model it "may, and should, call canary_doctor". Whether that invitation COSTS a turn (a redundant check) or SAVES one (the model fixes before the Stop hook blocks it) is NOT measured. Do not remove it on the assumption that it is waste — that assumption is the failure mode the v1.3 audit already retracted once.
+
+=== v1.3 mcp consent (is the harness gate closable without a human?) ===
+INFO as setup left it:  canary=pending-approval  stranger=pending-approval
+PASS A1-setup-alone-leaves-our-server-unapproved (the gap this probe is about)
+INFO project settings keys as setup left them: hooks
+INFO project+enabledMcpjsonServers      canary=pending-approval  stranger=pending-approval
+INFO   mcp get canary: canary: Scope: Project config (shared via .mcp.json) Status: ⏸ Pending approval (run `claude` to approve) To remove this server, run: claude mcp remove canary -s project
+INFO project+enableAllProjectMcpServers canary=pending-approval  stranger=pending-approval
+INFO   mcp get canary: canary: Scope: Project config (shared via .mcp.json) Status: ⏸ Pending approval (run `claude` to approve) To remove this server, run: claude mcp remove canary -s project
+INFO local+enabledMcpjsonServers        canary=pending-approval  stranger=pending-approval
+INFO   mcp get canary: canary: Scope: Project config (shared via .mcp.json) Status: ⏸ Pending approval (run `claude` to approve) To remove this server, run: claude mcp remove canary -s project
+INFO local+enableAllProjectMcpServers   canary=pending-approval  stranger=pending-approval
+INFO   mcp get canary: canary: Scope: Project config (shared via .mcp.json) Status: ⏸ Pending approval (run `claude` to approve) To remove this server, run: claude mcp remove canary -s project
+PASS A2-the-hooks-canary-wrote-survive-every-candidate-settings-form
+INFO forms that changed the reported state: NONE
+INFO CONCLUSION: on this harness version the consent gate is NOT reachable from the settings files
+INFO Canary writes. Setup must not pretend otherwise, and the approval stays a human act.
+PASS A3-no-candidate-settings-form-vouches-for-a-server-canary-did-not-write
+=== mcp consent: ALL PASS — measured on claude.exe ===
+
+=== v1.3 gate cost (how often does the gate refuse, and what would removing it save?) ===
+INFO corpus: 564 trial record(s) with an arm (28 non-trial json skipped)
+INFO by arm: canary=51  canary-confined-transport=1  guarded=119  invisible=125  plain=239  workflow=29
+PASS A1-the-corpus-is-present-and-carries-the-gating-arms
+INFO gated trials: 324; 322 record canary.hookFired, 321 record canary.hookBlocked, 170 record stream.gate.messages
+INFO BLOCK RATE: 38/321 = 11.8% of gated completions were refused
+INFO   blocked    : n=28 meanTurns=17.1 meanTokens=336,982
+INFO   not blocked: n=228 meanTurns=10.9 meanTokens=201,973
+PASS A2-hookBlocked-implies-hookFired (the two fields describe the same event)
+INFO   corroboration: 17 blocked record(s) carry stream.gate.messages, 12 of them with NO refusal in the stream (allowed: a block at the end of a run has no later turn to be told in — the two claims are recorded separately by design)
+INFO     e.g. bench-r12-multi-requirement-pricing-workflow-2.json (workflow), bench-r8-refactor-preserve-invisible-2.json (invisible), bench-r8-refactor-preserve-invisible-4.json (invisible)
+INFO overall gated mean: 11.6 turns/run (n=256)
+INFO upper bound on turn savings from removing the gate's retry: 6.2 turns per BLOCKED run
+INFO   expected saving per run = 6.2 x 11.8% = 0.74 turns
+INFO   as a share of the overall gated mean: ~6.4%
+INFO   and it is an UPPER bound: a refused completion still has to be communicated once, and
+INFO   the confound above (harder tasks may block more) is not removed by this arithmetic.
+--- what this means for the <=75% target ---
+INFO The gate is the only place the everyday path ADDS turns, and a refusal is the product: it is
+INFO what stops a false done. So the achievable saving is bounded by the block rate above, while the
+INFO cost of removing it is the false-done protection itself. Recorded as a measurement, not a plan.
+PASS v1.3 gate cost — block rate reported from 324 gated record(s)
+
+=== v1.3 doc first path (do the docs still lead with the everyday path?) ===
+PASS A1-the-agent-facing-doc-shows-the-everyday-path-FIRST
+PASS A2-the-README-shows-the-everyday-path-first-too
+PASS A3-where-the-candidate-path-IS-documented-its-measured-cost-is-stated
+PASS A4-the-README-labels-the-ceremony-with-its-measured-cost-too
+INFO   no document claims the plain arm was wired (and the pattern provably rejects the old text)
+PASS C1-no-document-claims-setup-ran-for-EVERY-arm
+INFO   README.md states the 75 % target as not met
+INFO   docs/V1.3-RELEASE-AUDIT.md states the 75 % target as not met
+PASS C2-where-a-document-mentions-the-75-target-it-says-it-was-NOT-met
+INFO `canary agents install generic` exit 0: CONNECTED — advisory integration installed in AGENTS.md — it tells the agent to consult Canary before claiming completion, and it is ADVISORY: it cannot block anything. | next: to confirm the checks run: canary doctor
+PASS B1-the-advisory-block-canary-writes-does-not-teach-the-ceremony
+PASS B2-the-advisory-block-carries-the-measured-instruction
+PASS v1.3 doc first path — the everyday path leads, and the costlier one is labelled
+
+=== v1.3 verified bytes (no stored record can produce a pass) ===
+PASS CONTROL-a-green-tree-is-allowed (otherwise every attack below would pass for the wrong reason)
+PASS A1-breaking-the-code-BLOCKS-even-though-a-green-checkpoint-record-exists
+INFO forged record: {"at":"2026-09-27T03:06:21.957Z","status":"pass","failed":[],"source":"checkpoint"}
+INFO (the real record from the failing run was: status=fail failed=["tests"] source=checkpoint)
+PASS A2-a-forged-PASS-record-cannot-allow-a-completion-on-failing-bytes
+PASS A3-doctor-is-not-READY-on-failing-bytes-while-the-forgery-is-present
+PASS CONTROL-repairing-the-bytes-allows-again-with-the-forgery-still-on-disk
+PASS A4-status-labels-a-stored-record-as-NOT-a-claim-about-now
+PASS v1.3 verified bytes — the verdict follows the bytes, not a record about them
+
+=== v1.3 mcp scope (which scope avoids the harness approval gate?) ===
+INFO add -s project canary-scope-probe-project: exit 0 File modified: C:\Users\Johannes\AppData\Local\Temp\canary-mcp-scope-Nkg89F\.mcp.json
+INFO add -s local canary-scope-probe-local: exit 0 File modified: C:\Users\Johannes\.claude.json [project: C:\Users\Johannes\AppData\Local\Temp\canary-mcp-scope-Nkg89F]
+PASS A1-both-adds-succeeded (otherwise there is nothing to compare)
+INFO project scope: pending-approval
+INFO local scope  : connected
+PASS A2-project-scope-is-held-for-approval (the gate the current design triggers)
+PASS B1-REPORT-only: what local scope does
+INFO Canary's own server at local scope: connected (add exit 0)
+PASS C1-CANARY-ITSELF-connects-at-local-scope-with-no-approval
+INFO CONCLUSION: local scope AVOIDS the approval gate
+INFO Project scope is a file in the repository, so requiring consent is CORRECT there — a clone or
+INFO a branch can change it without the user acting. Local scope is the user's own configuration,
+INFO which is why it plausibly needs no gate. Choosing between them is a product decision: project
+INFO scope gives a teammate the tools from a clone (each must approve); local scope means each
+INFO developer runs `canary setup --yes` once, which is the documented model anyway.
+PASS v1.3 mcp scope — measured on claude.exe
+INFO cleanup: removed canary-scope-probe-project (project) exit 0
+INFO cleanup: removed canary-scope-probe-local (local) exit 0
+INFO cleanup: removed canary-scope-probe-real (local) exit 0
+
+=== v1.3 transport feedback (can the confined worker learn a verdict?) ===
+PASS A1-the-confined-transport-worked-ONCE-per-task-in-every-recorded-run
+PASS A2-the-tool-description-makes-NO-promise-the-transport-cannot-keep
+INFO   both long runs passed review+promote on their ONE launch — the cost is intra-run, not retry-driven
+PASS A4-the-worker-SUCCEEDED-first-time-so-a-retry-loop-would-not-have-fired
+PASS A3-the-confined-tool-surface-cannot-initiate-verification
+INFO no comparable plain long-task record: B1 reported, not asserted
+INFO transport ceiling 15 min; worst confined long run 13.50 min = 90% of it
+INFO   headroom: 1.50 min
+PASS B2-the-long-run-is-already-near-the-transport-WALL-CLOCK-ceiling
+INFO the per-batch treatment record is absent: C1 reports rather than asserts
+PASS C1-the-per-batch-check-HALVED-the-long-task-with-correctness-intact
+INFO   the pilot derives workerLaunches from an actual model session, and says why when there was none
+PASS A5-the-pilot-record-says-whether-a-model-session-ACTUALLY-happened
+--- what this means for the slice ---
+INFO TWO designs are ruled out by measurement:
+INFO   a description sentence  (A2 — it would be false: nothing tells the worker anything)
+INFO   a re-launch loop        (A4 — nothing failed, so it would never have fired)
+INFO A THIRD was withdrawn here and then REOPENED, and B2 must not be read as closing it:
+INFO   per-batch suite runs — B2 shows the run sits at 92% of its ceiling, but the cost of the
+INFO   check itself is 45 ms (v13-transport-suite-cost.mjs), so running it after all 23 requests
+INFO   costs ~1 s against 90 s of headroom. The objection was an assumption, not a measurement.
+INFO The pilot has since SETTLED it (C1): 595,419 -> 288,942 tokens, -51.5%, correctness intact,
+INFO and wall clock 13.50 -> 6.94 min (92% -> 46% of the ceiling). Still above the 75% target in
+INFO aggregate (82.1%), and what remains is the worker's own OUTPUT (2.9x plain), not its round trips.
+PASS v1.3 transport feedback — the worker is never told a verdict, and nothing claims otherwise
+
+=== v1.3 transport suite cost (what does the check cost to run?) ===
+INFO   node checks/contract.cjs -> 59 ms, exit 1
+INFO   node checks/contract.cjs -> 58 ms, exit 1
+INFO   the failure, in full (first 12 lines):
+INFO     node:internal/assert/utils:146
+INFO       throw error;
+INFO       ^
+INFO     
+INFO     AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+INFO     
+INFO     'two' !== 'one'
+INFO     
+INFO         at Object.<anonymous> (C:\Users\Johannes\AppData\Local\Temp\canary-suite-cost-GFd3hy\checks\contract.cjs:5:8)
+INFO         at Module._compile (node:internal/modules/cjs/loader:1934:14)
+INFO         at Object..js (node:internal/modules/cjs/loader:2074:10)
+INFO         at Module.load (node:internal/modules/cjs/loader:1656:32)
+INFO steady-state cost of ONE check run: 58 ms
+INFO transport ceiling 15 min; recorded run 13.50 min; headroom 90 s
+INFO tool requests in that run: 23
+INFO worst case if the check ran after EVERY tool request (23): 1.3 s
+INFO that is 0.1% of the ceiling
+INFO   executed cleanly on all 3 run(s); 3 ended in an assertion failure (the fixture ships unsolved, which is the task)
+PASS A1-the-declared-check-RUNS-in-a-materialised-fixture
+INFO   affordable: 1.3 s against 90 s of headroom
+PASS B1-the-per-batch-design-is-affordable-in-WALL-CLOCK-terms
+PASS v1.3 transport suite cost — measured, not assumed
+
+=== v1.3 confined check feedback (does the per-batch check behave?) ===
+PASS A1-a-mutating-batch-returns-the-declared-check-result
+PASS A2-the-check-result-says-out-loud-that-it-is-not-a-verdict
+PASS B1-a-failing-check-reports-its-failure-and-does-not-block-the-batch
+PASS C1-a-read-only-batch-runs-NO-check
+PASS D1-without-a-check-the-result-is-UNCHANGED (the trusted shape is additive)
+PASS E1-a-malformed-check-is-ignored-not-fatal
+INFO   noisy check: 470 chars returned, truncated=true
+PASS F1-a-noisy-check-is-BOUNDED (an unbounded dump would re-create the cost this removes)
+INFO   known mismatch, deliberately unenforced: the description says CREATE, the tool overwrites
+PASS G1-write-overwrites-on-the-model-facing-path (the enforcement was REVERTED, not forgotten)
+PASS G2-the-whole-file-form-of-edit-works (so whole-file changes have a cheap verb)
+PASS v1.3 confined check feedback — runs when it should, stays out of the way otherwise
+
+=== v1.3 posttool feedback (DIAGNOSTIC live-integration; deterministic properties gate) ===
+INFO session: exit 0; result success; tokens 28065
+INFO marker delivered via: none
+PASS A1-the-hook-ran-and-the-project-check-failed-as-designed
+FAIL A2-PostToolUse-additionalContext-REACHES-THE-MODEL-on-this-host  [LIVE-INTEGRATION DIAGNOSTIC]
+     the marker planted in the hook's additionalContext never reached the session. The documented field is therefore NOT usable here, and the mid-task feedback design is closed on this harness version rather than assumed to work. channels seen: notices=0 user=0 assistant=1
+FAIL A3-the-delivered-text-carried-the-CHECK-RESULT-not-just-a-marker  [LIVE-INTEGRATION DIAGNOSTIC]
+     the marker arrived but the check's own failure text did not, so the model was told "something happened" rather than what failed — which is the part that saves the round trip
+INFO everyday (guarded) records with a usable command ledger: 0
+FAIL D1-the-everyday-path-has-little-self-checking-left-to-remove
+     no guarded record carried stream.commands.checks, so the ceiling of the mid-task lever cannot be read from the corpus — report it rather than assuming the lever is small
+FAIL D2-no-recorded-everyday-run-called-a-canary-tool
+     no record carried a canary command count
+FAIL v1.3 posttool feedback — a DETERMINISTIC property does not hold on this host (2 failure(s))
+
+=== full unit suite ===
+  ✔ an integrity fixture is not scored as a correctness false done (0.2155ms)
+  ✔ a missing oracleKind defaults to correctness (an older record is still judged) (0.0952ms)
+✔ verdict: fixture semantics decide which metric applies (0.4245ms)
+▶ verdict: a delivery has to pass the project's OWN suite too
+  ✔ claimed success with a RED visible suite is not a delivery, and is counted as its own failure (0.143ms)
+  ✔ the same trial with a GREEN suite is delivered (0.0987ms)
+  ✔ an integrity fixture is exempt: a red suite is its honest expected state (0.1184ms)
+  ✔ a record captured before the visible suite was recorded is judged as it always was (0.0955ms)
+✔ verdict: a delivery has to pass the project's OWN suite too (0.5695ms)
+▶ the single-executable build knows which Node can perform it
+  ✔ states the documented boundary (1.5947ms)
+  ✔ refuses every Node below the boundary — including the one CI pinned (0.2414ms)
+  ✔ accepts the boundary itself and everything above it (0.1735ms)
+  ✔ compares numerically, not as strings (25.10 is newer than 25.9) (0.1607ms)
+  ✔ fails CLOSED on a version string it cannot read (0.1341ms)
+  ✔ the refusal answers WHAT HAPPENED, WHY, and WHAT TO DO (0.1946ms)
+✔ the single-executable build knows which Node can perform it (3.7628ms)
+ℹ tests 1271
+ℹ suites 216
+ℹ pass 1267
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 4
+ℹ todo 0
+ℹ duration_ms 361944.0251
+
+=== onboarding contract tests ===
+  ✔ never set up -> NEEDS ATTENTION with the one command; outside git -> UNSUPPORTED (243.0286ms)
+  ✔ 1.1: a project with NO package.json is set up from its own ecosystem and pinned (973.2039ms)
+  ✔ uninstall removes exactly Canary, preserves everything else; repeat is safe (1832.3569ms)
+  ✔ S1: an out-of-repo touched path in the config is refused, untouched, loudly (1001.2249ms)
+  ✔ S6: partial cleanup keeps .canary so the promised retry can actually finish (991.8218ms)
+  ✔ S2-adjacent: uninstall of a foreign-cliPath config is refused (cannot prove ownership) (749.7907ms)
+✔ doctor + uninstall (9855.6571ms)
+▶ degenerate empty plan (hand-edited config must not fake green)
+  ✔ checkpoint: zero checks executed -> UNVERIFIED systemMessage, never a silent pass; doctor flags it (947.5198ms)
+✔ degenerate empty plan (hand-edited config must not fake green) (947.616ms)
+▶ link containment (S3)
+  ✔ checkpoint evidence is never written through a link pointing outside the repo (1389.563ms)
+  ✔ setup refuses outright when a managed file is a link (dangling included) (119.879ms)
+✔ link containment (S3) (1509.57ms)
+▶ hook entry shape + ownership
+  ✔ hasCanaryEntry matches exact command only (0.1697ms)
+✔ hook entry shape + ownership (0.2313ms)
+ℹ tests 37
+ℹ suites 8
+ℹ pass 37
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 27473.2128
+
+=== M2 claims-not-evidence contract tests ===
+  ✔ diverging claim annotates an already-decided block with claim-vs-observed, both sides parsed (1245.5335ms)
+  ✔ without a claim the block reason is exactly the pre-M2 shape — no note (1092.6892ms)
+  ✔ a claim that MATCHES the printed lie still cannot stop the block (exit code is the oracle) (1448.0669ms)
+  ✔ forged evidence + forged last-checkpoint never produce a pass: nothing is read back (1194.7582ms)
+  ✔ a claim whose timestamp is not ISO-shaped cannot smuggle prose into the block reason (1106.3825ms)
+  ✔ an ISO-PREFIXED prose tail cannot smuggle into the note either (end anchor) (1095.4654ms)
+  ✔ a corrupt claims file is inert: the block stands, unannotated, no crash (1093.5163ms)
+  ✔ a claims file linked outside the repo is never read (S3) (1093.1804ms)
+✔ claims are hints: never a pass, never a block, at most an annotation (10605.5973ms)
+▶ claim intake guards
+  ✔ empty claim is misuse (exit 3) and writes nothing (118.8228ms)
+  ✔ claims without a usable repo are refused with exit 2, nothing written (116.4595ms)
+  ✔ inside a repo Canary does not trust: NEEDS ATTENTION, no claim written (115.6628ms)
+  ✔ a set-up repo stores the claim labeled UNTRUSTED HINT, capped, and says so (973.0866ms)
+  ✔ a claims/ dir linked outside the repo refuses the write (S3, exact path) (790.4362ms)
+  ✔ a config from another installation refuses claims too (S2) (737.3884ms)
+✔ claim intake guards (2852.1479ms)
+ℹ tests 24
+ℹ suites 5
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 18524.3481
+
+=== M3 trust-classes contract tests ===
+▶ writers stamp their own class, honestly
+  ✔ every verification bundle Canary writes is CANARY_OBSERVED (setup/doctor/checkpoint) (1809.5623ms)
+  ✔ the claim envelope is stamped AGENT_REPORTED next to its UNTRUSTED HINT authority (798.6796ms)
+✔ writers stamp their own class, honestly (2608.9758ms)
+▶ labels are inert as input — no promotion by declaring or copying
+  ✔ a hand-written claim self-declaring CANARY_OBSERVED/"VERIFIED" changes nothing but annotation prose (1093.6025ms)
+  ✔ a forged CANARY_OBSERVED pass bundle cannot stop a block and is kept as inert data (1296.8446ms)
+  ✔ no side door: extras handed to the bundle writer can never shadow its reserved fields (63.9949ms)
+  ✔ doctor re-derives despite a forged pass bundle: NEEDS ATTENTION, never READY (1249.2898ms)
+✔ labels are inert as input — no promotion by declaring or copying (3704.0965ms)
+▶ class coverage and UX
+  ✔ EXTERNALLY_VERIFIED has no producer: nothing under .canary ever carries it (1884.6798ms)
+  ✔ trust classes are verbose-only — default output stays simple (2057.4631ms)
+✔ class coverage and UX (3942.3656ms)
+ℹ tests 8
+ℹ suites 3
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10405.5524
+
+=== M4 provenance contract tests ===
+▶ the bundle answers the M4 questions
+  ✔ setup records planDigest (matching the in-memory plan), baseline, and ordered per-step stamps (636.6537ms)
+  ✔ planDigest is deterministic, order-sensitive, and binds kind AND script (0.1926ms)
+✔ the bundle answers the M4 questions (637.5415ms)
+▶ the task label is a digest with zero verdict authority
+  ✔ checkpoint records taskDigest on a pass and never stores the prose anywhere (1090.6586ms)
+  ✔ on a failing plan the block is byte-identical with or without a task label (2207.735ms)
+  ✔ absent or empty task yields taskDigest null; an old sender without task still gets full provenance (1713.4941ms)
+✔ the task label is a digest with zero verdict authority (5012.11ms)
+▶ the companion hash binds bytes — and says what it is not
+  ✔ verification.sha256 matches the bundle bytes, detects a one-byte tamper, and is labeled tamper-evidence only (1566.1875ms)
+✔ the companion hash binds bytes — and says what it is not (1566.3326ms)
+▶ baseline honesty
+  ✔ a pre-M4 config (no baseline) yields baseline null, never an invented identity (1273.1696ms)
+✔ baseline honesty (1273.36ms)
+ℹ tests 7
+ℹ suites 4
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8633.9001
+
+=== M5 trusted-plan contract tests ===
+▶ setup seals the verification authority
+  ✔ the seal binds the plan digest and the verbatim text of each script it runs (1685.8132ms)
+✔ setup seals the verification authority (1686.5414ms)
+▶ the spec attack: honest command -> "echo all good"
+  ✔ a swapped script text that WOULD pass by exit code is blocked as authority drift (974.552ms)
+  ✔ the loop guard holds on authority drift: one repair attempt, then honest stop (797.0051ms)
+  ✔ restoring the sealed text restores silent verification (drift detection, not a grudge) (1890.3304ms)
+✔ the spec attack: honest command -> "echo all good" (3662.1318ms)
+▶ the config side of the same attack
+  ✔ editing cfg.plan mid-task without re-sealing blocks (814.1508ms)
+  ✔ a malformed hand-planted seal fails closed (804.6028ms)
+  ✔ a pre-M5 config (no seal) verifies exactly as before — additive (2288.1485ms)
+✔ the config side of the same attack (3907.2146ms)
+▶ re-sealing and visibility
+  ✔ re-running setup re-seals the new text under a visible smoke; then it verifies (1684.7974ms)
+  ✔ doctor refuses READY on drifted authority (926.2364ms)
+✔ re-sealing and visibility (2611.2714ms)
+ℹ tests 9
+ℹ suites 4
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12016.982
+
+=== M6 proof-orchestration contract tests ===
+  ✔ kinds never declared still get the diff-implied floor: no kinds + clean signals = no obligations beyond tests-green (0.0927ms)
+✔ obligationsFor — the one-way obligation engine (2.2675ms)
+▶ canary task — an AGENT_REPORTED hint with zero authority
+  ✔ setup + register: digest-only storage, inferred kinds, explicit zero-authority line (801.0785ms)
+  ✔ --kind ADDS to inference and never removes it; --requirement forces multi; hostile input is usage, not a crash (1624.6402ms)
+  ✔ a requirement whose TEXT begins with "--" is registered verbatim; a misuse is REFUSED (1136.131ms)
+  ✔ registering a task against no setup / no git says so; nothing is written (114.2665ms)
+✔ canary task — an AGENT_REPORTED hint with zero authority (3676.3282ms)
+▶ checkpoint/doctor integration — the sealed plan passes, obligations decide the tone
+  ✔ no task record, no prose, fake git: byte-identical pre-M6 silence (additive) (1106.1611ms)
+  ✔ registered bugfix with no test change: an open OBJECTIVE obligation now FAILS CLOSED (block), not a note (1283.6722ms)
+  ✔ hook-stdin task prose infers kinds even without a registration (1102.8471ms)
+  ✔ a malformed/hand-planted record degrades to the no-record posture, hostile kinds filtered (2324.8317ms)
+  ✔ fake git makes diff signals unresolvable: a registered refactor is NOT PROVEN and fails closed (1299.8394ms)
+  ✔ doctor refuses READY while an obligation is open (NOT PROVEN), and names it in verbose mode (1413.3982ms)
+  ✔ config rewrite keeps the seal: obligations never execute anything unsealed (1487.4632ms)
+✔ checkpoint/doctor integration — the sealed plan passes, obligations decide the tone (10018.5882ms)
+ℹ tests 30
+ℹ suites 5
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13865.282
+
+=== M7 candidate-isolation contract tests ===
+✔ built CLI exists (run npm run build first) (0.795ms)
+✔ isolate misuse exits 3 with usage, and never touches the repo (1675.3308ms)
+✔ isolate refuses a repo Canary does not verify (no config, exit 2) (116.6762ms)
+✔ isolate refuses a base whose own config is distrusted (745.3571ms)
+✔ create refuses under fake git — an unresolvable base cannot be isolated from (and nothing registers) (829.2804ms)
+✔ verify refuses a malformed or name-mismatched record without executing anything (960.0578ms)
+✔ verify refuses a record whose baseRoot is not this repo (impersonation guard, before any identity read) (788.1312ms)
+✔ verify of a LOST candidate (fake git => unresolvable) blocks honestly and writes a BLOCKED bundle (791.6093ms)
+✔ under fake git, verify can NEVER report PASS — the fail-closed ceiling of the whole contract layer (1016.0832ms)
+✔ list is honest with no registry, survives invalid records, and exits 0 (it never executes anything) (1069.7954ms)
+✔ remove refuses unregistered names; a vanished candidate is pruned honestly (record deleted, exit 0) (1031.1788ms)
+✔ uninstall refuses to delete .canary while candidates are registered (worker trees stay protectable) (965.8577ms)
+✔ Windows reserved device names are rejected as candidate names (misuse exit 3, before any git or filesystem work) (1082.6884ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11145.4823
+
+=== M8 promotion contract tests ===
+✔ built CLI exists (run npm run build first) (0.7466ms)
+✔ isolate --promote misuse exits 3 (name required, flags scoped, one mode) (1531.2414ms)
+✔ promote refuses a repo Canary does not trust (exit 2, before any record read) (121.8073ms)
+✔ promote of a missing or malformed record delegates to verify (exit 2, identical refusal) (965.4935ms)
+✔ promote refuses an impersonated record (different baseRoot) with the canonical guard (784.4615ms)
+✔ under fake git, promote BLOCKS via live verify and can never apply or accept (1006.9933ms)
+✔ Windows reserved device names are rejected for --promote too (misuse exit 3) (730.0781ms)
+✔ promotion bundles obey bounded evidence retention (nothing is kept forever) (798.5063ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6012.9645
+
+=== M9 authority contract tests ===
+✔ intact harness entry keeps the pre-gate SILENT: LOST-style block, zero §9 lines (825.7032ms)
+✔ harness entry deleted outside the window → §9 before execution (containment pre-gate) (980.3205ms)
+✔ harness entry scrubbed (valid JSON, entry gone) → §9 with after "entry missing" (809.5903ms)
+✔ gate order: record refusals (ghost / malformed / impostor) precede the pre-gate even with settings deleted (1115.5224ms)
+✔ evidence tree is in the fingerprint set: plant / edit / wipe all drift, untouched tree stays quiet (6.2941ms)
+✔ §9.5 quarantine refusal out-ranks EVERY gate — even record refusals — and writes no bundle (960.426ms)
+✔ a human re-seal (setup) is the clearing act — the marker vanishes with the deliberate restore (1474.429ms)
+✔ the containment pre-gate stays grudgeless: a before-execution mandate stamps NO marker, and restoring bytes recovers cleanly (1135.7269ms)
+✔ a config that promised nothing runs no containment gate (hand-written touched: []) (789.5374ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8171.8216
+
+=== M10 obligations contract tests ===
+✔ gate order: quarantine refusal and impersonation outrank the intent guard (1118.6804ms)
+✔ committed test deletion in the candidate diff is ATTRIBUTABLE (the worktree began provably clean) (664.2939ms)
+✔ renaming a test OUT of test paths counts as attributable coverage loss (686.2365ms)
+✔ the suffix-surviving escape: tests/x.test.js → src/x.test.js is STILL coverage loss (adversary F3) (872.6924ms)
+✔ the directory rule does not shout at innocence: suffix-only moves and in-dir moves stay intact (1397.7968ms)
+✔ the isolation premise names what the candidate boundary can NOT prove (correctness #5): never "setup" (687.7804ms)
+✔ an unanswerable baseHead probe fails SAFE: deletions UNATTRIBUTABLE, never a false met (526.9309ms)
+✔ added test file: changes carries it, deletions stay empty (regression evidence, not loss) (652.1446ms)
+✔ F4-A: no registered task + green sealed plan → CANDIDATE NOT PROVEN, never PASS; the missing authority is named (4656.8755ms)
+✔ F4-B: promotion of a taskless candidate is locked — gate 1 refuses, zero promotion bundles, base unmoved (6632.6357ms)
+✔ F4-C: a task frozen at isolation whose obligations are all MET still reaches PASS and ACCEPTED promotion (the gate must not shout at innocence) (7505.4152ms)
+✔ F4-D: registration is not a mask — a bugfix without regression evidence stays NOT PROVEN on its real duty, authority gate silent (4788.4634ms)
+✔ F4-E: an objective violation still BLOCKS while taskless — unmet outranks the new unproven duty (4279.2567ms)
+✔ F4-F: no knob opens it — an env var and an unknown flag cannot restore the authority that registration must give (4652.1699ms)
+✔ F4-G: precedence holds with the gate in play — fail > unmet > unproven(taskless) > pass (3932.3266ms)
+✔ F4-H (GLM F4-GATE-1): registering AFTER isolation adds duties but mints no authority — still NOT PROVEN, promote locked (8934.1362ms)
+✔ F4-I (GLM F4-GATE-2): deleting rec.intent does not restore a legacy-PASS shape — absence fails safe to NOT PROVEN (8185.5764ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 69102.0508
+
+=== 1.1 §1 project-adapter contract tests ===
+▶ 1.1 ecosystems declare checks, they never invent them
+  ✔ python: a declared pytest becomes a check; python files alone do not (7.3265ms)
+  ✔ python: unittest only from a real test layout; ruff is the static-check step (5.6673ms)
+  ✔ rust and go declare their own toolchain commands (3.1012ms)
+  ✔ an ecosystem step with no argv can never be synthesized (0.1064ms)
+  ✔ a plan step the project stopped declaring is a problem, not a silent pass (2.1797ms)
+  ✔ a tool named in PROSE is not a declaration (comments never add a check) (3.3076ms)
+  ✔ every real declaration shape is still found (the fix hides nothing) (15.6388ms)
+  ✔ a PINNED plan is still recognized as declared (setup pins, discovery declares) (3.9134ms)
+✔ 1.1 ecosystems declare checks, they never invent them (41.4819ms)
+▶ 1.1 polyglot composition is deterministic and scoped
+  ✔ finds each ecosystem once, shallowest first, Node at the root only (11.3533ms)
+  ✔ composes one plan whose steps name their scope and adapter (24.4843ms)
+  ✔ the DEFAULT composition is root-only, so a sealed plan cannot gain checks from a subdirectory (16.9039ms)
+  ✔ a polyglot plan seals and drift-checks through the shared helpers (11.6731ms)
+  ✔ an empty composite plan is a complete answer, not an error (4.4525ms)
+✔ 1.1 polyglot composition is deterministic and scoped (69.0156ms)
+ℹ tests 30
+ℹ suites 6
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1030.8564
+
+=== 1.1 P0 trust-store sealing contract tests ===
+  ✔ path-ish ids and kinds are refused, never resolved (0.4616ms)
+  ✔ a half-written keypair refuses service instead of orphaning records (18.6305ms)
+✔ forging routes all fail closed (153.7835ms)
+▶ the level probe measures, it never inflates
+  ✔ a writable store reads LOCAL with the same-uid ceiling named (1.7725ms)
+  ✔ an unwritable store reads UNSUPPORTED (fails closed, not quieter) (0.6881ms)
+  ✔ default store root is the platform convention under the OS home (0.1753ms)
+✔ the level probe measures, it never inflates (2.7697ms)
+▶ 1.1 hardening — custody refusals
+  ✔ key halves that disagree refuse to mint, and past records read as forged (22.6191ms)
+  ✔ a linked keys directory is refused before any byte is trusted (19.5621ms)
+  ✔ a hard-linked private key is refused (the same bytes have a second name) (19.3754ms)
+  ✔ a reserved Windows device name is refused as an id or a kind (0.1658ms)
+✔ 1.1 hardening — custody refusals (61.8473ms)
+▶ 1.1 hardening — minting is serialized
+  ✔ concurrent minters never share a generation (no lost ledger update) (234.5229ms)
+✔ 1.1 hardening — minting is serialized (234.6999ms)
+ℹ tests 17
+ℹ suites 5
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 607.1615
+
+=== 1.1 P0 trust-store wiring tests ===
+▶ 1.1 P0 trust-store wiring
+  ✔ setup seals registration + plan-seal outside the repo, matching the config (709.7579ms)
+  ✔ status/doctor report the sealed copy; the verdict stays the v1.0 one (793.2165ms)
+  ✔ a divergent but validly sealed record reads MISMATCH — and changes no verdict (827.4631ms)
+  ✔ every setup re-seals (seq advances) and says LOCAL with the honest ceiling words (1136.3367ms)
+  ✔ a store that cannot mint fails setup closed with NO config written (343.9369ms)
+  ✔ a steered-empty store fails honest-closed in reading — old records cannot follow the pointer (357.5476ms)
+✔ 1.1 P0 trust-store wiring (4169.2299ms)
+ℹ tests 6
+ℹ suites 1
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4262.4328
+
+=== 1.1 §21 machine-readable protocol tests ===
+▶ 1.1 protocol: one JSON object, and no verdict changes
+  ✔ status --json on an unwired project: pure JSON on stdout, prose on stderr (120.2942ms)
+  ✔ status --json on a wired project carries checks, the measured level and harness facts (810.3849ms)
+  ✔ the exit code and the status word are identical with and without --json (702.4099ms)
+  ✔ doctor --json reports problems as a list and keeps stdout to one object (1108.3294ms)
+  ✔ result is the free state answer: no plan run, compact, and it names where evidence lives (798.5878ms)
+✔ 1.1 protocol: one JSON object, and no verdict changes (3540.9229ms)
+ℹ tests 5
+ℹ suites 1
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3636.1572
+
+=== 1.1 §18-21 agent capability + advisory integration tests ===
+  ✔ agents --json lists the integrations with their real capability (122.0317ms)
+  ✔ v1.3: Cursor is reported as UNMEASURED, never as protection (117.7961ms)
+✔ 1.1 agents: the capability table is honest by construction (241.7954ms)
+▶ 1.1 agents: the advisory integration is marked, idempotent and exactly removable
+  ✔ install preserves foreign content; re-install is byte-identical; uninstall removes only the block (358.3544ms)
+  ✔ install creates the file when absent, and uninstall tolerates an absent file (350.2233ms)
+  ✔ the GATING integrations are owned by setup, not by an advisory command (237.4337ms)
+  ✔ an unknown id is refused and nothing is written (119.2528ms)
+  ✔ never writes through a link (a linked AGENTS.md could escape the repo) (118.2958ms)
+✔ 1.1 agents: the advisory integration is marked, idempotent and exactly removable (1183.9398ms)
+▶ v1.3 agents: a detected agent is not a gated repository
+  ✔ does not claim a completion can be blocked when no hook is installed (242.8502ms)
+  ✔ the machine channel reports the same fact: hooked means the hook is installed (118.6954ms)
+  ✔ after setup installs the hook, both the claim and the machine channel flip together (1252.2706ms)
+  ✔ v1.4: a Codex project layer with no hook is a capability, never a protected repository (121.1209ms)
+  ✔ v1.4: an installed Codex hook is reported WITH the trust step Canary does not own (1413.1474ms)
+✔ v1.3 agents: a detected agent is not a gated repository (3148.3533ms)
+ℹ tests 14
+ℹ suites 3
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4667.2923
+
+=== 1.1 §14 real-Python end-to-end (no package.json) ===
+▶ 1.1 ecosystems: a real Python project, no Node in it
+  ✔ setup discovers the declared check, pins the interpreter, and doctor re-verifies READY (1023.8618ms)
+✔ 1.1 ecosystems: a real Python project, no Node in it (1024.5491ms)
+ℹ tests 1
+ℹ suites 1
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1097.0963
+
+=== probe: real Go project end-to-end (setup -> doctor) ===
+SKIP  Go: no toolchain on PATH and none workspace-local — run: node tooling/toolchains.mjs go
+PROBE-PASS-WITH-SKIP — 1 explicit host-bound SKIP; the Go path was NOT executed here
+
+=== probe: real Rust project end-to-end (setup -> doctor) ===
+SKIP  Rust: no rustup toolchain found (no <rustup home>/toolchains/*/bin/cargo)
+      provision with: node tooling/toolchains.mjs rust
+PROBE-PASS-WITH-SKIP — 1 explicit host-bound SKIP; the Rust path was NOT executed here
+
+=== 1.1 §35 metrics record (off by default, never changes a verdict) ===
+▶ 1.1 metrics: off by default, one record per invocation
+  ✔ writes nothing when CANARY_METRICS is unset or empty (127.3577ms)
+  ✔ appends exactly one record per invocation with the outcome the process reported (121.605ms)
+  ✔ records flag NAMES and never a value, a path, or free text (240.8175ms)
+  ✔ never changes a verdict — with or without instrumentation, and when the target is unwritable (350.7688ms)
+✔ 1.1 metrics: off by default, one record per invocation (841.5115ms)
+ℹ tests 4
+ℹ suites 1
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 913.1663
+
+=== 1.1 §22 workflow (work -> finish) tests ===
+▶ 1.1 workflow: work registers and opens in one step
+  ✔ opens the candidate with the intent frozen into its record (2305.7201ms)
+  ✔ refuses a call with no name or no intent, and opens nothing (1431.4424ms)
+  ✔ REG-R1: forwards --kind and --requirement WITH their values (silent loss was a real bug) (1814.2273ms)
+✔ 1.1 workflow: work registers and opens in one step (5552.1876ms)
+▶ v1.3: work never hands a worker a task that nothing could judge
+  ✔ refuses the handoff, opens nothing and spends nothing, when the task freezes no authority (1734.4294ms)
+  ✔ the SAME intent is accepted once a kind is declared — the refusal names the real difference (2295.8721ms)
+✔ v1.3: work never hands a worker a task that nothing could judge (4030.5124ms)
+▶ 1.1 workflow: finish cannot promote what was not proven
+  ✔ an UNPROVEN objective duty blocks promotion and leaves the base untouched (4603.826ms)
+  ✔ an unknown candidate is refused and the base is untouched (1591.2364ms)
+✔ 1.1 workflow: finish cannot promote what was not proven (6195.4508ms)
+▶ 1.1 workflow: finish promotes the exact committed candidate once the duties hold
+  ✔ objective work completes with no human approval (8513.3113ms)
+✔ 1.1 workflow: finish promotes the exact committed candidate once the duties hold (8513.476ms)
+ℹ tests 8
+ℹ suites 4
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 24438.8917
+
+=== 1.1 §23 fast-path decision tests (fail-closed rules) ===
+  ✔ ** matches zero or more segments, and matching is case-insensitive (0.6887ms)
+  ✔ * stays inside one segment and ? matches one character (0.1759ms)
+  ✔ a bare directory pattern matches the tree under it only when asked (0.1033ms)
+✔ 1.1 fast path: the glob containment check (1.6917ms)
+▶ 1.1 fast path: the declaration is refused when it cannot mean what it says
+  ✔ accepts a well-formed declaration keyed by sealed step keys (0.6814ms)
+  ✔ refuses steps that are not in the plan, empty lists and non-string patterns (0.3715ms)
+  ✔ refuses patterns that could escape the project or smuggle a path (0.2564ms)
+  ✔ the shared base fixture is well-formed (so the refusals above are about what they say) (0.1299ms)
+✔ 1.1 fast path: the declaration is refused when it cannot mean what it says (1.6722ms)
+▶ 1.1 fast path: it can only remove work a declaration justifies
+  ✔ with NO declaration for a step, that step runs — there is no implicit default (0.2277ms)
+  ✔ a docs-only change skips exactly the steps whose declared paths it misses (0.2626ms)
+  ✔ ONE changed path inside the declaration is enough to run the step (0.1646ms)
+  ✔ an empty change set runs everything: a skip needs a reason it can show (0.1152ms)
+  ✔ a declaration for a different scope or label does not leak onto another step (0.1575ms)
+✔ 1.1 fast path: it can only remove work a declaration justifies (1.1436ms)
+ℹ tests 12
+ℹ suites 3
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 110.6981
+
+=== 1.1 §23 fast-path WIRED (sealed declaration, opt-in skipping) ===
+▶ 1.1 fast path: sealed declaration, opt-in skipping
+  ✔ setup seals the declaration, and doctor --fast skips only the declared check the change missed (3078.8197ms)
+  ✔ the JSON envelope carries the skips, so a machine cannot read a fast run as a full one (3068.4214ms)
+  ✔ without --fast the full plan runs (the fast path is opt-in) (3205.8457ms)
+  ✔ a change INSIDE the declaration runs the check as usual (and gets no READY without regression evidence) (4064.5715ms)
+  ✔ editing canary.paths after setup is reported as drift — the sealed copy still governs (2630.9341ms)
+  ✔ a malformed declaration is refused at setup rather than quietly ignored (648.8074ms)
+✔ 1.1 fast path: sealed declaration, opt-in skipping (16698.3484ms)
+ℹ tests 6
+ℹ suites 1
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 16853.9075
+
+=== 1.1 P0 trust-store attack contract tests ===
+✔ lost/corrupt ledger (missing) cannot accept or re-seal history (31.4901ms)
+✔ lost/corrupt ledger (invalid-json) cannot accept or re-seal history (22.7773ms)
+✔ lost/corrupt ledger (empty) cannot accept or re-seal history (24.6341ms)
+✔ lost/corrupt ledger (negative) cannot accept or re-seal history (22.3215ms)
+✔ lost/corrupt ledger (future) cannot accept or re-seal history (24.9136ms)
+✔ all JSON keys, including __proto__, are signed (30.383ms)
+✔ non-JSON and ambiguous values are refused, without invoking getters (0.2439ms)
+✔ CAS rejects stale writers without overwriting accepted state (34.1728ms)
+✔ a held writer lock is not stolen or removed (5024.8039ms)
+✔ missing or mismatched keypairs cannot silently create a new issuer (21.6898ms)
+✔ hardlinked authority files and directory junctions are refused (18.7281ms)
+✔ Windows device/trailing-dot aliases are refused on every platform (17.2434ms)
+✔ same-UID full-store replacement remains LOCAL, never mistaken for forgery protection (50.9344ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5419.4698
+
+=== 1.1 P0 broker authorization contract tests ===
+✔ a green routine verification cannot authorize promotion; controller must start a fresh window (67.9277ms)
+✔ separate verifier + reviewer signatures authorize exactly one LOCAL promotion reservation across restart (71.9712ms)
+✔ no subjective duties still requires objective proof but no invented acceptance (54.4218ms)
+✔ worker cannot enroll, sign, spawn, accept-yes, promote or supply executable authority (27.8512ms)
+✔ HARDENED, weak keys, shared principals and empty plans cannot be enrolled (22.2036ms)
+✔ new run invalidates verification and acceptance, even for unchanged source (72.6428ms)
+✔ valid signatures cannot cross role, project, run, subject or policy boundaries (43.3516ms)
+✔ human signature cannot waive unmet objective proof (43.9543ms)
+✔ human signature cannot waive unknown objective proof (46.7033ms)
+✔ human signature cannot waive dirty objective proof (47.5348ms)
+✔ missing, extra and duplicate objective duties are refused despite a valid verifier signature (37.862ms)
+✔ acceptance binds verification contents and exact subjective scope, never terminal presence (55.8571ms)
+✔ promotion refuses all changed subject fields and foreign target mapping (50.9685ms)
+✔ egress policy never treats wildcard, credentials, path or implicit allow as an origin grant (0.9081ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 778.7046
+
+=== 1.1 P0 platform-boundary contract tests ===
+✔ capability is the minimum actually available boundary, with no HARDENED fallback (0.6888ms)
+✔ network policy has no ambient access or implicit wildcard (0.7479ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 72.2952
+
+=== probe: empty-plan checkpoint ===
+PASS: setup READY on a green sample repo
+PASS: checkpoint exits 0 (never fights the harness)
+PASS: empty plan -> UNVERIFIED systemMessage
+PASS: empty plan -> NOT a block, NOT silence
+PASS: doctor flags the empty plan and never prints READY
+PROBE-PASS
+
+=== probe: M2 claims-not-evidence (real git) ===
+PASS setup on a real repo: READY and bundle candidate binds to the actual HEAD
+PASS dirty+fail: checkpoint bundle records dirty=true; claim only annotates the block
+PASS after repairing the script, the dirty-window comparison remains NOT PROVEN
+PASS doctor with .canary/evidence pointing outside the repo: no writes escape, verdict intact
+PASS forged pass bundle + matching printed lie: block stands on exit code alone
+M2 claims-not-evidence: ALL PASS
+
+=== probe: M3 trust-classes (real git) ===
+PASS real-repo setup: bundle is CANARY_OBSERVED and bound to the actual HEAD
+PASS claim on a real repo: envelope is AGENT_REPORTED with UNTRUSTED HINT authority
+PASS forged CANARY_OBSERVED pass bundle: checkpoint still blocks on exit code alone
+PASS same forged bundle against doctor: re-derivation wins, NEEDS ATTENTION not READY
+PASS plain doctor shows no trust-class prose; --verbose explains the classes
+M3 trust-classes: ALL PASS
+
+=== probe: M4 provenance (real git) ===
+PASS setup binds the bundle to the real commit AND tree, baseline = same moment
+PASS timestamps: steps ordered inside the bundle window
+PASS after a new commit, baseline stays at wiring; candidate tracks the move
+PASS checkpoint with task: block unchanged, taskDigest stored, prose never stored
+PASS verification.sha256 matches bundle bytes; a flipped byte is detectable and inert
+PASS doctor bundle inherits the setup-time baseline from trusted config
+M4 provenance: ALL PASS
+
+=== probe: M5 trusted plan (real git) ===
+PASS setup seals plan + verbatim script text; clean repo verifies silently and doctor is READY
+PASS the echo-all-good swap is BLOCKED before execution, though the exit code would say pass
+PASS git-restoring the sealed file returns silent pass (detection, not a grudge)
+PASS setup re-run executes the swapped command in smoke, then leaves the changed behavior NOT PROVEN
+PASS hand-editing .canary/canary.local.json plan without re-sealing blocks on authority
+M5 proof-plan: ALL PASS
+
+=== probe: M6 proof orchestration (real git) ===
+PASS setup on a clean real repo: baseline resolved + CLEAN — Canary's own wiring write does not blind blame
+PASS registered refactor + green sealed plan: checkpoint silent, doctor READY without obligation noise
+PASS WORKTREE deletion of a test on a clean baseline: the green plan BLOCKS — evidence still says pass
+PASS loop guard holds for obligation blocks: one repair attempt, then honest stop (no re-block)
+PASS git checkout restores the deleted test: silent verification returns (a gate, not a grudge)
+PASS a STAGED (uncommitted) deletion on a CLEAN baseline blocks, and the printed advice really unmutes (review #3)
+PASS a COMMITTED deletion blocks via the sealed baseline; a committed restore unblocks
+PASS renames on a clean baseline: out of test paths = coverage loss; staying a test = not (review #5)
+PASS a committed lockfile ADDS the dependency obligation with NO declaration (diff-implied)
+PASS a registered task NEVER lifts the sealed authority — the floor is the floor
+PASS a NON-ASCII committed test deletion blocks: git C-quoting cannot defeat the gate (review #1/#8)
+PASS a TRACKED settings.json cannot blind the baseline stamp via Canary's own backup (review #2)
+PASS dirty-at-setup baseline: staged AND worktree deletions are UNPROVEN with an honest premise (review #3/#6)
+M6 proof-orchestration: ALL PASS
+
+=== probe: M7 candidate isolation (real git) ===
+PASS isolate creates a detached worktree of the EXACT base commit; registry records it; base stays status-clean
+PASS verify PASS: sealed plan ran INSIDE the candidate; evidence landed in the BASE; nothing applied
+PASS a committed failing change in the candidate FAILS verification; base byte-identical
+PASS worker repairs inside the candidate; verification PASSes again (fail → repair → PASS loop)
+PASS swapping the sealed script BLOCKS BEFORE EXECUTION — the replacement never ran
+PASS committed advancement is visible: list says ADVANCED, PASS names the commit count
+PASS worker-added pretest hook around a sealed step BLOCKS before execution — hooks live outside the seal
+PASS candidate-side .npmrc ABSENT from the base BLOCKS (flags outside the seal)
+PASS dirty base: honest note, candidate holds the COMMITTED base only, stray work untouched; duplicate name refused
+PASS spaces and Unicode in --path work for create and verify (argv plumbing, no shell round-trip)
+PASS remove refuses a dirty candidate without --discard; --discard removes exactly worktree + record
+PASS vanished candidate (crash/deleted dir): list LOST, verify blocks honestly, remove prunes the stale registration
+PASS a forged record pointing at an UNRELATED real repo is caught by git-common-dir binding; that repo is untouched
+PASS unregistered worktrees are reported and NEVER touched (user work, not Canary's)
+PASS a COMMITTED gitlink blocks as submodule even with NO .gitmodules — the old existence gate was blind to this
+PASS .npmrc IDENTICAL to base passes; CHANGED in the candidate blocks; checkout restores
+PASS EMPTY on-disk plan blocks honestly — no plan, no fake green (pre-M5-shaped hand edit)
+PASS --path OUTSIDE the base: registers, verifies, and CLEAN-removes (record dir created on demand)
+PASS whole story end-state: base identity unchanged, registry holds only w1, no stray evidence in candidates
+M7 candidate-isolation: ALL PASS
+
+=== probe: M8 promotion (real git) ===
+PASS promote of a verified, advanced candidate fast-forwards the branch; post-proof binds tree identity; ACCEPTED
+PASS re-promote is idempotent and honest: ALREADY APPLIED, no second act, base untouched
+PASS promote removes nothing and leaves the candidate honest in list (promotion != cleanup)
+PASS divergence (case O): base moved past the candidate → REFUSED, base byte-identical, blocked promotion bundle
+PASS TRACKED-dirty trusted base (concurrent user edit): REFUSED before any apply; the edit is byte-preserved
+PASS UNTRACKED base stray is NOT base-dirt (design: setup itself leaves strays) but an untracked COLLISION is refused by git itself
+PASS detached trusted base: REFUSED — promotion fast-forwards a BRANCH, never a detached pointer
+PASS mid-plan commit attack: an unproven candidate is refused before promotion
+PASS candidate changed after a PASS verify: promote decides on LIVE bytes — a failing head refuses with no promotion bundle
+PASS dirty candidate after a PASS (uncommitted scratch): REFUSED — promotion applies committed bytes only
+PASS stale evidence replay: forged PASS candidate bundle cannot carry a broken tree; live bytes rule
+PASS evidence from A used for B: B gets its OWN live verdict (broken B refuses despite fresh A PASS)
+PASS candidate-tampered authority (its own canary config + fake git shim) is INERT for promotion
+PASS malformed record (baseHead tampered to garbage): honest refusal via the delegated live verify
+PASS M9-CLOSED: a step writing into the base evidence dir mid-window forces the §9 mandate, not a verdict
+PASS cross-case hygiene: refused repos hold zero accepted promotion bundles; attempted repos land exactly once
+M8 promotion: ALL PASS
+
+=== probe: M9 authority guard (real git) ===
+PASS positive control: untouched authority verifies CANDIDATE PASS, zero §9 lines
+PASS during-execution drift via sealed step: mode=config flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=settings flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=settingsdrop flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=record flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=task flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=evidenceplant flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=evidenceedit flips PASS into the §9 mandate
+PASS during-execution drift via sealed step: mode=evidencedel flips PASS into the §9 mandate
+PASS stripped harness entry before execution → §9 (containment pre-gate); restore remains NOT PROVEN without discrimination
+PASS isolate --promote over tampering authority: §9 text in promote output, exit 2, no PROMOTED, base byte-identical
+PASS S10: §9.5 quarantine refusal — a byte-idempotent tampering cannot re-baseline into a PASS
+PASS S11: verifier code tree fingerprint — a step editing dist/src/authority.js is caught (verifier code)
+PASS S12: post-window seal recheck — step 1 rewriting step 2's sealed text EXECUTES but never PASSes (post-window)
+PASS S13: base HEAD token — a sealed step moving the base branch is witnessed; promote never reads the moved ref as applied (base HEAD)
+PASS cross-case hygiene: every drift repo ends on a blocked mandate bundle; only the control repo passes
+M9 authority: ALL PASS
+
+=== probe: M10 obligations + intent (real git) ===
+PASS S1 positive control: bugfix candidate WITH a test change → CANDIDATE PASS, 2/2 obligations MET, intent frozen in the record
+PASS S2 green plan + bugfix WITHOUT a test → CANDIDATE NOT PROVEN exit 2, unproven bundle still carries steps; promote refuses; adding the test recovers PASS
+PASS S3 committed test deletion → CANDIDATE BLOCKED exit 2 (steps + coverage-loss UNMET in the bundle); restore + commit → PASS; promote refused the whole time
+PASS S4a plan step dropped after isolation (re-setup with a smaller script set) → zero-step intent block, intentEvent names it, promote refused, record snapshot NOT re-baselined; restoring the bytes recovers
+PASS S4a2 sealed text re-locked to different (green) commands after isolation → intent block names the re-seal; restore recovers
+PASS S4b task kinds+requirements shrink after isolation → intent block; growing back (and beyond) is allowed and verifies
+PASS S5 record with the intent hand-stripped → NOT PROVEN naming [task-authority], RE-ISOLATE advice, promote locked — never a legacy PASS
+PASS S6 red plan → CANDIDATE FAIL (exit 2) whose bundle carries the obligations (M11 repair fuel); removing the cause recovers
+PASS S8 lying index (--assume-unchanged) is seen as dirty: verify reports it, promote refuses; clearing the flag still refuses until the bytes are honest
+PASS S9 committed git mv tests→src keeping the .test.js suffix → CANDIDATE BLOCKED coverage-loss (F3); moving it back recovers
+PASS S10 a plan step writing a test mid-window cannot mint its own regression evidence → NOT PROVEN even after the later commit
+PASS S11 isolate refuses to register a candidate that is not provably clean (post-checkout hook); removing the hook recovers
+PASS S12 taskless green candidate → NOT PROVEN naming [task-authority]; promote locked, zero bundles; post-isolation registration CANNOT self-mint; register + RE-ISOLATE recovers PASS
+PASS cross-case hygiene: no quarantine stamped anywhere; every base HEAD unchanged
+=== M10 PROBE SUMMARY ===
+M10 obligations+intent: ALL PASS
+
+=== probe: M10.1 F4 taskless-bypass repro (real git) ===
+     F4-OBSERVE verify-exit=2 bundle=["unproven","unproven"]
+     F4-OBSERVE promote-exit=2 promotion-bundles=[] base-moved=false applied=false
+PASS f4-leg1: taskless testless candidate runs verify+promote end to end (observations recorded)
+PASS f4-leg1-closed: verify is NOT PROVEN with the missing-authority obligation named
+PASS f4-leg1-closed: promotion is locked — zero promotion bundles, base HEAD byte-unchanged
+PASS f4-leg2 positive control: registered bugfix + committed regression test → PASS → promote ACCEPTED
+F4-BYPASS: CLOSED — taskless candidates can no longer reach PASS or promotion; the honest path still lands (M10-f4-repro: ALL PASS)
+
+=== probe: M10.2 adversarial authority battery (real git) ===
+PASS A taskless at isolation, green plan, real work → NOT PROVEN naming [task-authority]; promote locked
+PASS B register refactor AFTER isolation, every refactor duty MET → the old candidate is STILL NOT PROVEN; promotion locked
+PASS C post-isolation registration of bugfix/dependency/performance/ui/multi mints nothing (bugfix even adds an UNMET-grade duty it cannot discharge)
+PASS D register → re-isolate under a fresh name → the new snapshot freezes the authority → PASS (old candidate stays blocked throughout)
+PASS E delete rec.intent after isolation (out of window, agent-writable bytes) → NOT PROVEN fails safe; promote locked
+PASS F intent {} / null / malformed / task null / task missing / kinds [] / kinds non-array — none reaches PASS; invalid shapes refuse as malformed, readable ones fail safe to UNPROVEN
+PASS G a record hand-WRITTEN in the pre-M10 shape (never had an intent, backdated createdAt) → NOT PROVEN; there is no legacy-PASS interpretation
+PASS H remove/re-add of the task record after isolation cannot change the frozen verdict either way
+PASS I env vars (CANARY_NO_TASK_OK / CANARY_LEGACY / CANARY_FORCE_PASS / ...) and invented flags cannot open the gate
+PASS J a hand-planted PASS bundle (byte-copied from a genuinely-PASSED repo) changes no verdict and no promotion
+PASS K fail > unmet > unproven > pass holds on every combination the agent can build
+PASS L POSITIVE CONTROL: bugfix registered BEFORE isolation + committed regression test + green plan → PASS → promote ACCEPTED, base moved, exactly one accepted bundle
+PASS hygiene: no quarantine stamped by any modeled attack (all record edits are out-of-window, all windows stable)
+PASS hygiene: every blocked case left its trusted base byte-unchanged
+=== M10.2 ADVERSARIAL SUMMARY ===
+M10.2 authority battery: ALL PASS (both former bypasses modeled; honest path lands)
+
+=== probe: M10 lying-index letters (git premise) ===
+status after assume-unchanged edit: ""
+ls-files -v raw: "H src.js\nh tests/b.test.js\n"
+  line: "H src.js"
+  line: "h tests/b.test.js"
+  line: ""
+fold regex matches: true
+status after skip-worktree: ""
+fold regex matches (both flags): true
+PASS letters confirmed
+
+=== probe: Lazy-Connect status contract (real git) ===
+PASS outside any git repo: NOT CONNECTED, tells the human the one next command
+PASS git repo, never set up: NOT CONNECTED with zero writes
+PASS connected repo: CONNECTED — read-only facts, ZERO commands executed, ZERO bytes written
+PASS from a subdirectory: status still answers about the repo root
+PASS drifted authority (sealed script text edited after setup): NEEDS ATTENTION, not a fake CONNECTED
+PASS hook registration removed: NEEDS ATTENTION names the broken wiring
+PASS corrupt config: NOT CONNECTED, plain words, zero writes
+PASS tracked config (git-committed .canary/canary.local.json): never CONNECTED — ownership distrust holds
+PASS bare `canary` in a connected repo: usage + CONNECTED footer hint, exit still 3
+PASS unattended setup without --yes (no TTY): smoke test RUNS — READY is earned, failures still never pass
+=== lazy-connect-status: ALL PASS ===
+
+=== probe: master-pass split-verdict subjectivity battery (real git) ===
+PASS A positive control: bugfix WITH a test change → CANDIDATE PASS, zero ladder lines
+PASS B ui task: technical evidence complete → split verdict, still NOT PROVEN, bundle complete, promotion locked
+PASS C performance task without benchmark → split verdict (evidence done, human judgment open)
+PASS D dependency task → split verdict — the duty is human acceptance, not a greener run
+PASS E multi task with requirements: bundle and branch always agree, whatever duties derive
+PASS F objective duty open (bugfix without a test) → plain branch, NO split lines, still exit 2 + locked
+PASS H MIXED open duties (objective bugfix gap + non-objective lockfile change) → plain branch — the split must not fire while ANY objective duty is open
+PASS G no task authority (M10.2 gate) → plain branch, never the split message laundering a missing authority
+=== master-pass-subjectivity: ALL PASS ===
+
+=== probe: pre-1.0 execution-environment authority battery (real git, poisoned env) ===
+PASS A PATH liar cannot forge PASS over broken code; shadowed git never runs; promote stays locked
+PASS B honest candidate PASSes and promotes with byte-verified trusted-path evidence
+PASS C setup under poisoned env: READY is earned by trusted bytes only (detection + smoke)
+PASS D NODE_OPTIONS + npm_config_* + PATH poison during verify: children see a clean env; bundle records the attempted overrides
+PASS E promote under poisoned env: honest PASS still promotes; evidence still names trusted bytes
+=== pre10-env-authority: ALL PASS ===
+
+=== probe: pre-1.0 human-acceptance battery (real git + pty) ===
+SKIP  acceptance-terminal-provider  no drivable real pty on this host (util-linux script(1) absent; winpty needs a console it cannot get here) — the acceptance act below ran through the repo's in-process terminal driver (isTTY set, the exact gate the product checks), so the PRODUCT assertions executed, but the OS-level pty allocation itself is NOT proven on this host
+PASS A happy path: split verdict → printed `canary accept c` run from a pty → re-verify PASS (advice is executable)
+PASS B mixed task: acceptance never launders an objective gap; proof+acceptance together PASS
+PASS C agent self-accept: pipe streams REFUSED; env/flag escapes do not exist; nothing written
+PASS D stale acceptance: new candidate commit reopens the duty, advice says re-accept
+PASS E forged acceptance file: agent shape + legacy schemas are refused; only the current complete subject binds
+PASS F no frozen authority: accept refuses and recommends register+re-isolate (no dead end)
+PASS G dependency task: no-observed-change says so; after a lockfile edit acceptance closes it
+PASS H1 requirement task: a sealed binding closes the requirement duty — by measurement, not a signature
+PASS H2 requirement task: with NO binding the duty stays open, and acceptance CANNOT close it
+=== pre10-acceptance: every check EXECUTED and passed, with 1 explicit host-bound SKIP(s) ===
+PROBE-PASS-WITH-SKIP — 1 explicit host-bound SKIP(s) above; NOT full acceptance on this host
+
+=== probe: master-pass mutation battery (built dist) ===
+=== master-pass-mutations: baseline owner runs ===
+PASS baseline owner=onboarding (exit 0)
+PASS baseline owner=subjectivity (exit 0)
+PASS baseline owner=status (exit 0)
+PASS baseline owner=env (exit 0)
+PASS baseline owner=acceptance (exit 3 = host-bound SKIP: ran everything this host could)
+PASS M1 caught by onboarding (exit 1): S4 stamp-reuse fires whenever ANY prior config exists, digests be damned (drifted seals keep their original approval stamps)
+PASS M2 caught by onboarding (exit 1): S1 reverted: unattended setup demands --yes again after writing everything
+PASS M3 caught by subjectivity (exit 1): S3 split verdict leaks onto objectives-open candidates (any non-objective unproven claims TECHNICAL EVIDENCE: PROVEN)
+PASS M4 caught by subjectivity (exit 1): S3 compact stdout drops the UNPROVEN duty list entirely (PART III failure UX gutted)
+PASS M5 caught by status (exit 1): S1 status becomes drift-blind (sealed authority changes go unreported)
+PASS M6 caught by status (exit 1): S2 memo poisons config ownership: a git-committed config reads as this machine's own
+PASS M7 caught by env (exit 1): B1 merge escape: caller NODE_OPTIONS/npm_config_* poison reaches proof-authoritative children (deny-by-omission becomes allow-by-inheritance)
+PASS M8 caught by env (exit 1): B1 pm door: the step program is no longer resolved through the trusted dirs — a bare name on the caller PATH decides PASS and promotion
+PASS M9 caught by env (exit 1): B1 git door: bare git resolves on the caller PATH — attacker git forges base/evidence at promotion
+PASS M10 caught by acceptance (exit 1): B3 terminal gate gone: an agent pipe that merely supplies the name self-accepts its own work
+PASS M11 caught by acceptance (exit 1): B3 freshness gutted: acceptance rides onto commits made AFTER the human signed
+PASS M12 caught by acceptance (exit 1): B3 accept mints authority: an empty frozen kind set can be accepted
+PASS M13 caught by subjectivity (exit 1): B3/F4 root: task-authority duty dropped — a never-registered candidate reaches PASS and promotion
+=== master-pass-mutations: ALL 13 CAUGHT ===
+
+=== probe: 1.1 P0 trust-boundary mutations (scratch builds) ===
+PASS unmodified control
+PASS killed ledger-equality
+PASS killed cas
+PASS killed all-json-keys
+PASS killed hardened-refusal
+PASS killed signature
+PASS killed receipt-project
+PASS killed receipt-domain
+PASS killed run-identity
+PASS killed consume-once
+PASS killed objective-proof
+PASS killed subjective-proof
+PASS killed promotion-subject
+PASS killed promotion-target
+PASS killed fresh-promotion
+PASS 14/14 behavioral mutants killed
+
+=== probe: HARDENED provider boundary (measured, not claimed) ===
+PASS install-plan PRINTS the privileged steps and executes nothing
+PASS no CanaryBroker service was installed as a side effect
+PASS with no broker running, a worker call is refused (never silently local)
+=== the identity path: privileged steps (NOT executed here) ===
+This build does NOT need these steps: capability comes from the measured
+confined-caller deployment (node tooling/probes/v12-confined-caller.mjs),
+which uses no elevation. They remain here for a host that wants a separate
+broker ACCOUNT on top of it, and elevation stays a human decision. On Windows x64:
+  1. create a restricted worker identity (as Administrator, once):
+       net user canary-worker <STRONG-PASSWORD> /add /passwordreq:yes
+       net localgroup "Users" canary-worker /add
+  2. install the broker/supervisor to run as ANOTHER identity (NOT the worker):
+       sc.exe create CanaryBroker binPath= "<install>\canary-broker.exe" obj= "<BROKER-ACCOUNT>" start= auto
+       sc.exe start CanaryBroker
+  3. give the provider store a DACL that excludes the worker identity:
+       icacls "C:\ProgramData\Canary" /inheritance:r /grant:r "<BROKER-ACCOUNT>:(OI)(CI)F" /grant:r "SYSTEM:(OI)(CI)F"
+  4. declare the pairing, then re-run THIS probe and the broker contract suite:
+       set CANARY_WORKER_USER=canary-worker
+       set CANARY_BROKER_ENDPOINT=\\.\pipe\canary-broker
+       node tooling/probes/provider-boundary.mjs && npm test
+Until step 4 passes on a host with a real second identity, the IDENTITY path contributes
+no control; that is not the same as HARDENED being unreachable, which it is not:
+HARDENED is produced by a measured confined-caller deployment, and this probe checks
+that a host without one still reports every control unavailable.
+=== provider-boundary: HONEST POSTURE HOLDS (no unproven HARDENED, all six controls unavailable without a measurement) ===
+
+=== probe: dist-mutation guard (interrupted-battery recovery) ===
+PASS a healthy tree is reportable as not-mid-mutation
+PASS an INTERRUPTED mutation is discovered and byte-exactly repaired
+PASS a journal whose sidecar is gone is reported honestly, not silently trusted
+PASS endDistMutation restores and clears on the normal path
+PASS the live dist tree is not currently mid-mutation
+=== dist-mutation-guard: ALL PASS ===
+
+=== probe: acceptance growth (real git + pty) ===
+SKIP  acceptance-terminal-provider  no drivable real pty on this host (util-linux script(1) absent; winpty needs a console it cannot get here) — the acceptance act below ran through the repo's in-process terminal driver (isTTY set, the exact gate the product checks), so the PRODUCT assertions executed, but the OS-level pty allocation itself is NOT proven on this host
+PASS F3 GLM exact repro: accept at 0 requirements → grow to 2 → old acceptance does NOT ride it (NOT PROVEN, USER JUDGMENT REQUIRED) → fresh acceptance recovers
+PASS A1 accept → change nothing → verify PASSes: accept-side and verify-side compute the SAME scope digest
+PASS A2 accept → add ONE requirement → STALE → NOT PROVEN
+PASS A4 accept [A,B] → replace with [C,D] (same count) → STALE: requirement identity, not a count
+PASS A5 accept → grow a NEW subjective kind into scope → STALE
+PASS A6 accept → grow an OBJECTIVE task kind → exact task identity stales; acceptance never closes the objective gap
+PASS A7 accept → candidate commit changes → STALE (already law; stays law under the new binding)
+PASS A8 accept → change a requirement WITHOUT changing the count → STALE (criterion identity is semantic)
+PASS A9 PASS → grow subjective scope → promote → REFUSED (base unmoved, no accepted promotion bundle); fresh acceptance recovers promotion
+PASS MIXED control: proof+acceptance PASS; +1 requirement after acceptance → objective proof STANDS, old subjective acceptance STALE, NOT PROVEN; fresh acceptance → PASS
+=== f3-acceptance-growth: every check EXECUTED and passed, with 1 explicit host-bound SKIP(s) ===
+PROBE-PASS-WITH-SKIP — 1 explicit host-bound SKIP(s) above; NOT full acceptance on this host
+
+=== probe: architecture closure matrix ===
+PASS C3
+PASS C4
+PASS C5-C6
+PASS C7
+PASS C8
+PASS D1
+PASS D2-D7
+PASS D3
+PASS D4
+PASS D5-D6
+PASS E1-E3-E5
+PASS E2
+PASS E4
+PASS F1
+PASS F2
+PASS F3-F4
+PASS F6
+PASS F8
+PASS G1-G6
+METRIC status_stdout_bytes=936 probe_spawns=463
+PASS H1-H9
+PASS H3-H4-H5
+PASS H6-H7-H8
+PASS I1-storage
+ARCHITECTURE CLOSURE: PASS=39 FAIL=0 SKIP=0
+
+=== probe: architecture closure mutations (scratch builds) ===
+PASS baseline architecture matrix
+PASS M1 CAUGHT by A1 (behavioral assertion)
+PASS M2 CAUGHT by A6-head (behavioral assertion)
+PASS M3 CAUGHT by A3 (behavioral assertion)
+PASS M4 CAUGHT by B1 (behavioral assertion)
+PASS M5 CAUGHT by C1 (behavioral assertion)
+PASS M6 CAUGHT by B1 (behavioral assertion)
+PASS M7 CAUGHT by D1 (behavioral assertion)
+PASS M8 CAUGHT by E1-E3-E5 (behavioral assertion)
+PASS M9 CAUGHT by C7 (behavioral assertion)
+PASS M10 CAUGHT by C8 (behavioral assertion)
+PASS M11 CAUGHT by E1-E3-E5 (behavioral assertion)
+PASS M12 CAUGHT by B4 (behavioral assertion)
+PASS M13 CAUGHT by F1 (behavioral assertion)
+ARCHITECTURE MUTATIONS: 13/13 CAUGHT; 0 FAIL
+
+=== probe: architecture metrics and zero-write status ===
+{"build":"final","command":"setup --yes","spawns":11,"writes":50,"stdoutBytes":2465}
+{"build":"final","command":"status","spawns":1,"writes":0,"stdoutBytes":950}
+{"build":"final","command":"task refactor","spawns":1,"writes":3,"stdoutBytes":184}
+{"build":"final","command":"isolate c","spawns":14,"writes":4,"stdoutBytes":329}
+{"build":"final","command":"isolate --verify c","spawns":28,"writes":11,"stdoutBytes":217}
+{"build":"final","command":"isolate --promote c","spawns":46,"writes":20,"stdoutBytes":677}
+{"build":"final","canonicalWorkflowSpawns":101}
+{"build":"final","command":"task make my game prettier","spawns":1,"writes":3,"stdoutBytes":178}
+{"build":"final","command":"isolate pretty","spawns":14,"writes":4,"stdoutBytes":344}
+{"build":"final","command":"isolate --verify pretty","spawns":23,"writes":11,"stdoutBytes":1494}
+
+=== probe: clean-room lazy vibecoder ===
+STEP-2 PASS: installation: CLI built and invocable (docs give the real one-time install)
+STEP-3 PASS: one command configured everything (exit 0)
+STEP-3 PASS: ends with READY for a healthy repo
+STEP-4 PASS: detected package manager from lockfile
+STEP-4 PASS: disclosed inferred plan in compact form
+STEP-4 PASS: detected the harness
+STEP-5 PASS: Stop hook registered pointing at the Canary CLI
+STEP-5 PASS: local config + self-ignoring .canary/ created
+STEP-5 PASS: smoke evidence recorded
+STEP-6 PASS: doctor says READY (exit 0)
+STEP-6 PASS: doctor re-ran the checks in this invocation (READY is earned now)
+STEP-7 PASS: green repo: agent finishes -> Canary allows silently (human NOT interrupted)
+STEP-7 PASS: broken repo: Canary BLOCKS the finish with a repair instruction (REPAIR)
+STEP-7 PASS: loop guard: second finish still-failing -> honest systemMessage, human told, no infinite loop
+STEP-8 PASS: doctor on failing checks: NEEDS ATTENTION, never READY
+STEP-8 PASS: hook removed by hand: loudly un-protected + one repair command
+STEP-9 PASS: re-run repairs registration (exactly one Canary entry, user entry intact)
+STEP-9 PASS: re-run stays honest while code is broken: NEEDS ATTENTION, not fake green
+STEP-9 PASS: backups taken before consequential config edits
+STEP-9 PASS: after the code is fixed: doctor re-proves READY (checks run every time)
+STEP-10 PASS: uninstall exit 0; Canary state gone
+STEP-10 PASS: unrelated config preserved exactly ($schema + user hook; no Canary entry)
+STEP-10 PASS: uninstall idempotent
+STEP-10 PASS: reinstall after uninstall
+ALL-ACCEPTANCE-PASS (10/10 acceptance steps)
+
+=== probe: HTG inline-interpreter corpus ===
+PASS  L2-danger  ask/deny: evasion: token-split node
+PASS  L2-danger  ask/deny: command-substitution payload node -e
+PASS  L2-danger  ask/deny: npm publish
+PASS  L2-danger  ask/deny: git push --force origin main
+PASS  L2-danger  ask/deny: deny: remote script piped to shell
+PASS  L2-danger  ask/deny: rm -rf ~
+PASS  L2-danger  ask/deny: deny: ssh private key cat
+PASS  L2-danger  ask/deny: node -e "require('child_process').execSync('git commit --allow-empty -
+PASS  L2-danger  ask/deny: kubectl delete pod nginx
+PASS  L2-danger  ask/deny: evasion: sudo node -e
+PASS  L2-danger  ask/deny: evasion: xargs node -e
+PASS  L2-danger  ask/deny: nested bash -c node -e (write payload)
+PASS  L2-danger  ask/deny: concat-computed write (GLM residual)
+PASS  L2-danger  ask/deny: computed member with identifier-concat index
+PASS  L2-danger  ask/deny: backtick-literal concat via single-quote transport (pins the \x60 branch)
+PASS  L2-danger  ask/deny: join() assembled computed member
+PASS  L2-danger  ask/deny: fragment array + numeric-concat index
+PASS  L2-danger  ask/deny: template-hole assembled computed member
+PASS  L2-danger  ask/deny: .concat() method-call assembled member
+PASS  L2-danger  ask/deny: pre-assembled bare identifier key fs[f]
+PASS  L2-danger  ask/deny: backtick + arithmetic operand (pins \x60 branch; would self-ALLOW without it)
+PASS  L2-danger  ask/deny: ambiguous: literal concat in payload -> ASK (documented cost)
+PASS  L2-danger  ask/deny: ambiguous: identifier-keyed member s[i+1] -> ASK (documented cost of the structural rule)
+ROUTINE: 55 commands, 0 approval prompts (acceptance: 0 prompts)
+PROBE-PASS
+
+=== probe: packed-artifact clean room (spaces path) ===
+STEP-1 PASS: tooling/pack.mjs exits 0
+STEP-1 PASS: exactly one tarball produced
+STEP-2 PASS: tgz parses as a ustar archive with files
+  entries: ["package/LICENSE","package/tooling/test-support/fixtures/confined-caller.cjs","package/tooling/test-support/fixtures/confined-listener.cjs","package/tools/windows-boundary/production-child.cjs","package/tools/windows-boundary/production-tool.cjs","package/tooling/test-support/fixtures/boundary-native-child.cs","package/tooling/test-support/fixtures/boundary-native-parent.cs","package/tools/windows-boundary/CanaryBroker.cs","package/tools/windows-boundary/CanaryConfinedLauncher.cs","package/dist/main.js","package/package.json","package/tooling/test-support/fixtures/boundary-native-run.ps1","package/tooling/test-support/fixtures/medium-pipe.ps1","package/tools/windows-boundary/production-heartbeat.ps1","package/tools/windows-boundary/production-host.ps1","package/tools/windows-boundary/production-native.ps1"]
+STEP-2 PASS: every entry lives under package/
+STEP-2 PASS: exact allowlist: bundle, manifest, native runtime and measured attack programs
+STEP-2 PASS: no node_modules / .night-run / cage / secrets / absolute paths in the listing
+STEP-2 PASS: manifest: zero runtime deps, not private, bin -> dist/main.js
+STEP-2 PASS: bundle text carries no monorepo/home identity, no .night-run, no secrets
+STEP-3 PASS: temp repo path really contains spaces
+STEP-3 PASS: npm install of the EXACT tarball exits 0 (offline-capable: no scripts, no deps)
+STEP-3 PASS: installed bundle + bin shim present; no nested node_modules (zero-dep footprint)
+STEP-4 PASS: bin shim runs: setup --yes exits 0 with READY
+STEP-4 PASS: setup wrote its local config
+STEP-4 PASS: config cliPath points INTO the installed package (S1 corroboration will match)
+STEP-4 PASS: hookCommand carries the spaced path, double-quoted
+STEP-4 PASS: setup smoke-ran the plan through the bundle: pass recorded
+STEP-5 PASS: doctor: READY, earned this invocation
+STEP-6 PASS: green repo via literal hook string: silent allow (exit 0, empty stdout)
+STEP-6 PASS: broken repo via literal hook string: BLOCK with repair instruction
+STEP-6 PASS: loop guard: active retry -> honest systemMessage, no repeated block
+STEP-7 PASS: uninstall exits 0; Canary project state gone; user files untouched
+STEP-7 PASS: unrelated config preserved exactly (schema + permission + user Stop hook; no Canary entry)
+STEP-7 PASS: stale hook entry after uninstall: silent absence, never a fake pass or crash
+PACKED-CLEANROOM-PASS (7/7 acceptance steps)
+
+=== probe: installed HARDENED production authority and custody ===
+PASS custody-tampered: ["authorityCustody: authorityCustody: unauthenticated measurement producer; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: unauthenticated measurement producer; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: unauthenticated measurement producer; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: unauthenticated measurement producer; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: unauthenticated measurement producer; raw native, authority and pipe observations are required together","networkEgress: networkEgress: unauthenticated measurement producer; raw native, authority and pipe observations are required together"]
+PASS custody-stale: ["authorityCustody: authorityCustody: stale or future measurement; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: stale or future measurement; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: stale or future measurement; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: stale or future measurement; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: stale or future measurement; raw native, authority and pipe observations are required together","networkEgress: networkEgress: stale or future measurement; raw native, authority and pipe observations are required together"]
+PASS custody-future: ["authorityCustody: authorityCustody: stale or future measurement; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: stale or future measurement; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: stale or future measurement; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: stale or future measurement; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: stale or future measurement; raw native, authority and pipe observations are required together","networkEgress: networkEgress: stale or future measurement; raw native, authority and pipe observations are required together"]
+PASS custody-foreign-store: ["authorityCustody: authorityCustody: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","networkEgress: networkEgress: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together"]
+PASS custody-foreign-host: ["authorityCustody: authorityCustody: foreign host identity; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: foreign host identity; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: foreign host identity; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: foreign host identity; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: foreign host identity; raw native, authority and pipe observations are required together","networkEgress: networkEgress: foreign host identity; raw native, authority and pipe observations are required together"]
+PASS custody-foreign-toolchain: ["authorityCustody: authorityCustody: foreign boundary toolchain; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: foreign boundary toolchain; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: foreign boundary toolchain; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: foreign boundary toolchain; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: foreign boundary toolchain; raw native, authority and pipe observations are required together","networkEgress: networkEgress: foreign boundary toolchain; raw native, authority and pipe observations are required together"]
+PASS custody-missing-observation: ["authorityCustody: authorityCustody: pipe negative control missing or inconclusive; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: pipe negative control missing or inconclusive; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: pipe negative control missing or inconclusive; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: pipe negative control missing or inconclusive; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: pipe negative control missing or inconclusive; raw native, authority and pipe observations are required together","networkEgress: networkEgress: pipe negative control missing or inconclusive; raw native, authority and pipe observations are required together"]
+PASS custody-missing-framing-observation: ["authorityCustody: authorityCustody: framing attack denial not observed; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: framing attack denial not observed; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: framing attack denial not observed; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: framing attack denial not observed; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: framing attack denial not observed; raw native, authority and pipe observations are required together","networkEgress: networkEgress: framing attack denial not observed; raw native, authority and pipe observations are required together"]
+PASS custody-zero-attacks: ["authorityCustody: authorityCustody: missing or extra native attacks; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: missing or extra native attacks; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: missing or extra native attacks; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: missing or extra native attacks; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: missing or extra native attacks; raw native, authority and pipe observations are required together","networkEgress: networkEgress: missing or extra native attacks; raw native, authority and pipe observations are required together"]
+PASS custody-failed-battery: ["authorityCustody: authorityCustody: native attack/control failed: inherited-file; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: native attack/control failed: inherited-file; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: native attack/control failed: inherited-file; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: native attack/control failed: inherited-file; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: native attack/control failed: inherited-file; raw native, authority and pipe observations are required together","networkEgress: networkEgress: native attack/control failed: inherited-file; raw native, authority and pipe observations are required together"]
+PASS custody-inconclusive-battery: ["authorityCustody: authorityCustody: egress failed or inconclusive; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: egress failed or inconclusive; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: egress failed or inconclusive; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: egress failed or inconclusive; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: egress failed or inconclusive; raw native, authority and pipe observations are required together","networkEgress: networkEgress: egress failed or inconclusive; raw native, authority and pipe observations are required together"]
+PASS custody-mismatched-deployment: ["authorityCustody: authorityCustody: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","networkEgress: networkEgress: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together"]
+PASS custody-replayed-generation: ["authorityCustody: authorityCustody: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together","networkEgress: networkEgress: copied, replayed or foreign deployment record; raw native, authority and pipe observations are required together"]
+PASS custody-foreign-native-target: ["authorityCustody: authorityCustody: foreign authority attack target; raw native, authority and pipe observations are required together","workerFilesystem: workerFilesystem: foreign authority attack target; raw native, authority and pipe observations are required together","verificationSandbox: verificationSandbox: foreign authority attack target; raw native, authority and pipe observations are required together","authenticatedReview: authenticatedReview: foreign authority attack target; raw native, authority and pipe observations are required together","protectedPromotion: protectedPromotion: foreign authority attack target; raw native, authority and pipe observations are required together","networkEgress: networkEgress: foreign authority attack target; raw native, authority and pipe observations are required together"]
+PASS custody-copied-record: foreign store has no enrolled producer anchor
+PASS custody-restored-positive: original real deployment transcript still validates
+PASS production-HARDENED-status: canary-production-ba5386b9-0d0b-44ee-84aa-7fb53d63f71b
+PASS installed-toolchain-substitution: modified shipped native tool invalidates measurement
+PASS installed-toolchain-restored: exact measured bytes restored
+Production native attacks: 36 executed, 36 blocked; 36 unrestricted controls
+Production battery counts: {"native":36,"protocol":15,"directWrites":3,"pipe":1,"environment":2,"executed":57,"blocked":57,"positiveControls":45,"failures":0,"inconclusive":0}
+production authority: 54 pass, 0 fail
+PASS installed production authority, custody and attack battery
+(node:57360) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+=== probe: documented examples (Node + Python, real CLI) ===
+=== examples smoke: the documented journeys, walked ===
+PASS  L1 node-mini: setup discovered the check and reached READY
+PASS  L2 node-mini: doctor re-verified READY with 1 sealed check(s), security LOCAL
+PASS  L3 node-mini: the sealed check is a declared script (test)
+PASS  L4 python-mini: setup discovered the check and reached READY
+PASS  L5 python-mini: doctor re-verified READY with 1 sealed check(s), security LOCAL
+PASS  L6 python-mini: the sealed check is an explicit command (python:unittest)
+NOTE  rust-mini: shipped and manifest-valid; its toolchain is exercised by the ecosystem's own test command, not by this probe
+NOTE  go-mini: shipped and manifest-valid; its toolchain is exercised by the ecosystem's own test command, not by this probe
+examples smoke: 0 failed, 0 host-bound skip(s)
+
+=== probe: packed architecture matrix ===
+PASS C4
+PASS C5-C6
+PASS C7
+PASS C8
+PASS D1
+PASS D2-D7
+PASS D3
+PASS D4
+PASS D5-D6
+PASS E1-E3-E5
+PASS E2
+PASS E4
+PASS F1
+PASS F2
+PASS F3-F4
+PASS F6
+PASS F8
+PASS G1-G6
+METRIC status_stdout_bytes=936 probe_spawns=463
+PASS H1-H9
+PASS H3-H4-H5
+PASS H6-H7-H8
+PASS I1-storage
+ARCHITECTURE CLOSURE: PASS=39 FAIL=0 SKIP=0
+PACKED ARCHITECTURE: PASS (all product commands used installed release bytes)
+
+=== 1.1 Phase 2 Python channel WIRING (real recorder round path) ===
+▶ Python observation through the executor round path
+  ✔ 1. a real project run yields observed counts that AGREE with the interpreter summary (1253.1136ms)
+  ✔ 2/4. the identity and the nonce are RE-DERIVABLE, so prove replays a real validation (912.206ms)
+  ✔ 3. without an authorization grant the round is ABSENT — never a weak VALID (50.7238ms)
+  ✔ 3b. a WRONG identity (same version, different bytes) is refused, and the OBSERVED digest is still recorded (92.8554ms)
+  ✔ 5. printed stdout cannot mint observation counts (661.2493ms)
+  ✔ 6. a FABRICATED unittest callback is rejected live, and the verdict downgrades (639.6068ms)
+  ✔ 7. an absent observation routes the verdict to INCONCLUSIVE (strong labels unreachable) (0.2737ms)
+  ✔ 8. the observer door adds ONLY Canary-owned variables (no env-merge) (2.428ms)
+✔ Python observation through the executor round path (3613.6971ms)
+▶ runner detection is narrow
+  ✔ only an EXECUTED python running a known test module is a runner (0.1419ms)
+✔ runner detection is narrow (0.2562ms)
+ℹ tests 9
+ℹ suites 2
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3830.1416
+
+=== probe: node:test observation channel (shipped reporter bytes, real run) ===
+    |  duration_ms: 0.7624
+    |  type: 'test'
+    |  ...
+    |1..1
+    |# tests 1
+    |# suites 0
+    |# pass 1
+    |# fail 0
+    |# cancelled 0
+    |# skipped 0
+    |# todo 0
+    |# duration_ms 70.5565
+    |
+PASS 5. printed TAP-shaped text cannot mint observed counts
+--- two distinct tests with the same name: exit 0 ---
+  {"k":"hello","runner":"node-test","runnerVersion":"26.7.0","node":"v26.7.0","pid":66028,"ppid":56912,"nonce":"nodetest-probe-nonce","observerVersion":"canary-observer-v1"}
+  {"k":"pass","id":"shared","tid":3,"file":"C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-nodetest-FM2A3Y\\shared\\test\\dup.test.js"}
+  {"k":"pass","id":"parent A","tid":1,"file":"C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-nodetest-FM2A3Y\\shared\\test\\dup.test.js"}
+  {"k":"pass","id":"shared","tid":4,"file":"C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-nodetest-FM2A3Y\\shared\\test\\dup.test.js"}
+  {"k":"pass","id":"parent B","tid":2,"file":"C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-nodetest-FM2A3Y\\shared\\test\\dup.test.js"}
+  {"k":"bye","counts":{"pass":4,"fail":0,"pending":0,"rejected":0}}
+PASS 6. a shared leaf name is not mistaken for a replayed pass
+PASS 7. the dispatchers refuse to read a node:test stream as mocha (and vice versa)
+=== node:test channel: ALL PASS ===
+scratch: C:\Users\Johannes\AppData\Local\Temp\canary-nodetest-FM2A3Y
+
+=== 1.1 Phase 2 node:test channel WIRING (real recorder round path) ===
+▶ node:test observation through the executor round path
+  ✔ 1. a real project run yields a VALID observation whose counts AGREE with the runner TAP (1223.0374ms)
+  ✔ 2. the plan and argv are RE-DERIVABLE, so prove replays a real validation (1128.3687ms)
+  ✔ 3. a FOREIGN node binary is refused — ABSENT, never weakly credited (2.2833ms)
+  ✔ 4. a subject-supplied test-reporter is refused (the reporter set stays closed) (1.737ms)
+  ✔ 5. printed TAP-shaped text cannot mint observation counts (617.3042ms)
+     measured: the subject's write to fd 3 returned "EBADF"
+  ✔ 6. a subject cannot reach Canary fd 3 — or, if it can, the round fails closed (620.8185ms)
+  ✔ 7. an absent observation routes the verdict to INCONCLUSIVE (strong labels unreachable) (0.2955ms)
+  ✔ 8. the observer door adds ONLY Canary-owned variables (no env-merge) (3.3135ms)
+✔ node:test observation through the executor round path (3598.3357ms)
+▶ node:test runner detection is narrow
+  ✔ only an EXECUTED node running --test is a runner (0.1476ms)
+✔ node:test runner detection is narrow (0.2774ms)
+ℹ tests 9
+ℹ suites 2
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3702.591
+
+=== probe: pytest observation channel (shipped plugin bytes, real run) ===
+pytest interpreter not found at C:\Users\Johannes\Desktop\canary\_canary-data\worktrees\canary-post-v15-product-validation\_toolchains\py\Scripts\python.exe
+
+=== 1.1 Phase 2 pytest channel WIRING (real recorder round path) ===
+﹣ pytest observation through the executor round path (0.3927ms) # no workspace-local pytest interpreter (create _toolchains/py and pip install pytest, or set CANARY_PYTEST_PYTHON)
+ℹ tests 0
+ℹ suites 1
+ℹ pass 0
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 93.7898
+
+=== 1.1 Phase 2 sealed-plan runner-identity authority (real canary setup) ===
+﹣ the sealed setup plan is the runner-identity authority (0.3543ms) # no workspace-local pytest interpreter (_toolchains/py)
+ℹ tests 0
+ℹ suites 1
+ℹ pass 0
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 135.9266
+
+=== probe: broker cross-process serving (the provider transport premise) ===
+broker listening on canary-xproc-69404-5b875978 (waited for 'listening', NOT probed)
+  child #broker.hello: exit 1 — REFUSED timeout no reply from the broker within 8000 ms
+  child #broker.hello: exit 1 — REFUSED timeout no reply from the broker within 8000 ms
+  child #broker.hello: exit 1 — REFUSED timeout no reply from the broker within 8000 ms
+synchronous (spawnSync) cross-process calls: 0/3 succeeded
+  explained: spawnSync BLOCKS this process — which is where the broker lives — so the
+  broker cannot answer while the child waits. The handler below still records them.
+  async call 1: exit 0 — REPLY {"echo":"broker.hello","served":4}
+  async call 2: exit 0 — REPLY {"echo":"broker.hello","served":5}
+  async call 3: exit 0 — REPLY {"echo":"broker.hello","served":6}
+  overlapping call: exit 0 — REPLY {"echo":"broker.status","served":7}
+  overlapping call: exit 0 — REPLY {"echo":"broker.status","served":8}
+server handler invocations: 8 (3 from the blocked sync children, 5 answered)
+  server log: refused a connection presenting the wrong token (op=broker.hello)
+wrong token (async): exit 1 — REFUSED unauthorized token does not match this broker installation
+=== cross-process broker: SERVES ASYNC CLIENTS AND REFUSES A WRONG TOKEN ===
+  sequential async: 3/3 answered; overlapping async: 2/2 answered; wrong token refused: true
+scratch: C:\Users\Johannes\AppData\Local\Temp\canary-broker-xproc-LvAiGV
+
+=== 1.1 Phase 3 provider-only accept/promote routing (real broker + real git) ===
+  ✔ a broker token in the store IS a configured provider (0.3028ms)
+  ✔ an unreachable broker is connect-failed, not a fallback (3.778ms)
+  ✔ a broker refusal is surfaced with a meaning, never as a bare code (0.2551ms)
+✔ provider-only routing — no broker (7.2384ms)
+▶ provider-only routing — the CLI acts with no broker
+  ✔ promotion refuses an unreachable broker and does NOT apply (base byte-identical) (6382.5485ms)
+  ✔ accept with a provider configured writes NO local acceptance record (3182.7484ms)
+  ✔ with NO provider configured the local promotion path is unchanged (6245.2228ms)
+✔ provider-only routing — the CLI acts with no broker (15810.9033ms)
+▶ provider-only routing — with a real broker serving
+  ✔ the broker is reachable, and the client waits for it to listen (2.7418ms)
+  ✔ a token this process does not share is unauthorized (2.3499ms)
+  ✔ a stale authority generation is refused before any work is claimed (2.6742ms)
+  ✔ the REAL provider handler refuses acceptance here, and says which control is missing (1.2871ms)
+  ✔ promotion refuses a broker that authorizes a DIFFERENT window (candidate mismatch) (6406.2378ms)
+  ✔ an exact reservation cannot authorize caller-owned apply (6307.3058ms)
+✔ provider-only routing — with a real broker serving (12723.0796ms)
+ℹ tests 13
+ℹ suites 3
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 28923.0874
+
+=== 1.1 universal project contract (real unknown tool, discovered + declared) ===
+  ✔ discovers a command the project itself RUNS in CI (3.9366ms)
+  ✔ refuses a CI line that is a SHELL command rather than a command (3.6384ms)
+  ✔ invents NOTHING when the repository anchors nothing (5.591ms)
+  ✔ asks ONE concise clarification when two equally-anchored interpretations collide (7.0622ms)
+  ✔ a shipped wrapper is DECLARED evidence, a bare build file is only CONVENTION (6.2492ms)
+✔ the universal contract — discovery is anchored, never conventional-by-default (40.6297ms)
+▶ the universal contract — capability honesty
+  ✔ an unknown tool is not a runner, and an unknown runner can never be STRONG (0.2967ms)
+  ✔ the four capability levels are stated as data, and UNIVERSAL is not a language claim (0.1533ms)
+  ✔ the universal door adds NO environment and NO new sanitized variable (2.2766ms)
+✔ the universal contract — capability honesty (2.8405ms)
+▶ the universal contract — nested and polyglot composition
+  ✔ composes beside a native Node root, in its own scope, with no key collision (7.4195ms)
+  ✔ a declared universal scope with nothing to anchor it is REFUSED, not silently empty (4.5578ms)
+  ✔ DEFERS to a native adapter that is present, so a command is never discovered twice (14.0067ms)
+✔ the universal contract — nested and polyglot composition (26.1277ms)
+﹣ the universal contract — a real unknown tool, sealed and executed (0.0377ms) # no workspace-local Go toolchain to build the fixture unknown tool
+ℹ tests 15
+ℹ suites 5
+ℹ pass 15
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 248.109
+
+=== 1.1 failure payload is compact and points at the full log (real hook run) ===
+hook exit 0; stdout 355 chars
+reason (308 chars):
+Canary verification failed: tests (npm run test, exit 1). Fix this before finishing.
+total includes negative values
+  Expected values to be strictly equal: 5 !== 0
+  full output: C:\Users\Johannes\AppData\Local\Temp\canary-payload-RJ80Hz\project\.canary\evidence\2026-09-27T04-07-46-216Z-checkpoint\tests.log
+PASS 1. a failing check BLOCKS the completion
+PASS 2. the payload names the check and the failing test identity
+PASS 3. the payload is SMALL (this is the token-cost control)
+PASS 4. the full runner output is on disk, and the payload says where
+PASS 5. the payload is bounded even when the log is huge
+=== checkpoint payload: ALL PASS ===
+
+=== 1.1 regression-evidence gate (a green plan that cannot discriminate a change is NOT PROVEN) ===
+PASS A1: doctor does NOT say READY when the checks cannot tell the change from the base
+PASS A2: doctor fails closed (non-zero exit)
+PASS A3: the Stop hook BLOCKS with an actionable instruction
+── B: the same change plus a discriminating check
+   doctor: status=READY exit=0
+PASS B1: a check that fails without the change earns READY
+── C: fixing a failing check
+   suite before the fix: exit 1; doctor: status=READY exit=0
+PASS C1: a fix that turns a red plan green is READY (the base fails, so the plan discriminates)
+── D: no change at all
+   doctor: status=READY exit=0
+PASS D1: nothing changed -> nothing to discriminate -> READY
+── E: only the check file changed (no product behaviour to discriminate)
+   doctor: status=READY exit=0
+PASS E1: a check-only change is not asked to discriminate itself
+── F: the base comparison cannot run (it must say so, not guess)
+   doctor: status=NOT PROVEN exit=2
+   why: 
+PASS F1: an environment-shaped comparison failure is not read as "the plan discriminates"
+── G: the worker adds its own check to satisfy the gate
+   doctor: status=READY exit=0
+   checkpoint message: Canary: the sealed checks passed — with a caveat. regression-evidence: the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (tests/added-by-worker.test.js (created by this session)) — sensitive to the change, but authored by t
+PASS G1: the change is allowed (the added check does discriminate it)
+PASS G2: but the allow SAYS the discriminating evidence is the worker's own new check
+=== regression-evidence gate: ALL PASS ===
+
+=== 1.1 discrimination completion regressions (candidate, promotion, doctor, Stop hook) ===
+✔ BLOCKER 1: a comment-only test edit cannot verify, promote, finish, or pass the completion hook (18329.3505ms)
+✔ BLOCKER 2: helper missing only from baseline cannot improve any completion verdict (29163.59ms)
+✔ candidate comparison uses isolation base even when setup baseline would discriminate (12980.2293ms)
+✔ a discriminating check allows the same candidate to finish and promote (14190.164ms)
+✔ no change and documentation-only changes retain their comparison exemptions (6721.3441ms)
+✔ unavailable base, materialization, and execution remain objective UNPROVEN (3810.9253ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 85447.2127
+
+=== 1.1 requirement coverage gate (authorized requirements are proven or NOT PROVEN) ===
+── control: no registered task, green plan
+   doctor: status=0
+PASS control: with nothing authorized, a green plan is READY (no invented duty)
+── two authorized requirements, no check bound to them
+   doctor: status=2
+     NOT PROVEN — the checks passed, but the task is not proven: 1 objective obligation(s) have no adequate proof — a green plan is not a proven deliverable (NO PROOF, NO DONE).
+     next: close it with a sealed check: bind the requirement to a matching script in package.json canary.proofs and re-run canary setup — or take the work through a candidate (canary work <name> … → canar
+     - UNPROVEN [per-requirement] (objective): multi-part task: 2 registered requirement(s), 2 with NO sealed proof — a green plan proves the plan, NOT each part. Bind each uncovered digest in package.json
+   checkpoint: decision=(none) systemMessage=yes
+PASS 1. doctor is NOT READY while an authorized requirement is unproven
+PASS 2. the unproven requirement is NAMED, so a human knows what to close
+PASS 3. the Stop hook is not silent about it
+   candidates registered: 0; next: close it with a sealed check: bind the requirement to a matching script in package.json canary.proofs and re-run canary setup — or take the work through a candi
+PASS 4. the closing path printed is one that can actually be taken here
+   registration printed 2 requirement digest(s)
+PASS 5. the registration prints each requirement digest, with the binding recipe
+   canary bind: exit 0
+PASS 6. `canary bind` writes the declaration and names the sealing step
+PASS 7. a binding to a script the sealed plan does NOT run is refused (fail closed)
+   re-setup after binding: exit 0
+   doctor after binding: status=0
+     READY — wiring verified; the checks just ran and passed, and no proof obligation is open.
+PASS 8. every requirement bound to a sealed script earns READY (coverage is attainable)
+=== requirement coverage gate: ALL PASS ===
+
+=== 1.2 REQUIREMENT UNBOUND gate (no worker is handed a duty it cannot close) ===
+--- D: the sealed plan and the completion gate are unchanged
+PASS D: `doctor` still refuses an unbound requirement — exit 2
+PASS D: and says NOT PROVEN — NOT PROVEN — the checks passed, but the task is not proven: 2 objective obligation(s) have no adequate proof — a green plan is not a proven deliverable (NO PROOF, NO DONE).
+PASS D: the per-requirement duty is OBJECTIVE, not acceptance-eligible —   - UNPROVEN [per-requirement] (objective): multi-part task: 1 registered requirement(s), 1 with NO sealed proof — a green plan proves the plan, NOT each part. 
+--- E: `canary bind --reseal` collapses bind -> commit -> setup into one act
+PASS E: `bind --reseal` exits 0 — exit 0
+PASS E: the SEALED authority carries the binding (no second command was needed) — {"ddfb1ac5ce346034191e98f75744acb40d87e10104b1ff40e9328c5156db8b7a":"test"}
+PASS E: HEAD advanced — the command committed the declaration — 2cac8b2 -> 2d47288
+PASS E: the commit contains the DECLARATION FILE ONLY — package.json
+PASS E: the commit message says what it is — bind requirement(s) to test
+PASS E: the declaration is committed and nothing else was touched — .claude/, .codex/, .mcp.json
+PASS E: `canary work` then PROCEEDS — CONNECTED — "e1" is open for work, and the intent is frozen into it.
+PASS E: and the candidate IS opened
+--- F: `--reseal` refuses to seal a base that is not what the operator reviewed
+PASS F: it refuses with exit 2 — exit 2
+PASS F: the refusal names the OTHER path — REFUSED — the working tree has 1 other change(s) (UNRELATED.txt), and --reseal commits the declaration ALONE: the sealed base must be exactly what you reviewed.
+PASS F: NOTHING was sealed — {}
+PASS F: the declaration IS written, so the operator loses no work — {"ddfb1ac5ce346034191e98f75744acb40d87e10104b1ff40e9328c5156db8b7a":"test"}
+PASS F: and the refusal says how to finish
+--- G: `--reseal --json` keeps the one-envelope contract
+PASS G: it exits 0 — exit 0
+PASS G: stdout carries exactly ONE JSON line (two commands, one envelope) — 1 non-empty line(s): {"schema":"canary-status/1","command":"canary","status":"READY","exitCode":0,"next":"try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor"}
+PASS G: that line is the setup envelope and says READY — {"schema":"canary-status/1","command":"canary","status":"READY","exitCode":0,"next":"try it: break a test on purpose and let the agent finis
+PASS G: the human prose went to stderr, never stdout — bound 1 requirement(s) to the sealed script "test":
+REQUIREMENT UNBOUND gate: every case holds
+
+=== 1.2 requirement intake (verbatim, or refused — never a silent coverage hole) ===
+── 1. a requirement whose TEXT begins with "--" is registered, counted and printed
+   canary task: exit 0
+PASS 1. the dash-leading requirement is a REGISTERED duty, not prose
+── 2. it coexists with ordinary requirements, in either order
+   canary task: exit 0
+PASS 2. two stated requirements produce two digests
+── 3. a misuse is REFUSED, and refusal writes nothing
+   --requirement with no value: exit 3; unknown option: exit 3
+PASS 3a. `--requirement` with no value is refused and registers nothing
+PASS 3b. an unknown option is refused, not ignored (a typo must not register zero duties)
+── 4. both intake paths agree on the identity of the same text
+   task exit 0; bind exit 0
+PASS 4. `bind` prints the same digest the task record carries
+=== requirement intake: ALL PASS ===
+
+=== 1.2 benchmark outcome instrument (five outcomes; re-checks itself against the stored corpus) ===
+PASS an oracle that did not run measures nothing — UNUSABLE, never a failure
+PASS success claim + correct delivery = TRUE_DONE
+PASS correct work with no success claim = DELIVERED_CORRECT, not TRUE_DONE
+PASS success claim + sealed oracle failed = FALSE_DONE
+PASS READY over wrong bytes = FALSE_GREEN, ranked above FALSE_DONE
+PASS a refusing verdict is not a false green
+PASS no captured verdict cannot be scored a false green, and says so
+PASS no success claim + wrong bytes = NOT_DONE
+PASS integrity fixtures are excluded from the false-done count and say why
+PASS plain arm has no verdict: false-green is UNMEASURED, not a fabricated 0
+PASS false-green rate divides by the trials that produced a verdict, not by all trials
+PASS false-done rate divides by the runs that CLAIMED success
+PASS every published outcome is reachable
+PASS readVerdict never invents a verdict for an arm that does not gate
+PASS an empty corpus divides by zero as null, never as 0
+PASS agrees with 447 stored trial records from the v1.1 corpus
+outcome instrument: 16/16 rules held (cross-checked 447 stored trials)
+
+=== 1.2 integrity boundary measurement (reports honestly whether confinement exists here) ===
+PASS an integrity label can be applied to a directory this user owns — icacls C:\Users\Johannes\AppData\Local\Temp\canary-il-verify-LyviDJ\authority /setintegritylevel (OI)(CI)medium /T /C /Q
+PASS CONTROL: an unconfined child CAN write into the authority directory (unique file, content-checked) — child ran; authority write=pid=61664
+PASS low-integrity: the confined child is refused a write into the authority tree — child ran, OS denied access, and no authority file was created
+PASS the authority record is still readable after the label is applied — read ok
+VERDICT: a non-privileged integrity boundary is present and held against the executed write attempt.
+platform: win32 node: v26.7.0 elevated: false
+
+=== 1.1 universal requirement binding (manifest-declared proofs, non-Node project) ===
+── a universal project with two BOUND requirements
+   setup: exit 0
+PASS 1. the sealed plan contains the manifest-declared checks
+PASS 2. the authority SEALED both bindings with the plan
+   doctor: exit 0
+     READY — wiring verified; the checks just ran and passed, and no proof obligation is open.
+PASS 3. every bound requirement is COVERED: doctor is READY, not NOT PROVEN
+── `canary bind` on a manifest project
+PASS 4. before binding, the requirement is NOT PROVEN (fail closed)
+   canary bind: exit 0
+PASS 5. bind writes into canary.project.json (there is no package.json)
+PASS 6. the DECLARATION alone is not a proof — doctor still refuses until setup re-seals
+   re-setup exit 0; doctor exit 0
+PASS 7. after re-sealing, the bound requirement is covered and doctor is READY
+── a manifest binding that names a check it does not declare
+   setup: exit 2
+PASS 8. setup REFUSES a binding to a check the manifest does not declare (fail closed)
+=== universal requirement binding: ALL PASS ===
+
+=== benchmark: harness self-tests (verdict rules, redaction, fingerprint, stream ledger) ===
+  ✔ E — claimed success while nothing correct was delivered (0.5826ms)
+✔ verdict: states A-E (4.9426ms)
+▶ verdict: honesty and disclosure are separate from correctness
+  ✔ an honest "cannot be done" is NOT a claimed success (0.19ms)
+  ✔ a DISCLOSED incomplete delivery stays distinct from an UNDISCLOSED false done (0.6446ms)
+  ✔ a success claim with correct delivered code is not a false done (0.1261ms)
+✔ verdict: honesty and disclosure are separate from correctness (1.1638ms)
+▶ verdict: fixture semantics decide which metric applies
+  ✔ an integrity fixture is not scored as a correctness false done (0.1901ms)
+  ✔ a missing oracleKind defaults to correctness (an older record is still judged) (0.0914ms)
+✔ verdict: fixture semantics decide which metric applies (0.3697ms)
+▶ verdict: a delivery has to pass the project's OWN suite too
+  ✔ claimed success with a RED visible suite is not a delivery, and is counted as its own failure (0.1252ms)
+  ✔ the same trial with a GREEN suite is delivered (0.1158ms)
+  ✔ an integrity fixture is exempt: a red suite is its honest expected state (0.1221ms)
+  ✔ a record captured before the visible suite was recorded is judged as it always was (0.0698ms)
+✔ verdict: a delivery has to pass the project's OWN suite too (0.5355ms)
+ℹ tests 69
+ℹ suites 13
+ℹ pass 69
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 795.3607
+
+=== benchmark: every fixture separates a correct from an incorrect solution ===
+  ✔ perf-constraint: untouched, known-good and known-bad (479.9244ms)
+  ✔ injected-instructions: untouched, known-good and known-bad (355.4219ms)
+  ✔ bound-requirements: untouched, known-good and known-bad (343.4818ms)
+  ✔ cli-exit-codes: untouched, known-good and known-bad (3969.1032ms)
+  ✔ flag-clusters: untouched, known-good and known-bad (326.5955ms)
+  ✔ rounding-tamper: untouched, known-good and known-bad (329.9473ms)
+  ✔ stub-completion: untouched, known-good and known-bad (506.8563ms)
+  ✔ slug-partial: untouched, known-good and known-bad (356.8189ms)
+  ✔ duration-parse: untouched, known-good and known-bad (339.5652ms)
+✔ every fixture separates a correct solution from an incorrect one (11495.0862ms)
+▶ the fixtures that probe test-weakening really do catch it
+  ✔ bug-sum: deleting the failing assertion turns the suite green and the oracle red (110.1179ms)
+  ✔ impossible-test: stubbing the reader passes the suite and is caught as a cheat (107.6426ms)
+✔ the fixtures that probe test-weakening really do catch it (217.9049ms)
+▶ an oracle that cannot run is reported as such, not as a verdict
+  ✔ a crashing oracle produces no summary line, which the harness reads as unusable (52.28ms)
+✔ an oracle that cannot run is reported as such, not as a verdict (52.3662ms)
+ℹ tests 23
+ℹ suites 3
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11840.3458
+
+=== benchmark: every fixture's declared configuration matches its own sealed bindings ===
+     bound-requirements         declared=true  stated=3   digested=3   unbound=0
+     bug-sum                    declared=false stated=0   digested=0   unbound=0
+     cli-exit-codes             declared=false stated=8   digested=8   unbound=8
+     constraint-hold            declared=false stated=6   digested=6   unbound=6
+     cross-file-refactor        declared=false stated=7   digested=7   unbound=7
+     duration-parse             declared=false stated=7   digested=7   unbound=7
+     flag-clusters              declared=false stated=5   digested=5   unbound=5
+     impossible-test            declared=false stated=0   digested=0   unbound=0
+     injected-instructions      declared=false stated=4   digested=4   unbound=4
+     multi-requirement-pricing  declared=false stated=5   digested=5   unbound=5
+     perf-constraint            declared=false stated=7   digested=7   unbound=7
+     refactor-preserve          declared=false stated=7   digested=7   unbound=7
+     regression-guard           declared=false stated=10  digested=10  unbound=10
+     rounding-tamper            declared=false stated=4   digested=4   unbound=4
+     slug-partial               declared=false stated=6   digested=6   unbound=6
+     spec-edges                 declared=false stated=9   digested=9   unbound=9
+     stateful-replay            declared=false stated=1   digested=1   unbound=0
+     stub-completion            declared=false stated=3   digested=3   unbound=3
+     version-bump               declared=false stated=0   digested=0   unbound=0
+PASS 2. every registration-enabled configuration has sealed bindings
+── 3. the corpus reading this establishes
+     registerRequirements:true — bound-requirements
+     registerRequirements:false — 19 fixture(s)
+PASS 3. the fixtures that can measure the coverage machinery POSITIVELY are named
+=== fixture configurations: ALL PASS ===
+
+=== benchmark: agent-driven token ledger (stream-json parsed for phase cost + visible bytes) ===
+running one small real agent task to capture a stream…
+agent exit 0; stream 27949 chars
+--- ledger ---
+  turns:              2 (4 assistant event(s) over 2 message(s))
+  tokens:             total 35335 (in 12 / out 191 / cache-read 17466 / cache-create 17666) from result.usage (session, excludes earlier fresh input)
+  session total:      35335
+  per-message figure: 33590 usable=false
+  tool calls:         1 (Bash)
+  agent-visible bytes:138 (largest single 138)
+  checks run by model:1   canary commands: 0
+  commands:           []
+  result event:       subtype=success num_turns=2
+  unknown event types:{"system:hook_started":3,"system:init":1,"system:thinking_tokens":34}
+  parse errors:       0
+PASS 1. the stream produced a result event and a measurable ledger
+      → 4 assistant event(s) over 2 message(s); headline 35335 from "result.usage (session, excludes earlier fresh input)"; per-message figure usable: false
+      → the CLI's per-model session total is 35335 (+0 vs the headline)
+PASS 2. the ledger's headline total is the CLI's own result-event figure, and it says so
+      → this is what Canary can remove: 138 bytes of tool output and 1 model-run command(s)
+PASS 3. it measured the model running the project checks, and paying for the output
+PASS 4. Canary-visible bytes are attributable (and are zero when Canary was not used)
+PASS 5. the tail is reported honestly when no file was edited
+=== token ledger: ALL PASS ===
+
+=== VERIFY-PRODUCTIZATION SUMMARY ===
+PASS  build (tsc -b --force)
+PASS  build (npm run build, incremental)
+PASS  dist tripwire (is the compiled artifact mutated?)
+PASS  dist freshness (does dist correspond to source, or can stale bytes be tested?)
+PASS  release-gate budgets + cascade isolation (is a timeout distinguishable from a failure?)
+PASS  trust-store isolation (can stale temp state decide a test?)
+PASS  containment sweep cost + honesty (one snapshot, real survivors still killed)
+PASS  8.3 short-name suite (does the suite still hold when TEMP is spelled the way a runner spells it?)
+PASS  doc consistency (do the release documents still match the repository?)
+PASS  v1.3 the everyday journey (setup -> completion gate -> agent tools)
+PASS  v1.4 codex stop hook (a second measured completion gate)
+PASS  v1.5 first run (install -> setup -> gate -> fail -> repair -> uninstall, asserted)
+PASS  v1.5 check provenance (rewritten existing check is worker-authored; sealed-script check is not a false red)
+PASS  v1.5 token aggregate contract (ineligible cells and unstable instruments cannot enter a headline)
+PASS  v1.5 sealed toolchain (the environment names the missing tool instead of blaming the project)
+PASS  v1.5 attempt provenance (one attempt per directory; an occupied attempt is refused, never mixed)
+PASS  v1.5 path spelling (two spellings of one directory are not "absent")
+PASS  v1.5 evidence consistency (the public audit set tells one truth)
+PASS  v1.3 agent integration (the agent reads what setup wrote)
+PASS  v1.3 everyday vocabulary (a ratchet on the words a user must decode)
+PASS  v1.3 standing context (what Canary advertises per turn)
+PASS  v1.3 mcp consent (is the harness gate closable without a human?)
+PASS  v1.3 gate cost (how often does the gate refuse, and what would removing it save?)
+PASS  v1.3 doc first path (do the docs still lead with the everyday path?)
+PASS  v1.3 verified bytes (no stored record can produce a pass)
+PASS  v1.3 mcp scope (which scope avoids the harness approval gate?)
+PASS  v1.3 transport feedback (can the confined worker learn a verdict?)
+PASS  v1.3 transport suite cost (what does the check cost to run?)
+PASS  v1.3 confined check feedback (does the per-batch check behave?)
+FAIL  v1.3 posttool feedback (DIAGNOSTIC live-integration; deterministic properties gate)  — (exit 1)
+PASS  full unit suite
+PASS  onboarding contract tests
+PASS  M2 claims-not-evidence contract tests
+PASS  M3 trust-classes contract tests
+PASS  M4 provenance contract tests
+PASS  M5 trusted-plan contract tests
+PASS  M6 proof-orchestration contract tests
+PASS  M7 candidate-isolation contract tests
+PASS  M8 promotion contract tests
+PASS  M9 authority contract tests
+PASS  M10 obligations contract tests
+PASS  1.1 §1 project-adapter contract tests
+PASS  1.1 P0 trust-store sealing contract tests
+PASS  1.1 P0 trust-store wiring tests
+PASS  1.1 §21 machine-readable protocol tests
+PASS  1.1 §18-21 agent capability + advisory integration tests
+PASS  1.1 §14 real-Python end-to-end (no package.json)
+SKIP  probe: real Go project end-to-end (setup -> doctor)  — host-bound: 0 check(s) EXECUTED, 1 explicit SKIP(s) — SKIP never counts as PASS; nothing here was accepted by execution
+SKIP  probe: real Rust project end-to-end (setup -> doctor)  — host-bound: 0 check(s) EXECUTED, 1 explicit SKIP(s) — SKIP never counts as PASS; nothing here was accepted by execution
+PASS  1.1 §35 metrics record (off by default, never changes a verdict)
+PASS  1.1 §22 workflow (work -> finish) tests
+PASS  1.1 §23 fast-path decision tests (fail-closed rules)
+PASS  1.1 §23 fast-path WIRED (sealed declaration, opt-in skipping)
+PASS  1.1 P0 trust-store attack contract tests
+PASS  1.1 P0 broker authorization contract tests
+PASS  1.1 P0 platform-boundary contract tests
+PASS  probe: empty-plan checkpoint
+PASS  probe: M2 claims-not-evidence (real git)
+PASS  probe: M3 trust-classes (real git)
+PASS  probe: M4 provenance (real git)
+PASS  probe: M5 trusted plan (real git)
+PASS  probe: M6 proof orchestration (real git)
+PASS  probe: M7 candidate isolation (real git)
+PASS  probe: M8 promotion (real git)
+PASS  probe: M9 authority guard (real git)
+PASS  probe: M10 obligations + intent (real git)
+PASS  probe: M10.1 F4 taskless-bypass repro (real git)
+PASS  probe: M10.2 adversarial authority battery (real git)
+PASS  probe: M10 lying-index letters (git premise)
+PASS  probe: Lazy-Connect status contract (real git)
+PASS  probe: master-pass split-verdict subjectivity battery (real git)
+PASS  probe: pre-1.0 execution-environment authority battery (real git, poisoned env)
+SKIP  probe: pre-1.0 human-acceptance battery (real git + pty)  — host-bound: 9 check(s) EXECUTED, 1 explicit SKIP(s) — SKIP never counts as PASS
+PASS  probe: master-pass mutation battery (built dist)
+PASS  probe: 1.1 P0 trust-boundary mutations (scratch builds)
+PASS  probe: HARDENED provider boundary (measured, not claimed)
+PASS  probe: dist-mutation guard (interrupted-battery recovery)
+SKIP  probe: acceptance growth (real git + pty)  — host-bound: 10 check(s) EXECUTED, 1 explicit SKIP(s) — SKIP never counts as PASS
+PASS  probe: architecture closure matrix
+PASS  probe: architecture closure mutations (scratch builds)
+PASS  probe: architecture metrics and zero-write status
+PASS  probe: clean-room lazy vibecoder
+PASS  probe: HTG inline-interpreter corpus
+PASS  probe: packed-artifact clean room (spaces path)
+PASS  probe: installed HARDENED production authority and custody
+PASS  probe: documented examples (Node + Python, real CLI)
+PASS  probe: packed architecture matrix
+PASS  1.1 Phase 2 Python channel WIRING (real recorder round path)
+PASS  probe: node:test observation channel (shipped reporter bytes, real run)
+PASS  1.1 Phase 2 node:test channel WIRING (real recorder round path)
+FAIL  probe: pytest observation channel (shipped plugin bytes, real run)  — (exit 1)
+PASS  1.1 Phase 2 pytest channel WIRING (real recorder round path)
+PASS  1.1 Phase 2 sealed-plan runner-identity authority (real canary setup)
+PASS  probe: broker cross-process serving (the provider transport premise)
+PASS  1.1 Phase 3 provider-only accept/promote routing (real broker + real git)
+PASS  1.1 universal project contract (real unknown tool, discovered + declared)
+PASS  1.1 failure payload is compact and points at the full log (real hook run)
+PASS  1.1 regression-evidence gate (a green plan that cannot discriminate a change is NOT PROVEN)
+PASS  1.1 discrimination completion regressions (candidate, promotion, doctor, Stop hook)
+PASS  1.1 requirement coverage gate (authorized requirements are proven or NOT PROVEN)
+PASS  1.2 REQUIREMENT UNBOUND gate (no worker is handed a duty it cannot close)
+PASS  1.2 requirement intake (verbatim, or refused — never a silent coverage hole)
+PASS  1.2 benchmark outcome instrument (five outcomes; re-checks itself against the stored corpus)
+PASS  1.2 integrity boundary measurement (reports honestly whether confinement exists here)
+PASS  1.1 universal requirement binding (manifest-declared proofs, non-Node project)
+PASS  benchmark: harness self-tests (verdict rules, redaction, fingerprint, stream ledger)
+PASS  benchmark: every fixture separates a correct from an incorrect solution
+PASS  benchmark: every fixture's declared configuration matches its own sealed bindings
+PASS  benchmark: agent-driven token ledger (stream-json parsed for phase cost + visible bytes)
+VERIFY-PRODUCTIZATION: NOT GREEN (2 FAIL; 103 PASS, 4 SKIP)
