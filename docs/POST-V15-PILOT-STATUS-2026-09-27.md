@@ -48,3 +48,7 @@ Alibaba's [budget-management documentation](https://help.aliyun.com/en/model-stu
 These checks validate the task baselines, positive controls, package identity, and local setup. They do not measure natural agent mistakes, whether Canary's hook triggers during actual agent work, helpful or unnecessary blocks, repair turns, manual intervention, elapsed time, token overhead, or value for money. The product's efficacy rating therefore stays unchanged; this result is not grounds to raise the earlier 6/10 product score.
 
 Before the twelve-session comparison can start, configure a dedicated provider endpoint/key permitted for automated Claude Code calls and a verified provider-side auto-stop no higher than the authorized $30 total (in the provider's billing currency). Keep the existing per-session CLI cap at or below $2.50, then verify that native per-session usage and provider billing are both captured. Do not send API secrets through chat; the local settings can be updated on the host.
+
+## Nachtrag vom 2026-09-28
+
+Ein lokaler Ollama-Probeversuch erfüllte die Modell- und Abrechnungsvoraussetzungen nicht: Claude Code meldete unrecognized_model und provider=firstParty mit costUSD=0.01325, während Ollama das lokale Modell als geladen auswies. Antwortquelle und tatsächliche Abbuchung bleiben unbekannt. Der Lauf ist ungültig, zählt nicht zum Pilot; Ollama wurde beendet. Siehe [Versuchsprotokoll](session-evidence/codex-pilot-20260927/ollama-smoke-invalid-2026-09-28.md).
