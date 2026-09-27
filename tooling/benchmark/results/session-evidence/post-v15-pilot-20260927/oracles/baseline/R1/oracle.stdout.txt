@@ -1,0 +1,11 @@
+
+ RUN  v3.2.7 C:/Users/Johannes/AppData/Local/Temp/canary-v15-pilot-baseline-oracles-20260927/R1
+
+ × failure-ids.oracle.test.ts > distinguishes parametrized pytest ids across the delta and preserves repr stability 5ms
+   → expected [] to deeply equal [ 'tests/test_x.py::test_p[a - c]' ]
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  17:30:43
+   Duration  812ms (transform 272ms, setup 0ms, collect 252ms, tests 5ms, environment 0ms, prepare 214ms)
+

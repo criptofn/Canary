@@ -18,11 +18,15 @@ const taskRoot = path.join(worktree, 'tooling/benchmark/results/session-evidence
 const taskRunner = path.join(worktree, 'tooling/probes/v15-release-validation-task.mjs');
 const labels = {
   H1: { base: '7d0eb49c46d83184638fa093b44a15222feb8c51', candidate: 'e6ed172dc22861b90487b3392b859542d53f8d30', task: 'H1-maxagedays-zero.md' },
-  H2: { base: '4f35b9c51d787b3a2f05c91a2ae0c8377a2b5840', candidate: '9bf544223ac7fabecd533a2b9c4af35b764efc08', task: 'H2-invoice-classification.md' },
+  H2: { base: '7d0eb49c46d83184638fa093b44a15222feb8c51', candidate: '9bf544223ac7fabecd533a2b9c4af35b764efc08', task: 'H2-invoice-classification.md' },
   H3: { base: '7d0eb49c46d83184638fa093b44a15222feb8c51', candidate: '560307cedbb2efc33104799fcfb42ee62ffa3824', task: 'H3-quantize-bits-validation.md' },
-  H5: { base: '4f35b9c51d787b3a2f05c91a2ae0c8377a2b5840', candidate: '21696b29dec8b514d66367095549d504c06160b6', task: 'H5-simulation-cases.md' },
+  H5: { base: '7d0eb49c46d83184638fa093b44a15222feb8c51', candidate: '21696b29dec8b514d66367095549d504c06160b6', task: 'H5-simulation-cases.md' },
   R1: { base: '1fe40d8505bbb0cac703c976401c17213abf1e9d', candidate: 'd906039823003ce78b089b377d732e7d3aab1702', task: 'R1-pytest-id-collision.md' },
   S1: { base: '4255fa14049b479b479be1148df20bf0d097926c', candidate: '1663020d827895019b79e5c1b0b59972feaaff83', task: 'S1-idlookup-ambiguity.md' },
+};
+const scratchSources = {
+  H1: 'hermes-agent', H2: 'hermes-agent', H3: 'hermes-agent', H5: 'hermes-agent',
+  R1: 'refactron', S1: 'schniedelsmp',
 };
 const python = 'C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\python311';
 const gradleBin = 'C:\\Users\\Johannes\\.gradle\\wrapper\\dists\\gradle-8.13-bin\\5xuhj0ry160q40clulazy9h7d\\gradle-8.13\\bin';
@@ -50,7 +54,7 @@ function gitOut(repo, ...args) {
 function makeShallowRepo(label, arm) {
   const target = path.join(outRoot, 'projects', label, arm);
   fs.mkdirSync(target, { recursive: true });
-  const originlessSource = path.join(scratchRoot, label);
+  const originlessSource = path.join(scratchRoot, scratchSources[label]);
   const baseline = labels[label].base;
   let r = run('git', ['init', '--initial-branch=pilot-base', target], worktree, 60_000);
   if (r.status !== 0) throw new Error(`git init ${target}: ${r.stdout}${r.stderr}`);

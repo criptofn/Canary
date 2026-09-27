@@ -1,0 +1,4 @@
+[pilot-base b02e5d5] Canary validation setup baseline R1
+ 3 files changed, 40 insertions(+)
+ create mode 100644 .codex/hooks.json
+ create mode 100644 .mcp.json

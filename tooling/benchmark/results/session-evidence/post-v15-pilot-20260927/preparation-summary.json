@@ -1,0 +1,311 @@
+{
+  "schema": "canary-post-v15-pilot-preparation/1",
+  "probe": "tooling/probes/v15-pilot-prepare.mjs",
+  "probeSha256": "019b7a92e81851e20d86480dd371b506779d97411f092ab2f9b6eb140444e24d",
+  "taskRunnerSha256": "1f9e6291c8cd24565e701bc74b90025d0dc8a7f75e2b0342b3040dc3448b3703",
+  "cliPath": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-post-v15-improved-install-20260927\\node_modules\\@canary-rn\\cli\\dist\\main.js",
+  "cliVersion": "canary 1.5.0",
+  "cliSha256": "ba741bbeaa5d513b50e96385b999c7b0cf82392f9ae85e5f046f45f360e4ed7a",
+  "artifactSha256": "8243f3fc0c1f15fd5ec9977ba4ba240af5aeea1a4ff4d2c3027dd89fac8caf25",
+  "scratchRoot": "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch",
+  "outRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927",
+  "timeoutMs": 1800000,
+  "model": "qwen3.8-flash",
+  "modelCli": "Claude Code CLI",
+  "records": [
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H1\\plain",
+        "baseCommit": "7d0eb49c46d83184638fa093b44a15222feb8c51",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "7d0eb49c46d83184638fa093b44a15222feb8c51"
+        ]
+      },
+      "label": "H1",
+      "arm": "plain",
+      "phase": "plain",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H1\\plain",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\H1",
+      "status": "complete",
+      "setupCommit": null,
+      "canaryVerdict": null,
+      "toolchainDirectories": [],
+      "stdout": "PASS plain-tests: exit 0\n--- H1/plain: complete; Canary verdict null; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\H1",
+      "setupLocalConfigSha256": null
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H1\\canary",
+        "baseCommit": "7d0eb49c46d83184638fa093b44a15222feb8c51",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "7d0eb49c46d83184638fa093b44a15222feb8c51"
+        ]
+      },
+      "label": "H1",
+      "arm": "canary",
+      "phase": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H1\\canary",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\H1",
+      "status": "complete",
+      "setupCommit": "a6c0782031db9ded952c8055d84423c81e081213",
+      "canaryVerdict": "READY",
+      "toolchainDirectories": [],
+      "stdout": "PASS plain-tests: exit 0\nPASS canary-setup: exit 0\nPASS git-config-user: exit 0\nPASS git-config-email: exit 0\nPASS git-add-setup: exit 0\nPASS git-commit-setup: exit 0\nPASS canary-doctor-baseline: exit 0\n--- H1/baseline: complete; Canary verdict READY; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\H1",
+      "setupLocalConfigSha256": "20f4616329ad8708562f167d00de76259b6954edabefa3d0e8b8262a5c6ccd25"
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H2\\plain",
+        "baseCommit": "7d0eb49c46d83184638fa093b44a15222feb8c51",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "7d0eb49c46d83184638fa093b44a15222feb8c51"
+        ]
+      },
+      "label": "H2",
+      "arm": "plain",
+      "phase": "plain",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H2\\plain",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\H2",
+      "status": "complete",
+      "setupCommit": null,
+      "canaryVerdict": null,
+      "toolchainDirectories": [],
+      "stdout": "PASS plain-tests: exit 0\n--- H2/plain: complete; Canary verdict null; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\H2",
+      "setupLocalConfigSha256": null
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H2\\canary",
+        "baseCommit": "7d0eb49c46d83184638fa093b44a15222feb8c51",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "7d0eb49c46d83184638fa093b44a15222feb8c51"
+        ]
+      },
+      "label": "H2",
+      "arm": "canary",
+      "phase": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H2\\canary",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\H2",
+      "status": "complete",
+      "setupCommit": "9be0142f3708a0c5fbc240c4ebee7a979d74a6ab",
+      "canaryVerdict": "READY",
+      "toolchainDirectories": [],
+      "stdout": "PASS plain-tests: exit 0\nPASS canary-setup: exit 0\nPASS git-config-user: exit 0\nPASS git-config-email: exit 0\nPASS git-add-setup: exit 0\nPASS git-commit-setup: exit 0\nPASS canary-doctor-baseline: exit 0\n--- H2/baseline: complete; Canary verdict READY; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\H2",
+      "setupLocalConfigSha256": "f812c40355ae224518ceaeb2ea1f860bf67313d34e2b738d333e36b9767a3dca"
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H3\\plain",
+        "baseCommit": "7d0eb49c46d83184638fa093b44a15222feb8c51",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "7d0eb49c46d83184638fa093b44a15222feb8c51"
+        ]
+      },
+      "label": "H3",
+      "arm": "plain",
+      "phase": "plain",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H3\\plain",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\H3",
+      "status": "complete",
+      "setupCommit": null,
+      "canaryVerdict": null,
+      "toolchainDirectories": [],
+      "stdout": "PASS plain-tests: exit 0\n--- H3/plain: complete; Canary verdict null; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\H3",
+      "setupLocalConfigSha256": null
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H3\\canary",
+        "baseCommit": "7d0eb49c46d83184638fa093b44a15222feb8c51",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "7d0eb49c46d83184638fa093b44a15222feb8c51"
+        ]
+      },
+      "label": "H3",
+      "arm": "canary",
+      "phase": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H3\\canary",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\H3",
+      "status": "complete",
+      "setupCommit": "985b05d8bad4f6d4ab034e677695b2d8ae5f8644",
+      "canaryVerdict": "READY",
+      "toolchainDirectories": [],
+      "stdout": "PASS plain-tests: exit 0\nPASS canary-setup: exit 0\nPASS git-config-user: exit 0\nPASS git-config-email: exit 0\nPASS git-add-setup: exit 0\nPASS git-commit-setup: exit 0\nPASS canary-doctor-baseline: exit 0\n--- H3/baseline: complete; Canary verdict READY; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\H3",
+      "setupLocalConfigSha256": "c129898e494f220b03c9719fa7f5281b520951c2e10fb9db5f3b078662751f05"
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H5\\plain",
+        "baseCommit": "7d0eb49c46d83184638fa093b44a15222feb8c51",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "7d0eb49c46d83184638fa093b44a15222feb8c51"
+        ]
+      },
+      "label": "H5",
+      "arm": "plain",
+      "phase": "plain",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H5\\plain",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\H5",
+      "status": "complete",
+      "setupCommit": null,
+      "canaryVerdict": null,
+      "toolchainDirectories": [],
+      "stdout": "PASS plain-tests: exit 0\n--- H5/plain: complete; Canary verdict null; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\H5",
+      "setupLocalConfigSha256": null
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H5\\canary",
+        "baseCommit": "7d0eb49c46d83184638fa093b44a15222feb8c51",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "7d0eb49c46d83184638fa093b44a15222feb8c51"
+        ]
+      },
+      "label": "H5",
+      "arm": "canary",
+      "phase": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H5\\canary",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\H5",
+      "status": "complete",
+      "setupCommit": "3e7b1e634034ecb96f61bb477373c785bcd5a588",
+      "canaryVerdict": "READY",
+      "toolchainDirectories": [],
+      "stdout": "PASS plain-tests: exit 0\nPASS canary-setup: exit 0\nPASS git-config-user: exit 0\nPASS git-config-email: exit 0\nPASS git-add-setup: exit 0\nPASS git-commit-setup: exit 0\nPASS canary-doctor-baseline: exit 0\n--- H5/baseline: complete; Canary verdict READY; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\H5",
+      "setupLocalConfigSha256": "51c48e3113efb42e9d52addafa9c5902666c5c212b3d9f3aa6321600d778b0ae"
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\R1\\plain",
+        "baseCommit": "1fe40d8505bbb0cac703c976401c17213abf1e9d",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "1fe40d8505bbb0cac703c976401c17213abf1e9d"
+        ]
+      },
+      "label": "R1",
+      "arm": "plain",
+      "phase": "plain",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\R1\\plain",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\R1",
+      "status": "complete",
+      "setupCommit": null,
+      "canaryVerdict": null,
+      "toolchainDirectories": [
+        "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\python311",
+        "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\python311\\Scripts",
+        "C:\\Program Files\\Git\\cmd",
+        "C:\\Program Files\\Git\\usr\\bin"
+      ],
+      "stdout": "PASS dependency-install: exit 0\nPASS plain-prerequisite-build: exit 0\nPASS plain-typecheck: exit 0\nPASS plain-tests: exit 0\nPASS plain-build: exit 0\n--- R1/plain: complete; Canary verdict null; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\R1",
+      "setupLocalConfigSha256": null
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\R1\\canary",
+        "baseCommit": "1fe40d8505bbb0cac703c976401c17213abf1e9d",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "1fe40d8505bbb0cac703c976401c17213abf1e9d"
+        ]
+      },
+      "label": "R1",
+      "arm": "canary",
+      "phase": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\R1\\canary",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\R1",
+      "status": "complete",
+      "setupCommit": "b02e5d5054567a339de5b2ad239c0a73890fc5a5",
+      "canaryVerdict": "READY",
+      "toolchainDirectories": [
+        "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\python311",
+        "C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch\\python311\\Scripts",
+        "C:\\Program Files\\Git\\cmd",
+        "C:\\Program Files\\Git\\usr\\bin"
+      ],
+      "stdout": "PASS dependency-install: exit 0\nPASS baseline-prerequisite-build: exit 0\nPASS plain-typecheck: exit 0\nPASS plain-tests: exit 0\nPASS plain-build: exit 0\nPASS canary-setup: exit 0\nPASS git-config-user: exit 0\nPASS git-config-email: exit 0\nPASS git-add-setup: exit 0\nPASS git-commit-setup: exit 0\nPASS canary-doctor-baseline: exit 0\n--- R1/baseline: complete; Canary verdict READY; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\R1",
+      "setupLocalConfigSha256": "0b84db173ed6ae20058876cfb0b9988e175f227f92b894d939a4fad5ef3c199d"
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\S1\\plain",
+        "baseCommit": "4255fa14049b479b479be1148df20bf0d097926c",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "4255fa14049b479b479be1148df20bf0d097926c"
+        ]
+      },
+      "label": "S1",
+      "arm": "plain",
+      "phase": "plain",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\S1\\plain",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\S1",
+      "status": "complete",
+      "setupCommit": null,
+      "canaryVerdict": null,
+      "toolchainDirectories": [
+        "C:\\Users\\Johannes\\.gradle\\wrapper\\dists\\gradle-8.13-bin\\5xuhj0ry160q40clulazy9h7d\\gradle-8.13\\bin",
+        "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.101-hotspot\\bin"
+      ],
+      "stdout": "PASS plain-tests: exit 0\n--- S1/plain: complete; Canary verdict null; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\plain\\S1",
+      "setupLocalConfigSha256": null
+    },
+    {
+      "source": {
+        "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\S1\\canary",
+        "baseCommit": "4255fa14049b479b479be1148df20bf0d097926c",
+        "clean": true,
+        "shallow": true,
+        "remotes": [],
+        "visibleHistory": [
+          "4255fa14049b479b479be1148df20bf0d097926c"
+        ]
+      },
+      "label": "S1",
+      "arm": "canary",
+      "phase": "baseline",
+      "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\S1\\canary",
+      "output": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\S1",
+      "status": "complete",
+      "setupCommit": "8178c9f600abff825149af151a5d4751558c5971",
+      "canaryVerdict": "READY",
+      "toolchainDirectories": [
+        "C:\\Users\\Johannes\\.gradle\\wrapper\\dists\\gradle-8.13-bin\\5xuhj0ry160q40clulazy9h7d\\gradle-8.13\\bin",
+        "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.101-hotspot\\bin"
+      ],
+      "stdout": "PASS plain-tests: exit 0\nPASS canary-setup: exit 0\nPASS git-config-user: exit 0\nPASS git-config-email: exit 0\nPASS git-add-setup: exit 0\nPASS git-commit-setup: exit 0\nPASS canary-doctor-baseline: exit 0\n--- S1/baseline: complete; Canary verdict READY; record C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\preflight\\canary\\S1",
+      "setupLocalConfigSha256": "b6f70c61157186371df0ea2a512dcf57781b1b95e3fe1b94b90752fe2c23e216"
+    }
+  ],
+  "finishedAt": "2026-09-27T15:28:41.500Z",
+  "status": "complete"
+}

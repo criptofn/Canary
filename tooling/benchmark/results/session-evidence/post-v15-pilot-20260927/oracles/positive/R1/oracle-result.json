@@ -1,0 +1,51 @@
+{
+  "schema": "canary-validation-oracle/1",
+  "label": "R1",
+  "expected": "pass",
+  "probe": "tooling/probes/v15-validation-oracle.mjs",
+  "probeSha256": "798b702c9d92462075a5757905e1ada3c700e396119e756e27aadb15a09d825b",
+  "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\projects\\R1",
+  "runtimeRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\R1\\plain",
+  "startingHead": "5c115516cc462580df0f2f459a87d3a82ca31c66",
+  "startedAt": "2026-09-27T15:34:01.920Z",
+  "sourceFiles": [
+    {
+      "path": "src/verify/failure-ids.ts",
+      "exists": true,
+      "sha256": "795eb4a6508aaa939163581ee10cedc939f3adb18d8c2530de74afe519143641"
+    },
+    {
+      "path": "src/verify/summarize-vitest.ts",
+      "exists": true,
+      "sha256": "7df79a56d3c2dd107001e8acbca9b8cf90c98f10e505f3a3b4859f8b93fcc3c4"
+    }
+  ],
+  "finishedAt": "2026-09-27T15:34:04.053Z",
+  "command": {
+    "executable": "C:\\Program Files\\nodejs\\node.exe",
+    "args": [
+      "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\R1\\plain\\node_modules\\vitest\\vitest.mjs",
+      "run",
+      "--root",
+      "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\oracle-fixed\\R1",
+      "--reporter=verbose",
+      "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\oracle-fixed\\R1\\failure-ids.oracle.test.ts"
+    ],
+    "cwd": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\R1\\plain"
+  },
+  "generatedArtifacts": [
+    "failure-ids.oracle.test.ts"
+  ],
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "spawnError": null,
+  "compileExitCode": null,
+  "runtimeExitCode": null,
+  "testPassed": true,
+  "expectedFailureObserved": false,
+  "metExpected": true,
+  "status": "complete",
+  "stdoutSha256": "7b166b809104586fc223a2e50445f2c55abf6fbe53d81c367eead4192a77d215",
+  "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

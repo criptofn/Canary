@@ -1,0 +1,19 @@
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  failure-ids.oracle.test.ts > distinguishes parametrized pytest ids across the delta and preserves repr stability
+AssertionError: expected [] to deeply equal [ 'tests/test_x.py::test_p[a - c]' ]
+
+- Expected
++ Received
+
+- [
+-   "tests/test_x.py::test_p[a - c]",
+- ]
++ []
+
+ ❯ failure-ids.oracle.test.ts:3:389
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

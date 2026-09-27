@@ -1,0 +1,18 @@
+{
+  "schema": "canary-validation-oracle/1",
+  "label": "H3",
+  "expected": "pass",
+  "probe": "tooling/probes/v15-validation-oracle.mjs",
+  "probeSha256": "798b702c9d92462075a5757905e1ada3c700e396119e756e27aadb15a09d825b",
+  "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\projects\\H3",
+  "runtimeRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\projects\\H3",
+  "startingHead": "8a5ccd4bcfc00a98eacd84fdf2b603f0d2e381a1",
+  "startedAt": "2026-09-27T15:33:58.079Z",
+  "sourceFiles": [
+    {
+      "path": "src/agent/matrixNormCore.js",
+      "exists": true,
+      "sha256": "3c5f3f51ece2d8d5ce09d14f5a0d712adb2468a620015e5b7049462aba70d5be"
+    }
+  ]
+}

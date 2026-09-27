@@ -1,0 +1,71 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   'Beleg.doc': 'documents',
+-   'Beleg.doc': 'invoices',
+    'README.md': 'documents',
++   'Rechnung.txt': 'documents',
+-   'Rechnung.txt': 'invoices',
+    'app.js': 'code',
+    'archive.zip': 'archives',
+    'data.csv': 'code',
++   'invoice.md': 'documents',
+-   'invoice.md': 'invoices',
+    'invoice.pdf': 'invoices',
+    'mystery.xyz': 'other',
+    'notes.txt': 'documents',
+    'photo.png': 'images',
+    'receipt.docx': 'invoices',
+    'receipt.xlsx': 'invoices',
+    'summary.docx': 'documents',
++   'tax-report.pptx': 'documents'
+-   'tax-report.pptx': 'invoices'
+  }
+
+    at file:///C:/Users/Johannes/AppData/Local/Temp/canary-v15-pilot-baseline-oracles-20260927/H2/oracle.mjs:7:414 {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: {
+    'app.js': 'code',
+    'archive.zip': 'archives',
+    'Beleg.doc': 'documents',
+    'data.csv': 'code',
+    'invoice.md': 'documents',
+    'invoice.pdf': 'invoices',
+    'mystery.xyz': 'other',
+    'notes.txt': 'documents',
+    'photo.png': 'images',
+    'README.md': 'documents',
+    'receipt.docx': 'invoices',
+    'receipt.xlsx': 'invoices',
+    'Rechnung.txt': 'documents',
+    'summary.docx': 'documents',
+    'tax-report.pptx': 'documents'
+  },
+  expected: {
+    'Rechnung.txt': 'invoices',
+    'invoice.md': 'invoices',
+    'Beleg.doc': 'invoices',
+    'tax-report.pptx': 'invoices',
+    'invoice.pdf': 'invoices',
+    'receipt.docx': 'invoices',
+    'receipt.xlsx': 'invoices',
+    'notes.txt': 'documents',
+    'README.md': 'documents',
+    'summary.docx': 'documents',
+    'photo.png': 'images',
+    'app.js': 'code',
+    'data.csv': 'code',
+    'archive.zip': 'archives',
+    'mystery.xyz': 'other'
+  },
+  operator: 'deepStrictEqual',
+  diff: 'simple'
+}
+
+Node.js v26.7.0

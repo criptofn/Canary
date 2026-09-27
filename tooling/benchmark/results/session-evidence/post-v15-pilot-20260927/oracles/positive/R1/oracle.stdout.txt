@@ -1,0 +1,10 @@
+
+ RUN  v3.2.7 C:/Users/Johannes/AppData/Local/Temp/canary-v15-pilot-positive-controls-20260927/oracle-fixed/R1
+
+ ✓ failure-ids.oracle.test.ts > distinguishes parametrized pytest ids across the delta and preserves repr stability 2ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:34:02
+   Duration  1.46s (transform 134ms, setup 0ms, collect 117ms, tests 2ms, environment 0ms, prepare 484ms)
+

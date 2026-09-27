@@ -1,0 +1,26 @@
+repo: C:\Users\Johannes\AppData\Local\Temp\canary-v15-pilot-preflight2-20260927\projects\S1\canary
+package manager: universal (gradle test [convention: a Gradle build file is present (its conventional test task; no wrapper is shipped and nothing states the command)])
+verification plan (from what this project already declares — Canary runs only your own checks; change them in their own files):
+  ✓ tests: C:\Users\Johannes\.gradle\wrapper\dists\gradle-8.13-bin\5xuhj0ry160q40clulazy9h7d\gradle-8.13\bin\gradle.bat test
+harness: Claude Code — hook installed into this project
+harness: OpenAI Codex CLI — Stop hook installed into this project (.codex/hooks.json) — Codex runs a project hook only after you review and trust it once (/hooks), so an untrusted hook gates nothing
+Claude Code will run Canary automatically when the agent finishes a turn here.
+MCP tools: everyday profile (4 everyday tools).
+OpenAI Codex CLI will run Canary when a turn ends here — the Stop hook is in .codex\hooks.json.
+  Codex will NOT run it until you review and trust it once: run `codex` in this project, then `/hooks`, and trust the Canary Stop hook. Until you do, a Codex completion is NOT gated.
+  What you are trusting is one command: `canary checkpoint` — it runs the project checks listed above, and on a failure it can only send the agent back once to repair it; it never edits your files, never widens a permission, and touches no other Codex setting.
+  Undo it any time with `canary uninstall` (it removes exactly Canary's own entries and keeps your own hooks).
+both harnesses are wired here: Claude Code gates completions as soon as this setup ends; Codex gates them once you trust the hook above.
+agent tools: registered in .mcp.json — your agent can now ask Canary whether it is done, instead of guessing. Your other MCP servers are untouched; `canary uninstall` removes exactly this entry.
+  scope: .mcp.json and the harness hook files are PROJECT files — commit them and a checkout/teammate gets them, and each person then runs `canary setup --yes` once so the recorded path matches where Canary is installed on their machine. Canary's own state is local to you: .canary/ (self-ignored) and this machine's trust store.
+  Claude Code asks you to approve a project's MCP server once — run `claude` there and approve it; until then the server is listed but its tools are not available.
+toolchain: 2 executable directories you authorized — appended AFTER Canary's own trusted directories, never your shell's PATH:
+  + C:\Users\Johannes\.gradle\wrapper\dists\gradle-8.13-bin\5xuhj0ry160q40clulazy9h7d\gradle-8.13\bin
+  + C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot\bin
+  the plan's own program is still pinned to an absolute path; these directories exist for what your check spawns itself. Revoke with: canary setup --clear-toolchain-dirs
+
+smoke test (running your own project scripts):
+✓ tests: C:\Users\Johannes\.gradle\wrapper\dists\gradle-8.13-bin\5xuhj0ry160q40clulazy9h7d\gradle-8.13\bin\gradle.bat test (exit 0)
+
+READY — Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.
+next: try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor
