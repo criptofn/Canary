@@ -2,6 +2,7 @@
   "Schema": "canary-post-v15-no-model-evidence/1",
   "CreatedAt": "2026-09-27T15:37:48.6274433Z",
   "ProductizationCompletedAt": "2026-09-27T17:17:08Z",
+  "ProviderReviewAt": "2026-09-27T18:47:11Z",
   "Worktree": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-product-progress",
   "ProductCommit": "1b6dc6aae514b7b26773915da314ccf338f73514",
   "ReleaseCommit": "6471ef6a74dd89ff11a7083fb9c54dca6c2b1334",
@@ -141,6 +142,18 @@
     },
     "PackageIdentityRechecked": true,
     "PackageSha256AfterVerification": "8243f3fc0c1f15fd5ec9977ba4ba240af5aeea1a4ff4d2c3027dd89fac8caf25",
-    "InstalledCliSha256AfterVerification": "ba741bbeaa5d513b50e96385b999c7b0cf82392f9ae85e5f046f45f360e4ed7a"
+    "InstalledCliSha256AfterVerification": "ba741bbeaa5d513b50e96385b999c7b0cf82392f9ae85e5f046f45f360e4ed7a",
+    "ProviderReview": {
+      "ConfiguredEndpointHost": "token-plan.ap-southeast-1.maas.aliyuncs.com",
+      "ConfiguredModel": "qwen3.8-flash",
+      "TokenPlanAuthSettingPresent": true,
+      "CredentialValueRecorded": false,
+      "PayAsYouGoApiKeyInProcessEnvironment": false,
+      "NonInteractivePilotAllowed": false,
+      "BudgetManagerScope": "pay-as-you-go API charges only; monthly CNY budget",
+      "BudgetStopHasDocumentedDelay": true,
+      "BudgetManagerAloneIsStrictHardCap": false,
+      "Decision": "blocked-before-any-model-call"
+    }
   }
 }
