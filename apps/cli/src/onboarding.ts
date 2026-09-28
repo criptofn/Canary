@@ -69,7 +69,7 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // 1.1 §1 — the project model lives in project.js. onboarding re-exports the
 // names it used to own so every existing importer (candidate.ts, the contract
 // tests) compiles and behaves unchanged while the seam gains a second owner.
-import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, scopeDir, SCOPES_FILE, SCOPES_SCHEMA, sealPlanAuthority, sha256, stepArgv } from './project.js';
+import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, scopeDir, SCOPES_FILE, SCOPES_SCHEMA, sealPlanAuthority, sha256, stepArgv, stepKey } from './project.js';
 // v1.5 BLOCKER 6: the sealed toolchain (operator-authorized executable directories) and the
 // MEASURED decision of whether a failing check is the project's fault or Canary's own environment.
 import { attributeFailures, inventoryOperatorToolchain, npmScriptDirs, pathEntries, TOOLCHAIN_CANDIDATES, validateToolchainDir, type AttributeInput, type FailureAttribution, type ToolchainSeal } from './sealed-toolchain.js';
@@ -1771,12 +1771,29 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
   if (disc.basePassed === true) {
     let sealedTestHint = '';
     try {
-      const scripts = (JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
-      const step = cfg.plan.find((s) => s.kind === 'tests' && typeof s.script === 'string' && typeof scripts[s.script] === 'string'
-        && cfg.planAuthority?.scriptDigests?.[s.script] === sha256(scripts[s.script] as string));
-      if (step) sealedTestHint = ` The sealed test entry is package.json scripts.${step.script} = ${JSON.stringify((scripts[step.script] as string).slice(0, 160))}; a new test file counts only when this entry runs it.`;
-    } catch { /* non-Node projects retain the generic guidance */ }
-    const target = sealedTestHint ? 'that running suite' : 'a suite the sealed plan runs';
+      const authority = cfg.planAuthority;
+      if (authority?.planDigest === planDigest(cfg.plan)) {
+        for (const step of cfg.plan) {
+          if (step.kind !== 'tests' || typeof step.script !== 'string') continue;
+          const digest = authority.scriptDigests?.[stepKey(step)];
+          if (typeof digest !== 'string') continue;
+          if (step.argv !== undefined) {
+            const argv = assertStepArgv(step.argv);
+            if (digest !== sha256(JSON.stringify(argv))) continue;
+            sealedTestHint = ` The sealed test command is ${JSON.stringify(argv)} (entry ${JSON.stringify(step.script)}); a new test file counts only if this command runs it.`;
+            break;
+          }
+          const pkgPath = path.join(scopeDir(root, step), 'package.json');
+          const scripts = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
+          const text = scripts[step.script];
+          if (typeof text !== 'string' || digest !== sha256(text)) continue;
+          const displayPath = path.relative(root, pkgPath).replaceAll('\\', '/') || 'package.json';
+          sealedTestHint = ` The sealed test entry is ${displayPath} scripts.${step.script} = ${JSON.stringify(text.slice(0, 160))}; a new test file counts only when this entry runs it.`;
+          break;
+        }
+      }
+    } catch { /* malformed or unavailable sealed details retain the generic guidance */ }
+    const target = sealedTestHint ? 'that suite or command' : 'a suite the sealed plan runs';
     return {
       id: 'regression-evidence', mode: 'objective', status: 'unproven',
       note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more}): existing behaviour that must be preserved needs a check that FAILS without the change and passes with it.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a human can also accept the risk from an interactive terminal — a green plan alone does not close this`,

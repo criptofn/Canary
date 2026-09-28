@@ -19,6 +19,11 @@ function git(root: string, ...args: string[]): string {
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim();
 }
+function pythonRuns(): boolean {
+  const command = process.platform === 'win32' ? 'python.exe' : 'python';
+  const r = spawnSync(command, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 10_000 });
+  return r.status === 0;
+}
 function canary(root: string, ...args: string[]) {
   const r = spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
   return { code: r.status, out: r.stdout + r.stderr };
@@ -39,6 +44,19 @@ function fixture(name: string): string {
   git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);
   assert.equal(canary(root, 'setup', '--yes').code, 0);
   commit(root); assert.equal(canary(root, 'setup', '--yes').code, 0);
+  return root;
+}
+function pythonFixture(name: string): string {
+  const root = path.join(TMP, name);
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+  write(root, 'pyproject.toml', '[project]\nname = "sealed-command-guidance"\nversion = "0.1.0"\nrequires-python = ">=3.8"\n');
+  write(root, 'app.py', 'def value():\n    return 1\n');
+  write(root, 'tests/__init__.py', '');
+  write(root, 'tests/test_app.py', 'import unittest\nfrom app import value\n\nclass AppTests(unittest.TestCase):\n    def test_value(self):\n        self.assertEqual(value(), 1)\n');
+  git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);
+  const setup = canary(root, 'setup', '--yes');
+  assert.equal(setup.code, 0, setup.out);
   return root;
 }
 function work(root: string): string {
@@ -121,6 +139,28 @@ test('missing regression proof points to the sealed test entry, never a changed 
   const drift = hook(root);
   assert.equal(drift.decision, 'block');
   assert.doesNotMatch(drift.reason ?? '', /unsealed-check\.cjs/);
+});
+
+test('argv-based projects get the exact sealed test command in regression guidance', (t) => {
+  if (!pythonRuns()) { t.skip('no Python interpreter on PATH'); return; }
+  const root = pythonFixture('sealed-python-test-guidance');
+  const cfg = readConfig(root);
+  assert.ok(cfg && cfg !== 'corrupt');
+  const step = cfg.plan.find((candidate) => candidate.kind === 'tests');
+  assert.ok(step?.argv, 'the Python test step must use sealed argv');
+
+  write(root, 'app.py', '# harmless edit; behavior is still covered by the same test\ndef value():\n    return 1\n');
+  const result = hook(root);
+  assert.equal(result.decision, 'block');
+  assert.ok(result.reason?.includes(`The sealed test command is ${JSON.stringify(step.argv)} (entry ${JSON.stringify(step.script)})`), result.reason);
+  assert.match(result.reason ?? '', /a new test file counts only if this command runs it/);
+
+  const mutated = JSON.parse(fs.readFileSync(path.join(root, '.canary/canary.local.json'), 'utf8')) as typeof cfg;
+  mutated.plan[0]!.argv = ['python', '-c', 'print("unsealed")'];
+  write(root, '.canary/canary.local.json', JSON.stringify(mutated, null, 2));
+  const drift = hook(root);
+  assert.match(drift.reason ?? '', /verification authority changed/);
+  assert.doesNotMatch(drift.reason ?? '', /print\("unsealed"\)/);
 });
 
 test('doctor visibly labels worker-authored regression evidence as non-independent', () => {
