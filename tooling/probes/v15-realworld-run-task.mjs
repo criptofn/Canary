@@ -69,6 +69,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseCodexJsonl } from './v15-codex-jsonl.mjs';
+import { hasOllamaNativeUsageEvidence } from './v15-ollama-native-agent.mjs';
 
 const PROBE = 'tooling/probes/v15-realworld-run-task.mjs';
 const LAYOUT_VERSION = 1;
@@ -101,16 +103,36 @@ const pilotBudgetUsd = maxBudgetArg === null ? null : Number(maxBudgetArg);
 const extraPath = arg('extra-path', '');
 const agentCmd = arg('agent-cmd', 'claude');
 const agentExtraArgs = argAll('agent-arg');
+const agentProtocol = arg('agent-protocol', 'claude');
+const agentModel = arg('model');
+const agentEntryArg = arg('agent-entry');
+const agentEntry = agentEntryArg ? path.resolve(agentEntryArg) : null;
 if (!repo || !taskFile || !label || !outDir) {
-  console.error('usage: --repo <dir> --task-file <file> --label <id> --out <run root> --cli <installed main.js> --artifact-sha256 <published tgz SHA-256> [--attempt <id>] [--new-attempt] [--arm canary|plain] [--timeout-min N] [--extra-path <dirs>] [--agent-cmd <exe>] [--agent-arg <arg> ...]');
+  console.error('usage: --repo <dir> --task-file <file> --label <id> --out <run root> --cli <installed main.js> --artifact-sha256 <package tgz SHA-256> [--attempt <id>] [--new-attempt] [--arm canary|plain] [--agent-protocol claude|codex-local|ollama-native] [--model <model>] [--agent-entry <local runner>] [--timeout-min N] [--extra-path <dirs>] [--agent-cmd <exe>] [--agent-arg <arg> ...]');
   process.exit(2);
 }
 if (!Number.isFinite(timeoutMin) || timeoutMin <= 0 || timeoutMin > 30) {
   console.error('usage error: --timeout-min must be greater than zero and no greater than 30');
   process.exit(2);
 }
-if (maxBudgetArg !== null && (!Number.isFinite(pilotBudgetUsd) || pilotBudgetUsd <= 0 || pilotBudgetUsd > 2.5)) {
+if (agentProtocol === 'claude' && maxBudgetArg !== null && (!Number.isFinite(pilotBudgetUsd) || pilotBudgetUsd <= 0 || pilotBudgetUsd > 2.5)) {
   console.error('usage error: --max-budget-usd must be a finite positive number no greater than 2.50');
+  process.exit(2);
+}
+if (!['claude', 'codex-local', 'ollama-native'].includes(agentProtocol)) {
+  console.error('usage error: --agent-protocol must be claude, codex-local, or ollama-native');
+  process.exit(2);
+}
+if (agentProtocol === 'codex-local' && (!agentModel || agentExtraArgs.length < 1 || maxBudgetArg !== null)) {
+  console.error('usage error: Codex local requires --model and a Codex JS entry in --agent-arg; USD caps do not apply');
+  process.exit(2);
+}
+if (agentProtocol === 'codex-local' && agentExtraArgs.includes('--max-budget-usd')) {
+  console.error('usage error: Codex local does not accept Claude USD budget arguments');
+  process.exit(2);
+}
+if (agentProtocol === 'ollama-native' && (!agentModel || !agentEntry || !fs.statSync(agentEntry, { throwIfNoEntry: false })?.isFile() || maxBudgetArg !== null)) {
+  console.error('usage error: Ollama native requires --model and --agent-entry; USD caps do not apply');
   process.exit(2);
 }
 if (pilotBudgetUsd !== null && agentExtraArgs.includes('--max-budget-usd')) {
@@ -211,9 +233,12 @@ if (newAttempt && attemptArg === null) {
     console.log(`ATTEMPT: ${attemptId} (new) -> ${attemptDir}`);
   }
 }
-if (agentCmd !== 'claude') {
-  console.log(`WARNING: --agent-cmd ${JSON.stringify(agentCmd)} is not the real harness — this run is NOT real-world evidence.`);
-}
+const knownAgent = agentProtocol === 'codex-local'
+  ? path.basename(agentExtraArgs[0] ?? '').toLowerCase() === 'codex.js'
+  : agentProtocol === 'ollama-native'
+    ? path.basename(agentEntry ?? '').toLowerCase() === 'v15-ollama-native-agent.mjs'
+    : path.parse(agentCmd).name.toLowerCase() === 'claude';
+if (!knownAgent) console.log(`WARNING: --agent-cmd ${JSON.stringify(agentCmd)} is not the real harness — this run is NOT real-world evidence.`);
 
 // Every write is create-or-fail (`wx`): an existing byte anywhere in the attempt
 // directory is a refusal, not a truncation.
@@ -284,6 +309,10 @@ writeArtifact('attempt.json', `${JSON.stringify({
   repo,
   agentCommand,
   agentExtraArgs,
+  agentEntry,
+  agentEntrySha256: agentEntry ? sha256(fs.readFileSync(agentEntry)) : null,
+  agentProtocol,
+  agentModel,
   cliPath: CLI,
   cliVersion,
   cliSha256,
@@ -305,18 +334,32 @@ writeArtifact('git-before.json', `${JSON.stringify(before, null, 2)}\n`);
  * are recorded, VALUES are never written to any file this probe produces.
  */
 const forwardedKeys = [];
-const agentEnv = {
-  ...process.env,
-  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-};
-if (extraPath) agentEnv.PATH = `${extraPath};${process.env.PATH ?? ''}`;
-try {
-  const settings = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8'));
-  for (const [k, v] of Object.entries(settings.env ?? {})) {
-    if (typeof v !== 'string' || v === '') continue;
-    if (agentEnv[k] === undefined || agentEnv[k] === '') { agentEnv[k] = v; forwardedKeys.push(k); }
+const agentEnv = { ...process.env };
+if (agentProtocol === 'claude') agentEnv.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
+if (agentProtocol === 'codex-local' || agentProtocol === 'ollama-native') {
+  for (const key of Object.keys(agentEnv)) {
+    if (/(API[_-]?KEY|(?:^|_)TOKEN(?:_|$)|SECRET|PASSWORD|BEARER)/i.test(key)) delete agentEnv[key];
   }
-} catch { /* no user settings: the CLI's own environment is used as-is */ }
+  Object.assign(agentEnv, {
+    CODEX_OSS_BASE_URL: 'http://127.0.0.1:11434/v1',
+    NO_PROXY: '127.0.0.1,localhost',
+    no_proxy: '127.0.0.1,localhost',
+    HTTP_PROXY: '',
+    HTTPS_PROXY: '',
+    ALL_PROXY: '',
+    OLLAMA_API_URL: 'http://127.0.0.1:11434/api/chat',
+  });
+}
+if (extraPath) agentEnv.PATH = `${extraPath};${process.env.PATH ?? ''}`;
+if (agentProtocol === 'claude') {
+  try {
+    const settings = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8'));
+    for (const [k, v] of Object.entries(settings.env ?? {})) {
+      if (typeof v !== 'string' || v === '') continue;
+      if (agentEnv[k] === undefined || agentEnv[k] === '') { agentEnv[k] = v; forwardedKeys.push(k); }
+    }
+  } catch { /* no user settings: use the CLI's own environment */ }
+}
 console.log(`forwarded env keys: ${forwardedKeys.join(', ') || '(none)'}`);
 
 // ---------------------------------------------------------------- secret redaction
@@ -340,26 +383,65 @@ const armSuffix = arm === 'canary'
     'The project\'s checks are run for you, and if anything fails you will be told exactly what to fix,']
   : [''];
 const prompt = [taskText, ...armSuffix, '', 'Work in the current directory. When you are finished, state plainly whether everything works now, and list what you changed.'].join('\n');
+const promptPath = path.join(attemptDir, 'agent-prompt.txt');
+if (agentProtocol === 'ollama-native') writeArtifact('agent-prompt.txt', `${prompt}\n`);
 
 // ---------------------------------------------------------------- checkpoint state BEFORE
 const checkpointPath = path.join(repo, '.canary', 'last-checkpoint.json');
 const readCheckpointRaw = () => { try { return fs.readFileSync(checkpointPath, 'utf8'); } catch { return null; } };
 const checkpointBefore = readCheckpointRaw();
 const checkpointMtimeBefore = (() => { try { return fs.statSync(checkpointPath).mtimeMs; } catch { return null; } })();
+async function readOllamaRuntime() {
+  try {
+    const response = await fetch('http://127.0.0.1:11434/api/ps', { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) return { observedAt: nowIso(), error: 'HTTP ' + response.status, match: null };
+    const body = await response.json();
+    const match = (body.models ?? []).find((m) => m.name === agentModel || m.model === agentModel);
+    return { observedAt: nowIso(), match: match ? { name: match.name ?? match.model, digest: match.digest ?? null, size: match.size ?? null, contextLength: match.context_length ?? null, parameterSize: match.details?.parameter_size ?? null, quantizationLevel: match.details?.quantization_level ?? null } : null };
+  } catch (e) { return { observedAt: nowIso(), error: String(e?.message ?? e), match: null }; }
+}
+const usesOllama = agentProtocol === 'codex-local' || agentProtocol === 'ollama-native';
+const localModelRuntimeBefore = usesOllama ? await readOllamaRuntime() : null;
+
 
 // ---------------------------------------------------------------- run the agent
 const mcpConfig = path.join(repo, '.mcp.json');
-const args = [
-  ...agentExtraArgs,
-  ...(pilotBudgetUsd === null ? [] : ['--max-budget-usd', String(pilotBudgetUsd)]),
-  '-p', prompt,
-  '--output-format', 'stream-json', '--verbose',
-  '--permission-mode', 'acceptEdits',
-  '--strict-mcp-config',
-  '--setting-sources', 'project,local',
-  '--allowedTools', 'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
-];
-if (fs.existsSync(mcpConfig)) args.push('--mcp-config', mcpConfig);
+const args = agentProtocol === 'codex-local'
+  ? [
+      ...agentExtraArgs, '--ask-for-approval', 'never', '--disable', 'plugins',
+      '--config', 'mcp_servers.brave-search.enabled=false', '--config', 'mcp_servers.filesystem.enabled=false',
+      '--config', 'mcp_servers.github.enabled=false', '--config', 'mcp_servers.repowise.enabled=false',
+      '--config', 'mcp_servers.node_repl.enabled=false', '--config', 'mcp_servers.serena.enabled=false',
+      '--config', 'mcp_servers.context7.enabled=false', 'exec', '--oss', '--local-provider', 'ollama', '--model', agentModel,
+      '--json', '--ephemeral', '--sandbox', 'workspace-write',
+      '--config', 'model_reasoning_effort="low"', '--cd', repo, prompt,
+    ]
+  : agentProtocol === 'ollama-native'
+    ? [
+        agentEntry,
+        '--model', agentModel,
+        '--workspace', repo,
+        '--prompt-file', promptPath,
+        '--arm', arm,
+        '--max-requests', '24',
+        ...(arm === 'canary' ? [
+          '--canary-cli', CLI,
+          '--session-id', `ws5-${label}-${attemptId}`,
+          '--transcript-path', path.join(attemptDir, 'agent.session.jsonl'),
+        ] : []),
+      ]
+    : [
+      ...agentExtraArgs,
+      ...(pilotBudgetUsd === null ? [] : ['--max-budget-usd', String(pilotBudgetUsd)]),
+      '-p', prompt,
+      '--output-format', 'stream-json', '--verbose',
+      '--permission-mode', 'acceptEdits',
+      '--strict-mcp-config',
+      '--setting-sources', 'project,local',
+      '--allowedTools', 'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
+    ];
+if (agentProtocol === 'claude' && fs.existsSync(mcpConfig)) args.push('--mcp-config', mcpConfig);
+if (agentProtocol === 'ollama-native' && arm === 'canary') writeArtifact('agent.session.jsonl', '');
 
 /**
  * PIPES → WRITE STREAMS, NOT INHERITED FILE DESCRIPTORS.
@@ -395,6 +477,7 @@ const run = await new Promise((resolve) => {
 const wallSeconds = Math.round((Date.now() - t0) / 100) / 10;
 await new Promise((r) => { stdoutSink.end(); stderrSink.end(); r(); });
 await new Promise((r) => setTimeout(r, 250)); // let the sinks flush before reading
+const localModelRuntimeAfter = usesOllama ? await readOllamaRuntime() : null;
 
 const rawStream = fs.readFileSync(stdoutPath, 'utf8');
 const rawErr = fs.readFileSync(stderrPath, 'utf8');
@@ -402,19 +485,29 @@ writeArtifact('agent.stream.jsonl', redact(rawStream));
 writeArtifact('agent.stderr.txt', redact(rawErr));
 
 // ---------------------------------------------------------------- parse the stream
+let parsedCodex = null;
 const events = [];
 let parseErrors = 0;
-for (const line of rawStream.split(/\r?\n/)) {
-  if (!line.trim()) continue;
-  try { events.push(JSON.parse(line)); } catch { parseErrors++; }
+if (agentProtocol === 'codex-local') {
+  parsedCodex = parseCodexJsonl(rawStream, agentModel);
+  events.push(...parsedCodex.events);
+  parseErrors = parsedCodex.parseErrors;
+} else {
+  for (const line of rawStream.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try { events.push(JSON.parse(line)); } catch { parseErrors++; }
+  }
 }
 const resultEvents = events.filter((e) => e.type === 'result');
-const result = resultEvents.length ? resultEvents[resultEvents.length - 1] : null;
-const assistantEvents = events.filter((e) => e.type === 'assistant');
-const model = (() => {
+const result = parsedCodex?.result ?? (resultEvents.length ? resultEvents[resultEvents.length - 1] : null);
+const assistantEvents = parsedCodex
+  ? parsedCodex.agentMessages.map((text) => ({ message: { model: agentModel, text } }))
+  : events.filter((e) => e.type === 'assistant');
+const model = parsedCodex ? (localModelRuntimeAfter?.match?.name ?? null) : (() => {
   for (const e of assistantEvents) { const m = e.message?.model; if (m) return m; }
   return null;
 })();
+const agentWarnings = parsedCodex?.warnings ?? [];
 const streamText = rawStream;
 const sawStopHookFeedback = /Stop hook feedback/i.test(streamText);
 const sawCanaryBlockText = /Canary blocked completion/i.test(streamText);
@@ -427,6 +520,7 @@ const sawStopGuardMessage = /after one repair attempt|stopping anyway/i.test(str
  */
 const usage = result?.usage ?? null;
 const nativeCostUsd = result?.total_cost_usd ?? null;
+const localCheckpointEvents = result?.manual_checkpoints ?? [];
 const agentSessionOutcome = (() => {
   if (run.spawnError) return 'spawn_error';
   if (run.timedOut) return 'timed_out';
@@ -438,7 +532,8 @@ const agentSessionOutcome = (() => {
 })();
 const ledger = {
   layout: LAYOUT_VERSION, attemptId, runRoot, attemptDir,
-  label, arm, repo, agentCommand, startedAt, wallSeconds,
+  label, arm, repo, agentCommand, agentProtocol, agentModel, agentWarnings, startedAt, wallSeconds,
+  localModelRuntime: usesOllama ? { before: localModelRuntimeBefore, after: localModelRuntimeAfter } : null,
   canary: { path: CLI, version: cliVersion, binarySha256: cliSha256, artifactSha256: artifactSha256.toLowerCase() },
   agentExitCode: run.code ?? null, spawnError: run.spawnError ?? null, timedOut: run.timedOut === true,
   agentSessionOutcome,
@@ -454,10 +549,11 @@ const ledger = {
   usage,
   totalCostUsdProvider: nativeCostUsd,
   perSessionBudgetUsd: pilotBudgetUsd,
-  costWithinSessionBudget: pilotBudgetUsd === null || (Number.isFinite(nativeCostUsd) && nativeCostUsd <= pilotBudgetUsd),
+  costWithinSessionBudget: pilotBudgetUsd === null ? null : (Number.isFinite(nativeCostUsd) && nativeCostUsd <= pilotBudgetUsd),
   sawStopHookFeedback, sawCanaryBlockText, sawCanarySystemMessage, sawStopGuardMessage,
   forwardedEnvKeys: forwardedKeys,
   assistantEvents: assistantEvents.length,
+  agentWarnings,
 };
 writeArtifact('ledger.json', `${JSON.stringify(ledger, null, 2)}\n`);
 
@@ -468,11 +564,18 @@ writeArtifact('ledger.json', `${JSON.stringify(ledger, null, 2)}\n`);
 // ---------------------------------------------------------------- checkpoint state AFTER
 const checkpointAfter = readCheckpointRaw();
 const checkpointMtimeAfter = (() => { try { return fs.statSync(checkpointPath).mtimeMs; } catch { return null; } })();
-const hookFiredDuringRun = checkpointMtimeBefore !== checkpointMtimeAfter && checkpointMtimeAfter !== null;
+const hookFiredDuringRun = agentProtocol !== 'ollama-native' && checkpointMtimeBefore !== checkpointMtimeAfter && checkpointMtimeAfter !== null;
 
 // ---------------------------------------------------------------- drive checkpoint if needed
 let driven = null;
-if (!hookFiredDuringRun) {
+if (agentProtocol === 'ollama-native' && localCheckpointEvents.length > 0) {
+  const last = localCheckpointEvents.at(-1);
+  driven = { exitCode: last.exitCode, stdout: last.stdout ?? '', stderr: last.stderr ?? '' };
+  if (last.input) writeArtifact('hook-input.json', `${JSON.stringify(last.input, null, 2)}\n`);
+  writeArtifact('checkpoint-manual.stdout.txt', `${driven.stdout}\n`);
+  writeArtifact('checkpoint-manual.stderr.txt', `${driven.stderr}\n`);
+}
+if (!hookFiredDuringRun && arm === 'canary' && driven === null) {
   // MANUALLY DRIVEN: the seeded hook JSON is byte-for-byte the contract in
   // apps/cli/src/onboarding.ts:3195-3234 — {cwd, stop_hook_active, task} on stdin,
   // decision JSON on stdout, exit 0. This is NOT the harness firing the hook and the
@@ -522,7 +625,14 @@ function classifyVerification(manual, finalCheckpoint) {
     message: responseText || null,
   };
 }
-const verification = classifyVerification(driven, checkpointFinal);
+const verification = arm === 'canary' ? classifyVerification(driven, checkpointFinal) : {
+  checkpointStatus: null,
+  blockDecisionObserved: false,
+  finalCheckpointDecision: null,
+  stopGuardMessageObserved: false,
+  evidenceStatus: 'not_applicable_plain_arm',
+  message: null,
+};
 
 /**
  * The checkpoint EVENTS of THIS attempt, with the timestamps that decide provenance:
@@ -541,6 +651,7 @@ writeArtifact('checkpoint-events.json', `${JSON.stringify({
   hookFiredDuringRun,
   checkpointDrivenManually: driven !== null,
   manual: driven,
+  agentManualCheckpoints: localCheckpointEvents,
   verification,
   agentSessionOutcome,
   stopReason: result?.stop_reason ?? null,
@@ -561,6 +672,9 @@ const record = {
   ...ledger,
   finishedAt: nowIso(),
   prompt,
+  agentWarnings,
+  localModelRuntime: usesOllama ? { before: localModelRuntimeBefore, after: localModelRuntimeAfter } : null,
+  agentManualCheckpoints: localCheckpointEvents,
   checkpointBefore,
   checkpointAfter,
   checkpointFinal,
@@ -583,15 +697,35 @@ check('agent produced a terminal result event', () => assert(result !== null, 'n
 if (pilotBudgetUsd !== null) {
   check('native provider cost is present', () => assert(Number.isFinite(nativeCostUsd), 'result event has no finite total_cost_usd; pilot accounting is incomplete'));
   check('native provider cost stays within the enforced session cap', () => assert(Number.isFinite(nativeCostUsd) && nativeCostUsd <= pilotBudgetUsd,
-    `native cost ${String(nativeCostUsd)} exceeds per-session cap ${pilotBudgetUsd}`));
+    'native cost ' + String(nativeCostUsd) + ' exceeds per-session cap ' + pilotBudgetUsd));
   check('agent session ended successfully within its time limit', () => assert(agentSessionOutcome === 'completed' || agentSessionOutcome === 'completed_after_block_and_repair',
-    `agent session outcome is ${agentSessionOutcome}, result=${result?.subtype}, exit=${String(run.code)}, timedOut=${String(run.timedOut)}`));
+    'agent session outcome is ' + agentSessionOutcome + ', result=' + result?.subtype + ', exit=' + String(run.code) + ', timedOut=' + String(run.timedOut)));
 }
-check('a Canary checkpoint decision was obtained (hook or manually driven)', () => {
+if (agentProtocol === 'codex-local') {
+  check('native Codex token usage is present', () => assert(usage && ['input_tokens', 'output_tokens', 'cached_input_tokens', 'reasoning_output_tokens'].every((key) => Number.isFinite(usage[key]) && usage[key] >= 0),
+    'Codex turn.completed has incomplete token usage'));
+  check('Ollama served the requested local model with a digest', () => assert(localModelRuntimeAfter?.match?.name === agentModel && /^[0-9a-f]{64}$/i.test(localModelRuntimeAfter.match.digest ?? ''),
+    'requested ' + agentModel + '; runtime observation ' + JSON.stringify(localModelRuntimeAfter)));
+  check('local Codex session ended successfully within its time limit', () => assert(agentSessionOutcome === 'completed' || agentSessionOutcome === 'completed_after_block_and_repair',
+    'agent session outcome is ' + agentSessionOutcome));
+  if (arm === 'canary') check('Canary Stop hook fired during the local Codex session', () => assert(hookFiredDuringRun, 'Canary Stop hook did not fire during the model session'));
+}
+if (agentProtocol === 'ollama-native') {
+  check('native local token usage and model digest are present', () => assert(hasOllamaNativeUsageEvidence(usage, localModelRuntimeAfter),
+    'Ollama local runtime or native token usage evidence is missing'));
+  check('Ollama served the requested local model', () => assert(localModelRuntimeAfter?.match?.name === agentModel,
+    'requested ' + agentModel + '; runtime observation ' + JSON.stringify(localModelRuntimeAfter)));
+  check('local native tool session ended successfully within its time limit', () => assert(agentSessionOutcome === 'completed' || agentSessionOutcome === 'completed_after_block_and_repair' || agentSessionOutcome === 'completed_after_canary_stop_guard',
+    'agent session outcome is ' + agentSessionOutcome));
+  if (arm === 'canary') check('local session recorded a Canary completion decision', () => assert(localCheckpointEvents.length > 0,
+    'native local agent did not drive a completion checkpoint'));
+}
+if (arm === 'canary') check('a Canary checkpoint decision was obtained (hook or manually driven)', () => {
   if (hookFiredDuringRun) return assert(checkpointAfter != null, 'hook fired but no checkpoint file');
   assert(driven != null, 'checkpoint was never driven');
   assert(driven.exitCode === 0, `checkpoint exit ${driven.exitCode}`);
-  assert(driven.stdout.length > 0, 'checkpoint produced no stdout decision');
+  assert(driven.stdout.length > 0 || (verification.checkpointStatus === 'pass' && checkpointMtimeFinal !== checkpointMtimeBefore),
+    'checkpoint produced neither a stdout decision nor a fresh passing checkpoint');
 });
 check('no secret leaked into the raw stream file', () => assert(!secretValues.some((v) => rawStream.includes(v)), 'a forwarded credential value appears in the capture'));
 check('every artifact of this attempt was written INSIDE its own attempt directory', () => {
@@ -632,6 +766,8 @@ fs.writeFileSync(path.join(attemptDir, 'SHA256SUMS'), `${sums.join('\n')}\n`, { 
 console.log(`--- ${label}/${attemptId}: ${hookFiredDuringRun ? 'HOOK FIRED during the agent run' : 'HOOK DID NOT FIRE — checkpoint driven MANUALLY'}`);
 console.log(`--- wall ${wallSeconds}s, turns ${ledger.numTurns}, usage ${JSON.stringify(usage)}`);
 console.log(`--- attempt directory: ${attemptDir}`);
-if (agentCmd !== 'claude') console.log('--- STUB AGENT: this attempt is a provenance/harness measurement, NOT real-world evidence.');
+if (agentProtocol === 'codex-local') console.log('--- local Codex/Ollama inference; provider USD charge is not applicable');
+else if (agentProtocol === 'ollama-native') console.log(`--- local Ollama native tool loop; provider USD charge is not applicable; Canary checks ${arm === 'canary' ? 'were driven by the harness' : 'not applicable in plain arm'}`);
+else if (agentCmd !== 'claude') console.log('--- STUB AGENT: this attempt is a provenance/harness measurement, NOT real-world evidence.');
 console.log(`--- ${failures === 0 ? 'RUN COMPLETE' : `RUN INCOMPLETE (${failures} failure(s))`}`);
 process.exit(probeExitCode);

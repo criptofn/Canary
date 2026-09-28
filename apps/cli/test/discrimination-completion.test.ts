@@ -107,6 +107,22 @@ test('a discriminating check allows the same candidate to finish and promote', (
   assert.equal(canary(root, 'doctor').code, 0); assert.notEqual(hook(root).decision, 'block');
 });
 
+test('missing regression proof points to the sealed test entry, never a changed script', () => {
+  const root = fixture('sealed-test-guidance');
+  write(root, 'greet.cjs', FIXED);
+  const missing = hook(root);
+  assert.equal(missing.decision, 'block');
+  assert.match(missing.reason ?? '', /package\.json scripts\.test = "node --test tests\/greet\.test\.cjs"/);
+  assert.match(missing.reason ?? '', /a new test file counts only when this entry runs it/);
+
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  pkg.scripts.test = 'node unsealed-check.cjs';
+  write(root, 'package.json', JSON.stringify(pkg));
+  const drift = hook(root);
+  assert.equal(drift.decision, 'block');
+  assert.doesNotMatch(drift.reason ?? '', /unsealed-check\.cjs/);
+});
+
 test('doctor visibly labels worker-authored regression evidence as non-independent', () => {
   const root = fixture('worker-authored-evidence');
   write(root, 'greet.cjs', FIXED);

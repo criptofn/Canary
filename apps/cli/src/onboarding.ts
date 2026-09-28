@@ -1769,9 +1769,17 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
     ...disc.modifiedChecks.map((p) => `${safePath(p)} (EXISTING check rewritten by this session)`),
   ];
   if (disc.basePassed === true) {
+    let sealedTestHint = '';
+    try {
+      const scripts = (JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
+      const step = cfg.plan.find((s) => s.kind === 'tests' && typeof s.script === 'string' && typeof scripts[s.script] === 'string'
+        && cfg.planAuthority?.scriptDigests?.[s.script] === sha256(scripts[s.script] as string));
+      if (step) sealedTestHint = ` The sealed test entry is package.json scripts.${step.script} = ${JSON.stringify((scripts[step.script] as string).slice(0, 160))}; a new test file counts only when this entry runs it.`;
+    } catch { /* non-Node projects retain the generic guidance */ }
+    const target = sealedTestHint ? 'that running suite' : 'a suite the sealed plan runs';
     return {
       id: 'regression-evidence', mode: 'objective', status: 'unproven',
-      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more}): existing behaviour that must be preserved needs a check that FAILS without the change and passes with it. Add or bind one (a sealed proof obligation), or a human accepts the risk from an interactive terminal — a green plan alone does not close this`,
+      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more}): existing behaviour that must be preserved needs a check that FAILS without the change and passes with it.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a human can also accept the risk from an interactive terminal — a green plan alone does not close this`,
     };
   }
   return {

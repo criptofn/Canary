@@ -137,7 +137,7 @@ const summary = {
   cliPath: cli, cliVersion: (v.stdout ?? '').trim(),
   cliSha256: sha256(fs.readFileSync(cli)), artifactSha256: artifact,
   scratchRoot, outRoot, timeoutMs,
-  model: 'qwen3.8-flash', modelCli: 'Claude Code CLI',
+  model: null, modelCli: null,
   records, finishedAt: new Date().toISOString(), status: 'complete',
 };
 fs.writeFileSync(path.join(outRoot, 'preparation-summary.json'), `${JSON.stringify(summary, null, 2)}\n`, { flag: 'wx' });
