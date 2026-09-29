@@ -194,6 +194,31 @@ describe('a real call relays Canary own words and exit code, unmodified', () => 
       'isError must track the child exit code exactly');
   });
 
+  it('canary_doctor relays a focused diagnostic as PARTIAL and leaves the completion checkpoint alone', () => {
+    const root = path.join(TMP, 'focused-doctor-project');
+    fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+    assert.equal(spawnSync('git', ['-C', root, 'init', '-b', 'main'], { encoding: 'utf8' }).status, 0);
+    const pass = path.join(REPO, 'tooling', 'test-support', 'fixtures', 'f-pass.js');
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: `node "${pass}"` } }));
+    const setup = spawnSync(process.execPath, [CLI, 'setup', '--yes', root], { encoding: 'utf8', timeout: 180_000 });
+    assert.equal(setup.status, 0, `${setup.stdout}\n${setup.stderr}`);
+    const checkpoint = path.join(root, '.canary', 'last-checkpoint.json');
+    const before = fs.readFileSync(checkpoint);
+
+    const response = session([req(1, 'tools/call', {
+      name: 'canary_doctor', arguments: { path: root, check: 'test' },
+    })], root).parsed[0]!;
+    const out = textOf(response);
+    assert.equal(resultOf(response).isError, false);
+    assert.equal(out.verdict, 'PARTIAL');
+    assert.equal(out.exitCode, 0);
+    const envelope = out.envelope as { schema: string; status: string; partialCheck: { id: string; passed: boolean } };
+    assert.equal(envelope.schema, 'canary-doctor-partial/1');
+    assert.equal(envelope.status, 'PARTIAL');
+    assert.deepEqual(envelope.partialCheck, { id: 'test', passed: true, ran: true, exitCode: 0 });
+    assert.deepEqual(fs.readFileSync(checkpoint), before);
+  });
+
   it('a cancelled/unknown candidate in canary_finish relays the refusal, not a verdict of its own', () => {
     const root = path.join(TMP, 'repo2');
     fs.mkdirSync(root, { recursive: true });

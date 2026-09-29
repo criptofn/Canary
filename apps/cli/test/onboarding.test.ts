@@ -139,6 +139,31 @@ describe('setup', () => {
     assert.equal(fs.existsSync(path.join(root, '.canary')), false);
   });
 
+  it('restores every integration file when authority sealing fails after setup writes them', () => {
+    const root = makeProject('setup-rollback', { settings: { theme: 'dark' } });
+    const codexDir = path.join(root, '.codex');
+    fs.mkdirSync(codexDir, { recursive: true });
+    const codexHooks = path.join(codexDir, 'hooks.json');
+    const codexDoc = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo user-codex' }] }] } };
+    fs.writeFileSync(codexHooks, JSON.stringify(codexDoc));
+    const settings = path.join(root, '.claude', 'settings.json');
+    const mcp = path.join(root, '.mcp.json');
+    const mcpDoc = { mcpServers: { teammate: { command: 'node', args: ['teammate.js'] } } };
+    fs.writeFileSync(mcp, JSON.stringify(mcpDoc));
+    const before = [settings, codexHooks, mcp].map((file) => fs.readFileSync(file));
+    const blockedStore = path.join(TMP, 'trust-store-is-a-file');
+    fs.writeFileSync(blockedStore, 'not a directory');
+
+    const result = canary(['setup', '--yes', root], undefined, undefined, { CANARY_TRUST_STORE: blockedStore });
+    assert.equal(result.status, 2, result.stdout + result.stderr);
+    assert.match(result.stdout, /could not store its verification record/i);
+    assert.match(result.stdout, /verified NOTHING: no project checks were run/i);
+    for (const [index, file] of [settings, codexHooks, mcp].entries()) {
+      assert.deepEqual(fs.readFileSync(file), before[index], `${path.basename(file)} must be restored byte-for-byte`);
+    }
+    assert.equal(fs.existsSync(cfgFile(root)), false, 'failed setup must not leave an active Canary config');
+  });
+
   it('an explicitly selected expert MCP profile survives setup re-runs', () => {
     const root = makeProject('expert-profile');
     const first = canary(['setup', '--mcp-profile', 'expert', '--yes', root]);
@@ -461,6 +486,41 @@ describe('atomic config writes (GLM F-2)', () => {
 });
 
 describe('doctor + uninstall', () => {
+  it('a passing focused check reports PARTIAL and leaves the full checkpoint unchanged', () => {
+    const root = makeProject('doctor-focused', { extraScripts: { build: 'placeholder' } });
+    const buildScript = path.join(root, 'mutable-build.js');
+    fs.copyFileSync(path.join(FIXTURES, 'f-pass.js'), buildScript);
+    const pkgPath = path.join(root, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { scripts: Record<string, string> };
+    pkg.scripts.build = `node "${buildScript}"`;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const checkpointBefore = fs.readFileSync(cpFile(root));
+
+    fs.copyFileSync(path.join(FIXTURES, 'f-boom.js'), buildScript);
+    const focused = canary(['doctor', '--check', 'test', '--json', root]);
+    assert.equal(focused.status, 0, focused.stdout + focused.stderr);
+    const envelope = JSON.parse(focused.stdout) as {
+      schema: string; status: string; partialCheck: { id: string; passed: boolean; ran: boolean };
+    };
+    assert.equal(envelope.schema, 'canary-doctor-partial/1');
+    assert.equal(envelope.status, 'PARTIAL');
+    assert.deepEqual(envelope.partialCheck, { id: 'test', passed: true, ran: true, exitCode: 0 });
+    assert.doesNotMatch(focused.stdout, /READY/);
+    assert.deepEqual(fs.readFileSync(cpFile(root)), checkpointBefore, 'a diagnostic must not replace the completion checkpoint');
+
+    const unknown = canary(['doctor', '--check', 'not-sealed', '--json', root]);
+    assert.equal(unknown.status, 3);
+    assert.match(unknown.stdout, /available ids: test, build/);
+    assert.deepEqual(fs.readFileSync(cpFile(root)), checkpointBefore, 'an unknown id must not execute or alter a result');
+
+    const full = canary(['doctor', root]);
+    assert.equal(full.status, 2, full.stdout + full.stderr);
+    assert.match(full.stdout, /checks just failed \(build\)/i);
+    assert.match(full.stdout, /focused recheck after repair: canary doctor --check build/);
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail', 'the full gate still records the other failed check');
+  });
+
   it('READY after a green setup; hook deletion is detected loudly; --run still works (now always-on)', () => {
     const root = makeProject('doc');
     assert.equal(canary(['setup', '--yes', root]).status, 0);

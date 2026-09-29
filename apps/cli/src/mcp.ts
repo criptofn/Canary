@@ -106,14 +106,16 @@ const TOOLS: readonly McpTool[] = [
   {
     name: 'canary_doctor',
     description:
-      'The completion gate: runs the SEALED checks now and reports whether the change is genuinely done '
-      + '(runs `canary doctor`). This EXECUTES the repository\'s own sealed plan, so it is not read-only. '
-      + 'A non-zero exit code means NOT done — relay that; do not restate your own test output as proof.',
+      'Runs the repository\'s sealed checks. With no check, this is the full completion gate. '
+      + 'Set check to a sealed check id for a focused diagnostic; that returns PARTIAL and never '
+      + 'certifies completion or updates the completion checkpoint. This EXECUTES project commands, '
+      + 'so it is not read-only. A non-zero exit means the gate failed or could not complete — relay the verdict.',
     inputSchema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Repository directory to check.' },
         fast: { type: 'boolean', description: 'Opt-in adaptive fast path: leave out only the checks whose declared paths the change provably missed. Never available to promotion.' },
+        check: { type: 'string', description: 'Optional exact sealed check id for a focused diagnostic. The result is PARTIAL and cannot certify completion.' },
       },
       additionalProperties: false,
     },
@@ -176,8 +178,10 @@ const SERVER_INSTRUCTIONS = [
   '',
   'Working rule: when this harness has Canary\'s automatic completion hook, finish the task normally;',
   'the sealed checks run at completion. Do not run canary_doctor just to repeat a check that just ran.',
-  'Call canary_doctor when you want feedback before finishing, when a failure needs an immediate recheck,',
-  'or when this harness has no automatic completion hook. Use canary_result for a read-only summary.',
+  'Call canary_doctor for early feedback or to run the full gate when no completion hook is available.',
+  'For a repair loop, pass the exact sealed check id shown by doctor to run only that check.',
+  'A selected check returns PARTIAL and never replaces the full completion gate or its checkpoint.',
+  'Use canary_result for a read-only summary.',
   '',
   'Never restate your own test output as proof, and never claim a result this server did not report.',
 ].join('\n');
@@ -302,8 +306,15 @@ function callTool(name: string, args: Record<string, unknown>): { content: Array
       return cliToolResult(runCli(['status', '--json'], cwdFor(args)));
     case 'canary_agents':
       return cliToolResult(runCli(['agents', '--json'], cwdFor(args)));
-    case 'canary_doctor':
-      return cliToolResult(runCli(args.fast === true ? ['doctor', '--fast'] : ['doctor'], cwdFor(args)));
+    case 'canary_doctor': {
+      if (args.fast === true && args.check !== undefined) return errorResult('fast and check cannot be combined');
+      const check = args.check === undefined ? undefined : asString(args.check, 'check');
+      if (check !== undefined && typeof check !== 'string') return errorResult(check.error);
+      const argv = args.fast === true ? ['doctor', '--fast']
+        : typeof check === 'string' ? ['doctor', '--check', check, '--json']
+          : ['doctor'];
+      return cliToolResult(runCli(argv, cwdFor(args)));
+    }
     case 'canary_work': {
       const n = asString(args.name, 'name');
       if (typeof n !== 'string') return errorResult(n.error);

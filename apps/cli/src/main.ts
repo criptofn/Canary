@@ -106,11 +106,9 @@ usage:
                             removable AGENTS.md instruction block; no command ever
                             pretends a hook exists where none does
   canary doctor             is Canary actually protecting this repo? Runs the checks now;
-                            READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED (--run accepted,
-                            always on). NOT PROVEN = the plan passed but an authorized
-                            requirement has no sealed proof, or the checks cannot
-                            discriminate this change from the base — a green plan is not
-                            a proven task
+                            READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED
+  canary doctor --check ID  re-runs one sealed check for diagnosis (PARTIAL only;
+                            never a completion result). Run canary doctor for the full gate.
   canary uninstall          remove Canary's own changes, keep everything else
   canary claim "<text>"     the agent's account, stored as an UNTRUSTED hint — claims
                             are not evidence; only Canary's own runs decide verdicts

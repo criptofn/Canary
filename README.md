@@ -131,6 +131,10 @@ or tells you exactly what it could not do. It wires Claude Code automatically
 four everyday MCP tools. Add `--mcp-profile expert` only when the agent needs
 isolated `work` / `finish` operations.
 
+Setup checks all managed config files before writing hooks. If a later write fails,
+Canary restores earlier hook and MCP files when their bytes still match the changes
+from that setup attempt; a file changed in the meantime is left alone and reported.
+
 Then just ask your agent for the change. You do not run anything else.
 
 ## What Canary actually catches
@@ -193,6 +197,10 @@ do the checks run?" with `READY` / `NOT PROVEN` / `NEEDS ATTENTION` / `UNSUPPORT
 and the one command that fixes it. `canary status` answers the same question about
 **state** without running anything, and `canary result --json` gives an agent the
 same answer compactly and for free.
+
+When one check fails, doctor prints its sealed check id and a focused recheck command.
+Use `canary doctor --check <id>` while repairing that check; it returns `PARTIAL` and
+does not update the completion checkpoint. Run `canary doctor` for the full gate.
 
 ## Expert mode — when a change must be *proven*, not just green
 
@@ -574,7 +582,8 @@ The two tiers share one binary; `canary` below is the linked command, or
 ```bash
 canary setup --check [--json] # read-only preflight: plan, visible toolchains, managed-file conflicts
 canary setup     [--yes] [--mcp-profile everyday|expert] # install + smoke-run; everyday is default
-canary doctor                # runs your checks NOW: READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED
+canary doctor                # full gate: READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED
+canary doctor --check <id>   # one sealed diagnostic check; PARTIAL, never completion proof
 canary status                # read-only state, runs nothing: CONNECTED / NEEDS ATTENTION / NOT CONNECTED
 canary result    [--json]    # the same state as ONE compact JSON object — free, for agents and scripts
 canary agents    [install|uninstall <id>]   # which agents work here, and at what capability

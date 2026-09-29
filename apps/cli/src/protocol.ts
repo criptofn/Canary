@@ -20,6 +20,7 @@
 export const PROTOCOL_STATUS = 'canary-status/1';
 export const PROTOCOL_RESULT = 'canary-result/1';
 export const PROTOCOL_SETUP_CHECK = 'canary-setup-check/1';
+export const PROTOCOL_DOCTOR_PARTIAL = 'canary-doctor-partial/1';
 
 /** One sealed check, as an agent needs to see it: what it is, which ecosystem
  *  declared it, where it lives, and the exact command that will run. */
@@ -88,6 +89,8 @@ export interface ProtocolEnvelope {
    *  the full plan, and a skip is never a pass. */
   skipped?: Array<{ step: string; reason: string }>;
   problems?: string[];
+  /** A selected-check diagnostic. Its PARTIAL status can never certify the full plan. */
+  partialCheck?: { id: string; passed: boolean; ran: boolean; exitCode: number | null };
   /** The one thing to do next, when there is one. */
   next?: string;
   /** Where the full evidence lives — context stays out of the model's window. */

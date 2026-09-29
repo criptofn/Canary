@@ -96,6 +96,11 @@ refused at setup with a message naming it; it is never silently skipped.
 was actually detected. An integration that cannot gate is never reported as if
 it could.
 
+The explicit diagnostic `canary doctor --check <id>` uses the separate
+`canary-doctor-partial/1` envelope and reports `PARTIAL` with the selected
+check's result. The default `canary doctor` protocol remains `canary-status/1`;
+the diagnostic never writes the full completion checkpoint.
+
 ### The GATED row, measured rather than assumed
 
 Wiring is not enforcement, so the row above was MEASURED end to end on this host with
