@@ -121,6 +121,14 @@ if (sourceCommitByLabel[label]) {
   const raw = fs.readFileSync(diffPath, 'utf8');
   candidateSourceSha256 = sha256(raw);
   operation = { kind: 'filtered recorded diff; excluded the unrelated simulation-length hunk and matrix change', sourcePath: diffPath };
+  // H2 starts independently: these imports must not come from an earlier H1 run.
+  const smokeFile = path.join(repo, 'scripts/smoke-test.js');
+  const smokeText = fs.readFileSync(smokeFile, 'utf8');
+  const imports = [
+    ['fs', 'node:fs/promises'], ['os', 'node:os'], ['path', 'node:path'],
+  ].filter(([name, module]) => !smokeText.includes(`import ${name} from "${module}";`))
+    .map(([name, module]) => `import ${name} from "${module}";`);
+  if (imports.length) fs.writeFileSync(smokeFile, `${imports.join('\n')}\n${smokeText}`);
   replaceOnce(path.join(repo, 'src/workflows/fileOrganizer.js'), `const EXT_GROUPS = [
   { group: "code", test: (name, ext) => [".js", ".ts", ".py", ".ipynb", ".json", ".csv", ".r", ".rs", ".go"].includes(ext) },
   { group: "invoices", test: (name, ext) => [".pdf", ".docx", ".xlsx"].includes(ext) && /(rechnung|invoice|receipt|beleg|tax)/i.test(name) },
