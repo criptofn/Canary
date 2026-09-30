@@ -1986,6 +1986,7 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
 
   let tmp: string | undefined;
   let tree: string | undefined;
+  let controlTree: string | undefined;
   try {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-discriminate-'));
     tree = path.join(tmp, 'tree');
@@ -2065,6 +2066,28 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
     if (failures.length > 0 && failures.some(looksLikeInfraFailure)) {
       return unknown('the baseline run failed in an environment-shaped way (a missing module or file), so it proves nothing either way', changed);
     }
+    if (overlaid.length > 0 && failures.some((r) => /\b(?:TypeError|ReferenceError|SyntaxError)(?:\s*\[[^\]]+\])?:/.test(`${r.stdout}\n${r.stderr}`))) {
+      // Measured H2: the new check passed only because the worker left input
+      // files in its workspace. The baseline lacked those inputs and crashed.
+      // Test the current implementation against that SAME baseline input set in
+      // a fresh tree. A failure there cannot discriminate old from new behavior,
+      // even if the worker wrapped that runtime error in an AssertionError.
+      controlTree = path.join(tmp, 'input-control');
+      if (gitWithinRoot(root, ['worktree', 'add', '--detach', '--force', controlTree, head]) === null) {
+        return unknown('git could not materialize the comparison input control', changed);
+      }
+      for (const p of changed) {
+        if (!overlaid.includes(p) && gitWithinRoot(root, ['cat-file', '-e', `${head}:${p}`]) === null) continue;
+        if (!copyInto(root, controlTree, p)) return unknown(`comparison input control could not copy ${safePath(p)}`, changed);
+      }
+      const control = cfg.plan.map((s) => runPlanStep(controlTree!, cfg.pm, s, timeoutMs));
+      if (control.some((r) => !r.ok)) {
+        const provenance = { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null };
+        const baseEvidence = writeVerificationBundle(root, 'baseline', ran, 'fail', provenance, { subjectRoot: tree });
+        const controlEvidence = writeVerificationBundle(root, 'baseline-control', control, 'fail', provenance, { subjectRoot: controlTree });
+        return unknown(`the worker-authored check does not pass with the current implementation and the same inputs used for the baseline comparison. Make its input fixtures available inside the check, then rerun verification${baseEvidence ? `; baseline output: ${baseEvidence}` : ''}${controlEvidence ? `; input-control output: ${controlEvidence}` : ''}`, changed);
+      }
+    }
     return {
       applicable: true,
       reason: failures.length === 0
@@ -2080,6 +2103,7 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
   } catch (e) {
     return unknown(`the baseline comparison failed (${String(e).slice(0, 120)})`, changed);
   } finally {
+    try { if (controlTree) gitWithinRoot(root, ['worktree', 'remove', '--force', controlTree]); } catch { /* fall through to the rm */ }
     try { if (tree) gitWithinRoot(root, ['worktree', 'remove', '--force', tree]); } catch { /* fall through to the rm */ }
     try { if (tmp) fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* best effort: never fail a verdict on cleanup */ }
   }
@@ -2574,7 +2598,7 @@ export function writeVerificationBundle(root: string, source: string, results: S
     // <stamp>-<source> dirs are eligible; anything else in evidence/ is left alone
     const parent = path.join(evidenceRoot, CONFIG_DIR, EVIDENCE_DIR);
     const mine = fs.readdirSync(parent)
-      .filter((d) => /^\d{4}-\d{2}-\d{2}T[\d-]{11,}(Z)?-(setup|doctor|doctor-selected|checkpoint|candidate|promotion)$/.test(d))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}T[\d-]{11,}(Z)?-(setup|doctor|doctor-selected|checkpoint|baseline(?:-control)?|candidate|promotion)$/.test(d))
       .sort();
     for (const d of mine.slice(0, Math.max(0, mine.length - EVIDENCE_KEEP))) {
       try { fs.rmSync(path.join(parent, d), { recursive: true, force: true }); } catch { /* churn-tolerant */ }

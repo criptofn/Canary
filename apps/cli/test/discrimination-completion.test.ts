@@ -125,6 +125,47 @@ test('a discriminating check allows the same candidate to finish and promote', (
   assert.equal(canary(root, 'doctor').code, 0); assert.notEqual(hook(root).decision, 'block');
 });
 
+test('a worker check crashing on absent baseline data cannot certify a change', () => {
+  const root = fixture('baseline-data-crash');
+  const candidate = work(root);
+  const helper = path.resolve(import.meta.dirname, '../../../../tooling/test-support/fixtures/f-check-input.cjs');
+  for (const target of [candidate, root]) {
+    fs.copyFileSync(helper, path.join(target, 'tests/check-input.cjs'));
+    write(target, 'greet.cjs', FIXED);
+    write(target, 'receipt.txt', 'agent-created input');
+    write(target, 'tests/greet.test.cjs', TEST + "require('./check-input.cjs').missingFixture();\n");
+  }
+  commit(candidate);
+  assertBlocked(root, /comparison could not be established/);
+  assertDoctorAndHookBlocked(root, /worker-authored check.*same inputs/);
+
+  // Wrapping the same crash in an assertion does not establish input parity.
+  write(root, 'tests/greet.test.cjs', TEST + "require('./check-input.cjs').missingFixtureWrapped();\n");
+  const stillMissing = canary(root, 'doctor');
+  assert.equal(stillMissing.code, 2, stillMissing.out);
+  assert.match(stillMissing.out, /same inputs used for the baseline comparison/);
+
+  // A real assertion over defined inputs still proves the fix, with worker provenance.
+  write(root, 'tests/greet.test.cjs', TEST + "require('./check-input.cjs').assertExpected();\n");
+  const repaired = canary(root, 'doctor');
+  assert.equal(repaired.code, 0, repaired.out);
+  assert.match(repaired.out, /NOT independent authority/);
+  assert.notEqual(hook(root).decision, 'block');
+});
+
+test('a genuine old implementation crash remains discriminating when the input control passes', () => {
+  const root = fixture('genuine-runtime-fix');
+  const old = path.resolve(import.meta.dirname, '../../../../tooling/test-support/fixtures/f-greet-runtime-base.cjs');
+  fs.copyFileSync(old, path.join(root, 'greet.cjs'));
+  commit(root);
+  assert.equal(canary(root, 'setup', '--yes').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const result = canary(root, 'doctor');
+  assert.equal(result.code, 0, result.out);
+  assert.match(result.out, /NOT independent authority/);
+});
+
 test('missing regression proof points to the sealed test entry, never a changed script', () => {
   const root = fixture('sealed-test-guidance');
   write(root, 'greet.cjs', FIXED);

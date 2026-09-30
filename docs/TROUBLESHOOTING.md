@@ -119,6 +119,14 @@ without your change and passes with it**. A pure refactor needs a check that pin
 the behaviour you preserved. The repair is the worker's job, and Canary names what
 is missing.
 
+If the message says the check does not pass with the current implementation and
+the same inputs used for the baseline comparison, read the two printed output
+bundles. A runtime crash caused by example files that exist only in your working
+directory is not regression proof. Create the input fixtures inside the executed
+test, or place them in its checked test surface, so both comparison runs have
+them. Then rerun `canary doctor`. Worker-authored checks keep their provenance
+warning even when the comparison succeeds.
+
 Two things this gate never asks: a change touching only checks, prose, licences
 or generated files is exempt; and only a human can waive it (`canary accept`,
 from a real terminal).
