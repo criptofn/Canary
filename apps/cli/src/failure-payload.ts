@@ -25,6 +25,8 @@
 
 /** One failing step, as the checkpoint path already has it. */
 export interface FailingStep {
+  /** Exact sealed step key, when the caller has the plan. */
+  id?: string;
   kind: string;
   display: string;
   exitCode: number | null;
@@ -101,29 +103,44 @@ export function extractDetailLines(text: string, limit = MAX_DETAIL_LINES_PER_CH
 export interface FailurePayloadInput {
   steps: readonly FailingStep[];
   /** Writes the full text somewhere durable and returns its path, or null when it could not. */
-  writeLog: (kind: string, text: string) => string | null;
+  writeLog: (name: string, text: string) => string | null;
+}
+
+/** Display command: PowerShell on Windows, POSIX shell elsewhere. Never splice a scope into code. */
+export function doctorCheckCommand(id: string, platform = process.platform): string {
+  const arg = /^[A-Za-z0-9_./:-]+$/.test(id) ? id
+    : platform === 'win32' ? `'${id.replace(/'/g, "''")}'` : `'${id.replace(/'/g, "'\\''")}'`;
+  return `canary doctor --check ${arg}`;
 }
 
 /**
  * Build the compact reason. Deterministic: same failure, same message.
  */
 export function buildFailurePayload({ steps, writeLog }: FailurePayloadInput): string {
-  const failing = steps.slice(0, MAX_CHECKS);
-  const head = `Canary verification failed: ${failing
-    .map((f) => `${f.kind} (${f.display}${f.exitCode === null ? ', could not run' : `, exit ${f.exitCode}`})`)
-    .join('; ')}. Fix this before finishing.`;
-
-  const blocks: string[] = [];
-  for (const f of failing) {
-    const text = `${f.stdout}${f.stderr}`;
-    const lines: string[] = [];
-    for (const id of extractFailureIdentities(text)) lines.push(id);
-    for (const d of extractDetailLines(text)) lines.push(`  ${d}`);
-    const log = writeLog(f.kind, text);
-    lines.push(`  full output: ${log ?? 'unavailable (evidence storage failed)'}`);
-    blocks.push(lines.join('\n'));
+  const failing = steps.slice(0, MAX_CHECKS).map((step, i) => {
+    const text = `${step.stdout}\n${step.stderr}`;
+    const kind = /^[a-z][a-z0-9-]{0,31}$/.test(step.kind) ? step.kind : 'step';
+    return { step, text, log: writeLog(`${i + 1}-${kind}`, text) };
+  });
+  // Remove excerpts, then describe fewer checks, rather than chopping through a command or path.
+  // All failures remain in the verification bundle; every displayed link is intact.
+  for (let count = failing.length; count > 0; count -= 1) {
+    for (const details of [true, false]) {
+      const shown = failing.slice(0, count);
+      const head = `Canary verification failed: ${shown
+        .map(({ step: f }) => `${clip(f.kind, 32)} (${clip(f.display)}${f.exitCode === null ? ', could not run' : `, exit ${f.exitCode}`})`)
+        .join('; ')}. Fix this before finishing.`;
+      const blocks = shown.map(({ step, text, log }) => [
+        ...(details ? [...extractFailureIdentities(text), ...extractDetailLines(text).map((d) => `  ${d}`)] : []),
+        ...(step.id === undefined ? [] : [`  focused recheck after repair: ${doctorCheckCommand(step.id)}`]),
+        `  full output: ${log ?? 'unavailable (evidence storage failed)'}`,
+      ].join('\n'));
+      const extra = steps.length > count
+        ? `\nAdditional failing checks: ${steps.length - count}. Run canary result --json for the evidence bundle.` : '';
+      const message = `${head}\n${blocks.join('\n')}${extra}`;
+      if (message.length <= MAX_TOTAL_CHARS) return message;
+    }
   }
-  const body = blocks.join('\n');
-  const message = `${head}\n${body}`;
-  return message.length <= MAX_TOTAL_CHARS ? message : `${message.slice(0, MAX_TOTAL_CHARS - 1)}…`;
+  return `Canary verification failed: ${clip(steps[0]?.kind ?? 'checks', 32)}. Fix this before finishing.\n` +
+    'Full output and recheck details exceed the message limit; run canary result --json for the evidence bundle, or canary doctor for the full gate.';
 }

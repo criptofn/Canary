@@ -9,10 +9,19 @@ the four commands that make a report diagnosable in one round-trip.
 the verdict. `canary doctor --json` gives the same answer as one machine-readable
 envelope; `--verbose` adds the detail behind any message.
 
-For a failed check, doctor prints a sealed check id and a focused recheck command.
+For a failed check, doctor and the completion hook print a focused recheck command.
 Run `canary doctor --check <id>` after repairing that check to get a quick diagnostic.
 It reports `PARTIAL`, leaves the full completion checkpoint unchanged, and does not
 evaluate other checks or task obligations. Run `canary doctor` for the full gate.
+Scoped failures get separate output logs. Commands containing spaces or shell
+characters are quoted for PowerShell on Windows and a POSIX shell elsewhere.
+If a failure message cannot fit all checks, it lists the remaining count and
+points to `canary result --json` for the complete evidence bundle.
+
+If a nested Node project was set up with an older package and immediately reports
+that its script was never sealed, run `canary setup --yes` with the updated
+package. Setup now records each declared scope's own `package.json` script;
+changing either scope's command still blocks verification before it can run.
 
 ---
 

@@ -12,6 +12,7 @@ import { describe, it } from 'node:test';
 import {
   MAX_TOTAL_CHARS,
   buildFailurePayload,
+  doctorCheckCommand,
   extractDetailLines,
   extractFailureIdentities,
 } from '../src/failure-payload.js';
@@ -52,6 +53,11 @@ describe('failure identities are read from the runners Canary supports', () => {
 });
 
 describe('the payload is compact, actionable and points at the full log', () => {
+  it('quotes unusual check ids as data for the host shell', () => {
+    assert.equal(doctorCheckCommand('web app::test', 'win32'), "canary doctor --check 'web app::test'");
+    assert.equal(doctorCheckCommand("web'$name::test", 'win32'), "canary doctor --check 'web''$name::test'");
+    assert.equal(doctorCheckCommand("web'$name::test", 'linux'), "canary doctor --check 'web'\\''$name::test'");
+  });
   it('names the check, the identity, the detail and the log path', () => {
     const message = buildFailurePayload({
       steps: [step({ stdout: 'Failures:\n  numbers.test.js :: total includes negative values\n    5 !== 0\n' })],
@@ -86,5 +92,40 @@ describe('the payload is compact, actionable and points at the full log', () => 
   it('is deterministic', () => {
     const input = { steps: [step({ stdout: 'Failures:\n  a.test.js :: one\n' })], writeLog: () => '/tmp/log' };
     assert.equal(buildFailurePayload(input), buildFailurePayload(input));
+  });
+
+  it('keeps scoped failures distinct and includes the exact repair recheck', () => {
+    const logs = new Map<string, string>();
+    const steps = ['backend::test', 'frontend::test'].map((id) => ({
+      ...step({ stdout: `Error: ${id} needs repair\n` }), id,
+    }));
+    const message = buildFailurePayload({ steps, writeLog: (name, text) => {
+      logs.set(name, text); return `/tmp/${name}.log`;
+    } });
+    assert.equal(logs.size, 2, 'same-kind checks must not overwrite one another');
+    for (const id of ['backend::test', 'frontend::test']) {
+      assert.ok(message.includes(`canary doctor --check ${id}`), message);
+      assert.ok([...logs.values()].some((text) => text.includes(id)));
+    }
+  });
+
+  it('never clips a log path or repair command to meet the payload limit', () => {
+    const steps = ['tests', 'build', 'typecheck'].map((kind) => ({
+      ...step({ kind, display: 'x'.repeat(500), stdout: 'Error: '.repeat(40) }), id: kind,
+    }));
+    const logPath = `/tmp/${'long-directory/'.repeat(35)}failure.log`;
+    const message = buildFailurePayload({ steps, writeLog: () => logPath });
+    assert.ok(message.length <= MAX_TOTAL_CHARS, `${message.length} chars`);
+    assert.ok(message.includes(`full output: ${logPath}`), 'an intact path must remain available');
+    assert.match(message, /canary doctor --check tests/);
+    assert.match(message, /additional failing checks: 2/i);
+  });
+
+  it('refers to the evidence bundle when even one complete path cannot fit', () => {
+    const message = buildFailurePayload({ steps: [step()], writeLog: () => '/tmp/' + 'x'.repeat(2000) });
+    assert.ok(message.length <= MAX_TOTAL_CHARS);
+    assert.match(message, /exceed the message limit/);
+    assert.match(message, /canary result --json/);
+    assert.doesNotMatch(message, /full output: \/tmp/);
   });
 });

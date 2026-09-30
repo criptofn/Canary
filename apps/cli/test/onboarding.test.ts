@@ -27,7 +27,9 @@ import {
 } from '../src/onboarding.js';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..', '..', '..');
-const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
+const CLI = process.env.CANARY_TEST_CLI
+  ? path.resolve(process.env.CANARY_TEST_CLI)
+  : path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
 assert.ok(fs.existsSync(CLI), `build first: ${CLI} missing`);
 
 const FIXTURES = path.join(REPO, 'tooling', 'test-support', 'fixtures');
@@ -328,6 +330,7 @@ describe('checkpoint (harness entry)', () => {
     assert.match(out.reason, /npm run test/);
     assert.match(out.reason, /exit 1/);
     assert.match(out.reason, /Fix this before finishing/);
+    assert.match(out.reason, /canary doctor --check test/);
     assert.match(out.reason, /full output: .+\.log/);
     assert.ok(out.reason.length <= 1200, `the model-visible payload must stay bounded, got ${out.reason.length} chars`);
     const cp = JSON.parse(fs.readFileSync(cpFile(root), 'utf8')) as { status: string; checks: Array<{ ok: boolean }>; hookResponse: string };
@@ -346,6 +349,68 @@ describe('checkpoint (harness entry)', () => {
     assert.equal(cp.status, 'fail');
     assert.equal(cp.hookResponse, 'message-and-continue');
     assert.equal(cp.sessionEnd, 'unknown');
+  });
+  it('scoped failures keep separate logs and recover through PARTIAL rechecks to a full proven completion', () => {
+    const root = makeProject('cp-scoped-repair');
+    fs.rmSync(path.join(root, 'package.json'));
+    const scopes = ['backend', 'front end'];
+    for (const scope of scopes) {
+      const dir = path.join(root, scope);
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'tests'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: scope.replace(/ /g, '-'), version: '1.0.0', scripts: { test: fx('f-regression.cjs') } }));
+      fs.writeFileSync(path.join(dir, 'src', 'app.js'), 'module.exports = false;\n');
+      fs.writeFileSync(path.join(dir, 'tests', 'regression.expected.json'), 'true\n');
+    }
+    fs.writeFileSync(path.join(root, 'canary.scopes.json'), JSON.stringify({ schema: 'canary-scopes/1', scopes: scopes.map((path) => ({ path, ecosystem: 'node' })) }));
+    for (const args of [['init', '-b', 'main'], ['config', 'user.name', 'Canary Repair'], ['config', 'user.email', 'repair@canary.local'], ['add', '.'], ['commit', '-m', 'baseline']]) {
+      const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true });
+      assert.equal(r.status, 0, r.stderr);
+    }
+    assert.equal(canary(['setup', '--yes', root]).status, 2, 'the sealed baseline fails both assertions');
+    const first = JSON.parse(canary(['checkpoint'], root, hookInput(root)).stdout) as { decision: string; reason: string };
+    assert.equal(first.decision, 'block');
+    assert.match(first.reason, /canary doctor --check backend::test/);
+    assert.ok(first.reason.includes("canary doctor --check 'front end::test'"), first.reason);
+    const logs = [...first.reason.matchAll(/full output: (.+)$/gm)].map((match) => match[1]!);
+    assert.equal(new Set(logs).size, 2);
+    for (const [i, file] of logs.entries()) {
+      const text = fs.readFileSync(file, 'utf8');
+      assert.ok(text.includes(scopes[i]!.replace(/ /g, '-')), `each pointer must show its own scoped run:\n${text}`);
+      assert.match(text, /false !== true/);
+    }
+    const manifest = path.join(root, 'backend', 'package.json');
+    const manifestBefore = fs.readFileSync(manifest);
+    const marker = path.join(root, 'unsealed-command-ran');
+    const changed = JSON.parse(manifestBefore.toString());
+    changed.scripts.test = `${fx('setup-check-marker.js')} "${marker}"`;
+    fs.writeFileSync(manifest, JSON.stringify(changed));
+    const drift = JSON.parse(canary(['checkpoint'], root, hookInput(root)).stdout);
+    assert.equal(drift.decision, 'block');
+    assert.match(drift.reason, /verification authority changed/);
+    assert.match(drift.reason, /backend::test.*changed since setup sealed it/);
+    const unrelated = canary(['doctor', '--check', 'front end::test', '--json', root]);
+    assert.equal(unrelated.status, 2, 'a partial recheck must not hide drift in another scoped check');
+    assert.notEqual(JSON.parse(unrelated.stdout).status, 'PARTIAL');
+    assert.equal(fs.existsSync(marker), false, 'the unsealed command must never run');
+    fs.writeFileSync(manifest, manifestBefore);
+    fs.writeFileSync(path.join(root, 'backend', 'src', 'app.js'), 'module.exports = true;\n');
+    const beforePartial = fs.readFileSync(cpFile(root));
+    const partial = canary(['doctor', '--check', 'backend::test', '--json', root]);
+    assert.equal(partial.status, 0, partial.stdout + partial.stderr);
+    assert.equal(JSON.parse(partial.stdout).status, 'PARTIAL');
+    assert.deepEqual(fs.readFileSync(cpFile(root)), beforePartial);
+    const stillRed = canary(['doctor', root]);
+    assert.equal(stillRed.status, 2, stillRed.stdout + stillRed.stderr);
+    assert.ok(stillRed.stdout.includes("canary doctor --check 'front end::test'"));
+    const handoff = JSON.parse(canary(['checkpoint'], root, hookInput(root, true)).stdout);
+    assert.match(handoff.systemMessage, /still failing/);
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
+    fs.writeFileSync(path.join(root, 'front end', 'src', 'app.js'), 'module.exports = true;\n');
+    const complete = canary(['checkpoint'], root, hookInput(root, true));
+    assert.equal(complete.status, 0, complete.stderr);
+    assert.equal(complete.stdout.trim(), '', 'the real regression check discriminates both fixes');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'pass');
   });
   it('repo without Canary wiring: exit 0, silent (stay out of the way)', () => {
     const root = makeProject('cp-none');

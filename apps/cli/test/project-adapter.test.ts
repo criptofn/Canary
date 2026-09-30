@@ -192,11 +192,38 @@ describe('1.1 plan-step foundation (byte-compatible with 1.0 seals)', () => {
       { kind: 'tests', script: 'test', adapter: 'node', scope: 'web' },
       { kind: 'tests', script: 'test', adapter: 'python', scope: 'backend', argv: ['python', '-m', 'pytest'] },
     ];
-    const seal = project.sealPlanAuthority(plan, { test: 'node web-test.js' });
+    const seal = project.sealPlanAuthority(plan, { 'web::test': 'node web-test.js' });
     assert.deepEqual(Object.keys(seal.scriptDigests).sort(), ['backend::test', 'web::test']);
     assert.equal(seal.scriptDigests['web::test'], sha256('node web-test.js'));
     assert.equal(seal.scriptDigests['backend::test'], sha256(JSON.stringify(['python', '-m', 'pytest'])));
     assert.notEqual(seal.scriptDigests['web::test'], seal.scriptDigests['backend::test']);
+  });
+
+  it('nested Node scripts seal their own manifests and drift never consults the root decoy', () => {
+    const root = dir('scoped-node-seal', {
+      'package.json': pkg({ test: 'node decoy.js' }),
+      'web/package.json': pkg({ test: 'node web.js' }),
+      'backend/package.json': pkg({ test: 'node backend.js' }),
+    });
+    const plan: PlanStep[] = ['web', 'backend'].map((scope) => ({ kind: 'tests', script: 'test', adapter: 'node', scope }));
+    const seal = project.sealPlanAuthority(plan, project.planScriptTexts(root, plan, { test: 'node decoy.js' }));
+    assert.equal(seal.scriptDigests['web::test'], sha256('node web.js'));
+    assert.equal(seal.scriptDigests['backend::test'], sha256('node backend.js'));
+    assert.equal(project.planAuthorityDrift(root, { plan, planAuthority: seal }), null);
+    fs.writeFileSync(path.join(root, 'backend/package.json'), pkg({ test: 'node changed.js' }));
+    assert.match(project.planAuthorityDrift(root, { plan, planAuthority: seal }) ?? '', /backend::test.*changed since setup sealed it/);
+    fs.rmSync(path.join(root, 'web/package.json'));
+    assert.match(project.planAuthorityDrift(root, { plan, planAuthority: seal }) ?? '', /web::test.*cannot be read/);
+  });
+
+  it('a linked scope outside the repository cannot supply script authority', () => {
+    const root = dir('scoped-link-root', {});
+    const outside = dir('scoped-link-outside', { 'package.json': pkg({ test: 'node outside.js' }) });
+    fs.symlinkSync(outside, path.join(root, 'web'), process.platform === 'win32' ? 'junction' : 'dir');
+    const plan: PlanStep[] = [{ kind: 'tests', script: 'test', adapter: 'node', scope: 'web' }];
+    assert.throws(() => project.planScriptTexts(root, plan, {}), /scoped package.json script cannot be read inside/);
+    const seal = project.sealPlanAuthority(plan, { 'web::test': 'node outside.js' });
+    assert.match(project.planAuthorityDrift(root, { plan, planAuthority: seal }) ?? '', /cannot be read inside this repository/);
   });
 
   it('a changed explicit argv is drift, and an unsealed step is drift', () => {

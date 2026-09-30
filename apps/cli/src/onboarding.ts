@@ -58,7 +58,7 @@ import { fileURLToPath } from 'node:url';
 // C). `node:sea` exists in every supported Node and `isSea()` is simply false
 // outside a SEA build, so this import costs nothing in the ordinary case.
 import sea from 'node:sea';
-import { buildFailurePayload } from './failure-payload.js';
+import { buildFailurePayload, doctorCheckCommand } from './failure-payload.js';
 import { resolveNpmCli, sanitizedEnv, canonicalPath } from '@canary-rn/support';
 
 // M9 §9.5 — the quarantine marker filename. authority.ts imports only node
@@ -70,7 +70,7 @@ export type { TaskKind, TaskIdentity, AuthorizationSubject };
 // 1.1 §1 — the project model lives in project.js. onboarding re-exports the
 // names it used to own so every existing importer (candidate.ts, the contract
 // tests) compiles and behaves unchanged while the seam gains a second owner.
-import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, scopeDir, SCOPES_FILE, SCOPES_SCHEMA, sealPlanAuthority, sha256, stepArgv, stepKey } from './project.js';
+import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCKFILES, nodeAdapter, parseJsonOrNull, planAuthorityDrift, planDigest, planForScope, planProblemsForConfig, planScriptTexts, scopeDir, SCOPES_FILE, SCOPES_SCHEMA, sealPlanAuthority, sha256, stepArgv, stepKey } from './project.js';
 // v1.5 BLOCKER 6: the sealed toolchain (operator-authorized executable directories) and the
 // MEASURED decision of whether a failing check is the project's fault or Canary's own environment.
 import { attributeFailures, inventoryOperatorToolchain, npmScriptDirs, pathEntries, TOOLCHAIN_CANDIDATES, validateToolchainDir, type AttributeInput, type FailureAttribution, type ToolchainSeal } from './sealed-toolchain.js';
@@ -2907,7 +2907,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     // project's fast-path declaration is sealed HERE too, so a check may only be
     // left out on authority the project gave at setup.
     const canaryBlock = rootDisc?.source.canary as { proofs?: unknown; paths?: unknown } | undefined;
-    seal = sealPlanAuthority(plan, (rootDisc?.source.scripts ?? {}) as Record<string, unknown>,
+    seal = sealPlanAuthority(plan, planScriptTexts(root, plan, (rootDisc?.source.scripts ?? {}) as Record<string, unknown>),
       canaryBlock?.proofs, canaryBlock?.paths);
   } catch (e) {
     // v1.4 §E — this used to be `REFUSED — <raw internal throw>`, which is not a sentence a
@@ -3682,7 +3682,7 @@ export function cmdDoctor(rawArgs: string[]): number {
       : result.ok
         ? `the selected check "${id}" passed; this diagnostic did not evaluate completion.`
         : `the selected check "${id}" failed; this diagnostic did not evaluate completion.`,
-    `repair or inspect this check, rerun: canary doctor --check ${id}; then run the full gate: canary doctor`);
+    `repair or inspect this check, rerun: ${doctorCheckCommand(id)}; then run the full gate: canary doctor`);
     return !blocked && result.ok ? 0 : 2;
   }
   // READY is earned HERE, now — the plan runs in every doctor invocation, so a
@@ -3745,8 +3745,8 @@ export function cmdDoctor(rawArgs: string[]): number {
       ? 'full runner output: could not be written (evidence storage failed) — the excerpt above is all Canary kept'
       : `full runner output: ${evidenceDir} — per-step logs and verification.json; read those, not the excerpt above`);
     for (const failure of failed) {
-      const failedStep = cfg.plan.find((candidate) => candidate.kind === failure.kind && scopeDir(root, candidate) === failure.cwd);
-      if (failedStep) o.say(`focused recheck after repair: canary doctor --check ${stepKey(failedStep)}`);
+      const failedStep = stepsToRun[ran.indexOf(failure)];
+      if (failedStep) o.say(`focused recheck after repair: ${doctorCheckCommand(stepKey(failedStep))}`);
     }
     return 2;
   }
@@ -4122,17 +4122,17 @@ export async function cmdCheckpoint(): Promise<number> {
   }
   // v1.5 BLOCKER 6: when the measured cause is Canary's own environment, the AGENT reads that here —
   // otherwise a worker spends its budget repairing a project that was never at fault. The project
-  // case adds nothing (its payload already names the check and the failing test), so the ordinary
-  // block reason is byte-identical unless the environment really is the cause.
+  // case needs no environment advice; the failure payload names the check and repair recheck.
   const attribution = attributeRunFailures(root, cfg, failed, cfg.plan);
   const reason = `${claimNote}${attribution.cause === 'environment' ? `${attribution.reason} NEXT: ${attribution.next}\n` : ''}${buildFailurePayload({
     steps: failed.map((f) => ({
+      id: stepKey(cfg.plan[ran.indexOf(f)]!),
       kind: f.kind, display: f.display, exitCode: f.exitCode,
       stdout: f.stdout ?? '', stderr: f.stderr ?? '',
     })),
-    writeLog: (kind, text) => {
+    writeLog: (name, text) => {
       if (typeof bundleDir !== 'string' || bundleDir === '') return null;
-      const p = path.join(bundleDir, `${kind.replace(/[^A-Za-z0-9-]/g, '-')}.log`);
+      const p = path.join(bundleDir, `${name}.log`); // numbered, safe name derived by the payload builder
       try { fs.writeFileSync(p, text); return p; } catch { return null; }
     },
   })}`;
