@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { hasCodexLocalUsageEvidence } from './v15-codex-jsonl.mjs';
-import { hasOllamaNativeUsageEvidence } from './v15-ollama-native-agent.mjs';
+import { hasOllamaNativeUsageEvidence, pilotSessionComplete } from './v15-ollama-native-agent.mjs';
 
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const arg = (name, fallback = null) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? fallback : process.argv[i + 1]; };
@@ -201,6 +201,7 @@ for (let i = 0; i < schedule.length; i++) {
     ? `END ${i + 1}/${schedule.length} ${label}/${arm}: session=${outcome.agentSessionOutcome}; evidence=${outcome.evidenceStatus}; oracle=${outcome.correctnessStatus}; cost=${costPresent ? `$${nativeCost.toFixed(4)}` : 'MISSING'}; total=$${costTotal.toFixed(4)}`
     : `END ${i + 1}/${schedule.length} ${label}/${arm}: session=${outcome.agentSessionOutcome}; evidence=${outcome.evidenceStatus}; oracle=${outcome.correctnessStatus}; tokens=${JSON.stringify(outcome.nativeUsage)}; runtime=${JSON.stringify(outcome.localModelRuntime)}`);
   if (providerCostApplicable && !costPresent) { stopReason = 'native provider cost missing; stopped before the next paid session'; break; }
+  if (agentRun.status !== 0 || agentRun.error) { stopReason = 'the capture process failed or did not finish; stopped before the next session'; break; }
   if (providerCostApplicable && (nativeCost > sessionCap || costTotal > totalMax)) { stopReason = 'provider reported cost beyond an enforced cap; stopped before the next session'; break; }
   if (ledger?.model !== model) { stopReason = `observed model ${String(ledger?.model)} differs from pinned ${model}`; break; }
   if (protocol === 'codex-local' && !hasCodexLocalUsageEvidence(ledger?.usage, outcome.localModelRuntime)) { stopReason = 'local model runtime or native usage evidence is missing'; break; }
@@ -214,10 +215,10 @@ const summary = {
   ...manifest, finishedAt: new Date().toISOString(),
   sessions: outcomes, sessionsAttempted: outcomes.length,
   sessionsWithTerminalResult: outcomes.filter((o) => o.resultSubtype !== null).length,
-  sessionsComplete: outcomes.filter((o) => o.attemptStatus === 'complete' && ['completed', 'completed_after_block_and_repair', 'completed_after_canary_stop_guard'].includes(o.agentSessionOutcome)).length,
+  sessionsComplete: outcomes.filter(pilotSessionComplete).length,
   correctnessPasses: outcomes.filter((o) => o.correctnessStatus === 'pass').length,
   correctlyAccountedUsd: providerCostApplicable ? costTotal : null, stopReason,
-  status: outcomes.length === schedule.length && outcomes.every((o) => o.attemptStatus === 'complete' && ['completed', 'completed_after_block_and_repair', 'completed_after_canary_stop_guard'].includes(o.agentSessionOutcome) && o.correctnessStatus !== 'incomplete' && (protocol !== 'ollama-native' || o.localModelUnload?.exitCode === 0))
+  status: stopReason === null && outcomes.length === schedule.length && outcomes.every(pilotSessionComplete)
     ? 'complete' : 'incomplete',
   statement: outcomes.length === schedule.length
     ? `${schedule.length} sessions and independent oracle outcomes were recorded; correctness and Canary proof status are reported separately.`

@@ -425,7 +425,7 @@ const args = agentProtocol === 'codex-local'
         '--arm', arm,
         '--max-requests', '24',
         ...agentExtraArgs,
-        ...(agentExtraArgs.includes('--checks-file') ? ['--tool-output-dir', path.join(attemptDir, 'tool-output')] : []),
+        ...(agentExtraArgs.includes('--checks-file') ? ['--tool-output-dir', attemptDir] : []),
         ...(arm === 'canary' ? [
           '--canary-cli', CLI,
           '--session-id', `ws5-${label}-${attemptId}`,

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { canaryEvidenceStatus, canaryHookDecision, createVerificationTools, executeWorkspaceTool, hasOllamaNativeUsageEvidence, isCanaryStopGuard, ollamaResponseUsage, resolveWorkspacePath } from './v15-ollama-native-agent.mjs';
+import { canaryEvidenceStatus, canaryHookDecision, createVerificationTools, executeWorkspaceTool, hasOllamaNativeUsageEvidence, isCanaryStopGuard, ollamaResponseUsage, pilotSessionComplete, resolveWorkspacePath } from './v15-ollama-native-agent.mjs';
 
 test('native local agent reads and writes only files below its workspace', (t) => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-ollama-agent-'));
@@ -60,6 +60,22 @@ test('final Canary evidence follows its current record and response, independent
   assert.equal(canaryEvidenceStatus({ reason: 'NOT PROVEN' }, record), 'unverified_or_unproven');
   assert.equal(canaryEvidenceStatus({ systemMessage: 'after one repair attempt. Stopping anyway.' }, { ...record, status: 'fail' }), 'stopped_after_repair_attempt');
   assert.equal(canaryEvidenceStatus(null, { source: 'doctor', status: 'pass' }), 'unknown');
+});
+
+const capturedSession = { protocol: 'ollama-native', runExitCode: 0, runTimeout: false,
+  attemptStatus: 'complete', agentSessionOutcome: 'completed', correctnessStatus: 'pass', localModelUnload: { exitCode: 0 } };
+
+test('a failed capture process cannot complete a pilot despite an earlier complete record', () => {
+  assert.equal(pilotSessionComplete({ ...capturedSession, runExitCode: 1 }), false);
+  assert.equal(pilotSessionComplete({ ...capturedSession, runExitCode: null, runTimeout: true }), false);
+  assert.equal(pilotSessionComplete({ ...capturedSession, runTimeout: true }), false);
+});
+
+test('a captured incorrect solution remains a complete measurement; missing oracles do not', () => {
+  assert.equal(pilotSessionComplete(capturedSession), true);
+  assert.equal(pilotSessionComplete({ ...capturedSession, correctnessStatus: 'fail' }), true);
+  assert.equal(pilotSessionComplete({ ...capturedSession, correctnessStatus: 'incomplete' }), false);
+  assert.equal(pilotSessionComplete({ ...capturedSession, localModelUnload: { exitCode: 1 } }), false);
 });
 
 test('local agent executes only operator-listed checks and reads their complete saved output', (t) => {

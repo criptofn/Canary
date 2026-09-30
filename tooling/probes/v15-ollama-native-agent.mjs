@@ -203,6 +203,13 @@ export function canaryEvidenceStatus(response, checkpoint) {
   return 'unknown';
 }
 
+export function pilotSessionComplete(outcome) {
+  return outcome.runExitCode === 0 && !outcome.runTimeout && outcome.attemptStatus === 'complete'
+    && ['completed', 'completed_after_block_and_repair', 'completed_after_canary_stop_guard'].includes(outcome.agentSessionOutcome)
+    && ['pass', 'fail'].includes(outcome.correctnessStatus)
+    && (outcome.protocol !== 'ollama-native' || outcome.localModelUnload?.exitCode === 0);
+}
+
 const TOOL_DEFINITIONS = [
   { type: 'function', function: { name: 'list_files', description: 'List project files. Generated, dependency, and protected Canary state directories are omitted.', parameters: { type: 'object', properties: {}, additionalProperties: false } } },
   { type: 'function', function: { name: 'read_file', description: 'Read one UTF-8 project file by relative path.', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false } } },
