@@ -24,6 +24,10 @@ const labels = {
   R1: { base: '1fe40d8505bbb0cac703c976401c17213abf1e9d', candidate: 'd906039823003ce78b089b377d732e7d3aab1702', task: 'R1-pytest-id-collision.md' },
   S1: { base: '4255fa14049b479b479be1148df20bf0d097926c', candidate: '1663020d827895019b79e5c1b0b59972feaaff83', task: 'S1-idlookup-ambiguity.md' },
 };
+const requestedLabels = arg('tasks')?.split(',') ?? Object.keys(labels);
+if (!requestedLabels.length || new Set(requestedLabels).size !== requestedLabels.length || requestedLabels.some((label) => !labels[label])) {
+  throw new Error('--tasks must name unique existing task labels separated by commas');
+}
 const scratchSources = {
   H1: 'hermes-agent', H2: 'hermes-agent', H3: 'hermes-agent', H5: 'hermes-agent',
   R1: 'refactron', S1: 'schniedelsmp',
@@ -115,7 +119,7 @@ const v = run(process.execPath, [cli, '--version'], worktree, 10_000);
 if (v.status !== 0 || !/^canary 1\.5\.0\s*$/m.test(v.stdout ?? '')) throw new Error(`explicit package is not 1.5.0: ${v.stdout ?? ''}`);
 fs.mkdirSync(outRoot, { recursive: true });
 const records = [];
-for (const label of Object.keys(labels)) {
+for (const label of requestedLabels) {
   const plainRepo = makeShallowRepo(label, 'plain');
   const canaryRepo = makeShallowRepo(label, 'canary');
   const plain = runPhase(label, 'plain', plainRepo.repo);
@@ -137,6 +141,7 @@ const summary = {
   cliPath: cli, cliVersion: (v.stdout ?? '').trim(),
   cliSha256: sha256(fs.readFileSync(cli)), artifactSha256: artifact,
   scratchRoot, outRoot, timeoutMs,
+  tasks: requestedLabels,
   model: null, modelCli: null,
   records, finishedAt: new Date().toISOString(), status: 'complete',
 };

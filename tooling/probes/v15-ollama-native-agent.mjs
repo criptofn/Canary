@@ -6,13 +6,13 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const SKIP_DIRS = new Set(['.git', '.canary', '.claude', '.repowise', 'node_modules', '.gradle', 'build', 'dist']);
+const SKIP_DIRS = new Set(['.git', '.canary', '.claude', '.codex', '.repowise', 'node_modules', '.gradle', 'build', 'dist']);
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_TOOL_CALLS = 24;
-const totals = { inputTokens: 0, outputTokens: 0, toolCalls: 0, requests: 0, digest: null, started: Date.now(), checkpoints: [] };
+const totals = { inputTokens: 0, outputTokens: 0, usageComplete: false, toolCalls: 0, requests: 0, digest: null, started: Date.now(), checkpoints: [] };
 let transcriptPath = null;
 
-export function resolveWorkspacePath(workspace, relativePath) {
+export function resolveWorkspacePath(workspace, relativePath, protectedDirs = SKIP_DIRS) {
   if (typeof relativePath !== 'string' || !relativePath.trim() || path.isAbsolute(relativePath)) {
     throw new Error('path must be a non-empty relative path');
   }
@@ -23,7 +23,7 @@ export function resolveWorkspacePath(workspace, relativePath) {
     throw new Error('path must stay below the workspace root');
   }
   const segments = relative.split(path.sep);
-  if (segments.some((segment) => SKIP_DIRS.has(segment.toLowerCase()))) {
+  if (segments.some((segment) => protectedDirs.has(segment.toLowerCase()))) {
     throw new Error('path points into a protected workspace directory');
   }
   let cursor = root;
@@ -70,12 +70,106 @@ export function executeWorkspaceTool(workspace, name, input) {
   throw new Error(`unknown tool: ${name}`);
 }
 
+/** Operator-owned argv and captured outputs; this is a measurement harness, not a security sandbox. */
+export function createVerificationTools(workspace, checksFile, outputDir, { canaryCli = null } = {}) {
+  const root = fs.realpathSync(workspace);
+  const below = (base, target) => {
+    const relative = path.relative(base, target);
+    return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
+  };
+  function outside(target) {
+    const absolute = path.resolve(target);
+    let existing = absolute;
+    while (!fs.existsSync(existing)) existing = path.dirname(existing);
+    const physical = path.resolve(fs.realpathSync(existing), path.relative(existing, absolute));
+    if (below(root, absolute) || below(root, physical)) throw new Error('check configuration and output must stay outside the workspace');
+    return absolute;
+  }
+  const file = outside(checksFile);
+  const output = outside(outputDir);
+  const checks = JSON.parse(fs.readFileSync(file, 'utf8')).checks;
+  if (!Array.isArray(checks) || checks.length === 0 || new Set(checks.map((c) => c.id)).size !== checks.length
+    || checks.some((c) => typeof c.id !== 'string' || !c.id || !path.isAbsolute(c.executable ?? '')
+      || !fs.statSync(c.executable, { throwIfNoEntry: false })?.isFile()
+      || !Array.isArray(c.args) || c.args.some((a) => typeof a !== 'string'))) {
+    throw new Error('checks must contain unique ids, absolute executables and string argv arrays');
+  }
+  if (canaryCli && (!path.isAbsolute(canaryCli) || !fs.statSync(canaryCli, { throwIfNoEntry: false })?.isFile())) {
+    throw new Error('Canary diagnostics require an explicit installed CLI file');
+  }
+  fs.mkdirSync(output, { recursive: true });
+  let sequence = 0;
+  const outputFiles = new Set();
+  function run(executable, args) {
+    const prefix = path.join(output, String(++sequence));
+    const started = Date.now();
+    const result = spawnSync(executable, args, { cwd: root, encoding: 'utf8', timeout: 120_000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
+    const record = { executable, args, cwd: root, exitCode: result.status ?? null, signal: result.signal ?? null,
+      elapsedMs: Date.now() - started, timedOut: result.error?.code === 'ETIMEDOUT', error: result.error?.message ?? null };
+    for (const stream of ['stdout', 'stderr']) {
+      const text = result[stream] ?? '';
+      const target = `${prefix}.${stream}.log`;
+      fs.writeFileSync(target, text, { flag: 'wx' });
+      outputFiles.add(target);
+      record[stream] = text.slice(0, 16000);
+      record[`${stream}Truncated`] = text.length > 16000;
+      record[`${stream}Path`] = target;
+      record[`${stream}Sha256`] = crypto.createHash('sha256').update(text).digest('hex');
+    }
+    fs.writeFileSync(`${prefix}.json`, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx' });
+    return record;
+  }
+  return {
+    definitions: [
+      { type: 'function', function: { name: 'list_checks', description: 'List operator-authorized project checks and their fixed commands.', parameters: { type: 'object', properties: {}, additionalProperties: false } } },
+      { type: 'function', function: { name: 'run_check', description: 'Run a listed project check by id after a code or test edit. Returns actual exit code, stdout, stderr and complete saved output paths.', parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false } } },
+      { type: 'function', function: { name: 'read_check_output', description: 'Read a saved check output path (including Canary evidence logs). For truncated output, continue at nextOffset.', parameters: { type: 'object', properties: { path: { type: 'string' }, offset: { type: 'integer', minimum: 0 } }, required: ['path'], additionalProperties: false } } },
+      ...(canaryCli ? [{ type: 'function', function: { name: 'canary_doctor', description: 'Run Canary diagnostics. An optional sealed check id selects a PARTIAL repair recheck; omit id for the full gate. Never reseals authority.', parameters: { type: 'object', properties: { id: { type: 'string' } }, additionalProperties: false } } }] : []),
+    ],
+    execute(name, input) {
+      if (name === 'list_checks') return { checks };
+      if (name === 'run_check') {
+        const check = checks.find((c) => c.id === input.id);
+        if (!check) throw new Error(`unknown check: ${String(input.id)}`);
+        return run(check.executable, check.args);
+      }
+      if (name === 'canary_doctor' && canaryCli) {
+        if (input.id !== undefined && (typeof input.id !== 'string' || !input.id)) throw new Error('check id must be a non-empty string');
+        return run(process.execPath, [canaryCli, 'doctor', '--json', ...(input.id === undefined ? [] : ['--check', input.id])]);
+      }
+      if (name === 'read_check_output') {
+        if (typeof input.path !== 'string' || !input.path) throw new Error('output path must be a string');
+        const target = path.resolve(root, input.path);
+        const relative = path.relative(root, target);
+        if (outputFiles.has(target)) resolveWorkspacePath(output, path.relative(output, target), new Set());
+        else if (canaryCli && /^\.canary[/\\]evidence[/\\].+\.log$/i.test(relative)) resolveWorkspacePath(root, relative, new Set());
+        else throw new Error('path is not an accessible check output');
+        const offset = input.offset ?? 0;
+        if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('offset must be a non-negative integer');
+        const stat = fs.statSync(target);
+        if (!stat.isFile() || stat.size > 4 * 1024 * 1024) throw new Error('output must be a regular file at most 4 MiB');
+        const text = fs.readFileSync(target, 'utf8');
+        return { path: target, offset, totalChars: text.length, content: text.slice(offset, offset + 16000), nextOffset: offset + 16000 < text.length ? offset + 16000 : null };
+      }
+      throw new Error(`unknown tool: ${name}`);
+    },
+  };
+}
+
 export function hasOllamaNativeUsageEvidence(usage, runtime) {
   const digest = runtime?.digest ?? runtime?.match?.digest;
   return usage !== null && typeof usage === 'object'
     && Number.isFinite(usage.input_tokens) && usage.input_tokens > 0
     && Number.isFinite(usage.output_tokens) && usage.output_tokens >= 0
     && /^[0-9a-f]{64}$/i.test(digest ?? '');
+}
+
+export function ollamaResponseUsage(body) {
+  if (!Number.isSafeInteger(body.prompt_eval_count) || body.prompt_eval_count < 0
+    || !Number.isSafeInteger(body.eval_count) || body.eval_count < 0) {
+    throw new Error('Ollama response is missing native token usage; session accounting is incomplete');
+  }
+  return { input_tokens: body.prompt_eval_count, output_tokens: body.eval_count };
 }
 
 export function isCanaryStopGuard(response) {
@@ -94,6 +188,19 @@ export function canaryHookDecision(checkpoint, record) {
     return 'allow';
   }
   return checkpoint.response.decision ?? null;
+}
+
+export function canaryEvidenceStatus(response, checkpoint) {
+  const text = String(response?.systemMessage ?? response?.reason ?? '');
+  if (/after one repair attempt|stopping anyway/i.test(text)) return 'stopped_after_repair_attempt';
+  if (/NOT PROVEN|UNVERIFIED|could not verify|could not run|nothing was verified/i.test(text)) return 'unverified_or_unproven';
+  if (response?.decision === 'block' || checkpoint?.status === 'fail') return 'failed';
+  if (checkpoint?.status === 'infra') return 'unverified_infrastructure';
+  if (checkpoint?.status === 'unproven') return 'unproven';
+  if (checkpoint?.source === 'checkpoint' && checkpoint.status === 'pass') {
+    return /sealed checks passed/i.test(text) && /with a caveat/i.test(text) ? 'passed_with_evidence_caveat' : 'passed';
+  }
+  return 'unknown';
 }
 
 const TOOL_DEFINITIONS = [
@@ -124,6 +231,8 @@ async function main() {
   const canaryCli = cliArg('canary-cli');
   const sessionId = cliArg('session-id', 'ollama-native-session');
   const transcriptArg = cliArg('transcript-path');
+  const checksFile = cliArg('checks-file');
+  const outputDir = cliArg('tool-output-dir');
   const maxRequests = Number(cliArg('max-requests', '24'));
   const apiUrl = process.env.OLLAMA_API_URL ?? 'http://127.0.0.1:11434/api/chat';
   if (!promptFile || !fs.existsSync(promptFile) || !Number.isInteger(maxRequests) || maxRequests < 1 || maxRequests > MAX_TOOL_CALLS) {
@@ -131,6 +240,9 @@ async function main() {
   }
   const workspace = fs.realpathSync(workspaceArg);
   if (!['plain', 'canary'].includes(arm)) throw new Error('arm must be plain or canary');
+  if (Boolean(checksFile) !== Boolean(outputDir)) throw new Error('--checks-file and --tool-output-dir must be provided together');
+  const verification = checksFile ? createVerificationTools(workspace, checksFile, outputDir, { canaryCli: arm === 'canary' ? canaryCli : null }) : null;
+  const toolDefinitions = [...TOOL_DEFINITIONS, ...(verification?.definitions ?? [])];
   if (arm === 'canary') {
     if (!canaryCli || !fs.statSync(canaryCli, { throwIfNoEntry: false })?.isFile() || !transcriptArg) {
       throw new Error('the Canary arm requires --canary-cli and --transcript-path');
@@ -153,24 +265,27 @@ async function main() {
   totals.digest = digest;
 
   const messages = [
-    { role: 'system', content: 'You are a coding agent working in one disposable project copy. Use the available tools to inspect and change files. Make the smallest correct change that satisfies the request and preserves unrelated behavior. Do not claim a change unless you made it with a tool. Do not edit .git, .canary, dependency, generated, or unrelated files. When finished, give a short factual summary.' },
+    { role: 'system', content: 'You are a coding agent working in one disposable project copy. Use the available tools to inspect and change files. Make the smallest correct change that satisfies the request and preserves unrelated behavior. Do not claim a change unless you made it with a tool. Do not edit .git, .canary, dependency, generated, or unrelated files. When finished, give a short factual summary.' + (verification ? ' Use list_checks to find the project checks, run_check to test your edits, and read_check_output to inspect full failure output. Repair failures before finishing. Added regression tests must be executed by a listed check.' : '') },
     { role: 'user', content: prompt },
   ];
   emit({ type: 'system', subtype: 'init', model, local_model_digest: digest, workspace });
 
   for (; totals.requests < maxRequests; totals.requests++) {
+    totals.usageComplete = false;
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model, messages, tools: TOOL_DEFINITIONS, stream: false, options: { temperature: 0, num_ctx: 8192 }, keep_alive: '5m' }),
+      body: JSON.stringify({ model, messages, tools: toolDefinitions, stream: false, options: { temperature: 0, num_ctx: 8192 }, keep_alive: '5m' }),
       signal: AbortSignal.timeout(600_000),
     });
     const body = await response.json();
     if (!response.ok) throw new Error(`local Ollama chat returned HTTP ${response.status}: ${JSON.stringify(body).slice(0, 1000)}`);
     const assistant = body.message;
     if (!assistant || assistant.role !== 'assistant') throw new Error('local Ollama response has no assistant message');
-    totals.inputTokens += Number.isFinite(body.prompt_eval_count) ? body.prompt_eval_count : 0;
-    totals.outputTokens += Number.isFinite(body.eval_count) ? body.eval_count : 0;
+    const responseUsage = ollamaResponseUsage(body);
+    totals.inputTokens += responseUsage.input_tokens;
+    totals.outputTokens += responseUsage.output_tokens;
+    totals.usageComplete = true;
     const calls = Array.isArray(assistant.tool_calls) ? assistant.tool_calls : [];
     const text = typeof assistant.content === 'string' ? assistant.content : '';
     const content = [];
@@ -178,7 +293,7 @@ async function main() {
     for (const [index, call] of calls.entries()) {
       content.push({ type: 'tool_use', id: call.id ?? `ollama-${totals.requests}-${index}`, name: call.function?.name ?? '', input: call.function?.arguments ?? {} });
     }
-    emit({ type: 'assistant', message: { role: 'assistant', model, content, usage: { input_tokens: body.prompt_eval_count ?? 0, output_tokens: body.eval_count ?? 0 } } });
+    emit({ type: 'assistant', message: { role: 'assistant', model, content, usage: responseUsage } });
     messages.push(assistant);
     if (calls.length === 0) {
       if (arm === 'canary') {
@@ -229,7 +344,8 @@ async function main() {
       let result;
       try {
         const input = typeof call.function?.arguments === 'string' ? JSON.parse(call.function.arguments) : (call.function?.arguments ?? {});
-        result = executeWorkspaceTool(workspace, name, input);
+        result = verification?.definitions.some((tool) => tool.function.name === name)
+          ? verification.execute(name, input) : executeWorkspaceTool(workspace, name, input);
       } catch (error) {
         result = { error: String(error?.message ?? error) };
       }
@@ -243,12 +359,12 @@ async function main() {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv.includes('--version')) {
-    process.stdout.write('ollama-native-agent 1.0.0\n');
+    process.stdout.write('ollama-native-agent 1.1.0\n');
     process.exit(0);
   }
   main().catch((error) => {
     console.error(String(error?.stack ?? error));
-    emit({ type: 'result', subtype: 'error', is_error: true, stop_reason: 'error', usage: { input_tokens: totals.inputTokens, output_tokens: totals.outputTokens, cached_input_tokens: 0, reasoning_output_tokens: 0 }, num_turns: totals.requests, duration_ms: Date.now() - totals.started, total_cost_usd: null, local_model_digest: totals.digest, tool_calls: totals.toolCalls, manual_checkpoints: totals.checkpoints });
+    emit({ type: 'result', subtype: 'error', is_error: true, stop_reason: 'error', usage: totals.usageComplete ? { input_tokens: totals.inputTokens, output_tokens: totals.outputTokens, cached_input_tokens: 0, reasoning_output_tokens: 0 } : null, num_turns: totals.requests, duration_ms: Date.now() - totals.started, total_cost_usd: null, local_model_digest: totals.digest, tool_calls: totals.toolCalls, manual_checkpoints: totals.checkpoints });
     process.exitCode = 1;
   });
 }

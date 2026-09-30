@@ -70,7 +70,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseCodexJsonl } from './v15-codex-jsonl.mjs';
-import { hasOllamaNativeUsageEvidence } from './v15-ollama-native-agent.mjs';
+import { canaryEvidenceStatus, hasOllamaNativeUsageEvidence } from './v15-ollama-native-agent.mjs';
 
 const PROBE = 'tooling/probes/v15-realworld-run-task.mjs';
 const LAYOUT_VERSION = 1;
@@ -424,6 +424,8 @@ const args = agentProtocol === 'codex-local'
         '--prompt-file', promptPath,
         '--arm', arm,
         '--max-requests', '24',
+        ...agentExtraArgs,
+        ...(agentExtraArgs.includes('--checks-file') ? ['--tool-output-dir', path.join(attemptDir, 'tool-output')] : []),
         ...(arm === 'canary' ? [
           '--canary-cli', CLI,
           '--session-id', `ws5-${label}-${attemptId}`,
@@ -605,17 +607,10 @@ function classifyVerification(manual, finalCheckpoint) {
   let checkpoint = null;
   try { checkpoint = finalCheckpoint ? JSON.parse(finalCheckpoint) : null; } catch { /* preserve unknown */ }
   const responseText = String(response?.systemMessage ?? response?.reason ?? '');
-  const searchable = `${responseText}\n${streamText}`;
   const decision = response?.decision ?? null;
   const checkpointStatus = checkpoint?.status ?? null;
-  let evidenceStatus = 'unknown';
-  if (/after one repair attempt|stopping anyway/i.test(searchable)) evidenceStatus = 'stopped_after_repair_attempt';
-  else if (/NOT PROVEN|UNVERIFIED|could not verify|could not run|nothing was verified/i.test(searchable)) evidenceStatus = 'unverified_or_unproven';
-  else if (decision === 'block' || checkpointStatus === 'fail') evidenceStatus = 'failed';
-  else if (checkpointStatus === 'infra') evidenceStatus = 'unverified_infrastructure';
-  else if (checkpointStatus === 'unproven') evidenceStatus = 'unproven';
-  else if (/sealed checks passed/i.test(searchable) && /with a caveat/i.test(searchable)) evidenceStatus = 'passed_with_evidence_caveat';
-  else if (checkpointStatus === 'pass') evidenceStatus = 'passed';
+  // Earlier blocks remain historical observations, never the final proof status.
+  const evidenceStatus = canaryEvidenceStatus(response, checkpoint);
   return {
     checkpointStatus,
     blockDecisionObserved: decision === 'block' || sawCanaryBlockText,

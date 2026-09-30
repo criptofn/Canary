@@ -26,6 +26,8 @@ const runProbe = path.resolve(arg('run-probe', path.join(worktree, 'tooling/prob
 const codexJsonlParser = path.join(worktree, 'tooling/probes/v15-codex-jsonl.mjs');
 const artifact = arg('artifact-sha256', 'cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386');
 const model = arg('model', ['codex-local', 'ollama-native'].includes(protocol) ? 'qwen3.5:9b' : 'qwen3.8-flash');
+const checksFileArg = arg('checks-file');
+const checksFile = checksFileArg ? path.resolve(checksFileArg) : null;
 const providerCostApplicable = protocol === 'claude';
 const perSessionMax = Number(arg('per-session-max-usd', '2.5'));
 const totalMax = Number(arg('total-max-usd', '30'));
@@ -49,7 +51,7 @@ const toolchains = {
     'C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.101-hotspot\\bin',
   ],
 };
-const schedule = [
+const allSessions = [
   ['H1', 'plain'], ['H1', 'canary'],
   ['H2', 'canary'], ['H2', 'plain'],
   ['H3', 'plain'], ['H3', 'canary'],
@@ -57,6 +59,11 @@ const schedule = [
   ['R1', 'plain'], ['R1', 'canary'],
   ['S1', 'canary'], ['S1', 'plain'],
 ];
+const requestedLabels = arg('tasks')?.split(',') ?? Object.keys(taskFiles);
+if (!requestedLabels.length || new Set(requestedLabels).size !== requestedLabels.length || requestedLabels.some((label) => !taskFiles[label])) {
+  throw new Error('--tasks must name unique existing task labels separated by commas');
+}
+const schedule = allSessions.filter(([label]) => requestedLabels.includes(label));
 const run = (executable, args, cwd, timeout = 10_000) => spawnSync(executable, args, {
   cwd, encoding: 'utf8', timeout, windowsHide: true, maxBuffer: 32 * 1024 * 1024,
 });
@@ -73,6 +80,7 @@ if (!fs.statSync(preparedRoot, { throwIfNoEntry: false })?.isDirectory()
   || (protocol === 'codex-local' && (!codexEntry || !fs.statSync(codexEntry, { throwIfNoEntry: false })?.isFile()))
   || (protocol === 'ollama-native' && (!agentEntry || !fs.statSync(agentEntry, { throwIfNoEntry: false })?.isFile()))
   || (protocol === 'ollama-native' && !fs.statSync(ollamaCli, { throwIfNoEntry: false })?.isFile())
+  || (checksFile && (protocol !== 'ollama-native' || !fs.statSync(checksFile, { throwIfNoEntry: false })?.isFile()))
   || !fs.statSync(oracle, { throwIfNoEntry: false })?.isFile()
   || !fs.statSync(runProbe, { throwIfNoEntry: false })?.isFile()
   || (protocol === 'codex-local' && !fs.statSync(codexJsonlParser, { throwIfNoEntry: false })?.isFile())
@@ -86,7 +94,7 @@ if (!fs.statSync(preparedRoot, { throwIfNoEntry: false })?.isDirectory()
   process.exit(2);
 }
 const preparation = JSON.parse(fs.readFileSync(path.join(preparedRoot, 'preparation-summary.json'), 'utf8'));
-if (preparation.status !== 'complete' || preparation.records.length !== 12) throw new Error('pilot preparation is incomplete; no model call was started');
+if (preparation.status !== 'complete' || preparation.records.length !== schedule.length) throw new Error('pilot preparation is incomplete; no model call was started');
 for (const [label, arm] of schedule) {
   const repo = path.join(preparedRoot, 'projects', label, arm);
   if (!fs.statSync(repo, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`missing prepared workspace ${label}/${arm}`);
@@ -110,6 +118,7 @@ const manifest = {
   agentEntrySha256: protocol === 'codex-local' ? sha256(fs.readFileSync(codexEntry)) : protocol === 'ollama-native' ? sha256(fs.readFileSync(agentEntry)) : null,
   agentVersion: (agentVersionRun.stdout ?? '').trim(), runnerRuntime: process.version,
   model, preflightModel: preparation.model ?? null, providerUsdCostApplicable: providerCostApplicable,
+  tasks: requestedLabels, checksFile, checksFileSha256: checksFile ? sha256(fs.readFileSync(checksFile)) : null,
   budgetCapPerSessionUsd: providerCostApplicable ? perSessionMax : null, totalBudgetCapUsd: providerCostApplicable ? totalMax : null, timeoutMinutes: timeoutMin,
   maximumSessions: schedule.length, schedule: schedule.map(([label, arm], index) => ({ order: index + 1, label, arm })),
   preparationSummary: preparation, startedAt,
@@ -138,11 +147,12 @@ for (let i = 0; i < schedule.length; i++) {
   if (providerCostApplicable) args.push('--max-budget-usd', String(sessionCap), '--agent-arg', '--model', '--agent-arg', model);
   else if (protocol === 'codex-local') args.push('--agent-protocol', 'codex-local', '--model', model, '--agent-arg', codexEntry);
   else args.push('--agent-protocol', 'ollama-native', '--model', model, '--agent-entry', agentEntry);
+  if (checksFile) args.push('--agent-arg', '--checks-file', '--agent-arg', checksFile);
   if (extraPath) args.push('--extra-path', extraPath);
   const started = new Date().toISOString();
   console.log(providerCostApplicable
-    ? `START ${i + 1}/12 ${label}/${arm}; per-session cap ${sessionCap.toFixed(2)}, accounted ${costTotal.toFixed(4)}/${totalMax.toFixed(2)}`
-    : `START ${i + 1}/12 ${label}/${arm}; local ${model}, provider USD charge not applicable`);
+    ? `START ${i + 1}/${schedule.length} ${label}/${arm}; per-session cap ${sessionCap.toFixed(2)}, accounted ${costTotal.toFixed(4)}/${totalMax.toFixed(2)}`
+    : `START ${i + 1}/${schedule.length} ${label}/${arm}; local ${model}, provider USD charge not applicable`);
   const agentRun = run(process.execPath, args, worktree, timeoutMin * 60_000 + 120_000);
   const attemptDir = path.join(runRoot, 'pilot-1');
   const ledgerPath = path.join(attemptDir, 'ledger.json');
@@ -188,8 +198,8 @@ for (let i = 0; i < schedule.length; i++) {
   outcomes.push(outcome);
   fs.writeFileSync(path.join(outRoot, `session-${String(i + 1).padStart(2, '0')}.json`), `${JSON.stringify(outcome, null, 2)}\n`, { flag: 'wx' });
   console.log(providerCostApplicable
-    ? `END ${i + 1}/12 ${label}/${arm}: session=${outcome.agentSessionOutcome}; evidence=${outcome.evidenceStatus}; oracle=${outcome.correctnessStatus}; cost=${costPresent ? `$${nativeCost.toFixed(4)}` : 'MISSING'}; total=$${costTotal.toFixed(4)}`
-    : `END ${i + 1}/12 ${label}/${arm}: session=${outcome.agentSessionOutcome}; evidence=${outcome.evidenceStatus}; oracle=${outcome.correctnessStatus}; tokens=${JSON.stringify(outcome.nativeUsage)}; runtime=${JSON.stringify(outcome.localModelRuntime)}`);
+    ? `END ${i + 1}/${schedule.length} ${label}/${arm}: session=${outcome.agentSessionOutcome}; evidence=${outcome.evidenceStatus}; oracle=${outcome.correctnessStatus}; cost=${costPresent ? `$${nativeCost.toFixed(4)}` : 'MISSING'}; total=$${costTotal.toFixed(4)}`
+    : `END ${i + 1}/${schedule.length} ${label}/${arm}: session=${outcome.agentSessionOutcome}; evidence=${outcome.evidenceStatus}; oracle=${outcome.correctnessStatus}; tokens=${JSON.stringify(outcome.nativeUsage)}; runtime=${JSON.stringify(outcome.localModelRuntime)}`);
   if (providerCostApplicable && !costPresent) { stopReason = 'native provider cost missing; stopped before the next paid session'; break; }
   if (providerCostApplicable && (nativeCost > sessionCap || costTotal > totalMax)) { stopReason = 'provider reported cost beyond an enforced cap; stopped before the next session'; break; }
   if (ledger?.model !== model) { stopReason = `observed model ${String(ledger?.model)} differs from pinned ${model}`; break; }
@@ -210,12 +220,13 @@ const summary = {
   status: outcomes.length === schedule.length && outcomes.every((o) => o.attemptStatus === 'complete' && ['completed', 'completed_after_block_and_repair', 'completed_after_canary_stop_guard'].includes(o.agentSessionOutcome) && o.correctnessStatus !== 'incomplete' && (protocol !== 'ollama-native' || o.localModelUnload?.exitCode === 0))
     ? 'complete' : 'incomplete',
   statement: outcomes.length === schedule.length
-    ? 'Twelve sessions and independent oracle outcomes were recorded; correctness and Canary proof status are reported separately.'
+    ? `${schedule.length} sessions and independent oracle outcomes were recorded; correctness and Canary proof status are reported separately.`
     : `Stopped after ${outcomes.length} session(s): ${stopReason}`,
 };
 fs.writeFileSync(path.join(outRoot, 'pilot-summary.json'), `${JSON.stringify(summary, null, 2)}\n`, { flag: 'wx' });
 const files = fs.readdirSync(outRoot, { recursive: true }).filter((name) => typeof name === 'string' && fs.statSync(path.join(outRoot, name)).isFile() && name !== 'SHA256SUMS').sort();
 fs.writeFileSync(path.join(outRoot, 'SHA256SUMS'), `${files.map((name) => `${sha256(fs.readFileSync(path.join(outRoot, name)))}  ${name.replaceAll('\\', '/')}`).join('\n')}\n`, { flag: 'wx' });
 console.log(providerCostApplicable
-  ? `--- PILOT ${summary.status}: ${outcomes.length}/12 attempted; native cost ${costTotal.toFixed(4)}${stopReason ? `; stopped: ${stopReason}` : ''}`
-  : `--- PILOT ${summary.status}: ${outcomes.length}/12 attempted; local inference, no provider USD charge${stopReason ? `; stopped: ${stopReason}` : ''}`);
+  ? `--- PILOT ${summary.status}: ${outcomes.length}/${schedule.length} attempted; native cost ${costTotal.toFixed(4)}${stopReason ? `; stopped: ${stopReason}` : ''}`
+  : `--- PILOT ${summary.status}: ${outcomes.length}/${schedule.length} attempted; local inference, no provider USD charge${stopReason ? `; stopped: ${stopReason}` : ''}`);
+process.exitCode = summary.status === 'complete' ? 0 : 1;
