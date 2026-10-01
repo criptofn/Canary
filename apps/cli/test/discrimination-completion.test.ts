@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, test } from 'node:test';
-import { discriminationObligation, readConfig } from '../src/onboarding.js';
+import { candidateDiffSignals, collectDiffSignals, discriminationObligation, readConfig } from '../src/onboarding.js';
 
 const CLI = path.resolve(import.meta.dirname, '../src/main.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-discrimination-completion-'));
@@ -86,6 +86,40 @@ function assertDoctorAndHookBlocked(root: string, reason: RegExp) {
   // The existing one-repair hook policy may stop, but must still disclose NOT PROVEN.
   assert.match(hook(root, true).systemMessage ?? '', /NOT PROVEN/);
 }
+
+test('an imported dash-test check is compared and retains worker provenance, while unused or copied assertions cannot prove work', () => {
+  const root = fixture('imported-dash-test');
+  fs.mkdirSync(path.join(root, 'scripts'));
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'scripts/greet-regression-test.cjs', "const assert = require('node:assert/strict'); const greet = require('../greet.cjs'); assert.equal(greet('  Ada'), 'hello Ada');\n");
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  assert.ok(collectDiffSignals(root, cfg).changes.includes('scripts/greet-regression-test.cjs'));
+  assert.ok(candidateDiffSignals(root, cfg.baseline!.head!).changes.includes('scripts/greet-regression-test.cjs'));
+  assert.equal(discriminationObligation(root, cfg)?.status, 'unproven', 'an unused file cannot certify work');
+  write(root, 'tests/greet.test.cjs', TEST + "require('../scripts/greet-regression-test.cjs');\n");
+  const genuine = discriminationObligation(root, cfg);
+  assert.equal(genuine?.status, 'met', genuine?.note);
+  assert.match(genuine?.caveat ?? '', /greet-regression-test\.cjs.*created by this session/);
+  write(root, 'greet.cjs', "module.exports = n => 'hello ' + String(n);\n");
+  write(root, 'scripts/greet-regression-test.cjs', "const assert = require('node:assert/strict'); const copied = n => 'hello ' + n.trimStart(); assert.equal(copied('  Ada'), 'hello Ada');\n");
+  assert.equal(discriminationObligation(root, cfg)?.status, 'unproven', 'asserting copied logic cannot certify the real implementation');
+});
+
+test('an unavailable baseline check dependency remains unproven and its failing output survives temporary-tree cleanup', () => {
+  const root = fixture('baseline-output-survives');
+  fs.mkdirSync(path.join(root, 'scripts'));
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'scripts/custom-check.cjs', "const assert = require('node:assert/strict'); const greet = require('../greet.cjs'); assert.equal(greet('  Ada'), 'hello Ada');\n");
+  write(root, 'tests/greet.test.cjs', TEST + "require('../scripts/custom-check.cjs');\n");
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  const result = discriminationObligation(root, cfg);
+  assert.equal(result?.status, 'unproven');
+  const output = result?.note.match(/baseline output: (.+?)(?: —|$)/)?.[1];
+  assert.ok(output, result?.note);
+  const files = fs.readdirSync(output).filter((file) => /\.(?:out|err)\.log$/.test(file));
+  assert.ok(files.some((file) => fs.readFileSync(path.join(output, file), 'utf8').includes('custom-check.cjs')),
+    'the operator must be able to identify the missing dependency after the comparison tree is removed');
+});
 
 test('BLOCKER 1: a comment-only test edit cannot verify, promote, finish, or pass the completion hook', () => {
   const root = fixture('comment-only'); const candidate = work(root);

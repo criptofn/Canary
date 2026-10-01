@@ -1703,7 +1703,8 @@ export function collectDiffSignals(root: string, cfg: CanaryConfig): DiffSignals
   const committed = cfg.baseline?.resolved && baselineHead !== null && /^[0-9a-f]{40,64}$/i.test(baselineHead)
     ? gitWithinRoot(root, ['diff', '--name-status', '-z', baselineHead, 'HEAD']) : null;
   const staged = gitWithinRoot(root, ['diff', '--name-status', '-z', '--cached']);
-  const worktree = gitWithinRoot(root, ['status', '--porcelain', '-z']);
+  // Enumerate new files: a collapsed "scripts/" entry cannot be overlaid as a check.
+  const worktree = gitWithinRoot(root, ['status', '--porcelain', '-z', '--untracked-files=all']);
   return diffSignalsFrom(committed, staged, worktree,
     cfg.baseline !== undefined && cfg.baseline.resolved && cfg.baseline.dirty === false,
     cfg.baseline?.dirty === true);
@@ -1723,7 +1724,7 @@ export function candidateDiffSignals(root: string, baseHead: string): DiffSignal
   const committed = /^[0-9a-f]{40,64}$/i.test(baseHead)
     ? gitWithinRoot(root, ['diff', '--name-status', '-z', baseHead, 'HEAD']) : null;
   const staged = gitWithinRoot(root, ['diff', '--name-status', '-z', '--cached']);
-  const worktree = gitWithinRoot(root, ['status', '--porcelain', '-z']);
+  const worktree = gitWithinRoot(root, ['status', '--porcelain', '-z', '--untracked-files=all']);
   return diffSignalsFrom(committed, staged, worktree, committed !== null, false);
 }
 
@@ -2059,7 +2060,10 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
     };
     for (const p of changed) {
       if (!signals.changes.includes(p)) continue;
-      if (!isTestPath(p) && !namedBySealedScript(p)) continue;
+      // Imported checks often use foo-test.js rather than foo.test.js. Admit
+      // that check surface here without exempting it from behaviour obligations.
+      // An unused file still cannot make the sealed plan discriminate a change.
+      if (!isTestPath(p) && !/[-_](?:test|spec)\.[cm]?[jt]sx?$/i.test(p) && !namedBySealedScript(p)) continue;
       // "Did this check file exist at the sealed baseline?" — asked of git, not guessed. Every
       // path in `changed` IS a change, so presence at the baseline is exactly the provenance split.
       const atBaseline = gitWithinRoot(root, ['cat-file', '-e', `${head}:${p}`]) !== null;
@@ -2080,7 +2084,9 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
     if (ran.length === 0) return unknown('no sealed check ran against the baseline', changed);
     const failures = ran.filter((r) => !r.ok);
     if (failures.length > 0 && failures.some(looksLikeInfraFailure)) {
-      return unknown('the baseline run failed in an environment-shaped way (a missing module or file), so it proves nothing either way', changed);
+      const evidence = writeVerificationBundle(root, 'baseline', ran, 'fail',
+        { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null }, { subjectRoot: tree });
+      return unknown(`the baseline run failed in an environment-shaped way (a missing module or file), so it proves nothing either way${evidence ? `; baseline output: ${evidence}` : ''}`, changed);
     }
     if (overlaid.length > 0 && failures.some((r) => /\b(?:TypeError|ReferenceError|SyntaxError)(?:\s*\[[^\]]+\])?:/.test(`${r.stdout}\n${r.stderr}`))) {
       // Measured H2: the new check passed only because the worker left input
