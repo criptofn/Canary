@@ -94,6 +94,7 @@ try {
     const runOracle = (role, expected) => run(`${label}-${role}-oracle`, process.execPath,
       [oracle, '--label', label, '--repo', repo, '--expected', expected,
         '--out', path.join(output, 'oracles', label, role),
+        ...(label === 'H1' ? ['--strict-age'] : []),
         '--javac', path.join(javaBin, 'javac.exe'), '--java', path.join(javaBin, 'java.exe')]);
     runOracle('baseline', 'fail');
     if (label === 'H2') {

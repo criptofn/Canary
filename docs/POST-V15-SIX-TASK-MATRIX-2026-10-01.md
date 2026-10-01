@@ -119,3 +119,12 @@ any paired pilot starts. No native Claude model session ran in this follow-up.
 Sources: [Ollama Claude Code integration](https://docs.ollama.com/integrations/claude-code),
 [Anthropic API compatibility](https://docs.ollama.com/api/anthropic-compatibility),
 [Claude settings precedence](https://code.claude.com/docs/en/settings).
+
+## Later follow-up on 2026-10-01
+
+The [twelve native pilot sessions](POST-V15-NATIVE-PILOT-COMPLETE-2026-10-01.md)
+and the [direct release/improvement comparison](POST-V15-RELEASE-COMPARISON-2026-10-01.md)
+have since completed. Both packages pass all twelve task controls in that direct
+comparison. The separate [imported-check repair](POST-V15-IMPORTED-CHECK-REPAIR-2026-10-01.md)
+demonstrates a false block in the published release and its correction. These
+later results do not alter the original matrix or retroactively improve the pilot.

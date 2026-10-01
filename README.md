@@ -96,6 +96,10 @@ runtime dependencies**.
 > passed their actual completion hook; native token use was 3.95× the plain arm. This small
 > pilot supports no token-saving claim. [Results, artifact identity and limits](docs/POST-V15-NATIVE-PILOT-COMPLETE-2026-10-01.md).
 
+The subsequent unpublished correction accepts sufficient imported `*-test.js` checks,
+including uncommitted files, and retains baseline failure logs. Its H3 controls reject
+weak tests and the old faulty implementation. [Repair and evidence](docs/POST-V15-IMPORTED-CHECK-REPAIR-2026-10-01.md).
+
 > **v1.5 status, stated where you will see it first: the token-saving headline is WITHDRAWN.**
 > The v1.5 candidate published `83.21 % of Plain (−16.79 %)` for the everyday path. An
 > independent audit found that aggregate pooled a cell measured by the **fallback estimator**

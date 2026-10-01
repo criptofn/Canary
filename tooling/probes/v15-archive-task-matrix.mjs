@@ -3,18 +3,54 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const [sourceArg, outArg] = process.argv.slice(2);
+const cleanup = process.argv[2] === '--cleanup';
+const [sourceArg, outArg] = process.argv.slice(cleanup ? 3 : 2);
 assert.ok(sourceArg && outArg && path.isAbsolute(sourceArg) && path.isAbsolute(outArg), 'provide absolute source and new destination');
 const source = path.resolve(sourceArg);
 const out = path.resolve(outArg);
 const relation = path.relative(source, out);
 assert.ok(relation && (relation.startsWith('..') || path.isAbsolute(relation)), 'destination must be outside source');
+const sha = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+if (cleanup) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(out, 'export-manifest.json'), 'utf8'));
+  assert.equal(path.resolve(manifest.source), source);
+  assert.equal(manifest.captureStatus, 'complete');
+  assert.match(path.basename(source), /^canary-(?:(?:release|improved)-six-task|installed-matrix)-/);
+  assert.equal(fs.realpathSync.native(source), path.join(fs.realpathSync.native(os.tmpdir()), path.basename(source)),
+    'only a direct owned OS-temp directory may be removed');
+  const stores = new Set();
+  for (const file of manifest.files) {
+    const target = path.join(out, file.path);
+    const relative = path.relative(out, target);
+    assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+    const bytes = fs.readFileSync(target);
+    assert.equal(sha(bytes), file.sha256, `archive changed: ${file.path}`);
+    if (file.path.endsWith('/attempt-result.json')) {
+      const attempt = JSON.parse(bytes.toString('utf8'));
+      if (attempt.trustStore) {
+        const repoRelative = path.relative(source, attempt.repo);
+        assert.ok(repoRelative && !repoRelative.startsWith('..') && !path.isAbsolute(repoRelative));
+        const expected = path.join(os.tmpdir(), 'canary-v15-validation-trust', sha(attempt.repo));
+        assert.equal(path.resolve(attempt.trustStore), expected);
+        if (fs.existsSync(expected)) {
+          assert.equal(fs.realpathSync.native(path.dirname(expected)), path.join(fs.realpathSync.native(os.tmpdir()), 'canary-v15-validation-trust'));
+          assert.equal(fs.realpathSync.native(expected), path.join(fs.realpathSync.native(path.dirname(expected)), path.basename(expected)));
+          stores.add(expected);
+        }
+      }
+    }
+  }
+  for (const store of stores) fs.rmSync(store, { recursive: true, force: true });
+  fs.rmSync(source, { recursive: true });
+  console.log(`PASS cleaned owned matrix and ${stores.size} trust directories after verifying ${manifest.files.length} archived files`);
+  process.exit(0);
+}
 assert.ok(!fs.existsSync(out), 'destination already exists');
 const summary = JSON.parse(fs.readFileSync(path.join(source, 'summary.json'), 'utf8'));
-const sha = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const copied = [];
 fs.mkdirSync(out, { recursive: true });
 function copy(file, relative) {
