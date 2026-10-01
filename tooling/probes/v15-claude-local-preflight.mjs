@@ -39,10 +39,11 @@ Object.assign(safeEnv, {
   HTTP_PROXY: '', HTTPS_PROXY: '', ALL_PROXY: '',
   ENABLE_TOOL_SEARCH: 'false', ENABLE_CLAUDEAI_MCP_SERVERS: 'false',
   CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS: '1', MCP_TOOL_TIMEOUT: '120000',
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS: '65536', CLAUDE_CODE_MAX_OUTPUT_TOKENS: '4096',
 });
 const metadata = { startedAt: new Date().toISOString(), node: process.version, model, modelDigest: digest,
   cli, cliSha256: sha(fs.readFileSync(cli)), claude, claudeSha256: sha(fs.readFileSync(claude)),
-  ollama, ollamaSha256: sha(fs.readFileSync(ollama)), backend, contextLength: 65536,
+  ollama, ollamaSha256: sha(fs.readFileSync(ollama)), backend, contextLength: 65536, maxOutputTokens: 4096, maxTurns: 50,
   instrumentSha256: sha(fs.readFileSync(fileURLToPath(import.meta.url))), workspace, profile, withTools, preparedRoot };
 save('instrument.mjs', fs.readFileSync(fileURLToPath(import.meta.url), 'utf8'));
 save('v15-anthropic-usage.mjs', fs.readFileSync(new URL('./v15-anthropic-usage.mjs', import.meta.url), 'utf8'));
@@ -81,7 +82,9 @@ async function session(name, prompt, hooks, tools = false, options = {}) {
       ? 'Repair the requested source file using the available tools. Keep checks and Canary configuration unchanged. Do not delegate. Finish with a short factual summary.'
       : 'Reply with one short sentence. This is a local completion-hook control. No tools are available.'];
   if (tools) args.push('--permission-mode', 'acceptEdits', '--allowedTools',
-    'Read,Write,Edit,Glob,Grep,Bash,mcp__canary__canary_result,mcp__canary__canary_status,mcp__canary__canary_agents,mcp__canary__canary_doctor', '--effort', 'low');
+    'Read,Write,Edit,Glob,Grep,Bash,mcp__canary__canary_result,mcp__canary__canary_status,mcp__canary__canary_agents,mcp__canary__canary_doctor',
+    '--effort', 'low', '--max-turns', String(options.maxTurns ?? 50), '--disallowedTools',
+    'Bash(*setup*),Bash(*bind*),Bash(*accept*),Edit(**/.canary/**),Write(**/.canary/**),Edit(**/.claude/**),Write(**/.claude/**),Edit(**/.mcp.json),Write(**/.mcp.json),Edit(**/package.json),Write(**/package.json),Edit(**/build.gradle.kts),Write(**/build.gradle.kts)');
   let stdout = '', stderr = '', timedOut = false;
   const startedAt = new Date().toISOString();
   const child = spawn(claude, args, { cwd, env: { ...safeEnv, ...localEnv, ...options.env }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -110,8 +113,9 @@ async function session(name, prompt, hooks, tools = false, options = {}) {
     output_tokens: sum.output_tokens + r.usage.output_tokens }), { input_tokens: 0, output_tokens: 0 }) : null;
   const accountingMatches = nativeUsage !== null && terminal?.usage?.input_tokens === nativeUsage.input_tokens
     && terminal?.usage?.output_tokens === nativeUsage.output_tokens;
+  const captureComplete = terminal !== undefined && nativeComplete && accountingMatches && !timedOut;
   const record = { name, args, startedAt, finishedAt: new Date().toISOString(), ...result, timedOut,
-    terminal: terminal ?? null, nativeUsage, accountingMatches, calls: calls.map((r) => r.number), toolCalls, hookEvents, cwd,
+    terminal: terminal ?? null, nativeUsage, accountingMatches, captureComplete, calls: calls.map((r) => r.number), toolCalls, hookEvents, cwd,
     checkpoint, checkpointChanged: after !== before, hookFired: after !== before && checkpoint?.source === 'checkpoint' && hookEvents.length > 0,
     modelRuntime: await api('/api/ps') };
   fs.writeFileSync(path.join(dir, 'record.json'), `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx' });
@@ -119,11 +123,12 @@ async function session(name, prompt, hooks, tools = false, options = {}) {
   if (hooks && fs.existsSync(evidence)) fs.cpSync(evidence, path.join(dir, 'product-evidence'), { recursive: true });
   sessions.push(record);
   console.log(`OBSERVED ${name}: exit=${result.exitCode}, nativeUsage=${JSON.stringify(nativeUsage)}, accountingMatches=${accountingMatches}, hook=${record.hookFired}, status=${checkpoint?.status ?? 'none'}`);
-  if (options.pilot) return record;
+  if (options.pilot || options.captureOnly) return record;
   assert.equal(result.exitCode, 0, `${name}: CLI failed`); assert.ok(!timedOut, `${name}: timeout`);
   assert.ok(terminal && !terminal.is_error, `${name}: no successful terminal event`);
   assert.ok(nativeComplete, `${name}: missing native API usage`);
   assert.ok(accountingMatches, `${name}: CLI usage differs from the captured API usage`);
+  assert.equal(terminal.modelUsage?.[model]?.contextWindow, metadata.contextLength, 'Claude context differs from actual model context');
   return record;
 }
 async function pilot() {
@@ -137,7 +142,7 @@ async function pilot() {
   save('preparation-summary.json', preparation); save('oracle-instrument.mjs', fs.readFileSync(oracle, 'utf8'));
   save('pilot-protocol.json', { schedule, cliSha256: metadata.cliSha256, artifactSha256: preparation.artifactSha256,
     tasks: Object.entries(taskFiles).map(([label, file]) => ({ label, file, sha256: sha(fs.readFileSync(path.join(taskRoot, file))) })),
-    oracleSha256: sha(fs.readFileSync(oracle)), timeoutMs: 1_800_000, effort: 'low',
+    oracleSha256: sha(fs.readFileSync(oracle)), timeoutMs: 1_800_000, effort: 'low', maxTurns: 50, maxOutputTokens: 4096,
     providerUsdCharge: 0, limitation: 'Local same-user model and independent operator oracles; no OS isolation or general token savings claim.' });
   const git = (repo, ...args) => {
     const r = spawnSync('git', ['-C', repo, ...args], { env: safeEnv, encoding: 'utf8', windowsHide: true, timeout: 60000, maxBuffer: 32 * 1024 * 1024 });
@@ -175,8 +180,8 @@ async function pilot() {
         PATH: [...record.toolchainDirectories, safeEnv.PATH ?? safeEnv.Path ?? ''].join(path.delimiter) } });
     const correctness = oracleRun(`${name}-final`, label, repo, 'pass', record.toolchainDirectories);
     const after = { head: git(repo, 'rev-parse', 'HEAD'), status: git(repo, 'status', '--porcelain'), protected: protectedHashes() };
-    save(`${name}-after.json`, after); save(`${name}.diff`, git(repo, 'diff', '--binary', 'HEAD'));
-    const paths = new Set([...git(repo, 'diff', '--name-only', 'HEAD').split('\n'), ...git(repo, 'ls-files', '--others', '--exclude-standard').split('\n')].filter(Boolean));
+    save(`${name}-after.json`, after); save(`${name}.diff`, git(repo, 'diff', '--binary', before.head));
+    const paths = new Set([...git(repo, 'diff', '--name-only', before.head).split('\n'), ...git(repo, 'ls-files', '--others', '--exclude-standard').split('\n')].filter(Boolean));
     for (const file of paths) {
       const relative = path.relative(repo, path.resolve(repo, file)); assert.ok(!relative.startsWith('..') && !path.isAbsolute(relative));
       const source = path.join(repo, relative); if (!fs.statSync(source, { throwIfNoEntry: false })?.isFile()) continue;
@@ -184,15 +189,17 @@ async function pilot() {
     }
     const outcome = { name, label, arm, correctness: correctness?.testPassed === true ? 'pass' : correctness?.testPassed === false ? 'fail' : 'incomplete',
       sessionComplete: measured.exitCode === 0 && !measured.timedOut && measured.terminal?.is_error === false && measured.accountingMatches,
+      sessionCaptured: measured.captureComplete, resultSubtype: measured.terminal?.subtype ?? null,
       hookFired: measured.hookFired, checkpointStatus: measured.checkpoint?.status ?? null,
       nativeUsage: measured.nativeUsage, protectedUnchanged: JSON.stringify(before.protected) === JSON.stringify(after.protected),
       baselinePreserved: spawnSync('git', ['-C', repo, 'merge-base', '--is-ancestor', before.head, after.head], { env: safeEnv, windowsHide: true, timeout: 60000 }).status === 0,
       manualInterventions: 0, providerUsdCharge: 0 };
     outcomes.push(outcome); save(`${name}-outcome.json`, outcome);
     console.log(`END ${name}: correctness=${outcome.correctness}, complete=${outcome.sessionComplete}, checkpoint=${outcome.checkpointStatus}`);
-    assert.ok(outcome.sessionComplete, `${name}: incomplete native capture; retained and stopped`);
+    assert.ok(outcome.sessionCaptured, `${name}: incomplete native capture; retained and stopped`);
+    assert.equal(measured.terminal.modelUsage?.[model]?.contextWindow, metadata.contextLength, `${name}: incorrect declared context`);
     assert.ok(outcome.protectedUnchanged && outcome.baselinePreserved, `${name}: protected setup or baseline ancestry changed; retained and stopped`);
-    if (arm === 'canary') assert.ok(outcome.hookFired, `${name}: real Stop checkpoint missing; retained and stopped`);
+    if (arm === 'canary' && outcome.sessionComplete) assert.ok(outcome.hookFired, `${name}: real Stop checkpoint missing; retained and stopped`);
   }
   save('pilot-outcomes.json', outcomes);
 }
@@ -282,6 +289,14 @@ try {
     for (const [file, hash] of Object.entries(protectedHashes)) assert.equal(sha(fs.readFileSync(path.join(workspace, file))), hash, `${file} changed`);
     run('repair-independent-check', process.execPath, ['check.cjs']);
     assert.ok(repair.hookFired && repair.checkpoint.status === 'pass', 'native repair Stop hook did not pass');
+    const budget = await session('turn-limit-control',
+      'Use Read to read value.cjs first. After that, read check.cjs and give a summary.', true, true, { captureOnly: true, maxTurns: 1 });
+    assert.ok(budget.captureComplete && budget.terminal.is_error === true && budget.terminal.subtype === 'error_max_turns', 'turn cap did not yield a fully captured native error result');
+    assert.ok(!budget.hookFired, 'turn-limit control unexpectedly completed through the Stop hook');
+    const denial = await session('setup-denial-control',
+      `Attempt the Bash command: "${process.execPath}" "${cli}" setup --yes. Do not modify files another way. If refused, stop and report the refusal.`, true, true);
+    assert.ok(denial.terminal.permission_denials.some((d) => d.tool_name === 'Bash' && d.tool_input?.command?.includes('setup')), 'setup command was not denied by the experiment tool rules');
+    for (const [file, hash] of Object.entries(protectedHashes)) assert.equal(sha(fs.readFileSync(path.join(workspace, file))), hash, `${file} changed during setup-denial control`);
   }
   }
   assert.equal(sha(fs.readFileSync(cli)), metadata.cliSha256, 'installed CLI changed');
@@ -299,7 +314,7 @@ finally {
   } catch (error) { cleanup = { error: error.message }; failure ??= error.stack ?? String(error); if (server?.exitCode === null) server.kill(); }
   if (gateway) { gateway.closeAllConnections(); await new Promise((resolve) => gateway.close(resolve)); }
   save('summary.json', { ...metadata, finishedAt: new Date().toISOString(), commands, requests, sessions, cleanup, failure,
-    status: !failure && sessions.length === (preparation ? 12 : withTools ? 4 : 3) ? 'complete' : 'incomplete', providerUsdCharge: 0,
+    status: !failure && sessions.length === (preparation ? 12 : withTools ? 6 : 3) ? 'complete' : 'incomplete', providerUsdCharge: 0,
     caveat: preparation ? 'Local native Claude paired pilot; correctness and checkpoint verdict separate, same-user LOCAL only.'
       : withTools ? 'Local same-user injected repair control with tools/MCP; no paired task benefit or adversarial isolation measured.'
       : 'Local same-user controls; tools/MCP disabled; no agent task efficacy or adversarial isolation measured.' });
@@ -308,6 +323,6 @@ finally {
   const contained = path.relative(os.tmpdir(), temp);
   assert.ok(contained && !contained.startsWith('..') && !path.isAbsolute(contained));
   fs.rmSync(temp, { recursive: true, force: true });
-  console.log(`${failure ? 'FAIL' : 'PASS'} native local ${preparation ? 'pilot' : 'preflight'}; ${sessions.length}/${preparation ? 12 : withTools ? 4 : 3} captured; ${out}`);
+  console.log(`${failure ? 'FAIL' : 'PASS'} native local ${preparation ? 'pilot' : 'preflight'}; ${sessions.length}/${preparation ? 12 : withTools ? 6 : 3} captured; ${out}`);
   process.exitCode = failure ? 1 : 0;
 }
