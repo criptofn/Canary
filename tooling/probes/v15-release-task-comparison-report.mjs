@@ -5,7 +5,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const [beforeRoot, afterRoot, out] = process.argv.slice(2);
+const [beforeRoot, afterRoot, out, baselinePackageSha] = process.argv.slice(2);
+if (baselinePackageSha) assert.match(baselinePackageSha, /^[a-f0-9]{64}$/);
+const beforeLabel = baselinePackageSha ? 'Vor Plan' : 'Release';
 assert.ok([beforeRoot, afterRoot, out].every((value) => value && path.isAbsolute(value)));
 assert.ok(!fs.existsSync(out));
 const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -54,16 +56,16 @@ for (const record of before.preparation.records) {
   assert.equal(record.source.baseCommit, current.source.baseCommit);
   assert.deepEqual(record.toolchainDirectories, current.toolchainDirectories);
 }
-assert.equal(before.summary.packageSha256, 'cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386');
+assert.equal(before.summary.packageSha256, baselinePackageSha ?? 'cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386');
 const rows = labels.map((label) => {
   const base = before.preparation.records.find((record) => record.label === label).source.baseCommit;
   return `| ${label} | \`${base}\` | pass / fail, Fehler blockiert | pass / fail, Fehler blockiert |`;
 });
-const text = '# Direkter Vergleich: veröffentlichtes Canary 1.5.0 und Verbesserungsstand\n\n' +
+const text = `# Direkter Vergleich: ${baselinePackageSha ? 'Arbeitsstand vor dem Plan' : 'veröffentlichtes Canary 1.5.0'} und Verbesserungsstand\n\n` +
   'Sechs unabhängige Aufgaben auf Hermes, Refactron und Schniedelsmp, jeweils korrekte historische Lösung und bewusst wiederhergestellte fehlerhafte Implementierung. ' +
   'Beide Pakete bestehen **12/12 Kontrollen** und alle zwölf Einrichtungsprüfungen (sechs regulär, sechs mit Canary).\n\n' +
-  '| Aufgabe | Ausgangscommit | Release: korrekt / alter Fehler | Verbesserung: korrekt / alter Fehler |\n|---|---|---|---|\n' + rows.join('\n') + '\n\n' +
-  [before, after].map((run, index) => `- ${index ? 'Verbesserung' : 'Release'}: Paket SHA-256 \`${run.summary.packageSha256}\`; CLI \`${run.summary.cliSha256}\`; ${run.files} archivierte Dateien erneut bytegenau geprüft. Rohbelege: \`${index ? afterRoot : beforeRoot}\`.`).join('\n') + '\n\n' +
+  `| Aufgabe | Ausgangscommit | ${beforeLabel}: korrekt / alter Fehler | Verbesserung: korrekt / alter Fehler |\n|---|---|---|---|\n` + rows.join('\n') + '\n\n' +
+  [before, after].map((run, index) => `- ${index ? 'Verbesserung' : beforeLabel}: Paket SHA-256 \`${run.summary.packageSha256}\`; CLI \`${run.summary.cliSha256}\`; ${run.files} archivierte Dateien erneut bytegenau geprüft. Rohbelege: \`${index ? afterRoot : beforeRoot}\`.`).join('\n') + '\n\n' +
   'Instrumente, historische Lösungspatches, Ausgangscommits, Toolchain-Verzeichnisse und Zeitgrenzen stimmen zwischen den Varianten überein. ' +
   'H1 berücksichtigt zusätzlich eine Stunde alte Dateien und Bruchteile von Tagen; diese Ergänzung gehört zum nachträglichen Kontrollversuch, nicht zum ursprünglichen nativen Pilot. ' +
   'Alle Checkpoints stammen aus tatsächlichen CLI-Aufrufen. Es sind keine nativen Agentensitzungen; Sitzungsende oder Tokenersparnis wird hier nicht gemessen.\n\n' +
