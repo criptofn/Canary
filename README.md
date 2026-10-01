@@ -90,6 +90,12 @@ runtime dependencies**.
 > current working tree: `npm ci && npm run build`, then `node apps/cli/dist/src/main.js`.
 > v1.3's own bytes are described in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
 
+> **Post-release native pilot (2026-10-01, unpublished improvements).** Twelve Claude Code
+> sessions on three projects using local `qwen3.5:9b` produced 6/6 correct solutions without
+> Canary and 4/6 with Canary after an explicitly post-pilot H1 check. Four Canary sessions
+> passed their actual completion hook; native token use was 3.95× the plain arm. This small
+> pilot supports no token-saving claim. [Results, artifact identity and limits](docs/POST-V15-NATIVE-PILOT-COMPLETE-2026-10-01.md).
+
 > **v1.5 status, stated where you will see it first: the token-saving headline is WITHDRAWN.**
 > The v1.5 candidate published `83.21 % of Plain (−16.79 %)` for the everyday path. An
 > independent audit found that aggregate pooled a cell measured by the **fallback estimator**

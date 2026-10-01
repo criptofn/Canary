@@ -21,7 +21,7 @@ const expectedSessions = preparedRoot ? (taskSelection?.length ?? 6) * 2 : withT
 assert.ok(!preparedRoot || path.isAbsolute(preparedRoot), 'absolute --prepared-root required');
 const preparation = preparedRoot ? JSON.parse(fs.readFileSync(path.join(preparedRoot, 'preparation-summary.json'), 'utf8')) : null;
 if (preparation) {
-  assert.equal(preparation.status, 'complete'); assert.equal(preparation.records.length, 12);
+  assert.equal(preparation.status, 'complete'); assert.equal(preparation.records.length, preparation.tasks.length * 2);
   assert.equal(preparation.cliSha256, crypto.createHash('sha256').update(fs.readFileSync(cli)).digest('hex'));
 }
 for (const [name, value] of Object.entries({ cli, claude, ollama, out })) assert.ok(value && path.isAbsolute(value), `absolute --${name} required`);

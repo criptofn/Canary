@@ -7,7 +7,7 @@ import path from 'node:path';
 import { parseAnthropicUsage, claudeUsageMatchesNative } from './v15-anthropic-usage.mjs';
 
 const arg = (key) => { const i = process.argv.indexOf(`--${key}`); return i < 0 ? null : process.argv[i + 1]; };
-const evidence = arg('evidence'), out = arg('out');
+const evidence = arg('evidence'), out = arg('out'), compareEvidence = arg('compare-evidence');
 assert.ok(evidence && out && path.isAbsolute(evidence) && path.isAbsolute(out));
 assert.ok(!fs.existsSync(out), 'new report path required');
 const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -55,6 +55,36 @@ const arms = ['plain', 'canary'].map((arm) => {
     passedCheckpoints: matches.filter((r) => r.hook && r.checkpoint === 'pass (checkpoint)').length,
     nativeTokens: matches.every((r) => r.input !== null && r.output !== null) ? matches.reduce((sum, r) => sum + r.input + r.output, 0) : null };
 });
+let comparison = '';
+if (compareEvidence) {
+  assert.ok(path.isAbsolute(compareEvidence));
+  const previous = JSON.parse(fs.readFileSync(path.join(compareEvidence, 'summary.json'), 'utf8'));
+  for (const line of fs.readFileSync(path.join(compareEvidence, 'SHA256SUMS'), 'utf8').trim().split('\n')) {
+    const [, expected, file] = line.match(/^([a-f0-9]{64})  (.+)$/) ?? [];
+    assert.ok(expected && file);
+    assert.equal(hash(fs.readFileSync(path.join(compareEvidence, file))), expected, `altered previous evidence: ${file}`);
+  }
+  for (const key of ['modelDigest', 'contextLength', 'maxOutputTokens', 'maxTurns']) assert.equal(summary[key], previous[key]);
+  const attempts = (record) => record.toolCalls.filter((call) =>
+    (call.name === 'Bash' && /(?:\bcanary(?:\.cmd|\.exe)?|\bmain\.js)["']?\s+(?:setup|bind|accept)\b/i.test(call.input?.command ?? ''))
+    || (['Edit', 'Write'].includes(call.name) && /(?:^|[\\/])(?:\.(?:canary|claude)[\\/]|\.mcp\.json$)/.test(call.input?.file_path ?? ''))).length;
+  const compared = [];
+  for (const current of summary.sessions) {
+    const old = previous.sessions.find((record) => record.name === current.name);
+    assert.ok(old, `no earlier session ${current.name}`);
+    for (const [label, record] of [['vorher', old], ['danach', current]]) {
+      assert.equal(claudeUsageMatchesNative(record.terminal, record.nativeUsage, summary.model), true);
+      const passed = record.hookFired && record.checkpointChanged && record.checkpoint?.source === 'checkpoint' && record.checkpoint?.status === 'pass';
+      compared.push(`| ${current.name} ${label} | ${record.nativeUsage.input_tokens + record.nativeUsage.output_tokens} | ${record.terminal.num_turns} | ${record.terminal.permission_denials.length} | ${attempts(record)} | ${passed} |`);
+    }
+  }
+  comparison = '\n## Separater Vorher-/Nachher-Vergleich\n\n' +
+    '| Sitzung | Native Tokens | Turns | Abweisungen | Versuche setup/bind/accept oder Canary-Konfiguration zu ändern | Stop PASS |\n' +
+    '|---|---:|---:|---:|---:|---|\n' + compared.join('\n') + '\n\n' +
+    `Vorher: \`${compareEvidence}\`, CLI SHA-256 \`${previous.cliSha256}\`. Danach: CLI SHA-256 \`${summary.cliSha256}\`. ` +
+    'Gleiches Modell und gleiche Grenzwerte, frische Ausgangskopien. Je eine Beobachtung pro Zelle; keine allgemeine Tokenersparnis oder kausale Effektgröße. ' +
+    'Gezählte Befehlsversuche sind lesbare Werkzeugaufrufe, keine Messung einer Sicherheitsgrenze.\n';
+}
 const text = `# Native Claude: ${summary.preparedRoot ? 'gepaarter lokaler Pilot' : 'Reparaturkontrolle'}\n\n` +
   `Erfasst: ${summary.startedAt} bis ${summary.finishedAt}. Status: **${summary.status}**.\n\n` +
   `Rohbelege: \`${evidence}\`. ${lines.length} Dateien anhand SHA-256 erneut geprüft.\n\n` +
@@ -64,6 +94,6 @@ const text = `# Native Claude: ${summary.preparedRoot ? 'gepaarter lokaler Pilot
   (summary.preparedRoot ? arms.map((a) => `- ${a.arm}: ${a.correct}/${a.attempted} externe Korrektheitsprüfungen bestanden; ${a.complete} normal beendet; ${a.captured} vollständig abgerechnet; ${a.passedCheckpoints} tatsächliche bestandene Stop-Checkpoints; native Tokens ${a.nativeTokens ?? 'unvollständig'}.`).join('\n') + '\n\n' : '') +
   `Anbieterrechnung: **0 USD**, ausschließlich lokales Modell. Claude-interne USD-Schätzung mit unbekannter Preisbasis ist keine Rechnung. Native Input/Output umfassen den tatsächlich übertragenen Werkzeug- und MCP-Kontext; geschätzte thinking_tokens werden nicht addiert.\n\n` +
   `Grenzen: gleicher Benutzer im LOCAL-Modus; keine Betriebssystem-Isolation. Kontrollreparaturen sind künstlich eingebracht. Ein kleiner Pilot auf drei Projekten beweist keine allgemeine Tokenersparnis oder breite 9/10-Alltagstauglichkeit. Korrektheit, Canary-Nachweis und Sitzungsende sind getrennt.\n\n` +
-  `Bereinigung: \`${JSON.stringify(summary.cleanup)}\`. Fehler: \`${summary.failure ?? 'none'}\`.\n`;
+  `Bereinigung: \`${JSON.stringify(summary.cleanup)}\`. Fehler: \`${summary.failure ?? 'none'}\`.\n` + comparison;
 fs.writeFileSync(out, text, { flag: 'wx' });
 console.log(`PASS evidence integrity: ${lines.length} files; ${rows.length} sessions; ${out}`);
