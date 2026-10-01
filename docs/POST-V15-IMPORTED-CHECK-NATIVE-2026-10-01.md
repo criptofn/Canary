@@ -41,6 +41,16 @@ enthält 38 Dateien einschließlich Einrichtungslogs, Konfiguration, vollständi
 Änderung seit dem Ausgangscommit und Git-Historie. Die Zahlen unten stammen aus
 dem erneut ausgeführten Reporter, nicht aus Schätzungen.
 
+Nach erneuter Prüfung aller **183** Dateien beider Archive wurden ausschließlich
+die frischen H3-Projektkopien und ihre zwei eigenen Vertrauensverzeichnisse
+entfernt. Das lokale Modell wurde entladen und der eigene Server beendet.
+`tooling/probes/v15-native-pilot-cleanup.mjs` verlangt vollständige native
+Erfassung, übereinstimmende Ausgangsmanifeste, geprüfte Archivhashes und kanonische
+Zielpfade vor der ersten Löschung. Ein Kontrollaufruf mit dem Arbeitsrepository
+als Quelle wurde vor Änderungen abgewiesen. Die Protokolle
+`claude-final-native-20261001-H3-cleanup.log` und
+`claude-final-native-20261001-H3-cleanup-rejected.log` liegen neben den Archiven.
+
 Erfasst: 2026-10-01T05:30:57.331Z bis 2026-10-01T05:34:57.999Z. Status: **complete**.
 
 Rohbelege: `C:\Users\Johannes\Desktop\canary\_canary-data\evidence\claude-final-native-20261001-H3`. 145 Dateien anhand SHA-256 erneut geprüft.
