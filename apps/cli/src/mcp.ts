@@ -26,7 +26,7 @@
 import { spawnSync } from 'node:child_process';
 import readline from 'node:readline';
 
-import { CLI_ENTRY, selfArgv, type McpProfile } from './onboarding.js';
+import { CLI_ENTRY, selfArgv, projectTestEntryHint, type McpProfile } from './onboarding.js';
 import { CANARY_VERSION } from './pipeline.js';
 
 /** The MCP revision this server speaks. */
@@ -182,6 +182,12 @@ const SERVER_INSTRUCTIONS = [
   'For a repair loop, pass the exact sealed check id shown by doctor to run only that check.',
   'A selected check returns PARTIAL and never replaces the full completion gate or its checkpoint.',
   'Use canary_result for a read-only summary.',
+  'During an ordinary task, preserve the sealed plan, baseline and hook configuration. Do not run',
+  'setup or bind to clear a verdict; changes to verification authority need the operator.',
+  'A worker-authored evidence caveat records test provenance; it is not a failed check. When the',
+  'gate is READY and obligations are met, finish normally and retain the caveat in your report.',
+  'For NOT PROVEN, add an assertion that calls the actual implementation from the sealed test entry.',
+  'Do not copy the implementation into the test: that cannot distinguish the unchanged base.',
   '',
   'Never restate your own test output as proof, and never claim a result this server did not report.',
 ].join('\n');
@@ -394,7 +400,7 @@ export async function cmdMcp(rawArgs: string[]): Promise<number> {
             protocolVersion: version,
             capabilities: { tools: { listChanged: false } },
             serverInfo: { name: 'canary', version: CANARY_VERSION, title: 'Canary verification layer' },
-            instructions: SERVER_INSTRUCTIONS + (profile === 'expert' ? EXPERT_INSTRUCTIONS : ''),
+            instructions: SERVER_INSTRUCTIONS + projectTestEntryHint(process.cwd()) + (profile === 'expert' ? EXPERT_INSTRUCTIONS : ''),
           });
         }
         break;

@@ -1786,6 +1786,45 @@ const isGeneratedArtifact = (p: string): boolean =>
   || /(^|[\\/])\.coverage$/i.test(p)
   || /\.egg-info([\\/]|$)/.test(p);
 
+/** Display only a test entry whose current command still matches the selected plan's digest. */
+function sealedTestEntryHint(root: string, cfg: CanaryConfig): string {
+  try {
+    const authority = cfg.planAuthority;
+    if (authority?.planDigest !== planDigest(cfg.plan)) return '';
+    for (const step of cfg.plan) {
+      if (step.kind !== 'tests' || typeof step.script !== 'string') continue;
+      const digest = authority.scriptDigests?.[stepKey(step)];
+      if (typeof digest !== 'string') continue;
+      if (step.argv !== undefined) {
+        const argv = assertStepArgv(step.argv);
+        if (digest !== sha256(JSON.stringify(argv))) continue;
+        return ` The sealed test command is ${JSON.stringify(argv)} (entry ${JSON.stringify(step.script)}); a new test file counts only if this command runs it.`;
+      }
+      const pkgPath = path.join(scopeDir(root, step), 'package.json');
+      const scripts = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
+      const text = scripts[step.script];
+      if (typeof text !== 'string' || digest !== sha256(text)) continue;
+      const displayPath = path.relative(root, pkgPath).replaceAll('\\', '/') || 'package.json';
+      return ` The sealed test entry is ${displayPath} scripts.${step.script} = ${JSON.stringify(text.slice(0, 160))}; a new test file counts only when this entry runs it.`;
+    }
+  } catch { /* malformed or unavailable sealed details retain the generic guidance */ }
+  return '';
+}
+
+/** Read-only startup context. This names an existing entry, never a verification result. */
+export function projectTestEntryHint(startDir: string): string {
+  try {
+    const root = findRepoRoot(startDir);
+    if (!root) return '';
+    const cfg = readConfig(root);
+    if (!cfg || cfg === 'corrupt' || untrustedConfigReason(root, cfg)) return '';
+    const record = openSealed(storeFromEnv(), { projectId: projectIdForRoot(root), kind: 'plan-seal' });
+    if (record.status !== 'valid' || !cfg.planAuthority || canonicalJson(record.envelope!.payload) !== canonicalJson(cfg.planAuthority)) return '';
+    const hint = sealedTestEntryHint(root, cfg);
+    return hint ? `\n\nBefore adding regression tests:${hint}\nAdd assertions against the actual implementation to the suite this entry runs. Preserve the test command, sealed plan and baseline.` : '';
+  } catch { return ''; } // no readable trusted entry: keep the generic instructions, never guess
+}
+
 /**
  * THE REGRESSION-EVIDENCE OBLIGATION.
  *
@@ -1829,30 +1868,7 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
     ...disc.modifiedChecks.map((p) => `${safePath(p)} (EXISTING check rewritten by this session)`),
   ];
   if (disc.basePassed === true) {
-    let sealedTestHint = '';
-    try {
-      const authority = cfg.planAuthority;
-      if (authority?.planDigest === planDigest(cfg.plan)) {
-        for (const step of cfg.plan) {
-          if (step.kind !== 'tests' || typeof step.script !== 'string') continue;
-          const digest = authority.scriptDigests?.[stepKey(step)];
-          if (typeof digest !== 'string') continue;
-          if (step.argv !== undefined) {
-            const argv = assertStepArgv(step.argv);
-            if (digest !== sha256(JSON.stringify(argv))) continue;
-            sealedTestHint = ` The sealed test command is ${JSON.stringify(argv)} (entry ${JSON.stringify(step.script)}); a new test file counts only if this command runs it.`;
-            break;
-          }
-          const pkgPath = path.join(scopeDir(root, step), 'package.json');
-          const scripts = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
-          const text = scripts[step.script];
-          if (typeof text !== 'string' || digest !== sha256(text)) continue;
-          const displayPath = path.relative(root, pkgPath).replaceAll('\\', '/') || 'package.json';
-          sealedTestHint = ` The sealed test entry is ${displayPath} scripts.${step.script} = ${JSON.stringify(text.slice(0, 160))}; a new test file counts only when this entry runs it.`;
-          break;
-        }
-      }
-    } catch { /* malformed or unavailable sealed details retain the generic guidance */ }
+    const sealedTestHint = sealedTestEntryHint(root, cfg);
     const target = sealedTestHint ? 'that suite or command' : 'a suite the sealed plan runs';
     return {
       id: 'regression-evidence', mode: 'objective', status: 'unproven',
@@ -1863,7 +1879,7 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
     id: 'regression-evidence', mode: 'objective', status: 'met',
     note: `the sealed checks fail without this change (${disc.baseFailures.join(', ') || 'a sealed step'}), so their pass is evidence about it${disc.overlaidChecks.length > 0 ? ` (candidate check files overlaid on the base: ${disc.overlaidChecks.slice(0, 3).map(safePath).join(', ')})` : ''}`,
     ...(workerAuthored.length > 0
-      ? { caveat: `the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (${workerAuthored.slice(0, 3).join(', ')}) — sensitive to the change, but authored by the same worker whose work it judges, so it is NOT independent authority. Independent coverage needs an operator-bound check (package.json canary.proofs, or canary.project.json proofs) or a human's acceptance` }
+      ? { caveat: `the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (${workerAuthored.slice(0, 3).join(', ')}) — sensitive to the change, but authored by the same worker whose work it judges, so it is NOT independent authority. This is a provenance caveat, not a failed obligation; retain it in your report. Do not re-run setup or rewrite the baseline to remove it. Independent coverage needs an operator-bound check (package.json canary.proofs, or canary.project.json proofs) or a human's acceptance` }
       : {}),
   };
 }

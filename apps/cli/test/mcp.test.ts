@@ -177,6 +177,39 @@ describe('tools: a fixed template over operations the CLI already had', () => {
 });
 
 describe('a real call relays Canary own words and exit code, unmodified', () => {
+  it('initialize names the trusted sealed test entry without running it or accepting changed authority', () => {
+    const root = path.join(TMP, 'upfront-test-entry');
+    fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+    assert.equal(spawnSync('git', ['-C', root, 'init', '-b', 'main'], { encoding: 'utf8' }).status, 0);
+    const pkg = path.join(root, 'package.json');
+    fs.writeFileSync(pkg, JSON.stringify({ scripts: { test: 'node check.cjs' } }));
+    fs.writeFileSync(path.join(root, 'check.cjs'), "require('node:fs').appendFileSync('runs.txt', 'ran\\n');\n");
+    const setup = spawnSync(process.execPath, [CLI, 'setup', '--yes', root], { encoding: 'utf8', timeout: 180_000 });
+    assert.equal(setup.status, 0, `${setup.stdout}\n${setup.stderr}`);
+    const checkpoint = path.join(root, '.canary', 'last-checkpoint.json');
+    const before = fs.readFileSync(checkpoint);
+    const runs = fs.readFileSync(path.join(root, 'runs.txt'));
+    const initialize = () => String(resultOf(session([req(1, 'initialize')], root, ['--profile', 'everyday']).parsed[0]!).instructions);
+    assert.match(initialize(), /scripts\.test = "node check\.cjs"/,
+      'the agent needs the real entry before writing a regression file that entry never runs');
+    assert.deepEqual(fs.readFileSync(checkpoint), before, 'initialization cannot certify completion');
+    assert.deepEqual(fs.readFileSync(path.join(root, 'runs.txt')), runs, 'initialization cannot execute the test plan');
+
+    fs.writeFileSync(pkg, JSON.stringify({ scripts: { test: 'node different.cjs' } }));
+    assert.doesNotMatch(initialize(), /scripts\.test = /, 'a changed script is not the sealed entry');
+    fs.writeFileSync(pkg, JSON.stringify({ scripts: { test: 'node check.cjs' } }));
+    const configFile = path.join(root, '.canary', 'canary.local.json');
+    const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+    config.planAuthority.at = '1970-01-01T00:00:00.000Z';
+    fs.writeFileSync(configFile, JSON.stringify(config));
+    assert.doesNotMatch(initialize(), /scripts\.test = /, 'a config outside the trusted record cannot advertise authority');
+    config.cliPath = path.join(root, 'another-install', 'main.js');
+    fs.writeFileSync(configFile, JSON.stringify(config));
+    assert.doesNotMatch(initialize(), /scripts\.test = /, 'a copied config from another installation cannot advertise authority');
+    assert.deepEqual(fs.readFileSync(checkpoint), before);
+    assert.deepEqual(fs.readFileSync(path.join(root, 'runs.txt')), runs);
+  });
+
   it('canary_result returns the CLI envelope and tracks the child exit code', () => {
     const root = path.join(TMP, 'repo');
     fs.mkdirSync(root, { recursive: true });
