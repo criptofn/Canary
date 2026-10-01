@@ -23,7 +23,9 @@ Rohbelege des roten/grünen Tests: `C:/Users/Johannes/Desktop/canary/_canary-dat
 
 Eingefrorenes neues Paket: SHA-256 `8a4cacf4e7b77ffe98da7cf8b14e617db672cf80fcbfd21f621d44961c9e5654`. Installierte CLI: SHA-256 `05cb4d9d83742258ac9a78d3c3b2453632ced2f157427e14dfdac9b64da9e930`. Beide liegen unter `C:/Users/Johannes/Desktop/canary/_canary-data/evidence/claude-entry-context-20261001`.
 
-Die vollständigen Gates und nativen Kontrollläufe dieses Pakets sind zum Zeitpunkt dieses Eintrags noch in Arbeit. Die erste Produktprüfung des vorherigen Hinweisstands wurde bewusst abgebrochen und bleibt als `INCOMPLETE` dokumentiert. Sie zählt nicht als bestandener Gate.
+Die vollständige Unit-Suite dieses Pakets ist abgeschlossen: **1.327 Tests, 1.323 bestanden, vier übersprungen, null Fehler**. Die vier übersprungenen Tests brauchen eine POSIX-Shell; zusätzlich weist der Reporter eine Go-Suite ohne ausgeführte Tests aus, weil deren lokale Toolchain fehlt. Die sechs [nativen Kontrollen](POST-V15-UPFRONT-TEST-ENTRY-NATIVE-CONTROLS-2026-10-01.md) sind abgeschlossen; 202 Rohdateien wurden gegen SHA-256 geprüft. Künstlicher Fehler und Reparatur, tatsächlicher Stop-Hook, Schrittlimit sowie unveränderte Konfiguration wurden erfasst. Die Einrichtungssperre ist eine experimentelle Werkzeugregel, keine neue Canary-Sicherheitsgrenze.
+
+`verify:productization` dieses Pakets läuft noch. Die erste Produktprüfung des vorherigen Hinweisstands wurde bewusst abgebrochen und bleibt als `INCOMPLETE` dokumentiert. Sie zählt nicht als bestandener Gate. Ein Kontrollaufruf des Berichtsgenerators verweigert für dieses unvollständige Protokoll einen bestandenen Abschlussbericht. Die erste Fassung des zusätzlichen Reporters zählte eine übersprungene Suite mit null Tests fälschlich wie einen übersprungenen Test; diese Zählungsannahme wurde korrigiert, beide Kontrollprotokolle bleiben erhalten.
 
 ## Einordnung
 

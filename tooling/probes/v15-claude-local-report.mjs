@@ -7,7 +7,7 @@ import path from 'node:path';
 import { parseAnthropicUsage, claudeUsageMatchesNative } from './v15-anthropic-usage.mjs';
 
 const arg = (key) => { const i = process.argv.indexOf(`--${key}`); return i < 0 ? null : process.argv[i + 1]; };
-const evidence = arg('evidence'), out = arg('out'), compareEvidence = arg('compare-evidence');
+const evidence = arg('evidence'), out = arg('out'), compareEvidence = arg('compare-evidence'), verificationRoot = arg('verification-root');
 assert.ok(evidence && out && path.isAbsolute(evidence) && path.isAbsolute(out));
 assert.ok(!fs.existsSync(out), 'new report path required');
 const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -85,6 +85,32 @@ if (compareEvidence) {
     'Gleiches Modell und gleiche Grenzwerte, frische Ausgangskopien. Je eine Beobachtung pro Zelle; keine allgemeine Tokenersparnis oder kausale Effektgröße. ' +
     'Gezählte Befehlsversuche sind lesbare Werkzeugaufrufe, keine Messung einer Sicherheitsgrenze.\n';
 }
+let verification = '';
+if (verificationRoot) {
+  assert.ok(path.isAbsolute(verificationRoot));
+  const unitFile = path.join(verificationRoot, 'unit.log'), productFile = path.join(verificationRoot, 'productization.log');
+  const unit = fs.readFileSync(unitFile, 'utf8'), product = fs.readFileSync(productFile, 'utf8');
+  const counts = Object.fromEntries([...unit.matchAll(/^ℹ\s+(tests|pass|fail|cancelled|skipped|todo)\s+(\d+)\s*$/gm)].map((match) => [match[1], Number(match[2])]));
+  for (const key of ['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo']) assert.ok(Number.isSafeInteger(counts[key]), `missing unit count ${key}`);
+  assert.equal(counts.fail + counts.cancelled + counts.todo, 0);
+  assert.equal(counts.tests, counts.pass + counts.skipped);
+  const unitSkipReasons = unit.split('\n').filter((line) => /^\s*﹣\s/.test(line));
+  assert.ok(unitSkipReasons.length >= counts.skipped, 'unit skip reasons missing (a skipped zero-test suite adds a line but no test)');
+  const terminal = product.trim().split('\n').at(-1);
+  assert.match(terminal, /^VERIFY-PRODUCTIZATION: PASS(?: \(| WITH EXPLICIT SKIPS \()/, 'product chain must finish');
+  const summaryTable = product.split('=== VERIFY-PRODUCTIZATION SUMMARY ===').at(-1);
+  assert.ok(summaryTable && summaryTable !== product);
+  assert.doesNotMatch(summaryTable, /^(?:FAIL|INCOMPLETE|NOT RUN)\s/m);
+  const skipReasons = summaryTable.split('\n').filter((line) => line.startsWith('SKIP  '));
+  const files = [unitFile, productFile, path.join(verificationRoot, 'final.tgz'), summary.cli];
+  assert.equal(hash(fs.readFileSync(summary.cli)), summary.cliSha256);
+  verification = '\n## Vollständige Prüfung des eingefrorenen Pakets\n\n' +
+    `Unit: **${counts.pass} bestanden, ${counts.skipped} übersprungen, ${counts.fail} Fehler**, ${counts.tests} insgesamt.\n\n` +
+    `${terminal}\n\n` + skipReasons.map((line) => `- ${line.trim()}`).join('\n') + '\n\n' +
+    'Übersprungene Tests oder Suites, aus dem ausgeführten Reporter (eine Suite mit null Tests erhöht nicht die Zahl übersprungener Tests):\n\n' + unitSkipReasons.map((line) => `- ${line.trim()}`).join('\n') +
+    '\n\nÜbersprungene Prüfungen sind keine bestandenen Prüfungen.\n\n' +
+    files.map((file) => `- \`${file}\`: SHA-256 \`${hash(fs.readFileSync(file))}\``).join('\n') + '\n';
+}
 const text = `# Native Claude: ${summary.preparedRoot ? 'gepaarter lokaler Pilot' : 'Reparaturkontrolle'}\n\n` +
   `Erfasst: ${summary.startedAt} bis ${summary.finishedAt}. Status: **${summary.status}**.\n\n` +
   `Rohbelege: \`${evidence}\`. ${lines.length} Dateien anhand SHA-256 erneut geprüft.\n\n` +
@@ -94,6 +120,6 @@ const text = `# Native Claude: ${summary.preparedRoot ? 'gepaarter lokaler Pilot
   (summary.preparedRoot ? arms.map((a) => `- ${a.arm}: ${a.correct}/${a.attempted} externe Korrektheitsprüfungen bestanden; ${a.complete} normal beendet; ${a.captured} vollständig abgerechnet; ${a.passedCheckpoints} tatsächliche bestandene Stop-Checkpoints; native Tokens ${a.nativeTokens ?? 'unvollständig'}.`).join('\n') + '\n\n' : '') +
   `Anbieterrechnung: **0 USD**, ausschließlich lokales Modell. Claude-interne USD-Schätzung mit unbekannter Preisbasis ist keine Rechnung. Native Input/Output umfassen den tatsächlich übertragenen Werkzeug- und MCP-Kontext; geschätzte thinking_tokens werden nicht addiert.\n\n` +
   `Grenzen: gleicher Benutzer im LOCAL-Modus; keine Betriebssystem-Isolation. Kontrollreparaturen sind künstlich eingebracht. Ein kleiner Pilot auf drei Projekten beweist keine allgemeine Tokenersparnis oder breite 9/10-Alltagstauglichkeit. Korrektheit, Canary-Nachweis und Sitzungsende sind getrennt.\n\n` +
-  `Bereinigung: \`${JSON.stringify(summary.cleanup)}\`. Fehler: \`${summary.failure ?? 'none'}\`.\n` + comparison;
+  `Bereinigung: \`${JSON.stringify(summary.cleanup)}\`. Fehler: \`${summary.failure ?? 'none'}\`.\n` + comparison + verification;
 fs.writeFileSync(out, text, { flag: 'wx' });
 console.log(`PASS evidence integrity: ${lines.length} files; ${rows.length} sessions; ${out}`);
