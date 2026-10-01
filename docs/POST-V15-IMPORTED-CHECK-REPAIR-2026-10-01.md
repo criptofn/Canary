@@ -46,6 +46,44 @@ Der erste H3-Kontrolllauf der Korrektur (`dash-check-repair-20261001-H3`) bestan
 
 ## Vollständige Prüfung und Einordnung
 
+Nach diesem kontrollierten Nachweis wurde ein neues autonomes H3-Vergleichspaar
+mit genau dem finalen Paket ausgeführt. Beide Lösungen bestanden das externe
+Oracle; Canary endete regulär mit tatsächlichem Stop-`pass` und beibehaltener
+Agententest-Kennzeichnung. Die Sitzung mit Canary blieb wesentlich aufwendiger
+als die ohne Canary. [Rohbelege, Vergleich und Grenzen](POST-V15-IMPORTED-CHECK-NATIVE-2026-10-01.md).
+
+### Auswertung der vorhandenen Windows-Diagnosen
+
+Die zusätzliche Versuchsgrenze ist bereits ausgeschöpft: 18 Läufe im Archiv
+`tooling/benchmark/results/session-evidence/post-v15-validation-2026-09-27/windows-sweep`
+plus zwölf direkte Traces in `windows-sweep-trace`. In diesem Nachgang wurden
+keine weiteren kontrollierten Wiederholungen gestartet.
+
+Der rote Lauf 9 unter Last ist kein Timeout: Exit 1 nach 6.924 ms, kein
+Spawnfehler, leere stderr. Der fehlgeschlagene Mechanismustest meldet
+`killed=[61128]`, Eingabe-Elternprozess `61128`, erwartetes Kind `40712`.
+Beide waren erst bei der anschließenden Diagnose nicht mehr vorhanden. Die
+Interpretation, das Kind sei *vor* dem Sweep beendet worden, ist aus dieser
+nachträglichen Momentaufnahme nicht beweisbar. Sie lässt sich ebenso wenig als
+Nachweis einer erfolgreichen Kindbeendigung durch Canary verwenden.
+
+Alle zwölf Traces des damaligen Standes berichten den Eingabe-Elternprozess
+selbst als beendet; im ersten Trace etwa `killed=[69320,69932]`. Im damaligen
+Code gelangte bereits der Startknoten in die Kill-Liste. Die vorhandene
+Korrektur `1b6dc6a` nimmt nur Nachfahren auf, beendet sie in umgekehrter
+Reihenfolge, prüft PID-Erzeugungsidentität und gleichidentische Überlebende und
+verwirft unvollständige Ausgaben. Der heutige Mechanismustest verlangt außerdem,
+dass die Eingabe-Wurzel lebt und nicht als Kill gemeldet wird. Diese bestehende
+Korrektur ist in den vollständigen Prüfungen des finalen Pakets enthalten.
+
+Damit ist die belegte unerwünschte Wurzelbeendigung im aktuellen Verhalten
+adressiert. Die Daten erklären nicht eindeutig, weshalb das Kind im roten
+historischen Lauf fehlte. Der intermittierende Befund bleibt mit dieser engeren
+Unsicherheit offen; zwölf grüne Traces des alten Verhaltens schließen ihn nicht.
+Erforderliche weitere Untersuchung wäre die Auswertung eines künftigen
+regulären Fehlers mit den vorhandenen Diagnosen, kein weiterer Blindlauf dieser
+erschöpften Batterie.
+
 Die vollständige Unit-Suite des finalen Quellstands ist abgeschlossen: **1.329 Tests, 1.325 bestanden, vier übersprungen, null Fehler oder Abbrüche**. Die vier übersprungenen Tests benötigen eine POSIX-Shell. Der Reporter nennt zusätzlich eine Go-Suite mit null ausgeführten Tests, weil ihre lokale Toolchain fehlt; diese Suite erhöht nicht die Zahl übersprungener Tests. Rohprotokoll: `imported-check-final-20261001/unit.log`, SHA-256 `e33a76137fae34bb0c1aaeb4e307ffb6755268cf47a38f1dc10f98a031b875f8`.
 
 Danach wurde `verify:productization` vollständig ausgeführt, ohne parallele Unit-Suite: **104 PASS, sechs SKIP, null Fehler oder unvollständige Schritte**, Exitcode 0. Rohprotokoll: `imported-check-final-20261001/productization.log`, SHA-256 `97e9d906bfc043ad8b1de348d519475b76d7da706e1d30a9658fe8793f133dc2`. Paket und installierte CLI behalten am Ende ihre oben genannten Prüfsummen; auch das von der Produktprüfung erzeugte Paket hat dieselbe SHA-256 `806ccdf0b5785e072d667dfa85f38f8d1a80f679b5834d4633a5b8b20cec1975`.

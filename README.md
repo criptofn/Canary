@@ -99,6 +99,10 @@ runtime dependencies**.
 The subsequent unpublished correction accepts sufficient imported `*-test.js` checks,
 including uncommitted files, and retains baseline failure logs. Its H3 controls reject
 weak tests and the old faulty implementation. [Repair and evidence](docs/POST-V15-IMPORTED-CHECK-REPAIR-2026-10-01.md).
+Its next native H3 pair completed correctly in both arms; Canary's actual Stop
+hook passed with the worker-test provenance caveat retained. The Canary session
+used 28 turns versus four without Canary, so this remains a completion improvement
+without an efficiency claim. [Native follow-up](docs/POST-V15-IMPORTED-CHECK-NATIVE-2026-10-01.md).
 
 > **v1.5 status, stated where you will see it first: the token-saving headline is WITHDRAWN.**
 > The v1.5 candidate published `83.21 % of Plain (−16.79 %)` for the everyday path. An
