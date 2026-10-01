@@ -8,12 +8,16 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { parseAnthropicUsage } from './v15-anthropic-usage.mjs';
+import { parseAnthropicUsage, claudeUsageMatchesNative } from './v15-anthropic-usage.mjs';
 
 const arg = (name) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? null : process.argv[i + 1]; };
 const cli = arg('cli'), claude = arg('claude'), ollama = arg('ollama'), out = arg('out');
 const withTools = process.argv.includes('--with-tools');
 const preparedRoot = arg('prepared-root');
+const taskSelection = arg('tasks')?.split(',') ?? null;
+assert.ok(!taskSelection || (preparedRoot && taskSelection.length && new Set(taskSelection).size === taskSelection.length
+  && taskSelection.every((label) => ['H1', 'H2', 'H3', 'H5', 'R1', 'S1'].includes(label))), 'unique supported --tasks requires --prepared-root');
+const expectedSessions = preparedRoot ? (taskSelection?.length ?? 6) * 2 : withTools ? 6 : 3;
 assert.ok(!preparedRoot || path.isAbsolute(preparedRoot), 'absolute --prepared-root required');
 const preparation = preparedRoot ? JSON.parse(fs.readFileSync(path.join(preparedRoot, 'preparation-summary.json'), 'utf8')) : null;
 if (preparation) {
@@ -44,7 +48,7 @@ Object.assign(safeEnv, {
 const metadata = { startedAt: new Date().toISOString(), node: process.version, model, modelDigest: digest,
   cli, cliSha256: sha(fs.readFileSync(cli)), claude, claudeSha256: sha(fs.readFileSync(claude)),
   ollama, ollamaSha256: sha(fs.readFileSync(ollama)), backend, contextLength: 65536, maxOutputTokens: 4096, maxTurns: 50,
-  instrumentSha256: sha(fs.readFileSync(fileURLToPath(import.meta.url))), workspace, profile, withTools, preparedRoot };
+  instrumentSha256: sha(fs.readFileSync(fileURLToPath(import.meta.url))), workspace, profile, withTools, preparedRoot, taskSelection };
 save('instrument.mjs', fs.readFileSync(fileURLToPath(import.meta.url), 'utf8'));
 save('v15-anthropic-usage.mjs', fs.readFileSync(new URL('./v15-anthropic-usage.mjs', import.meta.url), 'utf8'));
 metadata.usageParserSha256 = sha(fs.readFileSync(new URL('./v15-anthropic-usage.mjs', import.meta.url)));
@@ -111,11 +115,12 @@ async function session(name, prompt, hooks, tools = false, options = {}) {
     && Number.isSafeInteger(r.usage.output_tokens) && r.usage.output_tokens >= 0);
   const nativeUsage = nativeComplete ? calls.reduce((sum, r) => ({ input_tokens: sum.input_tokens + r.usage.input_tokens,
     output_tokens: sum.output_tokens + r.usage.output_tokens }), { input_tokens: 0, output_tokens: 0 }) : null;
-  const accountingMatches = nativeUsage !== null && terminal?.usage?.input_tokens === nativeUsage.input_tokens
+  const accountingMatches = claudeUsageMatchesNative(terminal, nativeUsage, model);
+  const mainAccountingMatches = nativeUsage !== null && terminal?.usage?.input_tokens === nativeUsage.input_tokens
     && terminal?.usage?.output_tokens === nativeUsage.output_tokens;
   const captureComplete = terminal !== undefined && nativeComplete && accountingMatches && !timedOut;
   const record = { name, args, startedAt, finishedAt: new Date().toISOString(), ...result, timedOut,
-    terminal: terminal ?? null, nativeUsage, accountingMatches, captureComplete, calls: calls.map((r) => r.number), toolCalls, hookEvents, cwd,
+    terminal: terminal ?? null, nativeUsage, accountingMatches, mainAccountingMatches, captureComplete, calls: calls.map((r) => r.number), toolCalls, hookEvents, cwd,
     checkpoint, checkpointChanged: after !== before, hookFired: after !== before && checkpoint?.source === 'checkpoint' && hookEvents.length > 0,
     modelRuntime: await api('/api/ps') };
   fs.writeFileSync(path.join(dir, 'record.json'), `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx' });
@@ -137,7 +142,8 @@ async function pilot() {
   const taskRoot = path.join(root, 'tooling/benchmark/results/session-evidence/v15-realworld/tasks');
   const taskFiles = { H1: 'H1-maxagedays-zero.md', H2: 'H2-invoice-classification.md', H3: 'H3-quantize-bits-validation.md',
     H5: 'H5-simulation-cases.md', R1: 'R1-pytest-id-collision.md', S1: 'S1-idlookup-ambiguity.md' };
-  const schedule = Object.keys(taskFiles).flatMap((label, index) => (index % 2 ? ['canary', 'plain'] : ['plain', 'canary']).map((arm) => ({ label, arm })));
+  const schedule = Object.keys(taskFiles).flatMap((label, index) => (index % 2 ? ['canary', 'plain'] : ['plain', 'canary']).map((arm) => ({ label, arm })))
+    .filter(({ label }) => !taskSelection || taskSelection.includes(label));
   const outcomes = [];
   save('preparation-summary.json', preparation); save('oracle-instrument.mjs', fs.readFileSync(oracle, 'utf8'));
   save('pilot-protocol.json', { schedule, cliSha256: metadata.cliSha256, artifactSha256: preparation.artifactSha256,
@@ -174,7 +180,7 @@ async function pilot() {
     save(`${name}-before.json`, before);
     const profileDir = path.join(temp, name); fs.mkdirSync(profileDir);
     const prompt = fs.readFileSync(path.join(taskRoot, taskFiles[label]), 'utf8'); save(`${name}-task.md`, prompt);
-    console.log(`START ${outcomes.length + 1}/12 ${name}`);
+    console.log(`START ${outcomes.length + 1}/${schedule.length} ${name}`);
     const measured = await session(name, prompt, arm === 'canary', true, { pilot: true, repo,
       env: { CLAUDE_CONFIG_DIR: profileDir, CANARY_TRUST_STORE: path.join(os.tmpdir(), 'canary-v15-validation-trust', sha(repo)),
         PATH: [...record.toolchainDirectories, safeEnv.PATH ?? safeEnv.Path ?? ''].join(path.delimiter) } });
@@ -314,7 +320,7 @@ finally {
   } catch (error) { cleanup = { error: error.message }; failure ??= error.stack ?? String(error); if (server?.exitCode === null) server.kill(); }
   if (gateway) { gateway.closeAllConnections(); await new Promise((resolve) => gateway.close(resolve)); }
   save('summary.json', { ...metadata, finishedAt: new Date().toISOString(), commands, requests, sessions, cleanup, failure,
-    status: !failure && sessions.length === (preparation ? 12 : withTools ? 6 : 3) ? 'complete' : 'incomplete', providerUsdCharge: 0,
+    status: !failure && sessions.length === expectedSessions ? 'complete' : 'incomplete', providerUsdCharge: 0,
     caveat: preparation ? 'Local native Claude paired pilot; correctness and checkpoint verdict separate, same-user LOCAL only.'
       : withTools ? 'Local same-user injected repair control with tools/MCP; no paired task benefit or adversarial isolation measured.'
       : 'Local same-user controls; tools/MCP disabled; no agent task efficacy or adversarial isolation measured.' });
@@ -323,6 +329,6 @@ finally {
   const contained = path.relative(os.tmpdir(), temp);
   assert.ok(contained && !contained.startsWith('..') && !path.isAbsolute(contained));
   fs.rmSync(temp, { recursive: true, force: true });
-  console.log(`${failure ? 'FAIL' : 'PASS'} native local ${preparation ? 'pilot' : 'preflight'}; ${sessions.length}/${preparation ? 12 : withTools ? 6 : 3} captured; ${out}`);
+  console.log(`${failure ? 'FAIL' : 'PASS'} native local ${preparation ? 'pilot' : 'preflight'}; ${sessions.length}/${expectedSessions} captured; ${out}`);
   process.exitCode = failure ? 1 : 0;
 }

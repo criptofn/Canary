@@ -24,3 +24,21 @@ test('nonstream counters retain their native values, including a reported zero',
     assert.equal(parseAnthropicUsage(JSON.stringify({ type: 'message', usage: { input_tokens: 4, output_tokens: value } })).complete, false);
   }
 });
+test('native model totals include the captured compaction request even when main usage omits it', async () => {
+  const { claudeUsageMatchesNative } = await import('./v15-anthropic-usage.mjs');
+  const terminal = { usage: { input_tokens: 1365530, output_tokens: 18411 },
+    modelUsage: { 'qwen3.5:9b': { inputTokens: 1412037, outputTokens: 20416 } } };
+  assert.equal(claudeUsageMatchesNative(terminal, { input_tokens: 1412037, output_tokens: 20416 }, 'qwen3.5:9b'), true);
+});
+
+test('missing or mismatched model totals cannot certify an otherwise matching main counter', async () => {
+  const { claudeUsageMatchesNative } = await import('./v15-anthropic-usage.mjs');
+  const usage = { input_tokens: 7, output_tokens: 2 };
+  assert.equal(claudeUsageMatchesNative({ usage }, usage, 'qwen3.5:9b'), false);
+  assert.equal(claudeUsageMatchesNative({ usage, modelUsage: { 'qwen3.5:9b': { inputTokens: 6, outputTokens: 2 } } }, usage, 'qwen3.5:9b'), false);
+  assert.equal(claudeUsageMatchesNative({}, undefined, 'qwen3.5:9b'), false);
+  for (const inputTokens of [-1, 7.5, '7', undefined]) {
+    assert.equal(claudeUsageMatchesNative({ usage, modelUsage: { 'qwen3.5:9b': { inputTokens, outputTokens: 2 } } }, usage, 'qwen3.5:9b'), false);
+  }
+  assert.equal(claudeUsageMatchesNative({ usage, modelUsage: { 'qwen3.5:9b': { inputTokens: 7, outputTokens: 2 }, unexpected: {} } }, usage, 'qwen3.5:9b'), false);
+});

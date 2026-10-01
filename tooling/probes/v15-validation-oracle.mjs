@@ -17,6 +17,7 @@ const arg = (name, fallback = null) => {
   return i < 0 ? fallback : process.argv[i + 1];
 };
 const label = arg('label');
+const strictAge = process.argv.includes('--strict-age');
 const repo = path.resolve(arg('repo') ?? '.');
 const outDir = path.resolve(arg('out') ?? '.');
 const expected = arg('expected', 'pass');
@@ -53,6 +54,7 @@ const start = {
     exists: fs.existsSync(path.join(repo, relativePath)),
     sha256: fs.existsSync(path.join(repo, relativePath)) ? sha256(fs.readFileSync(path.join(repo, relativePath))) : null,
   })),
+  strictAge,
 };
 fs.writeFileSync(path.join(outDir, 'oracle-input.json'), `${JSON.stringify(start, null, 2)}\n`, { flag: 'wx' });
 let command = null;
@@ -69,7 +71,9 @@ const runNodeOracle = (file) => {
 if (label === 'H1') {
   const sourceUrl = pathToFileURL(path.join(repo, sourceFiles[0])).href;
   const file = path.join(outDir, 'oracle.mjs');
-  fs.writeFileSync(file, `import assert from 'node:assert/strict';\nimport fs from 'node:fs/promises';\nimport os from 'node:os';\nimport path from 'node:path';\nimport { previewOrganization } from ${JSON.stringify(sourceUrl)};\nconst root=await fs.mkdtemp(path.join(os.tmpdir(),'canary-oracle-h1-'));\ntry { const now=Date.now(); await fs.writeFile(path.join(root,'fresh.txt'),'x'); await fs.writeFile(path.join(root,'old.txt'),'x'); await fs.utimes(path.join(root,'fresh.txt'),new Date(now),new Date(now+120000)); await fs.utimes(path.join(root,'old.txt'),new Date(now),new Date(now-5*86400000)); const files=async options=>(await previewOrganization({root,...options})).moves.map(x=>x.file).sort(); assert.deepEqual(await files({maxAgeDays:0}),['fresh.txt']); assert.deepEqual(await files({maxAgeDays:1}),['fresh.txt']); for(const options of [{},{maxAgeDays:undefined},{maxAgeDays:null},{maxAgeDays:'5'},{maxAgeDays:true},{maxAgeDays:false},{maxAgeDays:Number.NaN}]) assert.deepEqual(await files(options),['fresh.txt','old.txt']); } finally { await fs.rm(root,{recursive:true,force:true}); }\nconsole.log('PASS H1 independent maxAgeDays contract');\n`, { flag: 'wx' });
+  const names = strictAge ? ['fresh.txt', 'old.txt', 'recent.txt'] : ['fresh.txt', 'old.txt'];
+  const dayNames = strictAge ? ['fresh.txt', 'recent.txt'] : ['fresh.txt'];
+  fs.writeFileSync(file, `import assert from 'node:assert/strict';\nimport fs from 'node:fs/promises';\nimport os from 'node:os';\nimport path from 'node:path';\nimport { previewOrganization } from ${JSON.stringify(sourceUrl)};\nconst root=await fs.mkdtemp(path.join(os.tmpdir(),'canary-oracle-h1-'));\ntry { const now=Date.now(); for(const name of ${JSON.stringify(names)}) await fs.writeFile(path.join(root,name),'x'); await fs.utimes(path.join(root,'fresh.txt'),new Date(now),new Date(now+120000)); await fs.utimes(path.join(root,'old.txt'),new Date(now),new Date(now-5*86400000)); ${strictAge ? "await fs.utimes(path.join(root,'recent.txt'),new Date(now),new Date(now-3600000));" : ''} const files=async options=>(await previewOrganization({root,...options})).moves.map(x=>x.file).sort(); assert.deepEqual(await files({maxAgeDays:0}),['fresh.txt']); assert.deepEqual(await files({maxAgeDays:1}),${JSON.stringify(dayNames)}); ${strictAge ? "assert.deepEqual(await files({maxAgeDays:0.01}),['fresh.txt']);" : ''} for(const options of [{},{maxAgeDays:undefined},{maxAgeDays:null},{maxAgeDays:'5'},{maxAgeDays:true},{maxAgeDays:false},{maxAgeDays:Number.NaN}]) assert.deepEqual(await files(options),${JSON.stringify(names)}); } finally { await fs.rm(root,{recursive:true,force:true}); }\nconsole.log('PASS H1 independent maxAgeDays contract');\n`, { flag: 'wx' });
   generated.push('oracle.mjs'); outcome = runNodeOracle(file);
 } else if (label === 'H2') {
   const sourceUrl = pathToFileURL(path.join(repo, sourceFiles[0])).href;

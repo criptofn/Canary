@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseAnthropicUsage } from './v15-anthropic-usage.mjs';
+import { parseAnthropicUsage, claudeUsageMatchesNative } from './v15-anthropic-usage.mjs';
 
 const arg = (key) => { const i = process.argv.indexOf(`--${key}`); return i < 0 ? null : process.argv[i + 1]; };
 const evidence = arg('evidence'), out = arg('out');
@@ -33,11 +33,12 @@ for (const record of summary.sessions) {
     }
   }
   if (complete) assert.deepEqual(usage, record.nativeUsage);
+  const reconciled = complete && claudeUsageMatchesNative(record.terminal, usage, summary.model);
   const file = `${record.name}-outcome.json`;
   const outcome = fs.existsSync(path.join(evidence, file)) ? JSON.parse(read(file)) : null;
   rows.push({ name: record.name, correctness: outcome?.correctness ?? 'control',
-    complete: record.exitCode === 0 && !record.timedOut && record.terminal?.is_error === false && complete && record.accountingMatches,
-    captured: complete && record.accountingMatches && record.terminal !== null,
+    complete: record.exitCode === 0 && !record.timedOut && record.terminal?.is_error === false && reconciled,
+    captured: reconciled && record.terminal !== null,
     hook: record.hookFired, checkpoint: record.checkpoint
       ? `${record.checkpoint.status} (${record.checkpointChanged ? record.checkpoint.source : 'historical'})` : 'none',
     input: complete ? usage.input_tokens : null, output: complete ? usage.output_tokens : null,

@@ -21,3 +21,10 @@ export function parseAnthropicUsage(text) {
   complete &&= ['input_tokens', 'output_tokens'].every((key) => Number.isSafeInteger(usage[key]) && usage[key] >= 0);
   return { usage, complete };
 }
+export function claudeUsageMatchesNative(terminal, nativeUsage, model) {
+  const totals = terminal?.modelUsage?.[model];
+  return nativeUsage != null && Object.keys(terminal?.modelUsage ?? {}).length === 1
+    && [nativeUsage.input_tokens, nativeUsage.output_tokens, totals?.inputTokens, totals?.outputTokens]
+      .every((value) => Number.isSafeInteger(value) && value >= 0)
+    && totals.inputTokens === nativeUsage.input_tokens && totals.outputTokens === nativeUsage.output_tokens;
+}
