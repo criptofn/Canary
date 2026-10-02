@@ -119,7 +119,7 @@ const text = `# Native Claude: ${summary.preparedRoot ? 'gepaarter lokaler Pilot
   table.join('\n') + '\n\n' +
   (summary.preparedRoot ? arms.map((a) => `- ${a.arm}: ${a.correct}/${a.attempted} externe Korrektheitsprüfungen bestanden; ${a.complete} normal beendet; ${a.captured} vollständig abgerechnet; ${a.passedCheckpoints} tatsächliche bestandene Stop-Checkpoints; native Tokens ${a.nativeTokens ?? 'unvollständig'}.`).join('\n') + '\n\n' : '') +
   `Anbieterrechnung: **0 USD**, ausschließlich lokales Modell. Claude-interne USD-Schätzung mit unbekannter Preisbasis ist keine Rechnung. Native Input/Output umfassen den tatsächlich übertragenen Werkzeug- und MCP-Kontext; geschätzte thinking_tokens werden nicht addiert.\n\n` +
-  `Grenzen: gleicher Benutzer im LOCAL-Modus; keine Betriebssystem-Isolation. Kontrollreparaturen sind künstlich eingebracht. Ein kleiner Pilot auf drei Projekten beweist keine allgemeine Tokenersparnis oder breite 9/10-Alltagstauglichkeit. Korrektheit, Canary-Nachweis und Sitzungsende sind getrennt.\n\n` +
+  `Grenzen: gleicher Benutzer im LOCAL-Modus; keine Betriebssystem-Isolation. Kontrollreparaturen sind künstlich eingebracht. Dieser begrenzte Pilot beweist keine allgemeine Tokenersparnis oder breite 9/10-Alltagstauglichkeit. Korrektheit, Canary-Nachweis und Sitzungsende sind getrennt.\n\n` +
   `Bereinigung: \`${JSON.stringify(summary.cleanup)}\`. Fehler: \`${summary.failure ?? 'none'}\`.\n` + comparison + verification;
 fs.writeFileSync(out, text, { flag: 'wx' });
 console.log(`PASS evidence integrity: ${lines.length} files; ${rows.length} sessions; ${out}`);
