@@ -101,6 +101,65 @@ describe('detection (pure)', () => {
 });
 
 describe('setup', () => {
+  it('startup context gives a finish workflow without executing checks, survives retry and preserves foreign startup hooks', () => {
+    const userStart = 'echo user-startup';
+    const root = makeProject('startup-context', { settings: { theme: 'dark', hooks: { SessionStart: [{ hooks: [{ type: 'command', command: userStart }] }] } } });
+    const marker = path.join(root, 'startup-ran-check.txt');
+    const runner = path.join(root, 'check.cjs');
+    fs.copyFileSync(path.join(FIXTURES, 'setup-check-marker.js'), runner);
+    const pkg = { scripts: { test: `node "${runner}" "${marker}"` } };
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(pkg));
+    for (const n of [1, 2]) { const r = canary(['setup', '--yes', root]); assert.equal(r.status, 0, `setup ${n}: ${r.stdout} ${r.stderr}`); }
+    fs.rmSync(marker);
+    const before = fs.readFileSync(cpFile(root));
+    const invoke = () => canary(['checkpoint', '--session-start'], root, JSON.stringify({ hook_event_name: 'SessionStart', cwd: root }));
+    const r = invoke();
+    assert.equal(r.status, 0, r.stderr);
+    const output = JSON.parse(r.stdout);
+    assert.equal(output.hookSpecificOutput.hookEventName, 'SessionStart');
+    const context = output.hookSpecificOutput.additionalContext;
+    assert.match(context, /finish.*normally/i);
+    assert.match(context, /scripts\.test/);
+    assert.match(context, /not a verification result/i);
+    assert.ok(context.includes(CLI), 'repair command must name the installed CLI');
+    assert.equal(fs.existsSync(marker), false, 'startup must not execute the sealed check');
+    assert.deepEqual(fs.readFileSync(cpFile(root)), before, 'startup must not write a verification result');
+    const settings = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
+    const starts = settings.hooks.SessionStart.flatMap((group: { hooks: Array<{ command: string }> }) => group.hooks);
+    assert.equal(starts.filter((hook: { command: string }) => hook.command.endsWith('checkpoint --session-start')).length, 1);
+    assert.equal(starts.filter((hook: { command: string }) => hook.command === userStart).length, 1);
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node unsealed.js' } }));
+    assert.equal(invoke().stdout.trim(), '', 'startup must not advertise a changed command as sealed');
+    assert.deepEqual(fs.readFileSync(cpFile(root)), before);
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(pkg));
+    assert.equal(canary(['uninstall', root]).status, 0);
+    const remaining = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
+    assert.equal(remaining.theme, 'dark');
+    assert.deepEqual(remaining.hooks.SessionStart.flatMap((group: { hooks: unknown[] }) => group.hooks), [{ type: 'command', command: userStart }]);
+  });
+
+  it('startup preflight refuses malformed SessionStart hooks without replacing user settings', () => {
+    const root = makeProject('startup-malformed', { settings: { hooks: { SessionStart: 'not a list' } } });
+    const file = path.join(root, '.claude/settings.json'), before = fs.readFileSync(file);
+    const result = canary(['setup', '--yes', root]);
+    assert.equal(result.status, 2);
+    assert.match(result.stdout, /SessionStart/);
+    assert.deepEqual(fs.readFileSync(file), before);
+    assert.equal(fs.existsSync(cfgFile(root)), false);
+  });
+
+  it('startup guidance cannot clear a failing completion gate', () => {
+    const root = makeProject('startup-red-gate', { testScript: fx('f-boom.js') });
+    assert.equal(canary(['setup', '--yes', root]).status, 2);
+    const before = fs.readFileSync(cpFile(root));
+    const startup = canary(['checkpoint', '--session-start'], root, JSON.stringify({ hook_event_name: 'SessionStart' }));
+    assert.equal(JSON.parse(startup.stdout).hookSpecificOutput.hookEventName, 'SessionStart');
+    assert.deepEqual(fs.readFileSync(cpFile(root)), before);
+    const stopped = canary(['checkpoint'], root, JSON.stringify({ cwd: root, hook_event_name: 'Stop', stop_hook_active: false }));
+    assert.equal(JSON.parse(stopped.stdout).decision, 'block');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
+  });
+
   it('setup --check is read-only and never executes the planned project command', () => {
     const root = makeProject('preflight');
     const marker = path.join(root, 'project-command-ran.txt');

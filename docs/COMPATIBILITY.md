@@ -176,3 +176,18 @@ handler is missing.
   those hosts and are NOT claimed from here**. Running Canary no longer requires a
   Node installation for the supported host; a *Node project's* checks still need
   that project's own Node/npm, because Canary runs the project's scripts.
+# Claude startup orientation
+
+Setup adds a Claude Code SessionStart handler alongside its existing Stop gate.
+The handler supplies a short completion workflow and the trusted test entry;
+it neither runs checks nor writes a verification result. The installed CLI also
+supports the internal hook invocation `checkpoint --session-start`, which emits
+Claude's context-only hook JSON for a SessionStart input. The normal checkpoint
+and JSON verdict contracts are unchanged.
+
+Existing installations gain this handler by rerunning setup. Its optional
+`sessionStartCommands` ownership list is separate from Stop ownership, so retry,
+rollback and uninstall preserve unrelated startup hooks. Older configurations
+without this field remain valid. Codex's Stop integration is unchanged.
+
+Protocol reference: [Claude Code SessionStart hooks](https://code.claude.com/docs/en/hooks#sessionstart).

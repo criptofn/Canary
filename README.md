@@ -136,6 +136,12 @@ canary setup --check    # optional read-only preflight; runs no project checks a
 canary setup --yes      # detect the project, seal its checks, wire your agent
 ```
 
+Claude Code also receives a short completion workflow when a session starts or
+resumes: the sealed test entry, the installed repair command, and the instruction
+to finish normally so the Stop hook runs the full checks. Startup guidance runs
+no checks and certifies nothing. Re-run setup once to add it to an existing
+installation; unrelated startup hooks are preserved.
+
 `setup --check` reports the checks and toolchains it can see without running
 project commands, writing files, or authorizing tool paths. It cannot discover
 every tool a project script may launch; actual setup still runs the checks.

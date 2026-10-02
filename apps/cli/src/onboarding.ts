@@ -148,6 +148,8 @@ export interface CanaryConfig {
   cliPath: string; hookCommand: string;
   /** every command string ever installed here — uninstall matches exactly these */
   hookCommands: string[];
+  /** Exact Claude SessionStart commands owned by this installation, separate from Stop. */
+  sessionStartCommands?: string[];
   /** v1.4 §C: every command string ever installed into THIS project's `.codex/hooks.json`.
    *  Deliberately a SEPARATE list from `hookCommands`: the two harnesses are wired into two
    *  different files, and a file may only be pruned by the record that names it. Absent on configs
@@ -282,6 +284,7 @@ function validConfigShape(v: unknown): v is CanaryConfig {
       return true;
     })
     && Array.isArray(c.hookCommands) && c.hookCommands.every(isStr)
+    && (c.sessionStartCommands === undefined || (Array.isArray(c.sessionStartCommands) && c.sessionStartCommands.every(isStr)))
     // v1.4 §C: the Codex ownership record is shape-checked here too, so a hand-edited config with a
     // malformed list is 'corrupt' (the documented self-heal path) rather than a TypeError mid-uninstall.
     && (c.codexHookCommands === undefined || (Array.isArray(c.codexHookCommands) && c.codexHookCommands.every(isStr)))
@@ -518,13 +521,13 @@ function assertPlainTarget(p: string): void {
   }
 }
 
-/** Collect Canary-owned Stop entries (exact command match) and remove them. */
-function pruneOwned(doc: Record<string, unknown>, ownedCommands: Set<string>): number {
+/** Remove exact owned commands from one named hook event, preserving other events. */
+function pruneOwned(doc: Record<string, unknown>, ownedCommands: Set<string>, event = 'Stop'): number {
   const hooks = doc.hooks as Record<string, unknown[]> | undefined;
-  if (!hooks || !Array.isArray(hooks.Stop)) return 0;
+  if (!hooks || !Array.isArray(hooks[event])) return 0;
   let removed = 0;
   const kept: unknown[] = [];
-  for (const group of hooks.Stop as Array<{ hooks?: unknown[] }>) {
+  for (const group of hooks[event] as Array<{ hooks?: unknown[] }>) {
     if (!group || !Array.isArray(group.hooks)) { kept.push(group); continue; }
     const inner = group.hooks.filter((h) => {
       const mine = !!h && typeof h === 'object' && ownedCommands.has(String((h as { command?: unknown }).command ?? ''));
@@ -533,19 +536,20 @@ function pruneOwned(doc: Record<string, unknown>, ownedCommands: Set<string>): n
     });
     if (inner.length) kept.push({ ...group, hooks: inner });
   }
-  if (kept.length) hooks.Stop = kept; else delete hooks.Stop;
+  if (kept.length) hooks[event] = kept; else delete hooks[event];
   if (!Object.keys(hooks).length) delete doc.hooks;
   return removed;
 }
 
 /**
- * Install the Stop hook into <root>/.claude/settings.json.
+ * Install the Stop hook and optional startup orientation into Claude settings.
  * Preflight parses (refuses on malformed); backs up before any write; prunes
  * previously-owned entries first (idempotent, no stacking); records backups in
  * .canary/backups/. Returns the touched-file record for uninstall.
  */
 export function installStopHook(
   root: string, command: string, priorCommands: Set<string>, backupsDir: string, dryRun = false,
+  priorStartupCommands?: Set<string>,
 ): { ok: boolean; touched?: TouchedFile; problem?: string } {
   const file = settingsPath(root);
   try { assertPlainTarget(file); } catch {
@@ -568,9 +572,17 @@ export function installStopHook(
   if (doc.hooks !== undefined && (doc.hooks as Record<string, unknown>).Stop !== undefined && !Array.isArray((doc.hooks as Record<string, unknown>).Stop)) {
     return { ok: false, problem: `${rel(root, file)} has a "hooks.Stop" that is not a list of hook groups — fix it and re-run setup. Nothing was changed.` };
   }
+  if (priorStartupCommands && doc.hooks !== undefined && (doc.hooks as Record<string, unknown>).SessionStart !== undefined && !Array.isArray((doc.hooks as Record<string, unknown>).SessionStart)) {
+    return { ok: false, problem: `${rel(root, file)} has a "hooks.SessionStart" that is not a list — fix it and re-run setup. Nothing was changed.` };
+  }
+  if (priorStartupCommands) pruneOwned(doc, new Set([`${command} --session-start`, ...priorStartupCommands]), 'SessionStart');
   const hooks = (doc.hooks ??= {}) as Record<string, unknown[]>;
   const stop = (hooks.Stop ??= []) as Array<{ hooks: unknown[] }>;
   stop.push({ hooks: [{ type: 'command', command, timeout: 1800 }] });
+  if (priorStartupCommands) {
+    const startup = (hooks.SessionStart ??= []) as Array<{ hooks: unknown[] }>;
+    startup.push({ hooks: [{ type: 'command', command: `${command} --session-start`, timeout: 10 }] });
+  }
 
   if (dryRun) return { ok: true, touched: { path: file, created: !existed } };
 
@@ -850,6 +862,7 @@ export function uninstallHooks(root: string, cfg: CanaryConfig): { removed: numb
       // kinds prune differently. v1.4 §C: a Codex hooks file has the Claude SHAPE but its own
       // ownership list. A legacy touched entry (no kind) is a Claude Code hooks file by construction.
       pruned = t.kind === 'mcp' ? pruneOwnedMcp(doc, ownedMcp) : pruneOwned(doc, ownedCommandsFor(cfg, t.kind));
+      if (t.kind !== 'mcp' && t.kind !== 'codex-hooks') pruned += pruneOwned(doc, new Set(cfg.sessionStartCommands ?? []), 'SessionStart');
       if (fs.existsSync(t.path)) {
         // Deleted only when Canary's entry was the LAST thing in a file Canary created. A file the
         // user already had — even one that held nothing but our handler — keeps its place on disk.
@@ -1824,6 +1837,33 @@ export function projectTestEntryHint(startDir: string): string {
     const hint = sealedTestEntryHint(root, cfg);
     return hint ? `\n\nBefore adding regression tests:${hint}\nAdd assertions against the actual implementation to the suite this entry runs. Preserve the test command, sealed plan and baseline.` : '';
   } catch { return ''; } // no readable trusted entry: keep the generic instructions, never guess
+}
+
+/** Startup orientation only: no checks, evidence writes, or completion decision. */
+export function cmdSessionStart(): number {
+  try {
+    const input = JSON.parse(fs.readFileSync(0, 'utf8')) as { hook_event_name?: unknown };
+    if (input.hook_event_name !== 'SessionStart') return 0;
+    const root = findRepoRoot(process.cwd());
+    if (!root) return 0;
+    const hint = projectTestEntryHint(root);
+    const cfg = readConfig(root);
+    if (!hint || !cfg || cfg === 'corrupt' || planAuthorityDrift(root, cfg)) return 0;
+    const doc = parseJsonOrNull(settingsPath(root));
+    if (!doc || !hasCanaryEntry(doc, new Set(cfg.hookCommands))) return 0;
+    const context = [
+      'Canary completion workflow (not a verification result).',
+      `Work in ${JSON.stringify(root)}.`,
+      'Implement the requested change and regression assertions, then finish normally with a factual summary.',
+      'The automatic Stop hook runs the full sealed checks. Do not keep rerunning the full suite to obtain a Canary verdict before responding.',
+      'If the hook reports a failure, repair that problem and recheck its exact id with canary_doctor(check). A focused result is PARTIAL.',
+      `If MCP is unavailable, run this installed CLI instead of guessing a global canary command: ${buildHookCommand(CLI_ENTRY)!.replace(/checkpoint$/, 'doctor --check "<reported-id>"')}.`,
+      'Preserve the sealed plan, baseline and hooks; do not setup, bind or accept to clear a failure.',
+      hint.trim(),
+    ].join('\n');
+    console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } }));
+  } catch { /* unavailable or malformed startup input cannot manufacture verification */ }
+  return 0;
 }
 
 /**
@@ -2928,7 +2968,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
       issues.push('Canary could not form a safe hook command for this CLI path');
     }
     if (hookCommand && harnesses.integrables.some((h) => h.name === 'claude-code')) {
-      const checkHook = installStopHook(root, hookCommand, new Set(setupPrevCfg?.hookCommands ?? []), path.join(root, CONFIG_DIR, 'backups'), true);
+      const checkHook = installStopHook(root, hookCommand, new Set(setupPrevCfg?.hookCommands ?? []), path.join(root, CONFIG_DIR, 'backups'), true, new Set(setupPrevCfg?.sessionStartCommands ?? []));
       if (!checkHook.ok) issues.push(`Claude Code hook: ${checkHook.problem}`);
     }
     if (hookCommand && harnesses.integrables.some((h) => h.name === 'codex')) {
@@ -3011,6 +3051,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // only THIS installation's own record may seed hook-command dedupe — a cloned
   // config must never teach setup which user entries to strip (S1)
   const priorCommands = new Set<string>(prevUsable ? [...(prev as CanaryConfig).hookCommands, (prev as CanaryConfig).hookCommand] : []);
+  const priorStartupCommands = new Set<string>(prevUsable ? ((prev as CanaryConfig).sessionStartCommands ?? []) : []);
   // The Codex ownership record is separate on purpose: `.codex/hooks.json` may only be pruned by
   // the commands this installation recorded for THAT file.
   const priorCodexCommands = new Set<string>(prevUsable ? ((prev as CanaryConfig).codexHookCommands ?? []) : []);
@@ -3019,7 +3060,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const backupsDir = path.join(root, CONFIG_DIR, 'backups');
   const priorMcp = new Set<string>(prevUsable ? ((prev as CanaryConfig).mcpArgSignatures ?? []) : []);
   const preflight = [
-    ...(wantsClaude ? [installStopHook(root, hookCommand, priorCommands, backupsDir, true)] : []),
+    ...(wantsClaude ? [installStopHook(root, hookCommand, priorCommands, backupsDir, true, priorStartupCommands)] : []),
     ...(wantsCodex ? [installCodexStopHook(root, hookCommand, priorCodexCommands, backupsDir, true)] : []),
     installMcpServer(root, CLI_ENTRY, priorMcp, backupsDir, mcpProfile, true),
   ].find((result) => !result.ok);
@@ -3034,7 +3075,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const setupSnapshots = new Map<string, SetupFileSnapshot>();
 
   if (wantsClaude) snapshotSetupFile(setupSnapshots, settingsPath(root));
-  const res = wantsClaude ? installStopHook(root, hookCommand, priorCommands, backupsDir) : null;
+  const res = wantsClaude ? installStopHook(root, hookCommand, priorCommands, backupsDir, false, priorStartupCommands) : null;
   if (res && !res.ok) { o.verdict('NEEDS ATTENTION', `could not configure Claude Code safely: ${res.problem} ${setupRollbackNote(setupSnapshots)}`, 'fix that file, then run setup again'); return 2; }
   rememberSetupWrite(setupSnapshots, res?.touched?.path);
   if (wantsCodex) snapshotSetupFile(setupSnapshots, codexHooksPath(root));
@@ -3115,6 +3156,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     })(),
     cliPath: CLI_ENTRY, hookCommand,
     hookCommands: [...new Set([hookCommand, ...priorCommands])],
+    ...(res?.touched ? { sessionStartCommands: [...new Set([`${hookCommand} --session-start`, ...priorStartupCommands])] } : {}),
     // Absent when Codex is not wired here, so a Claude-only setup keeps writing byte-identical config.
     ...(codex?.touched ? { codexHookCommands: [...new Set([hookCommand, ...priorCodexCommands])] } : {}),
     mcpProfile,

@@ -56,7 +56,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
-import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, cmdBind, cmdResult, cmdAgents } from './onboarding.js';
+import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdSessionStart, cmdClaim, cmdTask, cmdBind, cmdResult, cmdAgents } from './onboarding.js';
 import { cmdIsolate, cmdAccept } from './candidate.js';
 import { appendMetric, metricFor, metricsTarget, streamSnapshot } from './metrics.js';
 import { cmdWork, cmdFinish } from './orchestrate.js';
@@ -405,7 +405,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'agents') return cmdAgents(rest); // 1.1 §18-21: which agents work here, and at what capability
   if (cmd === 'doctor') return cmdDoctor(rest);
   if (cmd === 'uninstall') return cmdUninstall(rest);
-  if (cmd === 'checkpoint') return cmdCheckpoint();
+  if (cmd === 'checkpoint') return rest.length === 1 && rest[0] === '--session-start' ? cmdSessionStart() : cmdCheckpoint();
   if (cmd === 'claim') return cmdClaim(rest);
   if (cmd === 'task') return cmdTask(rest);
   // 1.1 Update 5 — the OPERATOR's binding act: attach a stated requirement to a sealed check, so
