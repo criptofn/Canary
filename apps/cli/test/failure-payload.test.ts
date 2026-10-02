@@ -27,6 +27,19 @@ const step = (over: Partial<Parameters<typeof buildFailurePayload>[0]['steps'][n
 });
 
 describe('failure identities are read from the runners Canary supports', () => {
+  it('colored Vitest collection failures lead the details when a required build is missing', () => {
+    const text = [
+      'Error: expected caught failure from a passing control',
+      '\x1b[41m\x1b[1m FAIL \x1b[22m\x1b[49m tests/unit/cli/help-drift.test.ts\x1b[2m [ tests/unit/cli/help-drift.test.ts ]\x1b[22m',
+      '\x1b[31m\x1b[1mError\x1b[22m: dist CLI not found. Run npm run build before npm test.\x1b[39m',
+      '\x1b[36m \x1b[2m❯\x1b[22m tests/unit/cli/help-drift.test.ts:\x1b[2m37:9\x1b[22m\x1b[39m',
+      ' FAIL tests/unit/failure-ids.test.ts > preserves params',
+      'AssertionError: expected false to be true',
+    ].join('\n');
+    assert.deepEqual(extractFailureIdentities(text), ['tests/unit/cli/help-drift.test.ts [ tests/unit/cli/help-drift.test.ts ]', 'tests/unit/failure-ids.test.ts > preserves params']);
+    assert.deepEqual(extractDetailLines(text), ['Error: dist CLI not found. Run npm run build before npm test.', '❯ tests/unit/cli/help-drift.test.ts:37:9']);
+  });
+
   it('colored Vitest failures keep file, test identity and source location, without treating passing rows as failures', () => {
     const text = [
       ' \x1b[32m✓\x1b[39m tests/unit/passing.test.ts (1 test)',

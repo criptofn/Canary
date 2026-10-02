@@ -101,6 +101,22 @@ describe('detection (pure)', () => {
 });
 
 describe('setup', () => {
+  it('colored Vitest collection failure reports the missing build and retains a block', () => {
+    const root = makeProject('colored-vitest-collection', { testScript: `${fx('vitest-color-check.cjs')} collection` });
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 0, `${setup.stdout} ${setup.stderr}`);
+    fs.writeFileSync(path.join(root, '.fixture-fail'), 'trigger collection failure');
+    const r = canary(['checkpoint'], root, JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false, cwd: root }));
+    assert.equal(r.status, 0, r.stderr);
+    const response = JSON.parse(r.stdout);
+    assert.equal(response.decision, 'block');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
+    assert.match(response.reason, /help-drift\.test\.ts \[ tests\/unit\/cli\/help-drift\.test\.ts \]/);
+    assert.match(response.reason, /Error: dist CLI not found\. Run npm run build before npm test\./);
+    assert.match(response.reason, /help-drift\.test\.ts:37:9/);
+    assert.doesNotMatch(response.reason, /expected caught error|passing\.test\.ts/);
+  });
+
   it('colored Vitest completion failure names the test and source location while preserving the red gate and raw log', () => {
     const root = makeProject('colored-vitest-failure', { testScript: fx('vitest-color-check.cjs') });
     const setup = canary(['setup', '--yes', root]);

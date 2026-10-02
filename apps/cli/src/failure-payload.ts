@@ -44,7 +44,7 @@ export const MAX_LINE_CHARS = 160;
 export const MAX_TOTAL_CHARS = 1200;
 
 const clip = (s: string, max = MAX_LINE_CHARS): string => (s.length <= max ? s : `${s.slice(0, max - 1)}…`);
-const VITEST_FAILURE = /^\s*FAIL\s+(\S+\.[A-Za-z0-9]+\s*>\s*.+?)\s*$/;
+const VITEST_FAILURE = /^\s*FAIL\s+(\S+\.[A-Za-z0-9]+(?:\s*>\s*.+?|\s+\[\s+.+?\s+\]))\s*$/;
 
 /**
  * Failing-test identities, best-effort, from the shapes the runners Canary supports actually
