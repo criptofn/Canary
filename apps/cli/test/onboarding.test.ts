@@ -101,6 +101,26 @@ describe('detection (pure)', () => {
 });
 
 describe('setup', () => {
+  it('colored Vitest completion failure names the test and source location while preserving the red gate and raw log', () => {
+    const root = makeProject('colored-vitest-failure', { testScript: fx('vitest-color-check.cjs') });
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 0, `${setup.stdout} ${setup.stderr}`);
+    fs.writeFileSync(path.join(root, '.fixture-fail'), 'trigger the controlled failure');
+    const r = canary(['checkpoint'], root, JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false, cwd: root }));
+    assert.equal(r.status, 0, r.stderr);
+    const response = JSON.parse(r.stdout);
+    assert.equal(response.decision, 'block');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
+    assert.match(response.reason, /failure-ids\.test\.ts > extractFailureIds > preserves hyphenated params/);
+    assert.match(response.reason, /AssertionError: expected false to be true/);
+    assert.match(response.reason, /failure-ids\.test\.ts:42:9/);
+    assert.match(response.reason, /doctor --check test/);
+    assert.doesNotMatch(response.reason, /passing\.test\.ts/);
+    const log = response.reason.split('full output: ')[1]?.split('\n')[0];
+    assert.ok(log && fs.existsSync(log));
+    assert.ok(fs.readFileSync(log, 'utf8').includes('\x1b[41m'), 'raw evidence keeps the runner color bytes');
+  });
+
   it('startup context gives a finish workflow without executing checks, survives retry and preserves foreign startup hooks', () => {
     const userStart = 'echo user-startup';
     const root = makeProject('startup-context', { settings: { theme: 'dark', hooks: { SessionStart: [{ hooks: [{ type: 'command', command: userStart }] }] } } });

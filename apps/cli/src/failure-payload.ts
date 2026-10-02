@@ -23,6 +23,8 @@
  * the exit codes and the logs are the evidence, and this is presentation.
  */
 
+import { stripVTControlCharacters } from 'node:util';
+
 /** One failing step, as the checkpoint path already has it. */
 export interface FailingStep {
   /** Exact sealed step key, when the caller has the plan. */
@@ -42,6 +44,7 @@ export const MAX_LINE_CHARS = 160;
 export const MAX_TOTAL_CHARS = 1200;
 
 const clip = (s: string, max = MAX_LINE_CHARS): string => (s.length <= max ? s : `${s.slice(0, max - 1)}…`);
+const VITEST_FAILURE = /^\s*FAIL\s+(\S+\.[A-Za-z0-9]+\s*>\s*.+?)\s*$/;
 
 /**
  * Failing-test identities, best-effort, from the shapes the runners Canary supports actually
@@ -52,6 +55,7 @@ const clip = (s: string, max = MAX_LINE_CHARS): string => (s.length <= max ? s :
  *   `  1) some test`                  mocha
  *   `FAILED tests/x.py::test_y - ...` pytest short summary
  *   `file.test.js :: some test`       the repository's own plain-reporting runners
+ *   `FAIL file.test.ts > suite > test` Vitest's detailed failure block
  */
 export function extractFailureIdentities(text: string, limit = MAX_IDENTITIES_PER_CHECK): string[] {
   const out: string[] = [];
@@ -67,8 +71,9 @@ export function extractFailureIdentities(text: string, limit = MAX_IDENTITIES_PE
     /^\s*\d+\)\s+(.+?)\s*$/,
     /^(?:FAILED|ERROR)\s+(\S+)/,
     /^\s*(\S+\.[A-Za-z0-9]+)\s*::\s*(.+?)\s*$/,
+    VITEST_FAILURE,
   ];
-  for (const line of text.split(/\r?\n/)) {
+  for (const line of stripVTControlCharacters(text).split(/\r?\n/)) {
     for (const re of patterns) {
       const m = re.exec(line);
       if (m === null) continue;
@@ -89,10 +94,14 @@ export function extractFailureIdentities(text: string, limit = MAX_IDENTITIES_PE
  */
 export function extractDetailLines(text: string, limit = MAX_DETAIL_LINES_PER_CHECK): string[] {
   const out: string[] = [];
-  for (const raw of text.split(/\r?\n/)) {
+  const lines = stripVTControlCharacters(text).split(/\r?\n/);
+  // Vitest can print expected caught errors from PASSING tests before its failure blocks.
+  // Start at the actual first FAIL block so those diagnostics do not misdirect a repair.
+  const firstFailure = lines.findIndex((line) => VITEST_FAILURE.test(line));
+  for (const raw of firstFailure < 0 ? lines : lines.slice(firstFailure + 1)) {
     const line = raw.trim();
     if (line === '') continue;
-    if (!/^(?:E\s|expected|actual|AssertionError|Error:|TypeError|ReferenceError|SyntaxError|.*!==.*|.*expected .* got .*)/i.test(line)) continue;
+    if (!/^(?:E\s|expected|actual|AssertionError|Error:|TypeError|ReferenceError|SyntaxError|❯\s+\S+:\d+(?::\d+)?(?:\s|$)|.*!==.*|.*expected .* got .*)/i.test(line)) continue;
     if (/^at\s/.test(line)) continue;
     out.push(clip(line));
     if (out.length >= limit) break;

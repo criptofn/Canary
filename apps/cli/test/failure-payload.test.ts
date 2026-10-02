@@ -27,6 +27,26 @@ const step = (over: Partial<Parameters<typeof buildFailurePayload>[0]['steps'][n
 });
 
 describe('failure identities are read from the runners Canary supports', () => {
+  it('colored Vitest failures keep file, test identity and source location, without treating passing rows as failures', () => {
+    const text = [
+      ' \x1b[32m✓\x1b[39m tests/unit/passing.test.ts (1 test)',
+      '\x1b[31mError: expected caught error in a passing test\x1b[39m',
+      '\x1b[36m ❯ tests/unit/passing.test.ts:7:3\x1b[39m',
+      '\x1b[41m\x1b[1m FAIL \x1b[22m\x1b[49m tests/unit/failure-ids.test.ts\x1b[2m > \x1b[22mextractFailureIds\x1b[2m > \x1b[22mpreserves hyphenated params',
+      '\x1b[31m\x1b[1mAssertionError\x1b[22m: expected false to be true // Object.is equality\x1b[39m',
+      '\x1b[36m \x1b[2m❯\x1b[22m tests/unit/failure-ids.test.ts:\x1b[2m42:9\x1b[22m\x1b[39m',
+    ].join('\n');
+    assert.deepEqual(extractFailureIdentities(text), ['tests/unit/failure-ids.test.ts > extractFailureIds > preserves hyphenated params']);
+    assert.deepEqual(extractDetailLines(text), ['AssertionError: expected false to be true // Object.is equality', '❯ tests/unit/failure-ids.test.ts:42:9']);
+    let saved = '';
+    const message = buildFailurePayload({ steps: [step({ stderr: text })], writeLog: (_name, raw) => { saved = raw; return '/tmp/failure.log'; } });
+    assert.equal(saved, `\n${text}`, 'full runner output must retain its original bytes');
+    assert.match(message, /failure-ids\.test\.ts > extractFailureIds > preserves hyphenated params/);
+    assert.match(message, /failure-ids\.test\.ts:42:9/);
+    assert.equal(message.includes('\x1b'), false, 'presentation must not contain terminal control sequences');
+    assert.ok(message.length <= MAX_TOTAL_CHARS);
+  });
+
   it('TAP (node:test), mocha, pytest and a plain "file :: test" report', () => {
     assert.deepEqual(extractFailureIdentities('    not ok 1 - adds numbers\nok 2 - fine'), ['adds numbers']);
     assert.deepEqual(extractFailureIdentities('  1) suite\n     a failing title\n'), ['suite']);
