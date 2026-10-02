@@ -35,7 +35,23 @@ Nach dem nativen Versuch wurde zusätzlich die Darstellung farbiger Vitest-Fehle
 
 Die vier Unit-Skips sind POSIX-Harness-Grenzen auf Windows. Die separat als übersprungen dargestellte Go-Suite hat null Tests und erhöht die Test-Skip-Zahl nicht. Abschließende Gate-Logs: `completion-workflow-20261002-unit-closure.log` mit SHA-256 7f2b587ce843bd33a7ec24b48466cf776c5651c4f100a9a9d7f1e035e7f8001e und `completion-workflow-20261002-productization-closure.log` mit SHA-256 0b02788cb5eceb9f94423fd1f60ad80f8a05d9de601ca93cace92fcc2648adda. Beide liegen im oben genannten übergeordneten Evidenzverzeichnis; beide gespeicherten Exitcodes sind 0.
 
-**Noch offen in diesem Arbeitsstand:** installierte Abnahme des endgültigen Pakets und der einmalige native Folgeversuch mit verbesserter Fehlermeldung. Eine Autonomieverbesserung wird daraus vorab nicht behauptet.
+Das endgültige Paket ist nach den Gates isoliert gepackt und installiert; alle acht ausgewählten installierten Abnahme- und Gegenproben bestehen: beide Vitest-Fehlerformen, drei Startup-Regressionsfälle, Setup-Rollback, idempotentes Setup und unveränderter vollständiger Checkpoint nach PARTIAL.
+
+| Kennung des endgültigen Pakets | Wert |
+|---|---|
+| Einfriercommit | aae19a2247c1ff8ae357e4add713b8ee4983dfe8 |
+| Funktionale Produktcommits | b4c3530 (Startup), cc252a3 und dc8b70c (Vitest-Darstellung) |
+| Paket SHA-256 | bfa7174534960589ba227574f6dd0c2bbd3afe3309569e62b5a40cfa8b37d7b1 |
+| Installierte CLI SHA-256 | 168a322bef8f859528c7d2cad5cac0cdf87b79f53873286748a93fad5f76b897 |
+| Paketwurzel | C:/Users/Johannes/Desktop/canary/_canary-data/evidence/completion-workflow-final-20261002 |
+
+Dort liegen `final.tgz`, Installations- und Versionsbelege, die bytegleich kopierten vollständigen Gate-Logs sowie `installed-after.log` und der gespeicherte Exitcode 0. `source-status` beim Einfrieren war leer. Die Anzeige bleibt 1.5.0; dies ist ein unveröffentlichter Arbeitsstand.
+
+**Nativer Folgeversuch unvollständig:** Der Produzent verschwand ohne `summary.json`; die Ursache ist nicht nachgewiesen. Die Plain-Sitzung endete normal, bestand aber die unabhängige Aufgabenprüfung nicht. Für Canary fehlen ein erfasstes Sitzungsende und die vollständige native Abrechnung. Daher zählt das Paar nicht als abgeschlossener Autonomie- oder Effizienznachweis.
+
+Der gesicherte Canary-Zwischenstand bestand anschließend die unabhängige R1-Aufgabenprüfung (Oracle Exit 0). Sein gespeicherter Stop-Checkpoint vom 2026-10-02T09:54:00.733Z enthält drei bestandene Checks und `message-and-continue`, jedoch `sessionEnd: unknown`. Die Herkunftswarnung für einen umgeschriebenen Agententest bleibt erhalten. Ein korrekter Dateizustand ersetzt keinen erfassten Sitzungsabschluss.
+
+Originalbelege bleiben unter `claude-completion-final-native-20261002-R1` erhalten. Die gesonderte Wiederherstellung unter `claude-completion-final-native-20261002-R1-recovery` archiviert 58 Worker-Dateien und beide Arbeitsstände; ihre kopierte Zusammenfassung ist ausdrücklich `incomplete`. Der externe Snapshot-Oracle liegt unter `claude-completion-final-native-20261002-R1-recovery-oracle`. Beide Wurzeln liegen im oben genannten Evidenzverzeichnis. Es wurden keine fehlenden Tokenzahlen geschätzt.
 
 ## Native Prüfung
 
@@ -45,7 +61,9 @@ Zusätzlich zum normalen Ergebnisreport prüft `v15-startup-delivery-audit.mjs` 
 
 Der ausgeführte Zustellreport bestätigt dies für beide vollständig abgerechneten Sitzungen und 278 erneut gehashte Rohbelegdateien. Ergebnis: Plain korrekt und normal beendet (32 Turns, 656747 native Tokens); Canary falsch und am Turn-Limit beendet (51 Turns, 1707191 native Tokens). Der Stop-Hook wurde erreicht und blockierte sieben fehlgeschlagene Regressionstests sowie einen fehlgeschlagenen Suite-Start. Vorher hatte der Agent `npm run clean` ausgeführt und den für den Suite-Start erforderlichen Build entfernt. Danach entstand kein bestandener Abschlussnachweis. Diese Beobachtung belegt keine Autonomieverbesserung. [Vollständiger nativer Zwischenbericht](POST-V15-STARTUP-REFACTRON-NATIVE-2026-10-02.md).
 
-Die persönlichen Claude-Anweisungen und die projektseitigen Hooks waren innerhalb des Paars gleich. In der Canary-Sitzung meldete außerdem ein fremder Projekt-Hook einen Git-Bash-Forkfehler. Er bleibt im Rohprotokoll sichtbar. Die einzelnen Sitzungen erlauben weder eine kausale Zuschreibung aller Unterschiede noch eine belastbare Effizienzbewertung.
+Die persönlichen Claude-Anweisungen wurden in beiden Varianten geladen. Die Projekt-Hook-Dateien enthielten dieselben fremden Hooks; der bisherige Messaufbau aktivierte Projekt-/Local-Einstellungen jedoch nur in der Canary-Variante. Das ist ein Versuchsaufbau-Unterschied, keine belegte Canary-Ursache. In der Canary-Sitzung meldete außerdem ein fremder Projekt-Hook einen Git-Bash-Forkfehler. Beides bleibt sichtbar. Die einzelnen Sitzungen erlauben weder eine kausale Zuschreibung aller Unterschiede noch eine belastbare Effizienzbewertung.
+
+Für den abschließenden Folgeversuch ist das Messprogramm korrigiert: beide Varianten laden `project,local`, und vor dem ersten Modellaufruf werden die fremden Projekt- und Local-Einstellungen strukturell auf Gleichheit geprüft. Aus dem Vergleich werden ausschließlich die explizit registrierten eigenen Canary-Handler entfernt; die Dateien selbst werden dabei nicht verändert. Eine Plain-Kopie mit bereits installiertem Canary wird abgewiesen. Das endgültige Produktpaket bleibt unverändert. Wegen dieser Instrumentenkorrektur ist ein Vergleich mit älteren Sitzungen ein Vergleich verschiedener Gesamtaufbauten, keine isolierte kausale Produktmessung.
 
 Vor Bereinigung wurden 57 Dateien einschließlich vollständiger Worker-Diffs und Einrichtungsläufe archiviert. Die Bereinigung prüfte 335 archivierte Dateien und entfernte erst dann beide eigenen temporären Projekte und Trust-Verzeichnisse. Rohbelege und Archiv bleiben unter `claude-startup-native-20261002-R1` beziehungsweise `claude-startup-native-20261002-R1-archive` im Evidenzverzeichnis erhalten.
 

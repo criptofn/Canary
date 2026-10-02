@@ -77,7 +77,7 @@ async function session(name, prompt, hooks, tools = false, options = {}) {
   const before = fs.existsSync(checkpointFile) ? fs.readFileSync(checkpointFile, 'utf8') : null;
   const start = requests.length;
   const args = ['-p', prompt, '--model', model, '--settings', path.join(out, 'local-settings.json'),
-    '--setting-sources', hooks ? 'project,local' : '', '--tools', tools ? 'Read,Write,Edit,Bash,Glob,Grep' : '', '--strict-mcp-config',
+    '--setting-sources', hooks || options.pilot ? 'project,local' : '', '--tools', tools ? 'Read,Write,Edit,Bash,Glob,Grep' : '', '--strict-mcp-config',
     '--mcp-config', tools && hooks ? path.join(cwd, '.mcp.json') : path.join(out, 'empty-mcp.json'),
     '--output-format', 'stream-json', '--verbose', '--include-hook-events',
     '--system-prompt', options.pilot
@@ -162,6 +162,28 @@ async function pilot() {
     save(`${name}-oracle-process.json`, { args, exitCode: r.status, error: r.error?.message ?? null, stdout: r.stdout, stderr: r.stderr });
     return fs.existsSync(path.join(resultDir, 'oracle-result.json')) ? JSON.parse(fs.readFileSync(path.join(resultDir, 'oracle-result.json'), 'utf8')) : null;
   };
+  // Pilot copies are independent: activate their foreign settings equally, and remove only
+  // explicitly recorded Canary handlers from the comparison. Synthetic same-repo controls
+  // still disable settings in their plain arm so the installed Canary hook cannot run there.
+  const readSettings = (repo, file) => fs.existsSync(path.join(repo, file)) ? JSON.parse(fs.readFileSync(path.join(repo, file), 'utf8')) : {};
+  for (const label of new Set(schedule.map((record) => record.label))) {
+    const repoFor = (arm) => preparation.records.find((record) => record.label === label && record.arm === arm).repo;
+    const plain = repoFor('plain'), canary = repoFor('canary');
+    assert.equal(fs.existsSync(path.join(plain, '.canary/canary.local.json')), false, `${label}: plain copy already has Canary installed`);
+    const config = readSettings(canary, '.canary/canary.local.json');
+    const doc = readSettings(canary, '.claude/settings.json');
+    for (const [event, commands] of [['Stop', config.hookCommands ?? []], ['SessionStart', config.sessionStartCommands ?? []]]) {
+      if (!doc.hooks?.[event]) continue;
+      const owned = new Set(commands);
+      doc.hooks[event] = doc.hooks[event].map((group) => ({ ...group, hooks: group.hooks.filter((hook) => !owned.has(hook.command)) }))
+        .filter((group) => group.hooks.length);
+      if (!doc.hooks[event].length) delete doc.hooks[event];
+    }
+    if (doc.hooks && !Object.keys(doc.hooks).length) delete doc.hooks;
+    assert.deepEqual(doc, readSettings(plain, '.claude/settings.json'), `${label}: foreign project settings differ`);
+    assert.deepEqual(readSettings(canary, '.claude/settings.local.json'), readSettings(plain, '.claude/settings.local.json'), `${label}: foreign local settings differ`);
+    save(`${label}-foreign-settings-check.json`, { settingsSources: 'project,local', foreignSettingsMatched: true });
+  }
   // Validate ALL untouched copies and their hidden failure controls before the first model call.
   for (const { label, arm } of schedule) {
     const record = preparation.records.find((r) => r.label === label && r.arm === arm); assert.ok(record);
