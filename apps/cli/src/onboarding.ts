@@ -4281,21 +4281,41 @@ export async function cmdCheckpoint(): Promise<number> {
  * script must already be part of the SEALED plan, which is the operator's earlier act.
  */
 export async function cmdBind(rawArgs: string[]): Promise<number> {
-  const { opts, rest } = parseGlobals(rawArgs);
+  const { opts } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose, opts.json);
-  const reseal = rawArgs.includes('--reseal');
-  const positional = rest.filter((a) => !a.startsWith('--'));
-  const script = positional[0];
+  o.context({ command: 'bind' });
+  const positional: string[] = [];
   const requirements: string[] = [];
-  for (let i = 0; i < rawArgs.length; i += 1) {
-    if (rawArgs[i] === '--requirement' && typeof rawArgs[i + 1] === 'string') requirements.push(rawArgs[i + 1] as string);
-  }
-  if (script === undefined || requirements.length === 0) {
-    o.say('usage: canary bind <script> --requirement "<the exact stated requirement>" [--requirement …] [--reseal]');
-    o.say('  the script must be one your SEALED plan runs; bind, then run: canary setup (or add --reseal to do both)');
+  let reseal = false;
+  const globals = new Set(['--verbose', '--yes', '--json', '--fast']);
+  const optionTokens = new Set([...globals, '--requirement', '--reseal']);
+  const refuseInput = (why: string): number => {
+    o.context({ exitCode: 3 });
+    o.verdict('NEEDS ATTENTION', why,
+      'canary bind <script> --requirement "<the exact stated requirement>" [--requirement …] [--reseal]');
     return 3;
+  };
+  // Validate the entire intake before a partial declaration or reseal can be written.
+  // A requirement beginning with a dash is still TEXT, except an exact option token.
+  for (let i = 0; i < rawArgs.length; i += 1) {
+    const arg = rawArgs[i]!;
+    if (arg === '--requirement') {
+      const value = rawArgs[i + 1];
+      if (value === undefined || value.trim() === '' || optionTokens.has(value)) {
+        return refuseInput('--requirement needs nonblank requirement text; no binding was written.');
+      }
+      requirements.push(value);
+      i += 1;
+    } else if (arg === '--reseal') reseal = true;
+    else if (globals.has(arg)) continue;
+    else if (arg.startsWith('--')) return refuseInput(`unknown bind option "${safePath(arg)}"; no binding was written.`);
+    else positional.push(arg);
   }
-  const root = findRepoRoot(dirArg(rest) ?? process.cwd());
+  const script = positional[0];
+  if (!script?.trim() || requirements.length === 0 || positional.length !== 1) {
+    return refuseInput('bind needs one sealed script and requirement text after each --requirement; no binding was written.');
+  }
+  const root = findRepoRoot(process.cwd());
   if (!root) { o.verdict('UNSUPPORTED', 'not inside a git repository — there is no project to bind a requirement to.', 'cd into your project and try again'); return 2; }
   const cfg = readConfig(root);
   if (cfg === 'corrupt' || !cfg) { o.verdict('NEEDS ATTENTION', 'Canary is not set up here, so there is no sealed plan to bind to.', 'run: canary setup --yes'); return 2; }

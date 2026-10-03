@@ -182,6 +182,22 @@ cancelled. No assertion is skipped to make it green.
 
 ---
 
+## A requirement binding is refused before writing
+
+`canary bind` requires one sealed script and nonblank text after **each**
+`--requirement`. Unknown options, extra positional arguments, missing text, and
+an option token in place of text are refused with exit 3 before any declaration,
+commit, or seal changes. Check spelling and quote each complete requirement:
+
+```sh
+canary bind test --requirement "Keep IDs stable across runs" --requirement "Keep parameter cases distinct"
+```
+
+Text beginning with a dash, such as `"--strict preserves warnings as errors"`,
+is accepted verbatim. A successful declaration still needs sealing; `--reseal`
+performs the existing operator workflow. Invalid JSON-mode requests return one
+`NEEDS ATTENTION` envelope with the same exit code as the process.
+
 ## Reading verification evidence in JSON
 
 After a full `canary doctor --json` evaluates proof obligations, its optional
