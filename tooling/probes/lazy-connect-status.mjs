@@ -13,8 +13,8 @@
  *     CONNECTED (a statement about state; never a claim the project passes).
  *   - Subdirectory entry routes to the repo root (the agent's cwd is not a
  *     config problem to solve manually).
- *   - Bare `canary` inside a repo is no longer a dead end: usage + a footer
- *     naming the repo's state, exit still 3.
+ *   - Bare `canary` shows compact read-only state and the next commands;
+ *     the full command list remains available with --help, exit still 3.
  *   - Unattended `setup` without --yes (no TTY) runs the smoke test like
  *     doctor already does; a failing project still never reads READY.
  */
@@ -177,11 +177,19 @@ check('tracked config (git-committed .canary/canary.local.json): never CONNECTED
   assertStable(root, before, 'tracked');
 });
 
-check('bare `canary` in a connected repo: usage + CONNECTED footer hint, exit still 3', () => {
+check('bare `canary`: compact read-only state, full help remains explicit, exit still 3', () => {
   const root = makeRepo('bare');
+  const before = manifest(root);
   const r = canary([], root);
   assertEq(r.status, 3, 'bare usage keeps exit 3');
-  assert(/^CONNECTED —/m.test(r.stdout) && /canary status/.test(r.stdout), 'footer points at the read-only state command:\n' + r.stdout);
+  assert(r.stdout.trimStart().startsWith('CONNECTED —'), 'state is the first answer:\n' + r.stdout);
+  assert(/canary result/.test(r.stdout) && /canary --help/.test(r.stdout), 'names verification state and full help');
+  assert(!/canary isolate|canary accept|canary bind/.test(r.stdout), 'bare entry must not print the expert command list');
+  const help = canary(['--help'], root);
+  assertEq(help.status, 3, 'explicit help keeps its existing exit code');
+  assert(/canary isolate/.test(help.stdout) && /canary bind/.test(help.stdout), 'full help keeps the expert commands');
+  assertStable(root, before, 'bare and explicit help');
+  assert(!fs.existsSync(path.join(root, 'sentinel.txt')), 'bare/help must not execute project checks');
   const bare = makeRepo('bare-unconnected', { setup: false });
   const r2 = canary([], bare);
   assertEq(r2.status, 3, 'exit 3');

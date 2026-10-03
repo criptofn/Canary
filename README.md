@@ -225,6 +225,10 @@ and the one command that fixes it. `canary status` answers the same question abo
 **state** without running anything, and `canary result --json` gives an agent the
 same answer compactly and for free.
 
+Running `canary` without a command shows compact read-only connection status and
+points to `canary result` for the last verification and `canary --help` for the
+full command list. Its existing no-command exit code remains 3.
+
 When one check fails, doctor prints its sealed check id and a focused recheck command.
 Use `canary doctor --check <id>` while repairing that check; it returns `PARTIAL` and
 does not update the completion checkpoint. Run `canary doctor` for the full gate.

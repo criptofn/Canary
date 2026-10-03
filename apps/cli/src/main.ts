@@ -394,6 +394,11 @@ function cmdReport(evidencePath: string | undefined, outPath?: string): number {
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   if (cmd === 'version' || argv.includes('--version')) { console.log(`canary ${CANARY_VERSION}`); return 0; }
+  if (argv.length === 0) {
+    cmdStatus([]);
+    console.log('Verification result: canary result. All commands: canary --help.');
+    return 3; // Preserve the no-command exit contract; the state answer is read-only.
+  }
   if (cmd === 'run' && rest[0]) return cmdRun(rest[0]);
   if (cmd === 'prove' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), true);
   if (cmd === 'check' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), false);
