@@ -98,8 +98,33 @@ Er scheiterte vorher; danach bestehen alle drei gezielten JSON-Tests. Ungültige
 Pflichtzustände und eine nicht unterstützte Anforderungszahl werden weiterhin
 verworfen. Logs: `proof-scope-20261003-maximum-red.log` und `maximum-green.log`.
 
-Die vollständigen Prüfungen des kombinierten Stands stehen noch aus; der erste
-Productization-Lauf prüfte ausschließlich `bfa7feb`.
+Der kombinierte Stand `d4c34d5` ist ebenfalls vollständig gelaufen:
+
+- `npm test`: 1.342 Tests, 1.338 bestanden, 4 übersprungen, kein Fehler.
+- `verify:productization`: 102 Schritte bestanden, 6 übersprungen, 2 fehlgeschlagen;
+  Exit 1. Dieser Lauf ist **nicht grün**.
+- Die Fehler liegen in M10 S5 und M10.1 F4: Prüfprozesse endeten mit
+  `3221225501` beziehungsweise `3221225477`. Die Ursache ist offen; die Ausgaben
+  beweisen weder einen Task-Authority-Bypass noch eine bestandene Prüfung dieser Fälle.
+- Die installierte Providerprüfung bestand in diesem Lauf. Das erklärt oder
+  schließt den ursprünglichen Provider-Absturz weiterhin nicht.
+
+Rohlog: `proof-bind-combined-20261003-productization.log`, SHA-256
+`a2b987bc8ca1a60fef81e1ef4e3120ad8d6dad0dfc2ddecf3869e4efa8fb4dc2`.
+Das archivierte Paket `proof-bind-combined-20261003-package.tgz` hat SHA-256
+`26a5d8a7292f648f36496f793e89ef88a03196481a1747f68327a0c7a01453b1`.
+
+Die global benannte Datei `v12-production-authority.json` wurde von einer
+weiteren nativen Testfixture überschrieben. Die nachträglich kopierte Datei
+`proof-bind-combined-20261003-provider-report.json` enthält keinen
+Instrumentenhash und wird **nicht** als Rohbericht der Paketprüfung gewertet.
+Neue Paketprüfungen schreiben deshalb einen eigenen Bericht und archivieren
+Paket, Instrument, Befehle und Ausgaben in einem eigenen Versuchsverzeichnis.
+
+Die anschließende Korrektur für aufeinanderfolgende Änderungen liegt als
+`3e92829` vor. Ihre gezielten Belege sind im
+[gesonderten Bericht](POST-V15-CONSECUTIVE-CHANGES-2026-10-03.md) beschrieben.
+Die oben genannten Prüfungen enthalten diese spätere Korrektur nicht.
 
 ## Bedeutung für die Produktbewertung
 

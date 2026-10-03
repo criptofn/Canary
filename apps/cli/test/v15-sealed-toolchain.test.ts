@@ -245,6 +245,21 @@ describe('attribution: is Canary\'s environment the cause, or the project?', () 
     }
   });
 
+  it('exception-style process exits have unknown cause, not a claimed project assertion failure', () => {
+    for (const exitCode of [3221225477, 3221225501, -1073741819, -1073741795]) {
+      const input = { ...base, exitCode, output: '' };
+      for (const result of [attributeStepFailure(input), attributeFailures([input])]) {
+        assert.equal(result.cause, 'unknown');
+        assert.match(result.reason, /0xc00000(?:05|1d)/);
+        assert.doesNotMatch(result.reason, /That is your project talking/);
+        assert.match(result.next, /runtime/);
+        assert.doesNotMatch(result.next, /canary setup/);
+      }
+    }
+    assert.equal(attributeFailures([{ ...base, exitCode: 1, output: 'STATUS_ACCESS_VIOLATION' }]).cause, 'project',
+      'printed crash prose alone must not override an ordinary failed check');
+  });
+
   it('ENVIRONMENT: a step that could not run at all (nothing about the project was measured)', () => {
     const a = attributeStepFailure({ ...base, exitCode: null, output: 'package manager "npm" is not resolvable in Canary\'s trusted execution environment' });
     assert.equal(a.cause, 'environment');

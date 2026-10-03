@@ -205,7 +205,7 @@ export function notFoundPrograms(output: string, exitCode?: number | null): stri
 }
 
 export interface FailureAttribution {
-  cause: 'project' | 'environment';
+  cause: 'project' | 'environment' | 'unknown';
   /** Programs the child needed and Canary's sealed environment does not provide. */
   missing: string[];
   /** One line for the product's verdict, starting with the vocabulary word for the outcome. */
@@ -249,6 +249,17 @@ function projectFailureReason(kinds: readonly string[], detail?: string): string
 export function attributeStepFailure(input: AttributeInput): FailureAttribution {
   const { kind, script, exitCode, output, childPathDirs, vanishedDirs, seal } = input;
   const reported = notFoundPrograms(output, exitCode);
+  // Native return values, not printed crash prose. Accept signed/unsigned DWORDs.
+  const nativeCode = exitCode !== null && Number.isInteger(exitCode)
+    && exitCode >= -0x80000000 && exitCode <= 0xffffffff ? exitCode >>> 0 : null;
+  if (nativeCode === 0xc0000005 || nativeCode === 0xc000001d) {
+    const name = nativeCode === 0xc0000005 ? 'STATUS_ACCESS_VIOLATION' : 'STATUS_ILLEGAL_INSTRUCTION';
+    return {
+      cause: 'unknown', missing: [],
+      reason: `CHECK PROCESS FAILURE — the ${kind} check ("${script}") returned 0x${nativeCode.toString(16)} (${name}). This is an exception-style process exit; the code alone does not establish a failed assertion or whether the runtime, native dependency, or host caused it.`,
+      next: 'inspect the recorded command and full output; investigate the runtime and native dependencies before retrying. Preserve the sealed plan and baseline',
+    };
+  }
 
   // 1. The step never ran at all (resolution refused, or the spawn itself failed): infrastructure,
   //    not a test result. Nothing about the project was measured, so nothing about it may be claimed.
@@ -318,6 +329,11 @@ export function attributeFailures(inputs: AttributeInput[]): FailureAttribution 
       next: [...new Set(env.map((a) => a.next))].join(' | '),
     };
   }
+  const unknown = all.filter((a) => a.cause === 'unknown');
+  if (unknown.length > 0) return {
+    cause: 'unknown', missing: [], reason: unknown.map((a) => a.reason).join(' '),
+    next: [...new Set(unknown.map((a) => a.next))].join(' | '),
+  };
   // Nothing was the environment's doing: one line, naming every check that failed.
   const kinds = [...new Set(inputs.map((i) => i.kind))];
   return { cause: 'project', missing: [], reason: projectFailureReason(kinds), next: 'fix the failing check, then: canary doctor' };

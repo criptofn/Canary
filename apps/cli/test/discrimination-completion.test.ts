@@ -107,6 +107,10 @@ test('a committed earlier regression cannot prove a later uncovered change', () 
   assert.notEqual(greet('Ada  '), 'hello Ada', 'the second requested behavior is observably absent');
   const secondDoctor = canary(root, 'doctor', '--json');
   assert.equal(secondDoctor.code, 2, secondDoctor.out);
+  const secondEnvelope = JSON.parse(secondDoctor.out.split(/\r?\n/)[0]!) as { next: string };
+  assert.match(secondEnvelope.next, /regression assertion/);
+  assert.match(secondEnvelope.next, /node --test tests\/greet\.test\.cjs/);
+  assert.doesNotMatch(secondEnvelope.next, /re-run canary setup/);
   const second = discriminationObligation(root, cfg);
   assert.equal(second?.status, 'unproven', second?.note);
   assert.match(second?.note ?? '', /latest change's preceding commit/);
@@ -322,6 +326,7 @@ test('JSON proof information does not upgrade an unbound task requirement to REA
   const envelope = JSON.parse(result.stdout);
   assert.equal(envelope.status, 'NOT PROVEN');
   assert.equal(envelope.proof.registeredRequirements, 1);
+  assert.match(envelope.next, /bind the requirement/);
   assert.ok(envelope.proof.obligations.some((ob: { status: string }) => ob.status === 'unproven'));
   const checkpointPath = path.join(root, '.canary/last-checkpoint.json');
   const forged = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));

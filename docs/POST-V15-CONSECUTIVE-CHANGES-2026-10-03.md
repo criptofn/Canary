@@ -71,6 +71,19 @@ There is an additional comparison run when HEAD has advanced beyond the sealed
 base. This change improves refusal of stale evidence; it does not establish a
 runtime or token saving, and it does not by itself establish an 8/10 product.
 
-Full unit and productization gates for this correction remain required after
-integration. The concurrently running primary-worktree gate is for commit
-`d4c34d5`, which does not contain this correction.
+Integration commit: `3e92829` on `codex/product-progress`. The source-equivalent
+fix on `codex/bind-intake` (`dac4c51`) completed `npm test`: 1,331 tests,
+1,327 passed, 4 skipped, no failures. This is that checkout's actual reporter
+count, not a claim about the later combined primary checkout.
+
+The primary-worktree gate for `d4c34d5` terminated with 102 PASS, 6 SKIP and
+2 FAIL; it did not contain this correction. See the proof reporting report.
+Full unit and productization gates for the later combined source remain required.
+
+The follow-up regression also exposed misleading repair guidance: `doctor` told
+a task with zero registered requirements to bind a requirement and re-run setup.
+The new JSON `next` names the actual sealed test entry and asks for a regression
+assertion while preserving the seal. The checkpoint retains the same next action.
+An unbound requirement still receives binding guidance; neither refusal is relaxed.
+`consecutive-changes-20261003-next-red.log` failed before this correction;
+`next-green.log` has 2 passed, none failed or skipped.

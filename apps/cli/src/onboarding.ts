@@ -3951,16 +3951,17 @@ export function cmdDoctor(rawArgs: string[]): number {
     const because = objectiveOpen.length > 0
       ? `${objectiveOpen.length} objective obligation(s) have no adequate proof`
       : `${subjectiveOpen.length} authorized requirement(s) need a human's explicit acceptance`;
+    const next = objectiveOpen.some((ob) => ob.id === 'regression-evidence')
+      ? `Add a regression assertion that fails on the reported comparison commit and passes with the actual implementation.${sealedTestEntryHint(root, cfg)} Preserve the sealed plan and baseline; then run: canary doctor`
+      : objectiveOpen.length > 0
+        ? 'close it with a sealed check: bind the requirement to a matching script in package.json canary.proofs and re-run canary setup — or take the work through a candidate (canary work <name> … → canary finish <name>) and have a human accept it there'
+        : 'bind each requirement to a sealed check (package.json canary.proofs + canary setup), or take the work through a candidate and have a human accept it there: canary work <name> "<intent>" → canary finish <name> → canary accept <candidate> in a terminal';
     writeCheckpoint(root, 'unproven', unproven.map((x) => x.id), 'doctor', {
-      checks: ran, hookResponse: 'not-applicable', next: because, evidencePath: evidenceDir ?? undefined, proof,
+      checks: ran, hookResponse: 'not-applicable', next, evidencePath: evidenceDir ?? undefined, proof,
     });
     o.verdict('NOT PROVEN',
       `the checks passed, but the task is not proven: ${because} — a green plan is not a proven deliverable (NO PROOF, NO DONE).`,
-      objectiveOpen.length > 0
-        ? 'close it with a sealed check: bind the requirement to a matching script in package.json canary.proofs and re-run canary setup — or take the work through a candidate (canary work <name> … → canary finish <name>) and have a human accept it there'
-        // MEASURED dead end this replaces: the base-repo path has NO candidate, so "canary accept
-        // <candidate>" alone was a command that could only fail. Both real paths are named instead.
-        : 'bind each requirement to a sealed check (package.json canary.proofs + canary setup), or take the work through a candidate and have a human accept it there: canary work <name> "<intent>" → canary finish <name> → canary accept <candidate> in a terminal');
+      next);
     for (const ob of unproven) o.say(`  - UNPROVEN [${ob.id}] (${ob.mode}): ${ob.note}`);
     return 2;
   }
@@ -4279,7 +4280,7 @@ export async function cmdCheckpoint(): Promise<number> {
   // otherwise a worker spends its budget repairing a project that was never at fault. The project
   // case needs no environment advice; the failure payload names the check and repair recheck.
   const attribution = attributeRunFailures(root, cfg, failed, cfg.plan);
-  const reason = `${claimNote}${attribution.cause === 'environment' ? `${attribution.reason} NEXT: ${attribution.next}\n` : ''}${buildFailurePayload({
+  const reason = `${claimNote}${attribution.cause !== 'project' ? `${attribution.reason} NEXT: ${attribution.next}\n` : ''}${buildFailurePayload({
     steps: failed.map((f) => ({
       id: stepKey(cfg.plan[ran.indexOf(f)]!),
       kind: f.kind, display: f.display, exitCode: f.exitCode,
