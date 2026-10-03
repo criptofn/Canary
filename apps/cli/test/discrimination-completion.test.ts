@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { after, test } from 'node:test';
 import { candidateDiffSignals, collectDiffSignals, discriminationObligation, readConfig } from '../src/onboarding.js';
 
@@ -86,6 +87,47 @@ function assertDoctorAndHookBlocked(root: string, reason: RegExp) {
   // The existing one-repair hook policy may stop, but must still disclose NOT PROVEN.
   assert.match(hook(root, true).systemMessage ?? '', /NOT PROVEN/);
 }
+
+test('a committed earlier regression cannot prove a later uncovered change', () => {
+  const root = fixture('consecutive-changes');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  const first = discriminationObligation(root, cfg);
+  assert.equal(first?.status, 'met', first?.note);
+  const firstDoctor = canary(root, 'doctor', '--json');
+  assert.equal(firstDoctor.code, 0, firstDoctor.out);
+  commit(root);
+  assert.equal(canary(root, 'task', 'fix trailing whitespace', '--kind', 'bugfix').code, 0);
+  // This second implementation still passes the earlier leading-space assertion,
+  // but does not implement the next task's trailing-space requirement.
+  write(root, 'greet.cjs', "module.exports = n => 'hello ' + n.replace(/^\\s+/, '');\n");
+  const greet = createRequire(import.meta.url)(path.join(root, 'greet.cjs')) as (n: string) => string;
+  assert.notEqual(greet('Ada  '), 'hello Ada', 'the second requested behavior is observably absent');
+  const secondDoctor = canary(root, 'doctor', '--json');
+  assert.equal(secondDoctor.code, 2, secondDoctor.out);
+  const second = discriminationObligation(root, cfg);
+  assert.equal(second?.status, 'unproven', second?.note);
+  assert.match(second?.note ?? '', /latest change's preceding commit/);
+  commit(root);
+  const committed = canary(root, 'doctor', '--json');
+  assert.equal(committed.code, 2, committed.out);
+  write(root, 'README.md', 'Documentation after the uncovered implementation.\n');
+  commit(root);
+  assertDoctorAndHookBlocked(root, /base commit too/);
+  write(root, 'greet.cjs', "module.exports = n => 'hello ' + n.trim();\n");
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION + "test('trailing whitespace', () => assert.equal(greet('Ada  '), 'hello Ada'));\n");
+  const repaired = canary(root, 'doctor', '--json');
+  assert.equal(repaired.code, 0, repaired.out);
+  assert.match(repaired.out, /CHECK TEXT WRITTEN BY THE WORKER ITSELF/);
+  commit(root);
+  write(root, 'README.md', 'Documentation after the covered repair.\n');
+  commit(root);
+  const committedRepair = canary(root, 'doctor', '--json');
+  assert.equal(committedRepair.code, 0, committedRepair.out);
+  assert.match(committedRepair.out, /CHECK TEXT WRITTEN BY THE WORKER ITSELF/);
+});
 
 test('an imported dash-test check is compared and retains worker provenance, while unused or copied assertions cannot prove work', () => {
   const root = fixture('imported-dash-test');

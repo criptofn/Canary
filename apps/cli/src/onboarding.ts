@@ -1919,7 +1919,7 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
     const target = sealedTestHint ? 'that suite or command' : 'a suite the sealed plan runs';
     return {
       id: 'regression-evidence', mode: 'objective', status: 'unproven',
-      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more}): existing behaviour that must be preserved needs a check that FAILS without the change and passes with it.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a human can also accept the risk from an interactive terminal — a green plan alone does not close this`,
+      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more})${disc.comparisonBase ? ` — additional comparison against the latest change's preceding commit ${disc.comparisonBase}` : ''}: existing behaviour that must be preserved needs a check that FAILS without the change and passes with it.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a human can also accept the risk from an interactive terminal — a green plan alone does not close this`,
     };
   }
   return {
@@ -1957,6 +1957,8 @@ function looksLikeInfraFailure(r: StepResult): boolean {
 }
 
 export interface DiscriminationResult {
+  /** Additional reference only; the original sealed comparison still must pass. */
+  comparisonBase?: string;
   /** false only when no comparison duty applies; true with basePassed:null means UNPROVEN. */
   applicable: boolean;
   reason: string;
@@ -2008,6 +2010,48 @@ export interface DiscriminationResult {
  * throwaway `git worktree` at the sealed baseline, removed in a `finally`.
  */
 export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string): DiscriminationResult {
+  const sealed = comparePlanAtBase(root, cfg, timeoutMs, isolationBase);
+  if (sealed.basePassed !== false) return sealed;
+  // Keep the sealed comparison mandatory. A prior fix can make it fail forever,
+  // however, so it cannot by itself distinguish the next change in the same repo.
+  const base = isolationBase ?? cfg.baseline?.head;
+  const head = gitWithinRoot(root, ['rev-parse', 'HEAD'])?.trim();
+  const unknown = (reason: string): DiscriminationResult => ({ ...sealed, basePassed: null, reason });
+  if (!base || !head || !/^[0-9a-f]{40,64}$/i.test(head)) return unknown('the latest change comparison has no resolvable HEAD');
+  if (head === base) return sealed;
+  const behaviour = (p: string): boolean => !isCanaryOwnArtifact(p) && !isGeneratedArtifact(p)
+    && !isDepPath(p) && !isTestPath(p) && !isNonBehaviourPath(p);
+  const pending = candidateDiffSignals(root, head);
+  if (!pending.resolved) return unknown('the latest working-tree change could not be resolved');
+  let previous = head;
+  if (!pending.touched.some(behaviour)) {
+    // A test/doc-only commit must not hide the most recent product edit. Follow
+    // first parents, including merge deltas, rather than trusting commit messages.
+    const commits = gitWithinRoot(root, ['rev-list', '--first-parent', '--parents', `${base}..HEAD`]);
+    if (commits === null) return unknown('the latest committed change could not be resolved');
+    previous = base;
+    for (const row of commits.trim().split('\n').filter(Boolean)) {
+      const [commit, parent] = row.trim().split(/\s+/);
+      if (!commit || !parent || ![commit, parent].every((v) => /^[0-9a-f]{40,64}$/i.test(v))) {
+        return unknown('the latest committed change has no resolvable parent');
+      }
+      const diff = gitWithinRoot(root, ['diff', '--name-status', '-z', parent, commit]);
+      if (diff === null) return unknown('the latest committed change paths could not be resolved');
+      if (parseNameStatus(diff).some((entry) => entry.paths.some(behaviour))) { previous = parent; break; }
+    }
+  }
+  if (previous === base) return sealed;
+  const latest = comparePlanAtBase(root, cfg, timeoutMs, previous);
+  if (!latest.applicable) return unknown('the latest change comparison could not establish a product delta');
+  if (latest.basePassed !== false) return {
+    ...latest, comparisonBase: previous, reason: `latest change comparison against ${previous}: ${latest.reason}`,
+  };
+  // Preserve the original worker-origin caveat: a committed check has not become
+  // independent authority merely because the additional base contains it.
+  return sealed;
+}
+
+function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, isolationBase?: string): DiscriminationResult {
   const none = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
     ({ applicable: false, reason, changedPaths, overlaidChecks: [], addedChecks: [], modifiedChecks: [], basePassed: null, baseFailures: [] });
   const unknown = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
