@@ -396,7 +396,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'version' || argv.includes('--version')) { console.log(`canary ${CANARY_VERSION}`); return 0; }
   if (argv.length === 0) {
     cmdStatus([], true);
-    console.log('Verification result: canary result. All commands: canary --help.');
+    console.log('usage: canary <command>. Verification result: canary result. All commands: canary --help.');
     return 3; // Preserve the no-command exit contract; the state answer is read-only.
   }
   if (cmd === 'run' && rest[0]) return cmdRun(rest[0]);

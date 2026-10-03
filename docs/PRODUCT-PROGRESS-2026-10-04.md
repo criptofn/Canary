@@ -32,6 +32,14 @@ commands or model sessions started, to use the complete product batch instead.
 The complete batch still requires sequential full tests and productization,
 followed by the installed controls and frozen twelve-session pilot.
 
+The first complete-batch unit run on `7e2f421` reported 1349 tests: 1344 passed,
+four skipped, one failed. The existing CLI contract requires a `usage:` line
+when no command is given. The compact entry now retains a short usage line
+after the state answer. The unchanged contract test passes, and
+`compact-entry-usage-20261004-lazy-green.log` again reports all read-only entry
+checks passing. Productization and model sessions did not run after the failed
+unit gate; its evidence remains in `product-batch-final-20261004-job`.
+
 Node 26's previous gate failures remain recorded. Running on LTS does not prove
 their cause or close them. Native owner crashes now fail the mutation battery
 instead of being counted as successful catches; failed provenance runs preserve
