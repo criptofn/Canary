@@ -63,6 +63,8 @@ Der erste Versuch endete vor den Lösungskontrollen und Modellaufrufen als `inco
 
 Eine Wiederholung mit dem unveränderten eingefrorenen Paket und neuen Ausgangskopien wird unter `canary-improved-six-task-20261003-build-order-retry` im OS-Temp-Verzeichnis sowie `build-order-20261003-six-task-retry.log` im Evidenzverzeichnis separat erfasst. Ein abgeschlossenes neues Sechs-Aufgaben-Ergebnis oder ein nativer Pilot wird noch nicht behauptet.
 
+Vor dem ersten Modellaufruf wird auch für die native H1-Auswertung die bereits im Release-/Kontrollvergleich verwendete Oracle-Option `--strict-age` festgelegt. Damit werden neben Null und ganzen Tagen auch kürzlich geänderte Dateien und Bruchteile von Tagen geprüft, wie die unveränderte Aufgabe es verlangt. Beide Varianten und ihre Baseline-Prüfung verwenden dieselbe Option; `pilot-protocol.json` hält sie fest. Produktpaket, Oracle-Programm und Aufgaben werden dafür nicht verändert. Der native Messprogrammhash wird beim Start separat eingefroren; während der Sitzungen bleibt er unverändert.
+
 ## Erfassung nativer Sitzungen
 
 Der vorherige native R1-Folgeversuch bleibt unvollständig; seine gesicherte Lösung besteht die unabhängige Aufgabenprüfung, aber Sitzungsende und vollständige native Abrechnung fehlen. [Bericht](POST-V15-COMPLETION-WORKFLOW-2026-10-02.md).

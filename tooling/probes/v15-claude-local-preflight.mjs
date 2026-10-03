@@ -151,7 +151,7 @@ async function pilot() {
   save('preparation-summary.json', preparation); save('oracle-instrument.mjs', oracleBytes.toString('utf8'));
   save('pilot-protocol.json', { schedule, cliSha256: metadata.cliSha256, artifactSha256: preparation.artifactSha256,
     tasks: Object.entries(taskFiles).map(([label, file]) => ({ label, file, sha256: sha(taskTexts[label]) })),
-    oracleSha256, timeoutMs: 1_800_000, effort: 'low', maxTurns: 50, maxOutputTokens: 4096,
+    oracleSha256, oracleOptions: { H1: { strictAge: true } }, timeoutMs: 1_800_000, effort: 'low', maxTurns: 50, maxOutputTokens: 4096,
     providerUsdCharge: 0, limitation: 'Local same-user model and independent operator oracles; no OS isolation or general token savings claim.' });
   const git = (repo, ...args) => {
     const r = spawnSync('git', ['-C', repo, ...args], { env: safeEnv, encoding: 'utf8', windowsHide: true, timeout: 60000, maxBuffer: 32 * 1024 * 1024 });
@@ -161,6 +161,7 @@ async function pilot() {
     assert.equal(sha(fs.readFileSync(oracle)), oracleSha256, `${name}: independent oracle changed; evaluation refused`);
     const resultDir = path.join(out, `oracle-${name}`);
     const args = [oracle, '--label', label, '--repo', repo, '--expected', expected, '--out', resultDir];
+    if (label === 'H1') args.push('--strict-age');
     if (label === 'S1') args.push('--javac', path.join(dirs[1], 'javac.exe'), '--java', path.join(dirs[1], 'java.exe'));
     const r = spawnSync(process.execPath, args, { cwd: root, env: safeEnv, encoding: 'utf8', windowsHide: true, timeout: 180000 });
     save(`${name}-oracle-process.json`, { args, exitCode: r.status, error: r.error?.message ?? null, stdout: r.stdout, stderr: r.stderr });
