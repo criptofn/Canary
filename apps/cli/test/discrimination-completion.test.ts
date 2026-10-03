@@ -290,6 +290,40 @@ test('JSON proof information does not upgrade an unbound task requirement to REA
   assert.equal(JSON.parse(rechecked.stdout).proof.registeredRequirements, 1, 'stored proof summaries never supply verdict authority');
 });
 
+test('historical proof retains the supported maximum requirement set and rejects malformed rows', () => {
+  const root = fixture('proof-maximum-requirements');
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const requirements = Array.from({ length: 64 }, (_, i) => `Keep runtime below ${i + 1} ms`);
+  assert.equal(canary(root, 'task', 'fix greeting', ...requirements.flatMap((text) => ['--requirement', text])).code, 0);
+  const doctor = spawnSync(process.execPath, [CLI, 'doctor', '--json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+  assert.equal(doctor.status, 2, doctor.stderr);
+  const proof = JSON.parse(doctor.stdout).proof;
+  assert.equal(proof.registeredRequirements, 64);
+  assert.ok(proof.obligations.length > 32, 'this exercises a legitimate large proof, not synthetic cache data');
+  assert.ok(proof.obligations.some((ob: { caveat?: string }) => /NOT independent authority/.test(ob.caveat ?? '')));
+  const readResult = () => {
+    const r = spawnSync(process.execPath, [CLI, 'result', '--json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout);
+  };
+  const historical = readResult();
+  assert.equal(historical.status, 'CONNECTED');
+  assert.equal(historical.lastVerification.historical, true);
+  assert.deepEqual(historical.lastVerification.proof, proof);
+  const checkpointPath = path.join(root, '.canary/last-checkpoint.json');
+  const malformed = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
+  malformed.proof.obligations[0].status = 'invented-pass';
+  fs.writeFileSync(checkpointPath, JSON.stringify(malformed));
+  const refused = readResult();
+  assert.equal(refused.status, 'CONNECTED');
+  assert.equal(refused.lastVerification.historical, true);
+  assert.equal(refused.lastVerification.proof, undefined, 'invalid rows cannot be displayed as observed valid proof');
+  malformed.proof = { ...proof, registeredRequirements: 65 };
+  fs.writeFileSync(checkpointPath, JSON.stringify(malformed));
+  assert.equal(readResult().lastVerification.proof, undefined, 'an unsupported requirement count is not a valid observed summary');
+});
+
 test('no change and documentation-only changes retain their comparison exemptions', () => {
   const root = fixture('no-change');
   assert.equal(canary(root, 'doctor').code, 0);

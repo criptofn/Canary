@@ -3398,7 +3398,9 @@ function lastVerificationFromCheckpoint(value: unknown): ProtocolEnvelope['lastV
   const rawProof = isRecord(cp.proof) ? cp.proof : null;
   const proof = rawProof && typeof rawProof.registeredRequirements === 'number'
     && Number.isSafeInteger(rawProof.registeredRequirements) && rawProof.registeredRequirements >= 0
-    && Array.isArray(rawProof.obligations) && rawProof.obligations.length <= 32
+    && rawProof.registeredRequirements <= MAX_REQUIREMENTS
+    // Requirements may each carry bench and e2e targets, in addition to fixed plan/diff duties.
+    && Array.isArray(rawProof.obligations) && rawProof.obligations.length <= MAX_REQUIREMENTS * 2 + 16
     && rawProof.obligations.every((ob: unknown) => isRecord(ob) && typeof ob.id === 'string'
       && (ob.mode === 'objective' || ob.mode === 'non-objective')
       && (ob.status === 'met' || ob.status === 'unproven' || ob.status === 'unmet')

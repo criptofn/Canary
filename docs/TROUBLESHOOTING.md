@@ -211,7 +211,7 @@ that caveat alongside the status.
 Completion checkpoints retain the same information. `canary result --json`
 returns it under `lastVerification.proof`, with `historical: true`: it describes
 the recorded run and cannot certify the current files. Missing `proof` means
-this information was not recorded, rather than an empty set of proven duties.
+this information is unavailable or invalid, rather than an empty set of proven duties.
 These fields are additive; schema names, status words, exit codes, and block
 decisions are unchanged. Saved summaries never determine a new verdict.
 
