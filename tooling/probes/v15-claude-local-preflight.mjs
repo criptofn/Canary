@@ -9,6 +9,7 @@ import http from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseAnthropicUsage, claudeUsageMatchesNative } from './v15-anthropic-usage.mjs';
+import { installedCliEnvironment } from './v15-installed-cli-env.mjs';
 
 const arg = (name) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? null : process.argv[i + 1]; };
 const cli = arg('cli'), claude = arg('claude'), ollama = arg('ollama'), out = arg('out');
@@ -52,6 +53,13 @@ const metadata = { startedAt: new Date().toISOString(), node: process.version, m
 save('instrument.mjs', fs.readFileSync(fileURLToPath(import.meta.url), 'utf8'));
 save('v15-anthropic-usage.mjs', fs.readFileSync(new URL('./v15-anthropic-usage.mjs', import.meta.url), 'utf8'));
 metadata.usageParserSha256 = sha(fs.readFileSync(new URL('./v15-anthropic-usage.mjs', import.meta.url)));
+save('v15-installed-cli-env.mjs', fs.readFileSync(new URL('./v15-installed-cli-env.mjs', import.meta.url), 'utf8'));
+metadata.cliEnvironmentSha256 = sha(fs.readFileSync(new URL('./v15-installed-cli-env.mjs', import.meta.url)));
+if (preparation) {
+  metadata.cliAliasDirectory = installedCliEnvironment(cli, safeEnv).PATH.split(path.delimiter)[0];
+  metadata.cliAliases = Object.fromEntries(['canary', 'canary.cmd', 'canary.ps1'].map(name =>
+    [name, sha(fs.readFileSync(path.join(metadata.cliAliasDirectory, name)))]));
+}
 save('manifest.json', metadata);
 const commands = [], requests = [], sessions = [];
 let server, gateway, failure = null, cleanup = null;
@@ -209,8 +217,12 @@ async function pilot() {
     const prompt = taskTexts[label]; save(`${name}-task.md`, prompt);
     console.log(`START ${outcomes.length + 1}/${schedule.length} ${name}`);
     const measured = await session(name, prompt, arm === 'canary', true, { pilot: true, repo,
-      env: { CLAUDE_CONFIG_DIR: profileDir, CANARY_TRUST_STORE: path.join(os.tmpdir(), 'canary-v15-validation-trust', sha(repo)),
-        PATH: [...record.toolchainDirectories, safeEnv.PATH ?? safeEnv.Path ?? ''].join(path.delimiter) } });
+      env: { ...installedCliEnvironment(cli, safeEnv, record.toolchainDirectories), CLAUDE_CONFIG_DIR: profileDir,
+        CANARY_TRUST_STORE: path.join(os.tmpdir(), 'canary-v15-validation-trust', sha(repo)) } });
+    assert.equal(sha(fs.readFileSync(cli)), metadata.cliSha256, 'frozen CLI changed during the pilot');
+    for (const [alias, expected] of Object.entries(metadata.cliAliases)) {
+      assert.equal(sha(fs.readFileSync(path.join(metadata.cliAliasDirectory, alias))), expected, 'installed CLI alias changed during the pilot');
+    }
     const correctness = oracleRun(`${name}-final`, label, repo, 'pass', record.toolchainDirectories);
     const after = { head: git(repo, 'rev-parse', 'HEAD'), status: git(repo, 'status', '--porcelain'), protected: protectedHashes() };
     save(`${name}-after.json`, after); save(`${name}.diff`, git(repo, 'diff', '--binary', before.head));

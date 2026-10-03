@@ -65,3 +65,23 @@ Der erste Versuch dieses Gegenfalls zeigte zusätzlich die alte feste Temp-Pfadk
 die neue Kennung beseitigt diese Kollision, ohne frühere Versuchsdaten zu überschreiben.
 Beleg: `pilot-failed-gate-control-20261003/workflow-result.json` in der Evidenzwurzel.
 Ein erfolgreicher Ablauf mit dem neuen JSON-Gate-Nachweis ist noch nicht ausgeführt.
+
+## Eindeutige CLI-Auflösung im neuen Pilot
+
+Im H1-Verlauf erreichte ein globaler `canary`-Befehl die falsche Installation. Der neue
+Messaufbau setzt die Alias-Dateien des ausdrücklich installierten Pakets an den Anfang
+des Suchpfads, gefolgt vom verwendeten Node-Verzeichnis und den bestehenden Werkzeugen.
+Beide Varianten jedes Paars erhalten denselben Pfad. Die individuellen Claude-Profile
+und Trust-Verzeichnisse bleiben pro Sitzung erhalten. Das verändert den Versuchsaufbau,
+nicht Canarys geschützte Ausführungsumgebung oder LOCAL-Vertrauensgrenze.
+
+Ausgeführt auf dem alten eingefrorenen Paket: Windows `where.exe` findet dessen
+`canary.cmd` zuerst; Git Bash `command -v` findet dessen `canary`-Startdatei. Ein
+Entwicklungsdateipfad wird vom Helfer abgewiesen, ohne auf eine globale Installation
+zurückzufallen. Der Regressionstreiber endet mit Exit 0 und drei PASS-Beobachtungen.
+Beleg: `pilot-installed-cli-path-20261003/result.json`, daneben beide rohen Ausgaben.
+
+Der native Messlauf archiviert den verwendeten Umgebungshilfsbaustein und erfasst seine
+Prüfsumme sowie die Startdateihashes im Manifest. Nach jeder Sitzung müssen CLI und
+Startdateien unverändert sein. Der neue vollständige native Ablauf ist noch auszuführen;
+diese Auflösungsprüfung ist kein Nachweis über Modellkorrektheit oder einen Stop-Abschluss.
