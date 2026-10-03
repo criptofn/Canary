@@ -89,4 +89,6 @@ Das belegt den kontrollierten unabhängigen Start und gespeicherten Abschluss, k
 
 ## Bewertung
 
+Der anschließende [eingefrorene Zwölf-Sitzungen-Pilot](POST-V15-FROZEN-NATIVE-PILOT-2026-10-03.md) ist vollständig erfasst und abgerechnet. Der vorab festgelegte Oracle meldet 6/6 korrekte Canary-Dateistände gegenüber 4/6 ohne Canary. Die zusätzliche Prüfung der ausdrücklich geforderten R1-Stabilität findet jedoch einen Fehler in beiden Varianten; erweitert sind es 5/6 gegenüber 3/6. H1 mit Canary endet am Turn-Limit ohne aktuellen Stop. Insgesamt werden 2,30-mal Tokens und 1,86-mal Laufzeit benötigt. Das ist ein begrenzter praktischer Nutzen, keine allgemeine Effizienzsteigerung oder bereits belegte 8/10. Rohresultate, zusätzlicher Gegenfall, historische Statuswerte und vollständige Abschlüsse bleiben im Pilotbericht getrennt.
+
 Dies behebt eine reproduzierte unnötige Blockade und ein falsches grünes Prüfergebnis bei veralteten Build-Dateien. Eine 8/10 für das Gesamtprodukt bleibt vorerst unbewiesen: Der normale Abschluss und der Nutzen im Verhältnis zum Aufwand müssen am eingefrorenen installierten Stand beobachtet werden. Ein künstlicher Kontrollfehler zählt dabei nicht als natürlich beobachteter Agentennutzen. Merge und Veröffentlichung erfolgen separat.
