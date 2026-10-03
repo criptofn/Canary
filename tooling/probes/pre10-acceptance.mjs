@@ -204,12 +204,13 @@ check('D stale acceptance: new candidate commit reopens the duty, advice says re
   const root = makeRepo('d-stale');
   register(root, 'make the charts look better', ['ui']);
   const c = isolate(root, 'c');
-  candCommit(c, { 'src/charts.js': 'v1 styling\n' }, 'style v1');
+  candCommit(c, { 'src/charts.js': 'v1 styling\n', 'tests/regression.style.json': JSON.stringify('v1 styling\n') }, 'style v1');
   assertEq(canary(['isolate', '--verify', 'c', root], root).status, 2, 'D: open first');
   const a = acceptPty(root, ['accept', 'c'], 'c\n');
   assert(/ACCEPTED from this interactive terminal/.test(a.stdout), `D: fresh accept:\n${a.stdout}`);
   assertEq(canary(['isolate', '--verify', 'c', root], root).status, 0, 'D: accepted state PASSes');
-  candCommit(c, { 'src/charts.js': 'v2 styling pushed AFTER the human signed\n' }, 'style v2');
+  candCommit(c, { 'src/charts.js': 'v2 styling pushed AFTER the human signed\n',
+    'tests/regression.style.json': JSON.stringify('v2 styling pushed AFTER the human signed\n') }, 'style v2');
   const v = canary(['isolate', '--verify', 'c', root], root);
   assertEq(v.status, 2, 'D: unreviewed bytes must not ride an old signature');
   assert(/STALE/.test(v.stdout), `D: staleness named:\n${v.stdout}`);
@@ -220,7 +221,28 @@ check('D stale acceptance: new candidate commit reopens the duty, advice says re
   assert(p.status !== 0, 'D: promotion stays locked on the stale acceptance');
   const a2 = acceptPty(root, ['accept', 'c'], 'c\n');
   assert(/ACCEPTED from this interactive terminal/.test(a2.stdout), 'D: re-accept works');
-  assertEq(canary(['isolate', '--verify', 'c', root], root).status, 0, 'D: recovers to PASS — the advice is a real path');
+  const recovered = canary(['isolate', '--verify', 'c', root], root);
+  assertEq(recovered.status, 0, `D: recovers to PASS — the advice is a real path:\n${recovered.stdout}`);
+});
+
+check('D2 fresh UI acceptance cannot close missing proof for a second change', () => {
+  const root = makeRepo('d2-fresh-proof');
+  register(root, 'make the charts look better', ['ui']);
+  const c = isolate(root, 'c');
+  candCommit(c, { 'src/charts.js': 'v1 styling\n' }, 'first styling');
+  assert(/ACCEPTED from this interactive terminal/.test(acceptPty(root, ['accept', 'c'], 'c\n').stdout), 'D2: accept first styling');
+  assertEq(canary(['isolate', '--verify', 'c', root], root).status, 0, 'D2: first change passes');
+  candCommit(c, { 'src/charts.js': 'v2 styling\n' }, 'second styling without a new assertion');
+  assert(/ACCEPTED from this interactive terminal/.test(acceptPty(root, ['accept', 'c'], 'c\n').stdout), 'D2: human accepts second styling');
+  const missing = canary(['isolate', '--verify', 'c', root], root);
+  assertEq(missing.status, 2, `D2: human acceptance cannot waive objective proof:\n${missing.stdout}`);
+  const open = latestCandidateBundle(root).obligations;
+  assertEq(open.find(x => x.id === 'ui-proof')?.status, 'met', 'D2: human UI duty really closed');
+  assertEq(open.find(x => x.id === 'regression-evidence')?.status, 'unproven', 'D2: objective latest-change duty stays open');
+  candCommit(c, { 'tests/regression.style.json': JSON.stringify('v2 styling\n') }, 'assert the actual second styling');
+  assert(/ACCEPTED from this interactive terminal/.test(acceptPty(root, ['accept', 'c'], 'c\n').stdout), 'D2: accept final bytes');
+  const repaired = canary(['isolate', '--verify', 'c', root], root);
+  assertEq(repaired.status, 0, `D2: real fresh proof plus fresh acceptance recovers:\n${repaired.stdout}`);
 });
 
 // E — forged shapes: agent-authored records carry zero weight; the old v1
