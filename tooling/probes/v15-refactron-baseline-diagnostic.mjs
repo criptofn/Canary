@@ -17,32 +17,52 @@ assert.ok(!relative.startsWith('..') && !path.isAbsolute(relative));
 assert.match(relative.split(path.sep)[0], /^canary-improved-six-task-/);
 assert.equal(path.basename(repo), 'plain'); assert.equal(attempt.label, 'R1');
 const hash = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
-const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH|CLAUDE|OPENAI|ANTHROPIC|CODEX)/i.test(key)));
+let env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH|CLAUDE|OPENAI|ANTHROPIC|CODEX)/i.test(key)));
 env.CANARY_TRUST_STORE = attempt.trustStore;
 env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
 env.PATH = [...attempt.toolchainDirectories, process.env.PATH ?? ''].filter(Boolean).join(path.delimiter);
+const sanitized = process.argv.includes('--sanitized');
+const environmentProgram = new URL('../../packages/support/dist/src/index.js', import.meta.url);
+let environmentProgramSha256 = null;
+if (sanitized) {
+  const { sanitizedEnv } = await import(environmentProgram.href);
+  environmentProgramSha256 = hash(fs.readFileSync(environmentProgram));
+  env = sanitizedEnv({ ws: { root: os.tmpdir(), fixture: repo }, nodeDir: path.dirname(process.execPath), extraPathDirs: attempt.toolchainDirectories });
+}
 const git = (...args) => {
   const result = spawnSync('git', ['-C', repo, ...args], { env, encoding: 'utf8', windowsHide: true, timeout: 60000 });
   assert.equal(result.status, 0); return result.stdout.trim();
 };
 assert.equal(git('rev-parse', 'HEAD'), attempt.expectedHead);
 assert.equal(git('status', '--porcelain'), '');
-const testFile = path.join(repo, 'tests/integration/verify-diff.test.ts');
+const workerTrace = process.argv.includes('--worker-trace');
+const testFile = path.join(repo, workerTrace ? 'node_modules/tinypool/dist/index.js' : 'tests/integration/verify-diff.test.ts');
 const original = fs.readFileSync(testFile), text = original.toString('utf8');
 const title = 'a changed BLANK line does not make an untested change read as covered';
+let instrumented;
+if (workerTrace) {
+  const send = 'if (!this.isTerminating) this.process.send(message);';
+  const exit = 'this.process.on("exit", this.onUnexpectedExit);';
+  assert.equal(text.split(send).length, 2);
+  assert.equal(text.split(exit).length, 2);
+  instrumented = text.replace(exit, `${exit}\nthis.process.on("exit", (code, signal) => console.error("CANARY_OPERATOR_WORKER_EXIT", JSON.stringify({pid:this.process.pid, code, signal, terminating:this.isTerminating})));`)
+    .replace(send, `if (!this.isTerminating) { if (!this.process.connected) console.error("CANARY_OPERATOR_WORKER_DISCONNECTED_SEND", JSON.stringify({pid:this.process.pid, exitCode:this.process.exitCode, signalCode:this.process.signalCode, connected:this.process.connected})); this.process.send(message); }`);
+} else {
 const start = text.indexOf(`'${title}'`), end = text.indexOf('    it.skipIf(NO_COVERAGE)', start);
 assert.ok(start >= 0 && end > start);
 const block = text.slice(start, end);
 const assertion = "        expect(report.coverage.uncovered).toEqual([{ file: 'mod.py', line: 12 }]);";
 assert.equal(block.split(assertion).length, 2, 'pin the existing assertion; never remove or replace it');
-const instrumented = text.slice(0, start) + block.replace(assertion,
+instrumented = text.slice(0, start) + block.replace(assertion,
   `        console.log('CANARY_OPERATOR_BASELINE_REPORT', JSON.stringify(report));\n${assertion}`) + text.slice(end);
+}
 fs.mkdirSync(out);
+fs.copyFileSync(import.meta.filename, path.join(out, 'instrument.mjs'), fs.constants.COPYFILE_EXCL);
 fs.writeFileSync(path.join(out, 'original-test.ts'), original, { flag: 'wx' });
-const full = process.argv.includes('--full');
+const full = workerTrace || process.argv.includes('--full');
 const npm = path.join(path.dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js');
 const args = [npm, 'run', 'test', ...(full ? [] : ['--', '--testNamePattern', title])];
-const metadata = { repo, baseline: attempt.expectedHead, full, executable: process.execPath, args,
+const metadata = { repo, baseline: attempt.expectedHead, full, workerTrace, sanitized, environmentProgramSha256, instrumentedFile: testFile, executable: process.execPath, args,
   projectScript: JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).scripts.test,
   originalTestSha256: hash(original), instrumentedTestSha256: hash(instrumented),
   instrumentSha256: hash(fs.readFileSync(import.meta.filename)), attemptSha256: hash(fs.readFileSync(attemptFile)),
