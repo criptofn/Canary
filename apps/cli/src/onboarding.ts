@@ -74,7 +74,7 @@ import { ADAPTERS, adapterFor, adapterForStep, assertStepArgv, composePlan, LOCK
 // v1.5 BLOCKER 6: the sealed toolchain (operator-authorized executable directories) and the
 // MEASURED decision of whether a failing check is the project's fault or Canary's own environment.
 import { attributeFailures, inventoryOperatorToolchain, npmScriptDirs, pathEntries, TOOLCHAIN_CANDIDATES, validateToolchainDir, type AttributeInput, type FailureAttribution, type ToolchainSeal } from './sealed-toolchain.js';
-import { emitEnvelope, PROTOCOL_DOCTOR_PARTIAL, PROTOCOL_RESULT, PROTOCOL_SETUP_CHECK, PROTOCOL_STATUS, type ProtocolEnvelope, type ProtocolIntegration } from './protocol.js';
+import { emitEnvelope, PROTOCOL_DOCTOR_PARTIAL, PROTOCOL_RESULT, PROTOCOL_SETUP_CHECK, PROTOCOL_STATUS, type ProtocolEnvelope, type ProtocolIntegration, type ProtocolProof } from './protocol.js';
 import { decideFastPath } from './fastpath.js';
 import { AGENT_INTEGRATIONS, hasAdvisory, installAdvisory, removeAdvisory } from './agents.js';
 import type { PlanAuthority, PlanStep } from './project.js';
@@ -1745,6 +1745,12 @@ export interface Obligation { id: string; mode: 'objective' | 'non-objective'; s
   /** A MET obligation whose evidence is weaker than the word "met" suggests — said plainly, never hidden. */
   caveat?: string }
 
+function proofSummary(registeredRequirements: number, obligations: Obligation[]): ProtocolProof {
+  return { registeredRequirements, obligations: obligations.map(({ id, mode, status, caveat }) => ({
+    id, mode, status, ...(caveat !== undefined ? { caveat } : {}),
+  })) };
+}
+
 /**
  * Canary's OWN wiring is not the product under test.
  *
@@ -3344,7 +3350,7 @@ function writeCheckpoint(
   status: string,
   failed: string[],
   source: string,
-  details: { checks?: StepResult[]; hookResponse?: CheckpointHookResponse; next?: string; evidencePath?: string | undefined } = {},
+  details: { checks?: StepResult[]; hookResponse?: CheckpointHookResponse; next?: string; evidencePath?: string | undefined; proof?: ProtocolProof } = {},
 ): void {
   try {
     // never write evidence through a committed link pointing outside the repo (S3)
@@ -3366,6 +3372,7 @@ function writeCheckpoint(
       sessionEnd: 'unknown',
       ...(details.next ? { next: details.next.slice(0, 500) } : {}),
       ...(details.evidencePath ? { evidencePath: details.evidencePath.slice(0, 1000) } : {}),
+      ...(details.proof ? { proof: details.proof } : {}),
     }, null, 2) + '\n');
   } catch { /* evidence is best-effort; never crash the harness hook over it */ }
 }
@@ -3388,12 +3395,22 @@ function lastVerificationFromCheckpoint(value: unknown): ProtocolEnvelope['lastV
   const hookResponse: CheckpointHookResponse = cp.hookResponse === 'blocked' || cp.hookResponse === 'continued'
     || cp.hookResponse === 'message-and-continue' || cp.hookResponse === 'not-applicable'
     ? cp.hookResponse : 'unknown';
+  const rawProof = isRecord(cp.proof) ? cp.proof : null;
+  const proof = rawProof && typeof rawProof.registeredRequirements === 'number'
+    && Number.isSafeInteger(rawProof.registeredRequirements) && rawProof.registeredRequirements >= 0
+    && Array.isArray(rawProof.obligations) && rawProof.obligations.length <= 32
+    && rawProof.obligations.every((ob: unknown) => isRecord(ob) && typeof ob.id === 'string'
+      && (ob.mode === 'objective' || ob.mode === 'non-objective')
+      && (ob.status === 'met' || ob.status === 'unproven' || ob.status === 'unmet')
+      && (ob.caveat === undefined || typeof ob.caveat === 'string'))
+    ? rawProof as unknown as ProtocolProof : undefined;
   return {
     at: cp.at.slice(0, 80), source: cp.source.slice(0, 40), status: cp.status.slice(0, 40), failed, checks,
     hookResponse, sessionEnd: 'unknown',
     ...(typeof cp.next === 'string' ? { next: cp.next.slice(0, 500) } : {}),
     ...(typeof cp.evidencePath === 'string' ? { evidencePath: cp.evidencePath.slice(0, 1000) } : {}),
     historical: true,
+    ...(proof ? { proof } : {}),
   };
 }
 
@@ -3852,13 +3869,15 @@ export function cmdDoctor(rawArgs: string[]): number {
     }
     obligations.push(regression);
   }
+  const proof = proofSummary(task?.requirementCount ?? 0, obligations);
+  o.context({ proof });
   const unmet = obligations.filter((x) => x.status === 'unmet');
   const unproven = obligations.filter((x) => x.status === 'unproven');
   const objectiveOpen = unproven.filter((x) => x.mode === 'objective');
   const subjectiveOpen = unproven.filter((x) => x.mode !== 'objective');
   if (unmet.length > 0) {
     writeCheckpoint(root, 'fail', ['obligation'], 'doctor', {
-      checks: ran, hookResponse: 'not-applicable', next: unmet.map((x) => x.note).join('; '), evidencePath: evidenceDir ?? undefined,
+      checks: ran, hookResponse: 'not-applicable', next: unmet.map((x) => x.note).join('; '), evidencePath: evidenceDir ?? undefined, proof,
     });
     o.context({ problems: unmet.map((x) => x.note) });
     o.verdict('NEEDS ATTENTION', `the sealed checks pass, but a proof obligation is objectively violated — ${unmet.map((x) => x.note).join('; ')}`, 'restore the deleted verification files (git checkout -- <path>) — or a human reviews this deletion; then: canary doctor');
@@ -3887,7 +3906,7 @@ export function cmdDoctor(rawArgs: string[]): number {
       ? `${objectiveOpen.length} objective obligation(s) have no adequate proof`
       : `${subjectiveOpen.length} authorized requirement(s) need a human's explicit acceptance`;
     writeCheckpoint(root, 'unproven', unproven.map((x) => x.id), 'doctor', {
-      checks: ran, hookResponse: 'not-applicable', next: because, evidencePath: evidenceDir ?? undefined,
+      checks: ran, hookResponse: 'not-applicable', next: because, evidencePath: evidenceDir ?? undefined, proof,
     });
     o.verdict('NOT PROVEN',
       `the checks passed, but the task is not proven: ${because} — a green plan is not a proven deliverable (NO PROOF, NO DONE).`,
@@ -3899,6 +3918,7 @@ export function cmdDoctor(rawArgs: string[]): number {
     for (const ob of unproven) o.say(`  - UNPROVEN [${ob.id}] (${ob.mode}): ${ob.note}`);
     return 2;
   }
+  writeCheckpoint(root, 'pass', [], 'doctor', { checks: ran, hookResponse: 'not-applicable', evidencePath: evidenceDir ?? undefined, proof });
   o.verdict('READY', 'wiring verified; the checks just ran and passed, and no proof obligation is open.', 'nothing to do — the agent finishes, Canary checks');
   if (unproven.length > 0) {
     // Nothing was authorized, so these are Canary's own observations about the diff. They are said
@@ -4069,6 +4089,7 @@ export async function cmdCheckpoint(): Promise<number> {
       }
       obligations.push(regression);
     }
+    const proof = proofSummary(task?.requirementCount ?? 0, obligations);
     const unmet = obligations.filter((x) => x.status === 'unmet');
     const unproven = obligations.filter((x) => x.status === 'unproven');
     const objectiveOpen = unproven.filter((x) => x.mode === 'objective');
@@ -4076,12 +4097,12 @@ export async function cmdCheckpoint(): Promise<number> {
       const why = unmet.map((x) => x.note).join('; ');
       if (input.stop_hook_active === true) {
         writeCheckpoint(root, 'fail', ['obligation'], 'checkpoint', {
-          checks: ran, hookResponse: 'message-and-continue', next: why, evidencePath: evidenceDir ?? undefined,
+          checks: ran, hookResponse: 'message-and-continue', next: why, evidencePath: evidenceDir ?? undefined, proof,
         }); // the plan passed; the obligation did not
         return emit({ systemMessage: `Canary: a proof obligation is still unmet (${why.slice(0, 200)}) after one repair attempt — stopping anyway; a human should look.` });
       }
       writeCheckpoint(root, 'fail', ['obligation'], 'checkpoint', {
-        checks: ran, hookResponse: 'blocked', next: why, evidencePath: evidenceDir ?? undefined,
+        checks: ran, hookResponse: 'blocked', next: why, evidencePath: evidenceDir ?? undefined, proof,
       });
       // the advice must actually fix BOTH attributable shapes: `git checkout --`
       // restores from the INDEX, which is exactly where a staged deletion lives
@@ -4125,12 +4146,12 @@ export async function cmdCheckpoint(): Promise<number> {
           const why = byWorker.map((x) => x.note).join(' | ');
           if (input.stop_hook_active === true) {
             writeCheckpoint(root, 'unproven', objectiveOpen.map((x) => x.id), 'checkpoint', {
-              checks: ran, hookResponse: 'message-and-continue', next: obligationNext, evidencePath: evidenceDir ?? undefined,
+              checks: ran, hookResponse: 'message-and-continue', next: obligationNext, evidencePath: evidenceDir ?? undefined, proof,
             });
             return emit({ systemMessage: `Canary: NOT PROVEN (${why.slice(0, 1200)}) — after one repair attempt. Stopping anyway; a human should look, or accept it with: canary accept`.slice(0, 2000) });
           }
           writeCheckpoint(root, 'unproven', objectiveOpen.map((x) => x.id), 'checkpoint', {
-            checks: ran, hookResponse: 'blocked', next: obligationNext, evidencePath: evidenceDir ?? undefined,
+            checks: ran, hookResponse: 'blocked', next: obligationNext, evidencePath: evidenceDir ?? undefined, proof,
           });
           return emit({ decision: 'block', reason: `Canary blocked completion: NOT PROVEN — ${why.slice(0, 1200)}`.slice(0, 1400) });
         }
@@ -4138,7 +4159,7 @@ export async function cmdCheckpoint(): Promise<number> {
         // Every open objective duty is operator-only. Say so, and let the turn end.
         const operatorWhy = byOperator.map((x) => x.note).join(' ');
         writeCheckpoint(root, 'unproven', objectiveOpen.map((x) => x.id), 'checkpoint', {
-          checks: ran, hookResponse: 'message-and-continue', next: obligationNext, evidencePath: evidenceDir ?? undefined,
+          checks: ran, hookResponse: 'message-and-continue', next: obligationNext, evidencePath: evidenceDir ?? undefined, proof,
         });
         return emit({ systemMessage: `Canary: the sealed checks passed, but the work is NOT PROVEN: ${byOperator.length} duty(ies) remain open and NONE of them is yours to close — each needs the OPERATOR (bind the requirement to a check the sealed plan runs, then re-run canary setup) or a HUMAN (canary accept). This is not a failure of your change: do NOT keep working on it, do NOT edit checks to make it disappear, and do NOT report it as done. Finish now and report exactly what is still open. Details: ${operatorWhy}`.slice(0, 2000) });
       }
@@ -4148,7 +4169,7 @@ export async function cmdCheckpoint(): Promise<number> {
       // already green, because the message read as an instruction it could satisfy. So this says
       // plainly that the duty is not the worker's, and that finishing and reporting IS the correct end.
       writeCheckpoint(root, 'unproven', unproven.map((x) => x.id), 'checkpoint', {
-        checks: ran, hookResponse: 'message-and-continue', next: unproven.map((x) => x.note).join('; '), evidencePath: evidenceDir ?? undefined,
+        checks: ran, hookResponse: 'message-and-continue', next: unproven.map((x) => x.note).join('; '), evidencePath: evidenceDir ?? undefined, proof,
       });
       return emit({ systemMessage: `Canary: the sealed checks passed. ${unproven.length} duty(ies) remain OPEN, and NONE of them is yours to close — each needs an operator or a human. This is not a failure of your change: do NOT keep trying to satisfy them, do NOT edit checks to make them disappear, and do NOT report them as done. Finish now and report exactly what is still open. Details: ${unproven.map((x) => x.note).join(' ')}`.slice(0, 2000) });
     }
@@ -4169,11 +4190,11 @@ export async function cmdCheckpoint(): Promise<number> {
     const caveats = obligations.filter((x) => x.status === 'met' && x.caveat !== undefined);
     if (caveats.length > 0) {
       writeCheckpoint(root, 'pass', [], 'checkpoint', {
-        checks: ran, hookResponse: 'message-and-continue', next: caveats.map((x) => x.caveat).join('; '), evidencePath: evidenceDir ?? undefined,
+        checks: ran, hookResponse: 'message-and-continue', next: caveats.map((x) => x.caveat).join('; '), evidencePath: evidenceDir ?? undefined, proof,
       });
       return emit({ systemMessage: `Canary: the sealed checks passed — with a caveat. ${caveats.map((x) => `${x.id}: ${x.caveat}`).join(' ')}`.slice(0, 2000) });
     }
-    writeCheckpoint(root, 'pass', [], 'checkpoint', { checks: ran, hookResponse: 'continued', evidencePath: evidenceDir ?? undefined });
+    writeCheckpoint(root, 'pass', [], 'checkpoint', { checks: ran, hookResponse: 'continued', evidencePath: evidenceDir ?? undefined, proof });
     return 0; // silent even if an agent claim contradicts — claims never BLOCK, and never CREATE a pass
   }
   // The full runner output is written NEXT TO the evidence bundle and referred to by path, so

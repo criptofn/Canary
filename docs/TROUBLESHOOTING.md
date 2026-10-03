@@ -182,6 +182,27 @@ cancelled. No assertion is skipped to make it green.
 
 ---
 
+## Reading verification evidence in JSON
+
+After a full `canary doctor --json` evaluates proof obligations, its optional
+`proof` field reports `registeredRequirements` and the observed obligations
+(`id`, `mode`, `status`, and any `caveat`). A count of zero means no separate
+task requirements were registered. It does not mean all requested behavior was
+covered. A `met` obligation may still carry the caveat that an agent-authored
+regression test is **not independent authority**; JSON consumers should display
+that caveat alongside the status.
+
+Completion checkpoints retain the same information. `canary result --json`
+returns it under `lastVerification.proof`, with `historical: true`: it describes
+the recorded run and cannot certify the current files. Missing `proof` means
+this information was not recorded, rather than an empty set of proven duties.
+These fields are additive; schema names, status words, exit codes, and block
+decisions are unchanged. Saved summaries never determine a new verdict.
+
+For the MCP `canary_doctor` tool, omit `check` entirely to run the full gate.
+Supply an exact sealed check id for a focused `PARTIAL` diagnostic. Empty or
+whitespace-only values are refused and are now marked invalid in `tools/list`.
+
 ## What to include in a bug report
 
 Four commands, and nothing that contains your source code:

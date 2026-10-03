@@ -253,8 +253,41 @@ test('doctor visibly labels worker-authored regression evidence as non-independe
     cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000,
   });
   assert.equal(json.status, 0, json.stderr);
-  assert.equal(JSON.parse(json.stdout).status, 'READY');
+  const envelope = JSON.parse(json.stdout);
+  assert.equal(envelope.status, 'READY');
+  assert.equal(envelope.proof.registeredRequirements, 0);
+  const evidence = envelope.proof.obligations.find((ob: { id: string }) => ob.id === 'regression-evidence');
+  assert.equal(evidence.status, 'met');
+  assert.match(evidence.caveat, /NOT independent authority/);
   assert.match(json.stderr, /NOT independent authority/);
+
+  assert.notEqual(hook(root).decision, 'block');
+  const stored = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8'));
+  assert.deepEqual(stored.proof, envelope.proof);
+  const history = spawnSync(process.execPath, [CLI, 'result', '--json'], { cwd: root, encoding: 'utf8', windowsHide: true });
+  const recorded = JSON.parse(history.stdout).lastVerification;
+  assert.equal(recorded.historical, true);
+  assert.deepEqual(recorded.proof, stored.proof);
+});
+
+test('JSON proof information does not upgrade an unbound task requirement to READY', () => {
+  const root = fixture('proof-unbound-requirement');
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  assert.equal(canary(root, 'task', 'fix greeting', '--requirement', 'Preserve the requested whitespace contract').code, 0);
+  const result = spawnSync(process.execPath, [CLI, 'doctor', '--json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+  assert.equal(result.status, 2, result.stderr);
+  const envelope = JSON.parse(result.stdout);
+  assert.equal(envelope.status, 'NOT PROVEN');
+  assert.equal(envelope.proof.registeredRequirements, 1);
+  assert.ok(envelope.proof.obligations.some((ob: { status: string }) => ob.status === 'unproven'));
+  const checkpointPath = path.join(root, '.canary/last-checkpoint.json');
+  const forged = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
+  forged.proof = { registeredRequirements: 0, obligations: [] };
+  fs.writeFileSync(checkpointPath, JSON.stringify(forged));
+  const rechecked = spawnSync(process.execPath, [CLI, 'doctor', '--json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+  assert.equal(rechecked.status, 2, rechecked.stderr);
+  assert.equal(JSON.parse(rechecked.stdout).proof.registeredRequirements, 1, 'stored proof summaries never supply verdict authority');
 });
 
 test('no change and documentation-only changes retain their comparison exemptions', () => {

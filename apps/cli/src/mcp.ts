@@ -115,7 +115,7 @@ const TOOLS: readonly McpTool[] = [
       properties: {
         path: { type: 'string', description: 'Repository directory to check.' },
         fast: { type: 'boolean', description: 'Opt-in adaptive fast path: leave out only the checks whose declared paths the change provably missed. Never available to promotion.' },
-        check: { type: 'string', description: 'Optional exact sealed check id for a focused diagnostic. The result is PARTIAL and cannot certify completion.' },
+        check: { type: 'string', minLength: 1, pattern: '\\S', description: 'Omit this property entirely for the full gate. Otherwise use an exact nonblank sealed check id for a focused diagnostic; the result is PARTIAL and cannot certify completion.' },
       },
       additionalProperties: false,
     },
@@ -316,9 +316,9 @@ function callTool(name: string, args: Record<string, unknown>): { content: Array
       if (args.fast === true && args.check !== undefined) return errorResult('fast and check cannot be combined');
       const check = args.check === undefined ? undefined : asString(args.check, 'check');
       if (check !== undefined && typeof check !== 'string') return errorResult(check.error);
-      const argv = args.fast === true ? ['doctor', '--fast']
+      const argv = args.fast === true ? ['doctor', '--fast', '--json']
         : typeof check === 'string' ? ['doctor', '--check', check, '--json']
-          : ['doctor'];
+          : ['doctor', '--json'];
       return cliToolResult(runCli(argv, cwdFor(args)));
     }
     case 'canary_work': {

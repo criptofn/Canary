@@ -124,6 +124,27 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.doesNotMatch(instructions, /canary_work|canary_finish/);
   });
 
+  it('advertises the same nonblank doctor check constraint that the transport enforces', () => {
+    const tools = resultOf(session([req(1, 'tools/list')]).parsed[0]!).tools as Array<Record<string, unknown>>;
+    const schema = tools.find((t) => t.name === 'canary_doctor')!.inputSchema as {
+      required?: string[]; properties: { check: { minLength?: number; pattern?: string; description: string } };
+    };
+    const check = schema.properties.check;
+    assert.ok(!schema.required?.includes('check'), 'omitting check must remain the full gate');
+    assert.match(check.description, /omit/i);
+    for (const value of ['', ' ', '\t']) {
+      const response = session([req(1, 'tools/call', {
+        name: 'canary_doctor', arguments: { check: value },
+      })]).parsed[0]!;
+      assert.equal(resultOf(response).isError, true, 'blank must not silently run the full gate');
+      assert.match(JSON.stringify(resultOf(response).content), /check must be a non-empty string/);
+      assert.ok(value.length < (check.minLength ?? 0)
+        || (check.pattern !== undefined && !new RegExp(check.pattern).test(value)),
+      `tools/list must warn clients that ${JSON.stringify(value)} is refused`);
+    }
+    assert.ok(new RegExp(check.pattern!).test('test'));
+  });
+
   it('everyday profile exposes the four common tools and cuts at least 30% of the MCP payload', () => {
     const messages = (profile: string[]) => session([
       req(1, 'initialize', { protocolVersion: '2025-06-18' }), req(2, 'tools/list'),
@@ -233,6 +254,8 @@ describe('a real call relays Canary own words and exit code, unmodified', () => 
     assert.equal(spawnSync('git', ['-C', root, 'init', '-b', 'main'], { encoding: 'utf8' }).status, 0);
     const pass = path.join(REPO, 'tooling', 'test-support', 'fixtures', 'f-pass.js');
     fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: `node "${pass}"` } }));
+    assert.equal(spawnSync('git', ['-C', root, 'add', 'package.json'], { encoding: 'utf8' }).status, 0);
+    assert.equal(spawnSync('git', ['-C', root, '-c', 'user.name=Canary Regression', '-c', 'user.email=regression@canary.local', 'commit', '-m', 'sealed test baseline'], { encoding: 'utf8' }).status, 0);
     const setup = spawnSync(process.execPath, [CLI, 'setup', '--yes', root], { encoding: 'utf8', timeout: 180_000 });
     assert.equal(setup.status, 0, `${setup.stdout}\n${setup.stderr}`);
     const checkpoint = path.join(root, '.canary', 'last-checkpoint.json');
@@ -250,6 +273,19 @@ describe('a real call relays Canary own words and exit code, unmodified', () => 
     assert.equal(envelope.status, 'PARTIAL');
     assert.deepEqual(envelope.partialCheck, { id: 'test', passed: true, ran: true, exitCode: 0 });
     assert.deepEqual(fs.readFileSync(checkpoint), before);
+
+    for (const arguments_ of [{ path: root }, { path: root, fast: true }]) {
+      const fullResponse = session([req(2, 'tools/call', {
+        name: 'canary_doctor', arguments: arguments_,
+      })], root).parsed[0]!;
+      const full = textOf(fullResponse);
+      assert.equal(resultOf(fullResponse).isError, false, JSON.stringify(full));
+      assert.equal(full.exitCode, 0);
+      assert.equal(full.verdict, 'READY', 'full doctor must relay the real JSON verdict');
+      const fullEnvelope = full.envelope as { proof: { registeredRequirements: number; obligations: unknown[] } };
+      assert.equal(fullEnvelope.proof.registeredRequirements, 0);
+      assert.ok(Array.isArray(fullEnvelope.proof.obligations));
+    }
   });
 
   it('a cancelled/unknown candidate in canary_finish relays the refusal, not a verdict of its own', () => {

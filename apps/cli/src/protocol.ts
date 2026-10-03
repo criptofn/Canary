@@ -73,6 +73,17 @@ export interface ProtocolIntegration {
   summary: string;
 }
 
+/** Observed obligation states, not a claim that every requested behavior was declared or proved. */
+export interface ProtocolProof {
+  registeredRequirements: number;
+  obligations: Array<{
+    id: string;
+    mode: 'objective' | 'non-objective';
+    status: 'met' | 'unproven' | 'unmet';
+    caveat?: string;
+  }>;
+}
+
 export interface ProtocolEnvelope {
   schema: string;
   command: string;
@@ -91,6 +102,7 @@ export interface ProtocolEnvelope {
   problems?: string[];
   /** A selected-check diagnostic. Its PARTIAL status can never certify the full plan. */
   partialCheck?: { id: string; passed: boolean; ran: boolean; exitCode: number | null };
+  proof?: ProtocolProof;
   /** The one thing to do next, when there is one. */
   next?: string;
   /** Where the full evidence lives — context stays out of the model's window. */
@@ -108,6 +120,7 @@ export interface ProtocolEnvelope {
     next?: string;
     evidencePath?: string;
     historical: true;
+    proof?: ProtocolProof;
   };
   setupCheck?: {
     plan: Array<{ kind: string; display: string; executable: string }>;
