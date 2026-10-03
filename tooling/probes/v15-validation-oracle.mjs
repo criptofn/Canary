@@ -99,7 +99,21 @@ if (label === 'H1') {
 } else if (label === 'R1') {
   const sourceUrl = pathToFileURL(path.join(repo, sourceFiles[0])).href;
   const testFile = path.join(outDir, 'failure-ids.oracle.test.ts');
-  fs.writeFileSync(testFile, `import { expect, it } from 'vitest';\nimport { extractFailureIds } from ${JSON.stringify(sourceUrl)};\nit('distinguishes parametrized pytest ids across the delta and preserves repr stability',()=>{ const before=extractFailureIds('FAILED tests/test_x.py::test_p[a - b] - assert 1 == 2'); const after=extractFailureIds(['FAILED tests/test_x.py::test_p[a - b] - assert 1 == 3','FAILED tests/test_x.py::test_p[a - c] - assert 1 == 2'].join('\\n')); expect([...after].filter(id=>!before.has(id))).toEqual(['tests/test_x.py::test_p[a - c]']); expect([...extractFailureIds('FAILED tests/test_x.py::test_p[a - b] - assert 1 == 2')]).toEqual([...extractFailureIds('FAILED tests/test_x.py::test_p[a - b] - assert 1 == 3')]); });\n`, { flag: 'wx' });
+  fs.writeFileSync(testFile, `import { expect, it } from 'vitest';
+import { extractFailureIds } from ${JSON.stringify(sourceUrl)};
+it('distinguishes parametrized pytest ids across the delta and preserves repr stability',()=>{
+  const before=extractFailureIds('FAILED tests/test_x.py::test_p[a - b] - assert 1 == 2');
+  const after=extractFailureIds(['FAILED tests/test_x.py::test_p[a - b] - assert 1 == 3','FAILED tests/test_x.py::test_p[a - c] - assert 1 == 2'].join('\\n'));
+  expect([...after].filter(id=>!before.has(id))).toEqual(['tests/test_x.py::test_p[a - c]']);
+  expect([...before]).toEqual([...extractFailureIds('FAILED tests/test_x.py::test_p[a - b] - assert 1 == 3')]);
+});
+it('keeps failure repr separators and changed repr text out of the test id',()=>{
+  const id='tests/test_x.py::test_p[a - b]';
+  for(const prefix of ['FAILED','ERROR']) for(const repr of ['ValueError: a - b','ValueError: x - c']) {
+    expect([...extractFailureIds(prefix+' '+id+' - '+repr)]).toEqual([id]);
+  }
+});
+`, { flag: 'wx' });
   generated.push('failure-ids.oracle.test.ts');
   const vitest = path.join(runtimeRoot, 'node_modules/vitest/vitest.mjs');
   command = { executable: process.execPath, args: [vitest, 'run', '--root', outDir, '--reporter=verbose', testFile], cwd: runtimeRoot };
