@@ -14,7 +14,8 @@ Die Kontroll-Fixture baut die Implementierung aus `implementation.json` nach `di
 - Vollständige Suite auf dem endgültigen Produktcode: **1338 Tests, 1334 bestanden, 4 übersprungen, 0 Fehler**, Exit 0. Die vier Skips betreffen POSIX-Harness-Grenzen auf Windows.
 - Rohlog: `C:/Users/Johannes/Desktop/canary/_canary-data/evidence/build-order-20261002-unit-final.log`, SHA-256 `9e3f2ab13820297a2e042fa3c23b82449acaf1bac389a173560da3d0f237c172`; Exitdatei daneben.
 - Der erste vollständige `verify:productization`-Lauf endete mit Exit 1: **102 PASS, 6 explizite SKIP, 2 FAIL**. M10 erwartete im eingefrorenen Plan noch `test,build`; die M9-Fixture versuchte einen Build zu manipulieren, der mit dem neuen Standard bereits ausgeführt war. Der Pilot wurde dadurch vor Paketierung und Modellaufrufen gestoppt. Rohlog und Exitdatei: `build-order-20261003-productization.log` im Evidenzverzeichnis.
-- Der Vergleich beider installierter Pakete ist noch offen; Entwicklungsläufe ersetzen ihn nicht.
+- Der anschließende vollständige `verify:productization`-Lauf endete mit Exit 0: **104 PASS, 6 explizite SKIP, keine Fehler**. Die vier Plattformgrenzen betreffen fehlendes Go/Rust und zwei echte OS-PTY-Prüfungen; zwei kostenpflichtige Claude-Diagnosen wurden wegen nicht zuverlässig begrenzbarer Anbieterabrechnung nicht gestartet. Kein Skip zählt als bestanden. Rohlog: `build-order-20261003-productization-final.log`, SHA-256 `b7592128c2533100d37d6531d9d98b8c54785a6a6006062a609f96b1cf2e14b6`. Die erneut im Gate ausgeführte vollständige Suite meldet ebenfalls 1338 Tests, 1334 bestanden, 4 übersprungen, keine Fehler oder Abbrüche.
+- Der direkte Vergleich beider installierter Pakete ist abgeschlossen; alle sieben Kontrollbeobachtungen sind bestätigt. Acht ausgewählte installierte Onboarding-Regressionen bestehen ebenfalls, ohne Fehler oder Skips. Entwicklungsläufe ersetzen diese Ergebnisse nicht.
 
 Der erste vollständige Lauf meldete 1333 bestanden, einen Fehler und vier Skips: Eine vorhandene Assertion erwartete die alte Reihenfolge im Text `available ids: test, build`. Sie erwartet jetzt die tatsächlich neu entdeckte Reihenfolge `build, test`; alle Aussagen über PARTIAL, unveränderten Checkpoint und roten vollständigen Gate bleiben erhalten. Der anschließende vollständige Lauf besteht. Beide Logs bleiben erhalten.
 
@@ -25,6 +26,32 @@ Die beiden zusätzlich im Produkt-Gate gefundenen Versuchsannahmen wurden an die
 Der Entwicklungsvergleich bestätigt: altes Paket blockiert das korrekte frische Projekt und meldet beim alten grünen Build trotz fehlerhafter aktueller Quelle `pass`; der neue Entwicklungsstand akzeptiert den ersten Fall und blockiert den zweiten. Der gesamte Vergleich bleibt unvollständig, weil seine Upgrade-Fixture zuerst eine andere Installationsadresse verwendete und anschließend eine ungebündelte Entwicklungsdatei ohne ihre Workspace-Pakete kopierte. Das sind Fehler im Versuchsaufbau. Der gültige Upgrade-Vergleich verwendet die gepackten Binärdateien nacheinander an derselben separaten Installationsadresse und prüft Konfigurationsbytes und ausgeführte Reihenfolge.
 
 Die Zwischenbelege liegen unter `build-order-20261002-development-comparison` und `build-order-20261002-development-comparison-fixed` im genannten Evidenzverzeichnis. Sie werden nicht als abgeschlossene installierte Abnahme gezählt.
+
+## Eingefrorenes installiertes Paket
+
+| Kennung | Wert |
+|---|---|
+| Einfriercommit | `1602ce1810abaebd79d1b20286a8de0d5e3898da` |
+| Funktionale Korrektur | `b36d195` |
+| Paket SHA-256 | `1b080c1347a05e9046a8c6f38527944f7f7f4aacb8bf7d5c8a151873befca29c` |
+| Installierte CLI SHA-256 | `3d7dc38dbd2157caf09afb68f643d43864f54dc45fc08cefcd0faae54b7a19d8` |
+| Versionsanzeige | `canary 1.5.0`, unveröffentlichter Arbeitsstand |
+
+Paket, Installation, Version, saubere Ausgangsquelle und bytegleich kopierte Gate-Logs liegen unter `build-order-full-pilot-20261003-job-six-task-controls/capture/package` im Evidenzverzeichnis. Dieser Bericht wurde nach dem Einfrieren ergänzt; Produkt, Messprogramme und Aufgaben bleiben für den Versuch eingefroren.
+
+Der installierte Vergleich verwendet als Vorher-Variante das vorherige **Arbeitspaket** aus `aae19a2`, nicht das GitHub-Release. Sein CLI-Hash ist `168a322bef8f859528c7d2cad5cac0cdf87b79f53873286748a93fad5f76b897`.
+
+| Kontrollfall | Vorheriges Arbeitspaket | Neues Arbeitspaket |
+|---|---|---|
+| Korrektes frisches Projekt | Setup Exit 2, `fail` | Setup Exit 0, `pass` |
+| Fehlerhafte aktuelle Quelle, alter grüner Build | Setup Exit 0, falsches `pass` | Setup Exit 2, `fail` |
+| Korrekte Änderung nach entferntem Build | nicht erneut gemessen | tatsächlicher Abschluss `pass` |
+| Fehlgeschlagener Build, alter grüner Test | nicht erneut gemessen | tatsächlicher Abschluss `fail` |
+| Binärupdate über bestehendem Siegel | alter Plan | Konfiguration bytegleich; weiterhin Tests vor Build |
+
+Zusätzlich besteht die Reparatur bei veraltetem roten Build. Rohbefehle, CLI-Hashes, Ausgaben, Checkpoints und archivierte Zustände liegen unter `capture/installed-comparison`; dessen `summary.json` meldet `complete`, ohne Fehler. Die acht installierten Regressionen umfassen den neuen Build-Fall, beide Vitest-Fehlerformen, drei Startup-Fälle, Setup-Rollback und PARTIAL mit unverändertem vollständigem Checkpoint; Rohlog: `capture/installed-regressions.stdout.log`.
+
+Der anschließende Sechs-Aufgaben-Test mit dem eingefrorenen Paket läuft. Er verwendet dieselben fünf Messprogramme und historischen Lösungspatches wie der archivierte Release-Vergleich; ihre Programmhashes wurden erneut überprüft. Auch die erhaltene Release-Datei hat weiterhin SHA-256 `cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386`, ihre installierte CLI `3cfdfece2581b1036e1b01905be39d97161d03f683110cf40910570a5235d5e2`. Ein abgeschlossenes neues Sechs-Aufgaben-Ergebnis oder ein nativer Pilot wird damit noch nicht behauptet.
 
 ## Erfassung nativer Sitzungen
 
