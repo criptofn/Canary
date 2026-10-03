@@ -12,15 +12,17 @@ const out = arg('out'), cli = arg('cli'), prepared = arg('prepared-root');
 assert.ok(out && path.isAbsolute(out) && !fs.existsSync(out), 'new absolute --out required');
 const root = path.resolve(import.meta.dirname, '../..');
 const control = process.argv.includes('--control');
+const afterGate = process.argv.includes('--after-gate');
+assert.ok(!(control && afterGate));
 const fixture = path.join(root, 'tooling/test-support/fixtures');
-const instrument = control ? path.join(fixture, 'native-job-control.cjs') : path.join(import.meta.dirname, 'v15-claude-local-preflight.mjs');
+const instrument = control ? path.join(fixture, 'native-job-control.cjs') : path.join(import.meta.dirname, afterGate ? 'v15-after-gate-pilot.mjs' : 'v15-claude-local-preflight.mjs');
 const capture = path.join(out, 'capture');
 const sha = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-const args = control ? [path.join(out, 'control-result.json')] : ['--cli', cli,
+const args = control ? [path.join(out, 'control-result.json')] : afterGate ? ['--out', capture, '--gate-log', arg('gate-log'), '--gate-exit', arg('gate-exit'), '--expected-source', arg('expected-source')] : ['--cli', cli,
   '--claude', 'C:\\Users\\Johannes\\.local\\bin\\claude.exe',
   '--ollama', 'C:\\Users\\Johannes\\AppData\\Local\\Programs\\Ollama\\ollama.exe',
   '--out', capture, '--prepared-root', prepared];
-if (!control) {
+if (!control && !afterGate) {
   assert.ok(cli && prepared && [cli, prepared].every(path.isAbsolute));
   const preparation = JSON.parse(fs.readFileSync(path.join(prepared, 'preparation-summary.json')));
   assert.equal(preparation.status, 'complete'); assert.equal(preparation.cliSha256, sha(cli));
