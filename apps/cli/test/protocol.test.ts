@@ -119,4 +119,40 @@ describe('1.1 protocol: one JSON object, and no verdict changes', () => {
     assert.equal(fs.readFileSync(cfgPath, 'utf8'), before, 'result must not touch the sealed config');
     assert.equal(fs.readdirSync(path.join(root, '.canary')).sort().join(','), stateBefore, 'result must not add state');
   });
+
+  it('human results expose historical proof scope, open duties and caveats without claiming current proof', () => {
+    const root = makeProject('result-proof-scope');
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const cpPath = path.join(root, '.canary', 'last-checkpoint.json');
+    const cp = JSON.parse(fs.readFileSync(cpPath, 'utf8'));
+    cp.proof = { registeredRequirements: 2, obligations: [
+      { id: 'one', mode: 'objective', status: 'met', caveat: 'agent-authored test' },
+      { id: 'two', mode: 'objective', status: 'unproven' },
+      { id: 'three', mode: 'objective', status: 'unmet' },
+    ] };
+    fs.writeFileSync(cpPath, JSON.stringify(cp));
+    const before = fs.readFileSync(cpPath, 'utf8');
+    const r = canary(['result', root]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /proof in that run: 2 registered requirement\(s\); obligations: 1 met, 1 unproven, 1 unmet/);
+    assert.match(r.stdout, /evidence caveat in that run \[one\]: agent-authored test/);
+    assert.match(r.stdout, /historical only/);
+    assert.equal(fs.readFileSync(cpPath, 'utf8'), before);
+
+    delete cp.proof;
+    fs.writeFileSync(cpPath, JSON.stringify(cp));
+    const legacy = canary(['result', root]);
+    assert.match(legacy.stdout, /proof in that run: not recorded/);
+    assert.doesNotMatch(legacy.stdout, /obligations: .*met/);
+  });
+
+  it('doctor states when no task acceptance criteria were registered, even when checks pass', () => {
+    const root = makeProject('doctor-proof-scope');
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const r = canary(['doctor', root]);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /proof scope: 0 registered requirement\(s\); obligations:/);
+    assert.match(r.stdout, /task acceptance criteria were not registered/);
+    assert.match(r.stdout, /READY/);
+  });
 });

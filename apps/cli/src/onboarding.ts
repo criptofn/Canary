@@ -1751,6 +1751,12 @@ function proofSummary(registeredRequirements: number, obligations: Obligation[])
   })) };
 }
 
+function proofScopeLine(proof: ProtocolProof): string {
+  const count = (status: 'met' | 'unproven' | 'unmet') => proof.obligations.filter((ob) => ob.status === status).length;
+  return `${proof.registeredRequirements} registered requirement(s); obligations: ${count('met')} met, ${count('unproven')} unproven, ${count('unmet')} unmet`
+    + (proof.registeredRequirements === 0 ? '; task acceptance criteria were not registered' : '');
+}
+
 /**
  * Canary's OWN wiring is not the product under test.
  *
@@ -3934,6 +3940,7 @@ export function cmdDoctor(rawArgs: string[]): number {
   }
   const proof = proofSummary(task?.requirementCount ?? 0, obligations);
   o.context({ proof });
+  o.say(`proof scope: ${proofScopeLine(proof)}`);
   const unmet = obligations.filter((x) => x.status === 'unmet');
   const unproven = obligations.filter((x) => x.status === 'unproven');
   const objectiveOpen = unproven.filter((x) => x.mode === 'objective');
@@ -4635,6 +4642,10 @@ export function cmdResult(rawArgs: string[]): number {
   o.say(`checks: ${cfg.plan.map((s) => `${s.kind}:${s.script}`).join(', ')}`);
   o.say(`last checkpoint: ${lastVerification ? `${lastVerification.status} (${lastVerification.source}) at ${lastVerification.at} — historical only` : 'none — no completion has been checked here yet'}`);
   if (lastVerification) {
+    o.say(`proof in that run: ${lastVerification.proof ? proofScopeLine(lastVerification.proof) : 'not recorded (older checkpoint or a pre-check block)'}`);
+    for (const ob of lastVerification.proof?.obligations ?? []) {
+      if (ob.caveat) o.say(`evidence caveat in that run [${ob.id}]: ${ob.caveat}`);
+    }
     if (lastVerification.checks.length > 0) {
       const passed = lastVerification.checks.filter((x) => x.ok).length;
       const failed = lastVerification.checks.length - passed;

@@ -229,6 +229,12 @@ Running `canary` without a command shows compact read-only connection status and
 points to `canary result` for the last verification and `canary --help` for the
 full command list. Its existing no-command exit code remains 3.
 
+`doctor` also reports how many task requirements were registered and how many
+proof obligations are met, unproven, or unmet. `result` shows the same scope for
+the historical run, including evidence caveats; older records without it say
+that the proof scope was not recorded. Passing checks alone do not establish
+acceptance criteria that were never registered.
+
 When one check fails, doctor prints its sealed check id and a focused recheck command.
 Use `canary doctor --check <id>` while repairing that check; it returns `PARTIAL` and
 does not update the completion checkpoint. Run `canary doctor` for the full gate.
