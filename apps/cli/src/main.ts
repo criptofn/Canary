@@ -395,7 +395,7 @@ async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
   if (cmd === 'version' || argv.includes('--version')) { console.log(`canary ${CANARY_VERSION}`); return 0; }
   if (argv.length === 0) {
-    cmdStatus([]);
+    cmdStatus([], true);
     console.log('Verification result: canary result. All commands: canary --help.');
     return 3; // Preserve the no-command exit contract; the state answer is read-only.
   }

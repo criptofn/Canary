@@ -3713,7 +3713,7 @@ function sealedCopyReport(root: string, cfg: CanaryConfig): string {
  * the repo byte-identical. Every line is a fact about state, never a claim
  * that the project passes; the checkpoint is reported as history, not health.
  */
-export function cmdStatus(rawArgs: string[]): number {
+export function cmdStatus(rawArgs: string[], compact = false): number {
   const { opts, rest } = parseGlobals(rawArgs);
   const o = new Out(opts.verbose, opts.json);
   o.context({ command: 'status' });
@@ -3739,6 +3739,11 @@ export function cmdStatus(rawArgs: string[]): number {
     security,
     agent: agentCapability(root),
   });
+  if (compact && !opts.json) {
+    o.verdict('CONNECTED', `${root}: wiring and sealed plan are intact. No project check was run.`, 'canary doctor runs the checks');
+    o.say(proofLevelLine(security.level));
+    return 0;
+  }
   o.say(`repo: ${root}`);
   o.say(`plan: ${cfg.plan.length} step(s): ${cfg.plan.map((s) => `${s.kind}:${s.script}`).join(', ')} — sealed authority intact`);
   o.say(proofLevelLine(security.level));
