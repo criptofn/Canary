@@ -14,7 +14,7 @@ const contained = (root, file) => {
   assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative), 'path must stay within its owner');
 };
 for (const value of [source, evidence, archive]) assert.ok(value && path.isAbsolute(value), 'absolute source/evidence/archive required');
-assert.match(path.basename(source), /^canary-native-(?:final-(?:H[1235]|R1|S1)-\d{8}|build-order-\d{8}-six)$/);
+assert.match(path.basename(source), /^canary-native-(?:final-(?:H[1235]|R1|S1)-\d{8}|build-order-\d{8}-six|validation-[a-f0-9]{12})$/);
 const temp = fs.realpathSync.native(os.tmpdir());
 assert.equal(fs.realpathSync.native(source), path.join(temp, path.basename(source)), 'only a direct owned OS-temp directory may be removed');
 for (const directory of [evidence, archive]) {

@@ -41,3 +41,27 @@ Dies verbessert den Messaufbau und verhindert dieselbe falsche Korrektheitsbewer
 nächsten Pilot. Die eingefrorenen alten Pilotwerte bleiben unverändert; daraus folgt
 keine nachträgliche Produktverbesserung oder Bewertung von 8/10. Die Änderung liegt zunächst
 im separaten Canary-Checkout, während der laufende Pflichtcheck seinen Stand unverändert prüft.
+
+## Pilot-Starter: aktuelle Belege ausdrücklich übergeben
+
+Der Starter verwendete bislang fest die Unit-Dateien vom 2. Oktober. Er verlangt nun
+`--unit-log` und `--unit-exit`; ein stiller Rückgriff auf diese alten Dateien entfällt.
+Der Launcher reicht beide Optionen weiter. Für den dauerhaften Gate-Wrapper wird
+alternativ zum bisherigen Exit-Text `--gate-result` unterstützt. Dessen tatsächlicher
+Exit muss 0, Signal und Fehler müssen null und der aufgezeichnete Befehl muss das
+bestehende Gate-Skript sein. Auch der endgültige PASS-Report des Gates ist erforderlich.
+SKIPs bleiben im mitkopierten Report sichtbar. Die Prüfung des aktuellen Git-Commits
+vor dem Einfrieren bleibt erhalten.
+
+Die Versuchskopien erhalten anhand des Ausgabeverzeichnisses eigene Kennungen. Die
+Archivprüfung und aufgelöste OS-Temp-Begrenzung vor einem Cleanup bleiben erhalten;
+die erlaubten Namen ergänzen lediglich `canary-native-validation-<12 Hexzeichen>`.
+
+Ausgeführt: Syntaxprüfungen der geänderten Starter sowie zwei Gegenfälle. Fehlende
+explizite Unit-Belege wurden vor jeder Ausgabeanlage abgewiesen. Der tatsächlich
+fehlgeschlagene ältere Produktcheck wurde ebenfalls abgewiesen; der gespeicherte
+Workflow-Report enthält `commands: []`, also weder Paketbau noch Modellaufruf.
+Der erste Versuch dieses Gegenfalls zeigte zusätzlich die alte feste Temp-Pfadkollision;
+die neue Kennung beseitigt diese Kollision, ohne frühere Versuchsdaten zu überschreiben.
+Beleg: `pilot-failed-gate-control-20261003/workflow-result.json` in der Evidenzwurzel.
+Ein erfolgreicher Ablauf mit dem neuen JSON-Gate-Nachweis ist noch nicht ausgeführt.

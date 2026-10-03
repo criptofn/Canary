@@ -18,7 +18,9 @@ const fixture = path.join(root, 'tooling/test-support/fixtures');
 const instrument = control ? path.join(fixture, 'native-job-control.cjs') : path.join(import.meta.dirname, afterGate ? 'v15-after-gate-pilot.mjs' : 'v15-claude-local-preflight.mjs');
 const capture = path.join(out, 'capture');
 const sha = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-const args = control ? [path.join(out, 'control-result.json')] : afterGate ? ['--out', capture, '--gate-log', arg('gate-log'), '--gate-exit', arg('gate-exit'), '--expected-source', arg('expected-source')] : ['--cli', cli,
+const args = control ? [path.join(out, 'control-result.json')] : afterGate ? ['--out', capture, '--gate-log', arg('gate-log'),
+  ...(arg('gate-result') ? ['--gate-result', arg('gate-result')] : ['--gate-exit', arg('gate-exit')]),
+  '--unit-log', arg('unit-log'), '--unit-exit', arg('unit-exit'), '--expected-source', arg('expected-source')] : ['--cli', cli,
   '--claude', 'C:\\Users\\Johannes\\.local\\bin\\claude.exe',
   '--ollama', 'C:\\Users\\Johannes\\AppData\\Local\\Programs\\Ollama\\ollama.exe',
   '--out', capture, '--prepared-root', prepared];

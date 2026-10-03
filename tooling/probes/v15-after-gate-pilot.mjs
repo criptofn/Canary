@@ -8,13 +8,17 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const arg = (name) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? null : process.argv[i + 1]; };
-const out = arg('out'), gate = arg('gate-log'), exitFile = arg('gate-exit'), expectedSource = arg('expected-source');
-assert.ok([out, gate, exitFile].every((p) => p && path.isAbsolute(p)) && !fs.existsSync(out));
+const out = arg('out'), gate = arg('gate-log'), exitFile = arg('gate-exit'), gateResult = arg('gate-result'), expectedSource = arg('expected-source');
+const unit = arg('unit-log'), unitExit = arg('unit-exit');
+assert.ok(Boolean(exitFile) !== Boolean(gateResult), 'provide exactly one --gate-exit or --gate-result');
+const terminalFile = exitFile ?? gateResult;
+assert.ok([out, gate, terminalFile, unit, unitExit].every((p) => p && path.isAbsolute(p)) && !fs.existsSync(out), 'explicit current unit and gate evidence required');
 assert.match(expectedSource ?? '', /^[a-f0-9]{40}$/);
 const root = path.resolve(import.meta.dirname, '../..');
 const evidence = path.resolve(root, '../../evidence');
-const prepared = path.join(os.tmpdir(), 'canary-native-build-order-20261003-six');
-const controls = path.join(os.tmpdir(), 'canary-improved-six-task-20261003-build-order');
+const runId = crypto.createHash('sha256').update(out).digest('hex').slice(0, 12);
+const prepared = path.join(os.tmpdir(), `canary-native-validation-${runId}`);
+const controls = path.join(os.tmpdir(), `canary-improved-six-task-${runId}`);
 assert.equal(fs.existsSync(prepared), false, 'do not overwrite any earlier task workspace');
 assert.equal(fs.existsSync(controls), false, 'do not overwrite earlier task controls');
 fs.mkdirSync(out, { recursive: true });
@@ -33,21 +37,25 @@ function run(name, args, timeout = 600000, env = process.env) {
 try {
   state('waiting-for-gate');
   const deadline = Date.now() + 2 * 60 * 60 * 1000;
-  while (!fs.existsSync(exitFile)) {
+  while (!fs.existsSync(terminalFile)) {
     assert.ok(Date.now() < deadline, 'gate did not produce a terminal exit record; no package or pilot started');
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
-  assert.equal(fs.readFileSync(exitFile, 'utf8').trim(), '0', 'failed or incomplete gate: do not start pilot');
+  if (gateResult) {
+    const result = JSON.parse(fs.readFileSync(gateResult, 'utf8'));
+    assert.equal(result.status, 0, 'failed or incomplete gate: do not start pilot');
+    assert.equal(result.signal, null); assert.equal(result.error, null);
+    assert.deepEqual(result.command, [process.execPath, 'tooling/verify-productization.mjs']);
+  } else assert.equal(fs.readFileSync(exitFile, 'utf8').trim(), '0', 'failed or incomplete gate: do not start pilot');
+  assert.match(fs.readFileSync(gate, 'utf8'), /VERIFY-PRODUCTIZATION: PASS(?: WITH EXPLICIT SKIPS)? \([^\r\n]+\)\s*$/, 'terminal gate summary required');
+  assert.equal(fs.readFileSync(unitExit, 'utf8').trim(), '0', 'current unit suite must have completed successfully');
   const git = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 30000 });
   assert.equal(git.status, 0); assert.equal(git.stdout.trim(), expectedSource, 'source changed while waiting; do not freeze an unreviewed stand');
   const frozen = path.join(out, 'package');
   run('freeze', [path.join(import.meta.dirname, 'v15-freeze-product-package.mjs'), '--out', frozen]);
   const artifact = JSON.parse(fs.readFileSync(path.join(frozen, 'summary.json'))).artifact;
   assert.equal(artifact.sourceCommit, expectedSource);
-  const unit = path.join(evidence, 'build-order-20261002-unit-final.log');
-  const unitExit = path.join(evidence, 'build-order-20261002-unit-final.exit.txt');
-  assert.equal(fs.readFileSync(unitExit, 'utf8').trim(), '0');
-  for (const [source, name] of [[unit, 'unit.log'], [unitExit, 'unit.exit.txt'], [gate, 'productization.log'], [exitFile, 'productization.exit.txt']]) fs.copyFileSync(source, path.join(frozen, name));
+  for (const [source, name] of [[unit, 'unit.log'], [unitExit, 'unit.exit.txt'], [gate, 'productization.log'], [terminalFile, gateResult ? 'productization.result.json' : 'productization.exit.txt']]) fs.copyFileSync(source, path.join(frozen, name));
   const before = path.join(evidence, 'completion-workflow-final-20261002/installed/node_modules/@canary-rn/cli/dist/main.js');
   run('installed-comparison', [path.join(import.meta.dirname, 'v15-build-order-comparison.mjs'), before, artifact.cli, path.join(out, 'installed-comparison')]);
   run('installed-regressions', ['--test', '--test-name-pattern=build-dependent tests|colored Vitest|startup context|startup preflight|startup guidance|passing focused check|restores every integration file|setup is idempotent', 'apps/cli/dist/test/onboarding.test.js'], 180000, { ...process.env, CANARY_TEST_CLI: artifact.cli });
