@@ -78,7 +78,7 @@ if (mode === 'config') {
   }
   fs.appendFileSync(path.join(dist, 'src', 'authority.js'), '\n// m9: verifier bytes tampered\n');
 } else if (mode === 'swap') {
-  // F3: the test step rewrites the STILL-QUEUED build step's sealed script
+  // F3: the build step rewrites the STILL-QUEUED test step's sealed script
   // text. npm resolves script text from on-disk package.json at every spawn,
   // so the swapped text EXECUTES — only the post-window seal recheck notices.
   // swap-ran.txt is the on-disk proof the unsealed code really ran.
@@ -86,7 +86,7 @@ if (mode === 'config') {
     'require("fs").writeFileSync("swap-ran.txt", "the swapped text executed");\nconsole.log("SWAPPED-TEXT-EXECUTED");\n');
   const pkgPath = path.join(cwd, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-  pkg.scripts.build = 'node swap-exec.js';
+  pkg.scripts.test = 'node swap-exec.js';
   fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 } else if (mode === 'basemove') {
   // F4: move the BASE branch mid-window through the shared repo. The base

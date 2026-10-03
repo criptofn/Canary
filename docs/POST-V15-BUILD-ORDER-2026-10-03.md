@@ -13,10 +13,12 @@ Die Kontroll-Fixture baut die Implementierung aus `implementation.json` nach `di
 - Gezielte Regression und Gegenfälle: vier Tests bestanden. Die zusätzliche reine Autoritätsprüfung bestätigt einen gültigen alten Tests-vor-Build-Digest und weist seine nachträgliche Umordnung als Drift ab.
 - Vollständige Suite auf dem endgültigen Produktcode: **1338 Tests, 1334 bestanden, 4 übersprungen, 0 Fehler**, Exit 0. Die vier Skips betreffen POSIX-Harness-Grenzen auf Windows.
 - Rohlog: `C:/Users/Johannes/Desktop/canary/_canary-data/evidence/build-order-20261002-unit-final.log`, SHA-256 `9e3f2ab13820297a2e042fa3c23b82449acaf1bac389a173560da3d0f237c172`; Exitdatei daneben.
-- `verify:productization` läuft anschließend separat. Sein Ergebnis wird erst nach beobachtetem Prozessende eingetragen.
+- Der erste vollständige `verify:productization`-Lauf endete mit Exit 1: **102 PASS, 6 explizite SKIP, 2 FAIL**. M10 erwartete im eingefrorenen Plan noch `test,build`; die M9-Fixture versuchte einen Build zu manipulieren, der mit dem neuen Standard bereits ausgeführt war. Der Pilot wurde dadurch vor Paketierung und Modellaufrufen gestoppt. Rohlog und Exitdatei: `build-order-20261003-productization.log` im Evidenzverzeichnis.
 - Der Vergleich beider installierter Pakete ist noch offen; Entwicklungsläufe ersetzen ihn nicht.
 
 Der erste vollständige Lauf meldete 1333 bestanden, einen Fehler und vier Skips: Eine vorhandene Assertion erwartete die alte Reihenfolge im Text `available ids: test, build`. Sie erwartet jetzt die tatsächlich neu entdeckte Reihenfolge `build, test`; alle Aussagen über PARTIAL, unveränderten Checkpoint und roten vollständigen Gate bleiben erhalten. Der anschließende vollständige Lauf besteht. Beide Logs bleiben erhalten.
+
+Die beiden zusätzlich im Produkt-Gate gefundenen Versuchsannahmen wurden an die neue Reihenfolge angepasst. M9 lässt jetzt den Build den noch ausstehenden Test manipulieren; alle bisherigen Aussagen über tatsächliche Ausführung, Blockentscheidung, Nachprüfung und Quarantäne bleiben erhalten. Beide gezielten Prüfungen bestehen vollständig (`build-order-20261003-m9-fixed.log` und `build-order-20261003-m10-fixed.log`, jeweils Exit 0). M10 erwartet im neuen Plan `build,test`; alle Aussagen über eingefrorene Autorität und Pflichten bleiben erhalten. Der anschließende vollständige Gate wird unter `build-order-20261003-productization-final.log` separat erfasst. Der fehlgeschlagene Gate bleibt sichtbar und wird nicht nachträglich als bestanden umgeschrieben.
 
 ## Zwischenmessungen bleiben sichtbar
 
