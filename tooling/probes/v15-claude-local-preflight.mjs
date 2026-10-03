@@ -142,19 +142,23 @@ async function pilot() {
   const taskRoot = path.join(root, 'tooling/benchmark/results/session-evidence/v15-realworld/tasks');
   const taskFiles = { H1: 'H1-maxagedays-zero.md', H2: 'H2-invoice-classification.md', H3: 'H3-quantize-bits-validation.md',
     H5: 'H5-simulation-cases.md', R1: 'R1-pytest-id-collision.md', S1: 'S1-idlookup-ambiguity.md' };
+  const taskTexts = Object.fromEntries(Object.entries(taskFiles).map(([label, file]) => [label, fs.readFileSync(path.join(taskRoot, file), 'utf8')]));
+  const oracleBytes = fs.readFileSync(oracle);
+  const oracleSha256 = sha(oracleBytes);
   const schedule = Object.keys(taskFiles).flatMap((label, index) => (index % 2 ? ['canary', 'plain'] : ['plain', 'canary']).map((arm) => ({ label, arm })))
     .filter(({ label }) => !taskSelection || taskSelection.includes(label));
   const outcomes = [];
-  save('preparation-summary.json', preparation); save('oracle-instrument.mjs', fs.readFileSync(oracle, 'utf8'));
+  save('preparation-summary.json', preparation); save('oracle-instrument.mjs', oracleBytes.toString('utf8'));
   save('pilot-protocol.json', { schedule, cliSha256: metadata.cliSha256, artifactSha256: preparation.artifactSha256,
-    tasks: Object.entries(taskFiles).map(([label, file]) => ({ label, file, sha256: sha(fs.readFileSync(path.join(taskRoot, file))) })),
-    oracleSha256: sha(fs.readFileSync(oracle)), timeoutMs: 1_800_000, effort: 'low', maxTurns: 50, maxOutputTokens: 4096,
+    tasks: Object.entries(taskFiles).map(([label, file]) => ({ label, file, sha256: sha(taskTexts[label]) })),
+    oracleSha256, timeoutMs: 1_800_000, effort: 'low', maxTurns: 50, maxOutputTokens: 4096,
     providerUsdCharge: 0, limitation: 'Local same-user model and independent operator oracles; no OS isolation or general token savings claim.' });
   const git = (repo, ...args) => {
     const r = spawnSync('git', ['-C', repo, ...args], { env: safeEnv, encoding: 'utf8', windowsHide: true, timeout: 60000, maxBuffer: 32 * 1024 * 1024 });
     assert.equal(r.status, 0, `git ${args[0]} failed`); return (r.stdout ?? '').trim();
   };
   const oracleRun = (name, label, repo, expected, dirs) => {
+    assert.equal(sha(fs.readFileSync(oracle)), oracleSha256, `${name}: independent oracle changed; evaluation refused`);
     const resultDir = path.join(out, `oracle-${name}`);
     const args = [oracle, '--label', label, '--repo', repo, '--expected', expected, '--out', resultDir];
     if (label === 'S1') args.push('--javac', path.join(dirs[1], 'javac.exe'), '--java', path.join(dirs[1], 'java.exe'));
@@ -201,7 +205,7 @@ async function pilot() {
     const before = { head: git(repo, 'rev-parse', 'HEAD'), status: git(repo, 'status', '--porcelain'), protected: protectedHashes() };
     save(`${name}-before.json`, before);
     const profileDir = path.join(temp, name); fs.mkdirSync(profileDir);
-    const prompt = fs.readFileSync(path.join(taskRoot, taskFiles[label]), 'utf8'); save(`${name}-task.md`, prompt);
+    const prompt = taskTexts[label]; save(`${name}-task.md`, prompt);
     console.log(`START ${outcomes.length + 1}/${schedule.length} ${name}`);
     const measured = await session(name, prompt, arm === 'canary', true, { pilot: true, repo,
       env: { CLAUDE_CONFIG_DIR: profileDir, CANARY_TRUST_STORE: path.join(os.tmpdir(), 'canary-v15-validation-trust', sha(repo)),
