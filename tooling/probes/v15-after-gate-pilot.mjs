@@ -14,7 +14,9 @@ assert.match(expectedSource ?? '', /^[a-f0-9]{40}$/);
 const root = path.resolve(import.meta.dirname, '../..');
 const evidence = path.resolve(root, '../../evidence');
 const prepared = path.join(os.tmpdir(), 'canary-native-build-order-20261003-six');
+const controls = path.join(os.tmpdir(), 'canary-improved-six-task-20261003-build-order');
 assert.equal(fs.existsSync(prepared), false, 'do not overwrite any earlier task workspace');
+assert.equal(fs.existsSync(controls), false, 'do not overwrite earlier task controls');
 fs.mkdirSync(out, { recursive: true });
 const commands = []; let failure = null;
 const hash = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -49,6 +51,14 @@ try {
   const before = path.join(evidence, 'completion-workflow-final-20261002/installed/node_modules/@canary-rn/cli/dist/main.js');
   run('installed-comparison', [path.join(import.meta.dirname, 'v15-build-order-comparison.mjs'), before, artifact.cli, path.join(out, 'installed-comparison')]);
   run('installed-regressions', ['--test', '--test-name-pattern=build-dependent tests|colored Vitest|startup context|startup preflight|startup guidance|passing focused check|restores every integration file|setup is idempotent', 'apps/cli/dist/test/onboarding.test.js'], 180000, { ...process.env, CANARY_TEST_CLI: artifact.cli });
+  run('six-task-controls', [path.join(import.meta.dirname, 'v15-installed-task-matrix.mjs'), '--cli', artifact.cli, '--package', artifact.package,
+    '--out', controls, '--scratch-root', 'C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch',
+    '--java-bin', 'C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.101-hotspot\\bin'], 3600000);
+  const controlArchive = path.join(out, 'six-task-controls-archive');
+  run('archive-six-task-controls', [path.join(import.meta.dirname, 'v15-archive-task-matrix.mjs'), controls, controlArchive]);
+  run('release-six-task-comparison', [path.join(import.meta.dirname, 'v15-release-task-comparison-report.mjs'),
+    path.join(evidence, 'release-six-task-20261001-final'), controlArchive, path.join(out, 'release-six-task-comparison.md')]);
+  run('cleanup-six-task-controls', [path.join(import.meta.dirname, 'v15-archive-task-matrix.mjs'), '--cleanup', controls, controlArchive]);
   run('prepare-twelve-arms', [path.join(import.meta.dirname, 'v15-pilot-prepare.mjs'), '--out', prepared, '--cli', artifact.cli, '--artifact-sha256', artifact.packageSha256,
     '--scratch-root', 'C:\\Users\\Johannes\\Desktop\\canary-ws5-scratch'], 3600000);
   run('native-twelve-sessions', [path.join(import.meta.dirname, 'v15-claude-local-preflight.mjs'), '--cli', artifact.cli,
