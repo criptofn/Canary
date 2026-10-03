@@ -69,6 +69,14 @@ Die zusätzliche Option `--worker-trace` des externen Baseline-Diagnoseprogramms
 
 Beide vollständigen Worker-Diagnosen bestehen mit jeweils 570 Tests und 10 Skips: `build-order-20261003-refactron-worker-trace` mit der bisherigen Plain-Umgebung und `build-order-20261003-refactron-worker-sanitized-trace` mit Canarys unverändertem, separat gehashtem Umgebungsprogramm. Beide stellen die Abhängigkeitsdatei wieder her. Die Logs zeigen 39 erwartete Worker-Enden mit `terminating: true`, keine protokollierte Sendung an einen getrennten Kanal. Der Setup-Ausführungspfad verwendet direkt `spawnSync`, keine Windows-Nachlaufbereinigung. Dies grenzt den untersuchten Codepfad ein, erklärt aber den ursprünglichen Kanalabbruch noch nicht und zählt nicht als Fehlerbehebung.
 
+### Abgeschlossener Vergleich nach den Diagnosen
+
+Der getrennte Versuch `canary-improved-six-task-20261003-build-order-after-diagnostic` besteht sämtliche zwölf Ausgangsprüfungen und zwölf Lösungskontrollen, ohne Modellaufrufe. Jede korrekte Lösung erhält einen tatsächlichen bestandenen Abschluss-Checkpoint; jede alte Implementierung mit denselben Regressionstests einen fehlgeschlagenen Checkpoint und eine Blockentscheidung. Die Agententest-Herkunft bleibt insbesondere bei R1 sichtbar. Paket und CLI haben weiterhin die oben genannten eingefrorenen Hashes.
+
+692 bytegeprüfte Rohdateien liegen dauerhaft unter `build-order-20261003-six-task-complete-archive`. Der ausgeführte [Release-Vergleich](POST-V15-BUILD-ORDER-RELEASE-COMPARISON-2026-10-03.md) prüft beide Archive erneut: 24/24 Kontrollen, 1384 Rohdateien, identische Instrumente, Patches, Ausgangscommits und Werkzeugfreigaben. Anschließend entfernte das bestehende Archivprogramm nur die eigene abgeschlossene temporäre Matrix und ihre zwölf Trust-Verzeichnisse. Die zwei vorherigen unvollständigen Versuche bleiben erhalten; ihre Ursachen sind durch diesen erfolgreichen Vergleich nicht geklärt.
+
+Für den nativen Pilot werden erneut zwölf unabhängige Ausgangskopien angelegt. Die bereits mit historischen Lösungen verwendeten Kontrollkopien werden dafür nicht übernommen.
+
 Vor dem ersten Modellaufruf wird auch für die native H1-Auswertung die bereits im Release-/Kontrollvergleich verwendete Oracle-Option `--strict-age` festgelegt. Damit werden neben Null und ganzen Tagen auch kürzlich geänderte Dateien und Bruchteile von Tagen geprüft, wie die unveränderte Aufgabe es verlangt. Beide Varianten und ihre Baseline-Prüfung verwenden dieselbe Option; `pilot-protocol.json` hält sie fest. Produktpaket, Oracle-Programm und Aufgaben werden dafür nicht verändert. Der native Messprogrammhash wird beim Start separat eingefroren; während der Sitzungen bleibt er unverändert.
 
 ## Erfassung nativer Sitzungen
