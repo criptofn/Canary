@@ -2862,7 +2862,7 @@ function setupCheckResult(
     limitations: [
       'No project command was run; the setup smoke test is still required.',
       'Tools launched inside project scripts cannot all be discovered before those scripts run.',
-      'Tool paths found in the shell remain unauthorized until explicitly added with --toolchain-dir.',
+      'Tool paths found in the shell remain unauthorized until explicitly added with --toolchain <name> or --toolchain-dir.',
       'Harness approval and trust-store write access are confirmed only during setup.',
     ],
   };
@@ -2899,14 +2899,23 @@ export function dirArg(rest: string[]): string | undefined { return rest.find((a
  * directories already sealed here (silently dropping authority a human granted is exactly the
  * failure this repository treats as worse than a refusal).
  */
-export function takeToolchainDirs(args: string[]): { dirs: string[]; rest: string[]; problems: string[]; clear: boolean } {
+export function takeToolchainDirs(args: string[]): { dirs: string[]; tools: string[]; rest: string[]; problems: string[]; clear: boolean } {
   const dirs: string[] = [];
+  const tools: string[] = [];
   const rest: string[] = [];
   const problems: string[] = [];
   let clear = false;
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i] as string;
     if (a === '--clear-toolchain-dirs') { clear = true; continue; }
+    if (a === '--toolchain' || a.startsWith('--toolchain=')) {
+      const value = a === '--toolchain' ? args[i + 1] : a.slice('--toolchain='.length);
+      if (value === undefined || value.startsWith('--')) { problems.push('--toolchain needs a tool name (nothing was authorized)'); continue; }
+      if (a === '--toolchain') i += 1;
+      if (!(TOOLCHAIN_CANDIDATES as readonly string[]).includes(value)) problems.push(`unknown toolchain "${value}"; supported tools: ${TOOLCHAIN_CANDIDATES.join(', ')}`);
+      else tools.push(value);
+      continue;
+    }
     if (a === '--toolchain-dir') {
       const value = args[i + 1];
       if (value === undefined || value.startsWith('--')) { problems.push('--toolchain-dir needs a directory after it (nothing was authorized)'); continue; }
@@ -2915,7 +2924,7 @@ export function takeToolchainDirs(args: string[]): { dirs: string[]; rest: strin
     if (a.startsWith('--toolchain-dir=')) { dirs.push(a.slice('--toolchain-dir='.length)); continue; }
     rest.push(a);
   }
-  return { dirs, rest, problems, clear };
+  return { dirs, tools, rest, problems, clear };
 }
 
 export async function cmdSetup(rawArgs: string[]): Promise<number> {
@@ -2931,13 +2940,16 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   if (!root) { o.verdict('UNSUPPORTED', 'this folder is not inside a git repository.', 'cd into your project and try again'); return 2; }
   // The authorization is validated BEFORE anything is written: a directory inside the repository is
   // refused, because the tree the worker under verification can write is not a source of authority.
-  const checkedDirs = toolchainArgs.dirs.map((d) => validateToolchainDir(root, d));
-  const refusedDirs = [...toolchainArgs.problems, ...checkedDirs.flatMap((c) => (c.ok ? [] : [c.problem]))];
+  const inventory = toolchainArgs.tools.length > 0 ? inventoryOperatorToolchain(process.env.PATH ?? '') : {};
+  const missingTools = toolchainArgs.tools.filter((name) => !inventory[name]);
+  const namedDirs = toolchainArgs.tools.flatMap((name) => inventory[name] ? [path.dirname(inventory[name]!)] : []);
+  const checkedDirs = [...toolchainArgs.dirs, ...namedDirs].map((d) => validateToolchainDir(root, d));
+  const refusedDirs = [...toolchainArgs.problems, ...missingTools.map((name) => `${name} was not found on your shell PATH; install it or use --toolchain-dir with its executable directory`), ...checkedDirs.flatMap((c) => (c.ok ? [] : [c.problem]))];
   if (refusedDirs.length > 0) {
     o.verdict('NEEDS ATTENTION', `Canary will not authorize that toolchain directory: ${refusedDirs.join('; ')}.`, 'name an absolute directory OUTSIDE this repository that contains the executable (for example the JDK\'s bin), then run setup again — nothing was changed');
     return 2;
   }
-  const toolchainDirs = checkedDirs.flatMap((c) => (c.ok ? [c.dir] : []));
+  const toolchainDirs = [...new Set(checkedDirs.flatMap((c) => (c.ok ? [c.dir] : [])))];
   // 1.1 §12–17: the project is whatever the registered adapters declare, not
   // "a repo with a package.json". A present package.json is still validated
   // exactly as before (1.0 message, 1.0 fail-closed), but its ABSENCE is no

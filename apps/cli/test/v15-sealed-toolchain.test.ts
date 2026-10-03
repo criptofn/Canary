@@ -25,6 +25,7 @@ import { after, describe, it } from 'node:test';
 process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-v15st-'));
 
 import { sanitizedEnv } from '@canary-rn/support';
+import { takeToolchainDirs } from '../src/onboarding.js';
 import {
   PROJECT_CHECK_FAILURE, SEALED_ENV_CANNOT_RESOLVE, TOOLCHAIN_CANDIDATES,
   attributeFailures, attributeStepFailure, inventoryOperatorToolchain, notFoundPrograms,
@@ -313,8 +314,8 @@ describe('npm\'s own script PATH is part of the resolution walk', () => {
 });
 
 describe('product level: a path with spaces is sealed and used verbatim', () => {
-  it('setup accepts --toolchain-dir with spaces, records it, and the sealed step sees it', () => {
-    const root = path.join(TMP, 'spaced-fixture');
+  for (const named of [false, true]) it(`setup accepts ${named ? '--toolchain' : '--toolchain-dir'} with spaces, records it, and the sealed step sees it`, () => {
+    const root = path.join(TMP, `spaced-fixture-${named}`);
     fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
     // The check proves the directory reached the CHILD environment: it fails unless the staged
     // directory (whose path contains spaces) is on the PATH the child was handed.
@@ -343,8 +344,13 @@ describe('product level: a path with spaces is sealed and used verbatim', () => 
       const r = spawnSync('git', ['-C', root, ...a], { encoding: 'utf8', timeout: 60_000 });
       assert.equal(r.status, 0, `fixture git ${a[0]} failed: ${r.stdout}${r.stderr}`);
     }
-    const run = spawnSync(process.execPath, [CLI, 'setup', '--yes', '--toolchain-dir', SPACED_DIR], {
-      cwd: root, env: { ...process.env, CANARY_TRUST_STORE: path.join(TMP, 'trust-spaced') }, encoding: 'utf8', timeout: 300_000,
+    // Only resolution is under test: this placeholder is never executed.
+    fs.writeFileSync(path.join(SPACED_DIR, WINDOWS ? 'python.exe' : 'python'), 'placeholder\n');
+    const env = { ...process.env };
+    for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
+    env.PATH = `${SPACED_DIR}${path.delimiter}${process.env.PATH ?? ''}`;
+    const run = spawnSync(process.execPath, [CLI, 'setup', '--yes', ...(named ? ['--toolchain', 'python'] : ['--toolchain-dir', SPACED_DIR])], {
+      cwd: root, env: { ...env, CANARY_TRUST_STORE: path.join(TMP, `trust-spaced-${named}`) }, encoding: 'utf8', timeout: 300_000,
     });
     const out = `${run.stdout}${run.stderr}`;
     assert.equal(run.status, 0, `setup exited ${run.status}:\n${out.split(/\r?\n/).slice(-12).join('\n')}`);
@@ -352,5 +358,34 @@ describe('product level: a path with spaces is sealed and used verbatim', () => 
     const cfg = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'canary.local.json'), 'utf8')) as { toolchain?: ToolchainSeal };
     assert.deepEqual(cfg.toolchain?.dirs, [fs.realpathSync.native(SPACED_DIR)], 'the sealed config did not record the directory verbatim');
     assert.ok(Object.keys(cfg.toolchain?.found ?? {}).length >= 3, 'the setup-time inventory was not recorded');
+  });
+  it('named toolchain options consume only their values and refuse invalid names', () => {
+    assert.deepEqual(takeToolchainDirs(['--toolchain', 'java', '--toolchain=python', '--yes', 'project']), {
+      dirs: [], tools: ['java', 'python'], rest: ['--yes', 'project'], problems: [], clear: false,
+    });
+    for (const args of [['--toolchain'], ['--toolchain', '--yes'], ['--toolchain='], ['--toolchain=unknown']]) {
+      assert.ok(takeToolchainDirs(args).problems.length > 0);
+    }
+  });
+  it('named toolchain refusals and preflight do not authorize or write partial state', () => {
+    const root = path.join(TMP, 'named-refusal');
+    fs.mkdirSync(root);
+    assert.equal(spawnSync('git', ['init', root], { encoding: 'utf8' }).status, 0);
+    fs.writeFileSync(path.join(root, WINDOWS ? 'python.exe' : 'python'), 'placeholder\n');
+    const env = { ...process.env };
+    for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
+    env.PATH = root;
+    for (const args of [
+      ['--yes', '--toolchain', 'python'], // project-local shadow must never be trusted
+      ['--yes', '--toolchain', 'java', '--toolchain-dir', SPACED_DIR], // missing tool refuses all
+      ['--yes', '--toolchain=unknown'],
+      ['--yes', '--toolchain'],
+      ['--check', '--toolchain-dir', SPACED_DIR],
+    ]) {
+      const run = spawnSync(process.execPath, [CLI, 'setup', ...args], { cwd: root, env, encoding: 'utf8', timeout: 60_000 });
+      assert.equal(run.status, 2, `${args.join(' ')}: ${run.stdout}${run.stderr}`);
+      assert.equal(fs.existsSync(path.join(root, '.canary')), false, 'refusal/preflight wrote local state');
+      assert.equal(fs.existsSync(path.join(root, '.claude')), false, 'refusal/preflight wrote agent integration');
+    }
   });
 });

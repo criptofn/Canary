@@ -142,6 +142,13 @@ to finish normally so the Stop hook runs the full checks. Startup guidance runs
 no checks and certifies nothing. Re-run setup once to add it to an existing
 installation; unrelated startup hooks are preserved.
 
+If your checks launch Java, Python, Git or another external tool, name it during
+setup: `canary setup --yes --toolchain java --toolchain python`. Canary finds each
+named tool on your shell PATH and seals its executable directory. This authorizes
+the directory, including other executables in it; repository directories are
+refused. You can still specify a directory with `--toolchain-dir "<absolute path>"`.
+`--clear-toolchain-dirs` revokes the previously sealed directories.
+
 `setup --check` reports the checks and toolchains it can see without running
 project commands, writing files, or authorizing tool paths. It cannot discover
 every tool a project script may launch; actual setup still runs the checks.

@@ -77,9 +77,11 @@ usage:
                                           derivation checks ON THIS MACHINE — NOT a committed-
                                           proof comparison; that is prove/check. exit 0 on
                                           self-consistency, else NOT SELF-CONSISTENT, exit 3)
-  canary setup [--check] [--yes] [--mcp-profile everyday|expert] [--toolchain-dir <abs dir>]...
+  canary setup [--check] [--yes] [--mcp-profile everyday|expert] [--toolchain <name>]... [--toolchain-dir <abs dir>]...
                             inspect setup without changes (--check), or install and smoke-run it.
                             MCP defaults to four everyday tools; expert adds work/finish.
+                            --toolchain (repeatable) finds a named tool on your shell PATH
+                            and authorizes its executable directory (for example java or python).
                             --toolchain-dir (repeatable) authorizes ONE executable directory
                             for the checks your project runs: build tools a project spawns
                             itself (java, python, git) are invisible to Canary's restricted
