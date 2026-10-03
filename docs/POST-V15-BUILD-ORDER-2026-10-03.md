@@ -51,7 +51,17 @@ Der installierte Vergleich verwendet als Vorher-Variante das vorherige **Arbeits
 
 Zusätzlich besteht die Reparatur bei veraltetem roten Build. Rohbefehle, CLI-Hashes, Ausgaben, Checkpoints und archivierte Zustände liegen unter `capture/installed-comparison`; dessen `summary.json` meldet `complete`, ohne Fehler. Die acht installierten Regressionen umfassen den neuen Build-Fall, beide Vitest-Fehlerformen, drei Startup-Fälle, Setup-Rollback und PARTIAL mit unverändertem vollständigem Checkpoint; Rohlog: `capture/installed-regressions.stdout.log`.
 
-Der anschließende Sechs-Aufgaben-Test mit dem eingefrorenen Paket läuft. Er verwendet dieselben fünf Messprogramme und historischen Lösungspatches wie der archivierte Release-Vergleich; ihre Programmhashes wurden erneut überprüft. Auch die erhaltene Release-Datei hat weiterhin SHA-256 `cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386`, ihre installierte CLI `3cfdfece2581b1036e1b01905be39d97161d03f683110cf40910570a5235d5e2`. Ein abgeschlossenes neues Sechs-Aufgaben-Ergebnis oder ein nativer Pilot wird damit noch nicht behauptet.
+Der anschließende Sechs-Aufgaben-Test verwendet dieselben fünf Messprogramme und historischen Lösungspatches wie der archivierte Release-Vergleich; ihre Programmhashes wurden erneut überprüft. Auch die erhaltene Release-Datei hat weiterhin SHA-256 `cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386`, ihre installierte CLI `3cfdfece2581b1036e1b01905be39d97161d03f683110cf40910570a5235d5e2`.
+
+### Abgebrochener Sechs-Aufgaben-Versuch
+
+Der erste Versuch endete vor den Lösungskontrollen und Modellaufrufen als `incomplete`: In der **Plain-Baseline ohne Canary** scheiterte Refactrons bestehender Test `a changed BLANK line does not make an untested change read as covered`. Der Reporter meldet 569 bestanden, einen Fehler, 10 Skips; der Test erhielt eine leere Liste statt der erwarteten ungetesteten Zeile 12. Refactrons Urteil blieb dabei `UNPROVEN`. Die unabhängige Canary-Baseline bestand ihre regulären Checks und meldete `READY`. Diese verschiedenen Ausführungen beweisen keine Canary-Ursache oder Canary-Verbesserung.
+
+236 bytegeprüfte Dateien des abgebrochenen Versuchs liegen unter `capture/six-task-controls-incomplete-archive`; dessen Manifest nennt ausdrücklich `captureStatus: incomplete`. Das ursprüngliche Ergebnis wird nicht durch spätere grüne Läufe ersetzt.
+
+`v15-refactron-baseline-diagnostic.mjs` protokolliert den tatsächlichen Report an der vorhandenen Assertion in der eigenen temporären Projektkopie. Es erhält alle Assertions und stellt die ursprüngliche Testdatei anschließend bytegenau und Git-sauber wieder her. Der gezielte Lauf besteht (ein Test, 579 durch die Auswahl übersprungen); der anschließende vollständige Projektlauf besteht (570 Tests, 10 Skips). Beide Reports nennen die erwartete ungetestete Zeile 12 und weiterhin `UNPROVEN`. Rohbelege: `build-order-20261003-refactron-baseline-targeted` und `build-order-20261003-refactron-baseline-full`. Die genaue Ursache des ersten Fehlers bleibt offen; es wurde keine Produktkorrektur dafür behauptet.
+
+Eine Wiederholung mit dem unveränderten eingefrorenen Paket und neuen Ausgangskopien wird unter `canary-improved-six-task-20261003-build-order-retry` im OS-Temp-Verzeichnis sowie `build-order-20261003-six-task-retry.log` im Evidenzverzeichnis separat erfasst. Ein abgeschlossenes neues Sechs-Aufgaben-Ergebnis oder ein nativer Pilot wird noch nicht behauptet.
 
 ## Erfassung nativer Sitzungen
 
