@@ -3,8 +3,8 @@
  * one ProjectAdapter interface, so the verification/promotion core never learns
  * a per-language pipeline. This file is pure: it spawns nothing, writes
  * nothing, and knows no agent provider. The Node code below was lifted out of
- * onboarding.ts unchanged — same functions, same strings, same digests — so
- * 1.0 behavior is preserved byte-for-byte; adding an ecosystem means adding an
+ * onboarding.ts; stored plans and their digests retain their original order.
+ * New Node plans build before tests; adding an ecosystem means adding an
  * adapter here, not a second plan/seal/drift path elsewhere.
  */
 import crypto from 'node:crypto';
@@ -52,6 +52,9 @@ const SCRIPT_KINDS: Array<[string, PlanKind]> = [
   ['bench', 'bench'], ['benchmark', 'bench'], ['e2e', 'e2e'], ['test:e2e', 'e2e'],
 ];
 const PLAN_ORDER: Record<PlanKind, number> = { typecheck: 0, tests: 1, build: 2, bench: 3, e2e: 4 };
+// New Node plans build before tests that may exercise compiled output. Execution
+// follows cfg.plan verbatim; existing seals and other adapters retain their order.
+const NODE_PLAN_ORDER: Record<PlanKind, number> = { ...PLAN_ORDER, build: 1, tests: 2 };
 
 /**
  * One normalized check in the sealed plan.
@@ -135,7 +138,7 @@ export function detectPlan(pkgScripts: Record<string, unknown>): PlanStep[] {
       if (!steps.some((s) => s.kind === kind)) steps.push({ kind, script: name });
     }
   }
-  return steps.sort((a, b) => PLAN_ORDER[a.kind] - PLAN_ORDER[b.kind]);
+  return steps.sort((a, b) => NODE_PLAN_ORDER[a.kind] - NODE_PLAN_ORDER[b.kind]);
 }
 
 /** Reconstruct argv for one step. Only validated fragments ever reach here. */
@@ -558,7 +561,8 @@ export function planForScope(root: string, s: ProjectScope): DiscoveredProject {
   const plan = disc.plan.map((step) => (s.adapter.id === 'node' && s.scope === ''
     ? step
     : { ...step, adapter: s.adapter.id, pm: disc.pm, ...(s.scope ? { scope: s.scope } : {}) }));
-  return { ...disc, plan: plan.sort((a, b) => PLAN_ORDER[a.kind] - PLAN_ORDER[b.kind]) };
+  const order = s.adapter.id === 'node' ? NODE_PLAN_ORDER : PLAN_ORDER;
+  return { ...disc, plan: plan.sort((a, b) => order[a.kind] - order[b.kind]) };
 }
 
 export interface CompositePlan {

@@ -1,7 +1,8 @@
 /**
- * 1.1 §1 — the PROJECT ADAPTER seam must not change what Node projects do, and
+ * 1.1 §1 — the PROJECT ADAPTER seam must preserve stored Node authority, and
  * must not be able to loosen anything. Concretely: detection/discovery/digests
- * match the 1.0 functions byte-for-byte; an unregistered adapter id fails
+ * keep stored seals byte-compatible (new Node discovery builds before tests);
+ * an unregistered adapter id fails
  * closed to 'corrupt' (status 2 / never READY); setup still writes no
  * `project` key, so 1.0 config bytes are stable.
  */
@@ -44,7 +45,7 @@ function dir(name: string, files: Record<string, string>): string {
 const pkg = (scripts: Record<string, string>): string => JSON.stringify({ name: 'fx', scripts }, null, 2);
 const PLAN: PlanStep[] = [{ kind: 'tests', script: 'test' }];
 
-describe('Node detection/discovery unchanged behind the adapter', () => {
+describe('Node detection/discovery behind the adapter', () => {
   it('detects package.json presence as the same plain fact 1.0 reported', () => {
     const withPkg = dir('detect-pkg', { 'package.json': pkg({ test: 'node t.js' }) });
     assert.deepEqual(project.nodeAdapter.detect(withPkg), { detected: true, confidence: 'high', reason: 'package.json found' });
@@ -64,7 +65,7 @@ describe('Node detection/discovery unchanged behind the adapter', () => {
   it('plan discovery keeps kind ordering and name safety', () => {
     const root = dir('disc-order', { 'package.json': pkg({ build: 'tsc -b', test: 'vitest run', typecheck: 'tsc --noEmit', 'bad name': 'x', 'rm -rf': 'x' }) });
     assert.deepEqual(project.nodeAdapter.discoverChecks(root).plan,
-      [{ kind: 'typecheck', script: 'typecheck' }, { kind: 'tests', script: 'test' }, { kind: 'build', script: 'build' }]);
+      [{ kind: 'typecheck', script: 'typecheck' }, { kind: 'build', script: 'build' }, { kind: 'tests', script: 'test' }]);
     assert.equal(project.isSafeScriptName('bad name'), false);
   });
   it('the re-exports ARE the moved functions (identity, not a copy)', () => {
@@ -78,6 +79,17 @@ describe('Node detection/discovery unchanged behind the adapter', () => {
 });
 
 describe('seal/drift stay byte-compatible', () => {
+  it('a previously sealed tests-before-build plan remains intact and a reordering is drift', () => {
+    const scripts = { test: 'vitest run', build: 'tsc -b' };
+    const root = dir('legacy-sealed-order', { 'package.json': pkg(scripts) });
+    const legacy: PlanStep[] = [{ kind: 'tests', script: 'test' }, { kind: 'build', script: 'build' }];
+    const authority = project.sealPlanAuthority(legacy, scripts);
+    assert.equal(project.nodeAdapter.drift(root, { plan: legacy, planAuthority: authority }), null);
+    assert.equal(authority.planDigest, sha256('[{"kind":"tests","script":"test"},{"kind":"build","script":"build"}]'));
+    assert.match(project.nodeAdapter.drift(root, { plan: [...legacy].reverse(), planAuthority: authority })!, /plan no longer matches/);
+    assert.deepEqual(legacy.map((s) => s.kind), ['tests', 'build']);
+  });
+
   it('planDigest and scriptDigests equal the same sha256 1.0 wrote', () => {
     assert.equal(project.planDigest(PLAN), sha256('[{"kind":"tests","script":"test"}]'));
     const seal = project.sealPlanAuthority(PLAN, { test: 'vitest run' });

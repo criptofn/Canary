@@ -2924,8 +2924,8 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
 
   // 1.1 §12–17 — discovery and sealing run through the project adapters: EVERY
   // ecosystem that declares checks at the repo root contributes to ONE plan.
-  // A Node-only repo produces byte-identical plan/pm/seal to before (the Node
-  // adapter is unchanged and its steps keep their exact 1.0 shape); the empty
+  // Node steps retain their 1.0 shape; new discovery builds before tests.
+  // Existing stored plans keep their sealed order. The empty
   // plan stays a complete answer that becomes NEEDS ATTENTION, never READY.
   const composed = composePlan(root);
   // §B: a scope declaration Canary cannot honour stops setup. It is never

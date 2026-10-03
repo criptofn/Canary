@@ -79,7 +79,7 @@ describe('detection (pure)', () => {
   });
   it('plan is conservative, ordered, and exact-name only', () => {
     const plan = detectPlan({ build: 'x', test: 'x', lint: 'x', pretest: 'x', 'type-check': 'x' });
-    assert.deepEqual(plan.map((s) => s.kind), ['typecheck', 'tests', 'build']);
+    assert.deepEqual(plan.map((s) => s.kind), ['typecheck', 'build', 'tests']);
     assert.deepEqual(detectPlan({ lint: 'x' }), []);
   });
   it('shell-shaped script names never enter a plan', () => {
@@ -101,6 +101,39 @@ describe('detection (pure)', () => {
 });
 
 describe('setup', () => {
+  it('build-dependent tests pass on first setup and completion after clean, while compiled regressions stay blocked', () => {
+    const root = makeProject('build-dependent', {
+      testScript: `${fx('build-dependent-check.cjs')} test`,
+      extraScripts: { build: `${fx('build-dependent-check.cjs')} build` },
+    });
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'true\n');
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 0, `${setup.stdout} ${setup.stderr}`);
+    assert.deepEqual(readCfg(root).plan.map((s) => s.kind), ['build', 'tests']);
+    const orderFile = path.join(root, 'check-order.txt');
+    assert.equal(fs.readFileSync(orderFile, 'utf8'), 'build\ntest\n');
+    fs.rmSync(path.join(root, 'dist'), { recursive: true });
+    const hookInput = JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false, cwd: root });
+    assert.equal(canary(['checkpoint'], root, hookInput).stdout.trim(), '');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'pass');
+    // A stale passing artifact must be rebuilt, then fail the real assertion.
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'false\n');
+    const blocked = canary(['checkpoint'], root, hookInput);
+    assert.equal(JSON.parse(blocked.stdout).decision, 'block');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
+    assert.equal(fs.readFileSync(path.join(root, 'dist/implementation.json'), 'utf8'), 'false\n');
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'true\n');
+    assert.equal(canary(['doctor', root]).status, 0, 'repair rebuilds before testing stale failing output');
+    // A build failure stays red even if an older artifact passes its tests.
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'BUILD_ERROR\n');
+    const badBuild = canary(['checkpoint'], root, hookInput);
+    assert.equal(JSON.parse(badBuild.stdout).decision, 'block');
+    const failed = JSON.parse(fs.readFileSync(cpFile(root), 'utf8'));
+    assert.equal(failed.status, 'fail');
+    assert.deepEqual(failed.checks.map((s: { ok: boolean }) => s.ok), [false, true]);
+    assert.equal(fs.readFileSync(orderFile, 'utf8'), 'build\ntest\n'.repeat(5));
+  });
+
   it('colored Vitest collection failure reports the missing build and retains a block', () => {
     const root = makeProject('colored-vitest-collection', { testScript: `${fx('vitest-color-check.cjs')} collection` });
     const setup = canary(['setup', '--yes', root]);
@@ -671,7 +704,7 @@ describe('doctor + uninstall', () => {
 
     const unknown = canary(['doctor', '--check', 'not-sealed', '--json', root]);
     assert.equal(unknown.status, 3);
-    assert.match(unknown.stdout, /available ids: test, build/);
+    assert.match(unknown.stdout, /available ids: build, test/);
     assert.deepEqual(fs.readFileSync(cpFile(root)), checkpointBefore, 'an unknown id must not execute or alter a result');
 
     const full = canary(['doctor', root]);

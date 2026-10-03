@@ -191,3 +191,16 @@ rollback and uninstall preserve unrelated startup hooks. Older configurations
 without this field remain valid. Codex's Stop integration is unchanged.
 
 Protocol reference: [Claude Code SessionStart hooks](https://code.claude.com/docs/en/hooks#sessionstart).
+
+## Compiled Node checks
+
+Newly discovered Node plans run `typecheck`, `build`, `tests`, `bench`, then `e2e`
+(only declared scripts are included). Building before tests prevents a clean
+checkout or removed `dist` from failing solely because its test runner imports
+compiled output. It also prevents tests from judging stale output before the
+current implementation is built. A failed build still fails the full gate.
+
+Previously installed plans keep their exact sealed order and digest. Upgrading
+the binary does not reorder or reseal them. An operator can apply the new order
+by reviewing and rerunning setup; this is a new seal and baseline, so do it
+between tasks. Non-Node discovery and explicit check contracts are unchanged.
