@@ -80,6 +80,9 @@ try {
     headUnchanged: head === headAfter, sealUnchanged: fs.readFileSync(config).equals(sealed) });
 } finally {
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify({ cli, cliSha256: hash(fs.readFileSync(cli)),
+    // Development CLIs import this module; bundled packages contain it in the entry bytes.
+    onboardingSha256: fs.existsSync(path.join(path.dirname(cli), 'onboarding.js'))
+      ? hash(fs.readFileSync(path.join(path.dirname(cli), 'onboarding.js'))) : null,
     instrumentSha256: hash(fs.readFileSync(new URL(import.meta.url))), runtime: process.execPath,
     records, observations }, null, 2) + '\n');
   assert.equal(path.dirname(fs.realpathSync(temp)), fs.realpathSync(os.tmpdir()), 'cleanup must stay inside OS temp');
