@@ -77,7 +77,10 @@ try {
   const legacy = project('legacy-seal', true, true);
   // Simulate an in-place binary upgrade. A different installation path is
   // deliberately refused by Canary and is not a plan-order compatibility test.
-  const legacyCli = path.join(temp, 'upgrade-cli.mjs');
+  const upgradeRoot = path.join(temp, 'upgrade-install');
+  fs.mkdirSync(upgradeRoot);
+  fs.writeFileSync(path.join(upgradeRoot, 'package.json'), '{"type":"module"}\n');
+  const legacyCli = path.join(upgradeRoot, 'main.js'); // the bundled CLI owns this exact entry name
   fs.copyFileSync(before, legacyCli);
   assert.equal(invoke(legacyCli, legacy, ['setup', '--yes']).status, 0);
   const configPath = path.join(legacy, '.canary/canary.local.json');
