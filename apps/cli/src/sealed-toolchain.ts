@@ -297,12 +297,13 @@ export function attributeStepFailure(input: AttributeInput): FailureAttribution 
       + `This is NOT your project failing.${gone}`;
     const first = missing[0] as string;
     const dir = vanishedDirs.length > 0 ? vanishedDirs[0] as string : suggestDirFor(first, seal);
+    const namedRepair = `canary setup --yes ${missing.map((name) => `--toolchain ${name}`).join(' ')}`;
     return {
       cause: 'environment', missing,
       reason,
       next: dir === null
-        ? `install ${missing.join(', ')} into a directory you authorize, then: canary setup --toolchain-dir "<that directory>"`
-        : `authorize the directory that has it: canary setup --toolchain-dir "${dir}"`,
+        ? `install ${missing.join(', ')} and make them visible on your shell PATH, then: ${namedRepair}; alternatively: canary setup --toolchain-dir "<that directory>"`
+        : `authorize the missing tools from your shell PATH: ${namedRepair}; alternatively authorize the known directory: canary setup --toolchain-dir "${dir}"`,
     };
   }
 

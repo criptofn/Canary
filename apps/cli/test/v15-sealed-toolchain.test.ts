@@ -209,6 +209,7 @@ describe('attribution: is Canary\'s environment the cause, or the project?', () 
     assert.deepEqual(a.missing, ['git']);
     assert.match(a.reason, new RegExp(SEALED_ENV_CANNOT_RESOLVE));
     assert.doesNotMatch(a.reason, /That is your project talking/);
+    assert.ok(a.next.includes('canary setup --yes --toolchain git'));
     /*
      * PORTABILITY (v1.5 post-audit, MEASURED on the ubuntu CI leg): this assertion hardcoded the
      * Windows separator (`C:\Program Files\Git\cmd`). The fixture's directory is built with
