@@ -37,6 +37,14 @@ stress ran alongside the primary gate. Raw logs are
 `compact-version-20261004-build.log` and
 `compact-version-20261004-targeted.log` in the external evidence directory.
 
+Direct read-only version calls also compare the old installed frozen package
+with the new built CLI: both exit zero and report Canary 1.5.0, but the old package
+prints only that line while the new build adds the observed runtime and entry
+identity. Logs: `verbose-version-20261004-old-installed.log` and
+`verbose-version-20261004-new-built.log`. This is not a newly installed artifact
+check. The probe now normalizes explicit Windows paths before comparing identity,
+so equivalent slash spellings do not create a false mismatch.
+
 The primary post-pilot verification job continues independently on unchanged
 product source `688654d`. Its standalone suite completed with 1349 pass, zero
 fail and four explicit skips. Its required productization mutation stage has
