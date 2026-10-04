@@ -102,6 +102,12 @@ try {
   assert.deepEqual(staleLegacyCheckpoint.checks.map((step) => step.ok), [true, true, false], 'the post-build test must expose the stale passing test');
   assert.deepEqual(fs.readFileSync(configPath), original, 'checking freshness cannot rewrite sealed authority');
   outcomes.push({ case: 'legacy seal with changed broken source and stale passing artifact', status: 'fail', configByteEqual: true });
+  fs.writeFileSync(path.join(legacy, 'dist/implementation.json'), 'true\n');
+  assert.equal(JSON.parse(checkpoint(legacyCli, legacy).stdout).decision, 'block', 'completion must reject the same legacy stale-artifact regression');
+  const legacyStop = JSON.parse(fs.readFileSync(path.join(legacy, '.canary/last-checkpoint.json')));
+  assert.equal(legacyStop.status, 'fail');
+  assert.deepEqual(legacyStop.checks.map((step) => step.ok), [true, true, false]);
+  outcomes.push({ case: 'legacy completion with stale passing artifact', status: 'fail', hook: 'block' });
   fs.writeFileSync(path.join(legacy, 'implementation.json'), 'true\n');
   assert.equal(invoke(legacyCli, legacy, ['doctor']).status, 2, 'a later passing test cannot waive an earlier failed sealed check');
   const retainedFailure = JSON.parse(fs.readFileSync(path.join(legacy, '.canary/last-checkpoint.json')));
