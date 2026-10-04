@@ -1253,6 +1253,14 @@ export interface StepResult {
 // Supervisor facts stay in memory: project output cannot forge them, and existing JSON stays unchanged.
 const stepProcessFailures = new WeakMap<StepResult, string>();
 
+/** Preserve the sealed sequence, then verify earlier tests against the final build.
+ * Legacy seals remain byte-identical; every extra command is already authorized.
+ * Keep initial failures: a later pass never waives a failed sealed check. */
+export function planWithFreshTests(plan: PlanStep[]): PlanStep[] {
+  const lastBuild = plan.reduce((last, step, index) => step.kind === 'build' ? index : last, -1);
+  return [...plan, ...plan.filter((step, index) => index < lastBuild && step.kind === 'tests')];
+}
+
 /** Synthetic non-ran step for resolution failures at the one call site
  *  (setup smoke) that must report honestly instead of crashing. exitCode
  *  null = "could not run at all", the same infra truth a spawn error gives. */
@@ -2176,7 +2184,7 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
       overlaid.push(p);
     }
     const ran: StepResult[] = [];
-    for (const s of cfg.plan) {
+    for (const s of planWithFreshTests(cfg.plan)) {
       let r: StepResult;
       try { r = runPlanStep(tree, cfg.pm, s, timeoutMs); } catch (e) {
         return unknown(`the sealed checks could not run against the baseline (${String(e).slice(0, 120)})`, changed);
@@ -2205,7 +2213,7 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
         if (!overlaid.includes(p) && gitWithinRoot(root, ['cat-file', '-e', `${head}:${p}`]) === null) continue;
         if (!copyInto(root, controlTree, p)) return unknown(`comparison input control could not copy ${safePath(p)}`, changed);
       }
-      const control = cfg.plan.map((s) => runPlanStep(controlTree!, cfg.pm, s, timeoutMs));
+      const control = planWithFreshTests(cfg.plan).map((s) => runPlanStep(controlTree!, cfg.pm, s, timeoutMs));
       if (control.some((r) => !r.ok)) {
         const provenance = { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null };
         const baseEvidence = writeVerificationBundle(root, 'baseline', ran, 'fail', provenance, { subjectRoot: tree });
@@ -3342,7 +3350,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   let allOk = true;
   const failed: StepResult[] = [];
   const ran: StepResult[] = [];
-  for (const s of plan) {
+  for (const s of planWithFreshTests(plan)) {
     // A pm that cannot be resolved in the TRUSTED environment is an
     // environment truth, not a project failure — report it as a step that
     // could not run (exitCode null) instead of crashing the whole setup.
@@ -3891,7 +3899,7 @@ export function cmdDoctor(rawArgs: string[]): number {
   const failed: StepResult[] = [];
   const ran: StepResult[] = [];
   const refused: string[] = [];
-  for (const s of stepsToRun) {
+  for (const s of planWithFreshTests(stepsToRun)) {
     let r: StepResult;
     try { r = runPlanStep(root, cfg.pm, s); }
     catch (e) { refused.push(`plan step "${s.script}" refused: ${(e as Error).message}`); continue; }
@@ -4128,7 +4136,7 @@ export async function cmdCheckpoint(): Promise<number> {
   const failed: StepResult[] = [];
   const ran: StepResult[] = [];
   let infra = '';
-  for (const s of cfg.plan) {
+  for (const s of planWithFreshTests(cfg.plan)) {
     let r: StepResult;
     try { r = runPlanStep(root, cfg.pm, s); } catch (e) { infra = String(e); break; }
     ran.push(r);

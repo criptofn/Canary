@@ -131,7 +131,7 @@ import { digest, canonicalTask, taskWeakening, subjectDigest, TASK_KINDS, type T
 import {
   ACCEPTANCE_SUBDIR, CLI_ENTRY, CONFIG_DIR, ENV_POLICY, EVIDENCE_DIR, Out, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
   discriminationObligation, execDigest, findRepoRoot, gitCommand, gitExe, gitWithinRoot, hasCanaryEntry, obligationsFor, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readAcceptance, readConfig,
-  readTaskRecord, runPlanStep, settingsPath, TASK_FILE, untrustedConfigReason, writeAcceptance, writeFileAtomic, writeVerificationBundle,
+  readTaskRecord, runPlanStep, planWithFreshTests, settingsPath, TASK_FILE, untrustedConfigReason, writeAcceptance, writeFileAtomic, writeVerificationBundle,
   type AcceptanceRecord, type CanaryConfig, type GitResult, type PlanStep, type StepResult, type TaskKind,
 } from './onboarding.js';
 import { authorityDrift, quarantineInfo, QUARANTINE_FILE, shortState, snapshotAuthority, snapshotTree, stampQuarantine, treeDrift, type AuthorityChange } from './authority.js';
@@ -553,7 +553,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   let results: StepResult[];
   let regression: ReturnType<typeof discriminationObligation> = null;
   try {
-    results = cfg.plan.map((step) => runPlanStep(rec.root, cfg.pm, step));
+    results = planWithFreshTests(cfg.plan).map((step) => runPlanStep(rec.root, cfg.pm, step));
     // Both executions stay inside the authority sandwich. The comparison uses
     // the frozen isolation base, never setup's possibly older baseline.
     if (results.every((r) => r.ok)) regression = discriminationObligation(rec.root, cfg, 600_000, rec.baseHead);

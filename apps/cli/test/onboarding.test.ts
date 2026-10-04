@@ -21,7 +21,7 @@ import { after, describe, it } from 'node:test';
 process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-')); // 1.1 P0 isolation: sealed copies go to a per-process temp store, never the real user one
 
 import {
-  detectPm, detectPlan, isSafeScriptName, stepArgv, buildHookCommand, hasCanaryEntry, containedRealPath,
+  detectPm, detectPlan, planWithFreshTests, isSafeScriptName, stepArgv, buildHookCommand, hasCanaryEntry, containedRealPath,
   writeConfig, readConfig, installStopHook,
   type CanaryConfig,
 } from '../src/onboarding.js';
@@ -81,6 +81,17 @@ describe('detection (pure)', () => {
     const plan = detectPlan({ build: 'x', test: 'x', lint: 'x', pretest: 'x', 'type-check': 'x' });
     assert.deepEqual(plan.map((s) => s.kind), ['typecheck', 'build', 'tests']);
     assert.deepEqual(detectPlan({ lint: 'x' }), []);
+  });
+  it('legacy test-before-build plans repeat only their sealed tests after the final build', () => {
+    const current = detectPlan({ build: 'x', test: 'x', 'type-check': 'x' });
+    assert.deepEqual(planWithFreshTests(current), current, 'current discovery must not add work');
+    const tests = current.find((step) => step.kind === 'tests')!;
+    const build = current.find((step) => step.kind === 'build')!;
+    const legacy = [tests, build];
+    assert.deepEqual(planWithFreshTests(legacy), [tests, build, tests]);
+    assert.deepEqual(legacy, [tests, build], 'sealed plan remains unchanged');
+    assert.deepEqual(planWithFreshTests([tests]), [tests], 'no build means no repeat');
+    assert.deepEqual(planWithFreshTests([build, tests, build]), [build, tests, build, tests]);
   });
   it('shell-shaped script names never enter a plan', () => {
     for (const bad of ['te;st', 'a b', 'x&&y', 'q"uote', '']) assert.ok(!isSafeScriptName(bad), bad);
