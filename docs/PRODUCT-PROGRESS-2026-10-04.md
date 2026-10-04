@@ -241,3 +241,23 @@ Two additional product corrections were built after the frozen pilot:
 Evidence logs: `completion-history-label-20261004-{red,green}.log` and
 `imported-test-prefix-20261004-{red,green}.log`. Full required gates for these
 post-pilot changes remain pending; the previous frozen package is unchanged.
+
+The required post-pilot standalone suite has now finished for product commit
+`688654d0142948639a9a3387ad8a9cf794885ca7`: **1353 tests, 1349 pass, 0 fail,
+4 explicit skips**, duration 335176.1559 ms, process status 0 with no signal or
+execution error. `prefix-tests-completion-history-20261004-gates-corrected-job`
+then started productization sequentially; its terminal result is still pending.
+An earlier launcher mistakenly combined the output directory and `--unit-first`
+into one PowerShell array element. That process tree was stopped and its capture
+retained as interrupted, with no completion claim. The corrected standalone
+suite forced a rebuild before running; it is the authoritative observation.
+
+Inspection of the native tool records also limits the overhead diagnosis:
+H1/Canary used 50 tool calls, eight tool errors and zero doctor calls; H2/Canary
+used 41 calls, seven errors, one doctor call and the unnecessary missing-prefix
+baseline block; H3/Canary used 28 calls, one error and one doctor call. Thus
+repeated full Canary gate calls alone do not explain the token difference.
+H2/H3/H5 plain arms each made zero smoke/test command calls. Functional oracle
+success is not equivalent to adding and running regression tests. Further
+improvements must reduce avoidable repair steps without dropping that evidence
+requirement. These observations do not prove a prompting change will fix it.
