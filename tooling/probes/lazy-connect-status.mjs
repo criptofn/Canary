@@ -90,6 +90,23 @@ function makeRepo(name, { setup = true } = {}) {
   return root;
 }
 
+check('verbose version identifies the actual runtime and CLI bytes without touching a project', () => {
+  const root = path.join(TMP, 'version-only'); fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'package.json'), '{"scripts":{"test":"must never execute"}}');
+  const before = manifest(root);
+  const plain = canary(['--version'], root);
+  assertEq(plain.status, 0, 'plain version exit');
+  assert(/^canary \d+\.\d+\.\d+\r?\n$/.test(plain.stdout), 'plain version must remain one line');
+  const detailed = canary(['--version', '--verbose'], root);
+  assertEq(detailed.status, 0, detailed.stderr);
+  assertEq(detailed.stdout.split(/\r?\n/)[0], plain.stdout.trim(), 'same product version');
+  assert(detailed.stdout.includes(`Node: ${process.version} (${process.platform}/${process.arch})`), 'actual Node runtime');
+  assert(detailed.stdout.includes(`Runtime: ${JSON.stringify(process.execPath)}`), 'actual runtime executable');
+  assert(detailed.stdout.includes(`CLI entry: ${JSON.stringify(CLI)}`), 'explicit CLI must identify itself');
+  assert(detailed.stdout.includes(`CLI entry SHA-256: ${crypto.createHash('sha256').update(fs.readFileSync(CLI)).digest('hex')}`), 'hash must match executed entry bytes');
+  assertStable(root, before, 'version diagnostics');
+});
+
 check('outside any git repo: NOT CONNECTED, tells the human the one next command', () => {
   const bare = path.join(TMP, 'not-a-repo'); fs.mkdirSync(bare, { recursive: true });
   const r = canary(['status'], bare);

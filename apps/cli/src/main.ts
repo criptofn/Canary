@@ -45,6 +45,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { renderHtml } from '@canary-rn/report';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
@@ -56,7 +57,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
-import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdSessionStart, cmdClaim, cmdTask, cmdBind, cmdResult, cmdAgents } from './onboarding.js';
+import { CLI_ENTRY, cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdSessionStart, cmdClaim, cmdTask, cmdBind, cmdResult, cmdAgents } from './onboarding.js';
 import { cmdIsolate, cmdAccept } from './candidate.js';
 import { appendMetric, metricFor, metricsTarget, streamSnapshot } from './metrics.js';
 import { cmdWork, cmdFinish } from './orchestrate.js';
@@ -169,7 +170,7 @@ usage:
                             makes it STALE and the duties reopen. Objective
                             proofs are never acceptance-material; mixed tasks
                             need BOTH
-  canary version`);
+  canary version [--verbose]                runtime, entry file and its SHA-256 for a bug report`);
   // Lazy-Connect: a bare `canary` inside a repo is a question, not only a
   // mistake — answer the state part read-only so the next step is obvious.
   // (exit stays 3: no command was given; the note is a courtesy, not a verdict.)
@@ -393,7 +394,16 @@ function cmdReport(evidencePath: string | undefined, outPath?: string): number {
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
-  if (cmd === 'version' || argv.includes('--version')) { console.log(`canary ${CANARY_VERSION}`); return 0; }
+  if (cmd === 'version' || argv.includes('--version')) {
+    console.log(`canary ${CANARY_VERSION}`);
+    if (argv.includes('--verbose')) {
+      console.log(`Node: ${process.version} (${process.platform}/${process.arch})`);
+      console.log(`Runtime: ${JSON.stringify(process.execPath)}`);
+      console.log(`CLI entry: ${JSON.stringify(CLI_ENTRY)}`);
+      console.log(`CLI entry SHA-256: ${createHash('sha256').update(fs.readFileSync(CLI_ENTRY)).digest('hex')}`);
+    }
+    return 0;
+  }
   if (argv.length === 0) {
     cmdStatus([], true);
     console.log('usage: canary <command>. Verification result: canary result. All commands: canary --help.');
@@ -459,6 +469,6 @@ main(process.argv.slice(2))
     console.error('Canary hit an internal error and stopped. That is a defect in Canary, not a statement about your project.');
     console.error(`  what happened: ${e instanceof Error ? e.message : String(e)}`);
     console.error('  what it means: this run verified NOTHING — do not read it as a pass, and not as a failure of your code either.');
-    console.error('  what to do: if the message above names a path you can fix (a FILE where Canary needs a directory, or a location this account cannot write), fix that first and re-run; otherwise re-run with CANARY_VERBOSE=1 for the full detail, then report it with `canary --version`, `canary status --json` and `canary doctor --json`.');
+    console.error('  what to do: if the message above names a path you can fix (a FILE where Canary needs a directory, or a location this account cannot write), fix that first and re-run; otherwise re-run with CANARY_VERBOSE=1 for the full detail, then report it with `canary --version --verbose`, `canary status --json` and `canary doctor --json`.');
     finish(3);
   });

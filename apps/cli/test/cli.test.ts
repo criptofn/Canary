@@ -177,6 +177,26 @@ describe('audit M8 — CLI subprocess exit-code contract', () => {
     assert.match(none.stdout, /usage:/);
   });
 
+  it('verbose version identifies the runtime and entry bytes without changing the plain contract or project', () => {
+    const root = fs.mkdtempSync(path.join(TMP, 'version-details-'));
+    fs.writeFileSync(path.join(root, 'package.json'), '{"scripts":{"test":"must never run"}}');
+    const original = fs.readFileSync(path.join(root, 'package.json'));
+    const plain = cli(root, ['--version']);
+    assert.equal(plain.status, 0);
+    assert.match(plain.stdout, /^canary \d+\.\d+\.\d+\r?\n$/);
+    for (const args of [['version', '--verbose'], ['--version', '--verbose']]) {
+      const detailed = cli(root, args);
+      assert.equal(detailed.status, 0, detailed.stderr);
+      assert.equal(detailed.stdout.split(/\r?\n/)[0], plain.stdout.trim());
+      assert.ok(detailed.stdout.includes(`Node: ${process.version} (${process.platform}/${process.arch})`));
+      assert.ok(detailed.stdout.includes(`Runtime: ${JSON.stringify(process.execPath)}`));
+      assert.ok(detailed.stdout.includes(`CLI entry: ${JSON.stringify(CLI)}`));
+      assert.ok(detailed.stdout.includes(`CLI entry SHA-256: ${sha256hex(fs.readFileSync(CLI))}`));
+      assert.deepEqual(fs.readdirSync(root), ['package.json']);
+      assert.deepEqual(fs.readFileSync(path.join(root, 'package.json')), original);
+    }
+  });
+
   it('round-3 secondary: an infrastructure abort exits 2 (environment fault), never 3 (misuse)', async () => {
     // The CLI `run` path has NO offline seam, so step [1] fetch of the
     // non-existent stub/downstream@<fake-sha> fails (404 online, ENOTFOUND
