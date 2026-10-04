@@ -25,7 +25,12 @@ import os from 'node:os';
 import path from 'node:path';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
-const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
+const cliIndex = process.argv.indexOf('--cli');
+const explicitCli = cliIndex < 0 ? undefined : process.argv[cliIndex + 1];
+if (cliIndex >= 0 && (!explicitCli || !path.isAbsolute(explicitCli) || !fs.statSync(explicitCli, { throwIfNoEntry: false })?.isFile()))
+  throw new Error('--cli requires an existing absolute CLI file; no development or global fallback is allowed');
+const CLI = explicitCli ?? path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
+console.log(`CLI: ${CLI}; SHA-256: ${crypto.createHash('sha256').update(fs.readFileSync(CLI)).digest('hex')}; Node: ${process.version}`);
 
 let failures = 0;
 function check(name, fn) {
@@ -183,6 +188,8 @@ check('bare `canary`: compact read-only state, full help remains explicit, exit 
   const r = canary([], root);
   assertEq(r.status, 3, 'bare usage keeps exit 3');
   assert(r.stdout.trimStart().startsWith('CONNECTED —'), 'state is the first answer:\n' + r.stdout);
+  assert(/last verification \(historical only\): "pass" \("setup"\)/.test(r.stdout), 'show the last diagnostic as history, not current proof');
+  assert(/session end: unknown/.test(r.stdout), 'a setup pass cannot establish session completion');
   assert(/canary result/.test(r.stdout) && /canary --help/.test(r.stdout), 'names verification state and full help');
   assert(!/canary isolate|canary accept|canary bind/.test(r.stdout), 'bare entry must not print the expert command list');
   const help = canary(['--help'], root);
@@ -201,6 +208,29 @@ check('bare `canary`: compact read-only state, full help remains explicit, exit 
   // Windows profile) — then the honest footer names the UNTRUSTED repo, which
   // is correct behavior. What must never happen: claiming CONNECTED here.
   assert(!/^CONNECTED —/m.test(r3.stdout), 'never claims CONNECTED outside a connected repo:\n' + r3.stdout);
+});
+
+check('bare history stays read-only and cannot turn a forged or absent record into current proof', () => {
+  const root = makeRepo('bare-history');
+  const file = path.join(root, '.canary', 'last-checkpoint.json');
+  for (const record of [
+    { at: '2026-01-01T00:00:00Z', source: 'checkpoint', status: 'fail', hookResponse: 'blocked' },
+    { at: '2026-01-01T00:00:00Z', source: 'doctor', status: 'pass\nREADY' },
+    { status: 'pass' },
+    null,
+  ]) {
+    if (record === null) fs.rmSync(file);
+    else fs.writeFileSync(file, JSON.stringify(record));
+    const before = manifest(root);
+    const answer = canary([], root);
+    assertEq(answer.status, 3, 'history cannot change the bare CLI exit contract');
+    assert(answer.stdout.trimStart().startsWith('CONNECTED —'), 'history cannot decide wiring');
+    assert(!/^READY/m.test(answer.stdout), 'recorded text cannot inject a current verdict');
+    assert(record?.at ? /historical only/.test(answer.stdout) : /last verification: none recorded/.test(answer.stdout),
+      'only a well-formed bounded historical record is displayed');
+    assertStable(root, before, 'bare history');
+    assert(!fs.existsSync(path.join(root, 'sentinel.txt')), 'history must never execute a project check');
+  }
 });
 
 check('unattended setup without --yes (no TTY): smoke test RUNS — READY is earned, failures still never pass', () => {

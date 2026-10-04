@@ -3755,6 +3755,10 @@ export function cmdStatus(rawArgs: string[], compact = false): number {
   if (compact && !opts.json) {
     o.verdict('CONNECTED', `${root}: wiring and sealed plan are intact. No project check was run.`, 'canary doctor runs the checks');
     o.say(proofLevelLine(security.level));
+    const last = lastVerificationFromCheckpoint(parseJsonOrNull(path.join(root, CONFIG_DIR, CHECKPOINT_FILE)));
+    o.say(last
+      ? `last verification (historical only): ${JSON.stringify(last.status)} (${JSON.stringify(last.source)}) at ${JSON.stringify(last.at)}; session end: unknown`
+      : 'last verification: none recorded');
     return 0;
   }
   o.say(`repo: ${root}`);
