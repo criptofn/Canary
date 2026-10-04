@@ -123,3 +123,24 @@ separate capture status; the full matrix remains INCOMPLETE with fewer than
 H1/H2/H3/H5/S1 will run independently; R1 remains an unresolved prerequisite,
 and both planned R1 native sessions remain unexecuted rather than successful.
 This partial continuation does not fulfill the six-task plan or prove 8/10.
+
+The independent continuation has now executed **10/12 full-scope controls**:
+
+| Task | Correct change | Restored faulty implementation |
+| --- | --- | --- |
+| H1 | checkpoint pass, no block | checkpoint fail, blocked |
+| H2 | checkpoint pass, no block | checkpoint fail, blocked |
+| H3 | checkpoint pass, no block | checkpoint fail, blocked |
+| H5 | checkpoint pass, no block | checkpoint fail, blocked |
+| S1 | checkpoint pass, no block | checkpoint fail, blocked |
+| R1 | not executed: unstable pristine baseline | not executed: unstable pristine baseline |
+
+The selected capture has no failure, but the matrix correctly reports
+`status: incomplete` and exits nonzero for the missing two controls. Its raw
+archive contains **544 byte-verified files** at
+`check-process-diagnosis-20261004-frozen/independent-controls-archive`.
+The strict complete-comparison reporter was not run against this partial
+archive; its completion requirements remain unchanged.
+Fresh solution-blind copies for the ten runnable native sessions are being
+prepared separately from these historical-solution controls. No model session
+for this frozen package has started yet.
