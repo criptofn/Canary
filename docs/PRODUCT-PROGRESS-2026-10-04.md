@@ -301,3 +301,22 @@ countercase passed. Details and raw evidence are in
 The next required sequential gate covers this combined source. Full native
 benefit remains unmeasured for this new product; the missing Refactron pair and
 previous pilot overhead still prevent an evidence-based 8/10 claim.
+
+## Combined corrections delivered: 2026-10-05
+
+Source `7ecf465` completed standalone tests (1353 pass, zero fail, four skips)
+and productization (104 pass, six explicit skips) sequentially. The terminal
+job record has status zero, no signal and no error. The installed frozen
+artifact now passes eleven build-freshness comparisons against the retained
+published release, the compact status controls and seven provenance controls.
+Its package SHA-256 is
+`497650e8170a7cac242648aec2b7dee48cf9fee4a2bdabda8b54466bd4a6d65a`;
+entry SHA-256 is
+`10c482d22ac12c6c951b859d1dedf628c932be1251ebf21488a61528f1237805`.
+Exact paths, scope and limits are in `LEGACY-BUILD-FRESHNESS-2026-10-05.md`.
+
+This closes the combined code gate and package-delivery work. It does not close
+the full six-task/twelve-session practical scope: Refactron's baseline remains
+unresolved, and the new frozen product has not yet had a native comparison.
+The old pilot's failures and overhead remain visible. No higher rating, merge
+or publication is claimed from code gates alone.

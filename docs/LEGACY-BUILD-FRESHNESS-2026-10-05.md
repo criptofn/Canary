@@ -73,3 +73,39 @@ baseline failure that persists after build still provides discrimination; the
 same regression tests that countercase. The corrected targeted test passes
 (`legacy-build-freshness-20261005-baseline-green.log`, one pass, zero failures).
 The candidate package above predates this additional correction.
+
+## Combined gates and installed delivery
+
+The clean integrated source `7ecf465d2f8661ef0cbaf6f4eaa5ef642291b2ef`
+completed the required sequential gate job
+`legacy-build-freshness-20261005-gates-job`. Standalone `npm test` reports
+1357 tests, **1353 pass, zero fail, four explicit skips**. Productization ended
+at `2026-10-04T23:43:04.764Z` with process status zero, no signal and no execution
+error: **104 PASS, 6 explicit SKIP** (four host-bound; two live cost-gated and
+not run; two host-bound steps executed zero checks). Architecture closure
+reports 39 pass / zero fail / zero skip, and both mutation batteries caught
+all 13 mutations. A skipped check is not a pass.
+
+After the job ended, the existing freeze helper verified clean source and dist,
+packed and installed the product in an isolated directory. Delivery evidence:
+`legacy-build-freshness-20261005-frozen`.
+
+* Archive: `package/final.tgz`, SHA-256
+  `497650e8170a7cac242648aec2b7dee48cf9fee4a2bdabda8b54466bd4a6d65a`.
+* Installed entry: `package/installed/node_modules/@canary-rn/cli/dist/main.js`,
+  SHA-256 `10c482d22ac12c6c951b859d1dedf628c932be1251ebf21488a61528f1237805`.
+* Version remains `canary 1.5.0`; this is an unreleased improvement artifact,
+  identified by source and hashes, not the published v1.5.0 archive.
+* Against the retained published release entry (`3cfdfece...d5e2`),
+  `installed-comparison` passes all eleven observations, preserves seal bytes,
+  and hashes 184 raw files. It covers stale broken artifacts at doctor and Stop,
+  initial failure retention, subsequent repair, build failures and modern plans.
+* Explicit installed-CLI status probe: ALL PASS. Provenance probe: seven pass,
+  zero fail. Each receipt binds executed CLI path, entry hash and probe hash.
+
+The baseline attribution correction has its targeted real-Git regression and
+countercase in the completed full suite; the eleven-case installed comparison
+does not independently exercise that new baseline-attribution case. These gates
+and installed controls establish delivery of the corrections, not native agent
+benefit or an 8/10 rating. The replacement native comparison and missing
+Refactron prerequisite remain open. No merge or release was performed.
