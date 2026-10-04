@@ -1,6 +1,6 @@
 # Additional Canary product work, 2026-10-04
 
-## Implemented; compact history awaits runtime verification
+## Implemented and targeted runtime checks passed
 
 * Bare `canary` now includes the last recorded verification in its compact
   read-only status. It explicitly labels the result historical and leaves session
@@ -26,7 +26,7 @@ Source commits: `6377235`, `a414917`, `858d2e3`, on
 The Node 24.21.0 TypeScript no-emit check succeeded after both product changes.
 `git diff --check` succeeded. Three malformed probe invocations were rejected
 before starting any fixture or Canary process. These observations do not verify
-the compact history runtime behavior.
+the compact history runtime behavior by themselves.
 
 A forced build of this isolated branch then succeeded. The two focused CLI
 version tests passed with zero failures and zero skips: the original version and
@@ -65,3 +65,27 @@ this is not an overall pass.
 No higher product rating is established by code or static checks. The earlier
 pilot's unnecessary block has been corrected separately, but its repair-loop
 overhead and incomplete Refactron scope remain open evidence.
+
+## Targeted comparison completed
+
+After confirming the status probe confines project writes and check execution to
+its own mkdtemp fixtures and reads an explicitly selected independent CLI, it ran
+separately from the unchanged primary gate. The old installed frozen artifact
+(`d41dc6606447b7f2d5cd4d18a1aa00dfe1191fd7b46683bdfd9963827ff294d9`)
+reported three expected missing-feature failures: verbose version, compact
+verification history, and absent/malformed historical record handling. The new
+built CLI (`5222b8ec9ee89298715a080da684e5b5570a56fc8e426faba78005ee5aefba7a`)
+reported `lazy-connect-status: ALL PASS`, exit zero. Both used Node 24.21.0.
+
+The same probe verifies unchanged bare exit code, read-only tree manifests,
+no execution of sentinel checks by status/history, explicit help, corrupted and
+tracked configuration distrust, sealed-script drift, removed hooks, terminal
+injection handling, missing history, and unattended failing-check behavior.
+Raw logs: `compact-status-20261004-old-installed.log` and
+`compact-status-20261004-new-built.log` in the external evidence directory.
+
+The build and targeted comparisons are complete. Integration, the required
+full sequential gates, and verification of a newly installed artifact remain.
+The primary gate has additionally reported architecture closure 39 pass / zero
+fail / zero skip, and architecture mutations 13/13 caught with zero failures;
+its overall terminal result is still pending.
