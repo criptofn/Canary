@@ -280,3 +280,24 @@ ALL PASS against the new isolated build; the two version contract tests pass.
 Full details and raw-log names are in
 `COMPACT-HISTORY-PROGRESS-2026-10-04.md`. Full sequential gates for this combined
 stand are prepared next. No newly frozen package or higher rating is claimed.
+
+## Build freshness and proof attribution: 2026-10-05
+
+The combined job for `02c8155` completed the standalone suite (1350 pass,
+zero fail, four skips), but productization was interrupted after a newly
+confirmed stale-artifact false READY superseded that source. Its
+`interrupted.json` preserves the reason; it is not a completed gate. The dist
+tripwire passed after shutdown and no mutation journal remained.
+
+Product changes through `cf5c0d7` are now integrated: authorized tests preceding
+the final build run again after it, failed-step mappings use the actual expanded
+execution plan, and recovered pre-build baseline failures cannot give an
+unrelated edit discrimination credit. Initial verification failures are never
+waived. Sealed configuration stays unchanged. Installed scheduler/Stop controls
+passed eleven observations; the additional baseline regression and real-failure
+countercase passed. Details and raw evidence are in
+`LEGACY-BUILD-FRESHNESS-2026-10-05.md`.
+
+The next required sequential gate covers this combined source. Full native
+benefit remains unmeasured for this new product; the missing Refactron pair and
+previous pilot overhead still prevent an evidence-based 8/10 claim.
