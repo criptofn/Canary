@@ -94,7 +94,10 @@ function runPhase(label, arm, repo) {
   const r = run(process.execPath, args, worktree, timeoutMs + 60_000);
   const resultPath = path.join(out, 'attempt-result.json');
   const attempt = fs.existsSync(resultPath) ? JSON.parse(fs.readFileSync(resultPath, 'utf8')) : null;
-  if (r.status !== 0 || !attempt || attempt.status !== 'complete') {
+  const baselineGreen = attempt && attempt.commands.some((c) => c.name === 'plain-tests')
+    && attempt.commands.every((c) => c.exitCode === 0 && !c.signal && !c.timedOut && !c.spawnError)
+    && (arm !== 'canary' || attempt.canaryVerdict === 'READY');
+  if (r.status !== 0 || !attempt || attempt.status !== 'complete' || !baselineGreen) {
     throw new Error(`${label}/${arm} preflight failed (exit ${String(r.status)}):\n${r.stdout ?? ''}\n${r.stderr ?? ''}`);
   }
   return {
