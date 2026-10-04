@@ -221,8 +221,12 @@ const result = {
       : commands.find((c) => c.name === 'canary-doctor-baseline') ? 'canary-doctor-baseline' : null;
       if (canaryCommand === null) return null;
       const out = fs.readFileSync(path.join(outDir, `${canaryCommand}.stdout.txt`), 'utf8');
-      const m = out.match(/"(?:decision|status)"\s*:\s*"([^"]+)"/);
-      if (m) return m[1];
+      // Only the envelope decides; nested proof duties have their own status.
+      try {
+        const envelope = JSON.parse(out);
+        const verdict = envelope?.decision ?? envelope?.status;
+        if (typeof verdict === 'string') return verdict;
+      } catch { /* older hook prose is classified below, never a nested verdict */ }
       if (/sealed checks passed/i.test(out)) {
         return /with a caveat/i.test(out)
           ? 'passed_with_worker_authored_evidence_caveat'
