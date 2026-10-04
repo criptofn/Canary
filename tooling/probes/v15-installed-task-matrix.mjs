@@ -37,6 +37,9 @@ const sourcePaths = {
   R1: 'src/verify/failure-ids.ts',
   S1: 'src/main/java/net/schniedelsmp/smp/util/IdLookup.java',
 };
+const selectedTasks = arg('tasks')?.split(',') ?? Object.keys(sourcePaths);
+assert.ok(selectedTasks.length && new Set(selectedTasks).size === selectedTasks.length
+  && selectedTasks.every((label) => Object.hasOwn(sourcePaths, label)), '--tasks must name unique existing task labels');
 const taskNames = {
   H1: 'H1-maxagedays-zero.md', H2: 'H2-invoice-classification.md',
   H3: 'H3-quantize-bits-validation.md', H5: 'H5-simulation-cases.md',
@@ -47,6 +50,8 @@ const commands = [];
 const manifest = {
   startedAt: new Date().toISOString(), cli, cliSha256: cliHash,
   package: archive, packageSha256: packageHash, scratch, javaBin,
+  selectedTasks, unselectedTasks: Object.keys(sourcePaths).filter((label) => !selectedTasks.includes(label)),
+  fullScopeExpectedControls: 12,
   instruments: [fileURLToPath(import.meta.url), preparationProbe, runner, oracle, solutionProbe]
     .map((file) => ({ file, sha256: fileHash(file) })),
   solutions: Object.keys(sourcePaths).map((label) => ({
@@ -76,7 +81,7 @@ const rows = [];
 let failure = null;
 try {
   run('preparation', process.execPath, [preparationProbe, '--out', path.join(output, 'prepared'),
-    '--cli', cli, '--artifact-sha256', packageHash, '--scratch-root', scratch]);
+    '--cli', cli, '--artifact-sha256', packageHash, '--scratch-root', scratch, '--tasks', selectedTasks.join(',')]);
   const preparation = JSON.parse(fs.readFileSync(path.join(output, 'prepared/preparation-summary.json'), 'utf8'));
   assert.equal(preparation.cliSha256, cliHash);
   for (const record of preparation.records) {
@@ -84,7 +89,7 @@ try {
     assert.ok(measured.commands.every((c) => c.exitCode === 0 && !c.timedOut && !c.spawnError), `${record.label}/${record.arm}: baseline check failed`);
     if (record.arm === 'canary') assert.equal(record.canaryVerdict, 'READY');
   }
-  for (const label of Object.keys(sourcePaths)) {
+  for (const label of selectedTasks) {
     const start = preparation.records.find((r) => r.label === label && r.arm === 'canary');
     assert.ok(start, `${label}: missing independent baseline`);
     const repo = start.repo;
@@ -147,6 +152,8 @@ try {
   console.error(failure);
 } finally {
   const summary = { ...manifest, finishedAt: new Date().toISOString(), commands, rows, failure,
+    selectedControlsStatus: !failure && rows.length === selectedTasks.length * 2 && rows.every((r) => r.passed) ? 'complete' : 'incomplete',
+    caveat: 'Selected controls do not replace the full six-task comparison. Unselected tasks remain unproven.',
     status: !failure && rows.length === 12 && rows.every((r) => r.passed) ? 'complete' : 'incomplete' };
   fs.writeFileSync(path.join(output, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`, { flag: 'wx' });
   // Prepared projects are mutable working copies, not immutable raw evidence.

@@ -101,5 +101,25 @@ caller PATH (`check-process-diagnosis-20261004-canonical-green.log`). An earlier
 run with a mismatched caller PATH had two inventory-premise failures and is
 retained in `check-process-diagnosis-20261004-green.log`; it is not a passing run.
 Tests use the existing controller execution seam, so no extra Windows native
-process-monitor trial was consumed. Required broad gates for this correction
-are pending; the earlier frozen package does not contain it.
+process-monitor trial was consumed. Both required broad gates for this correction
+have now completed, sequentially, at `c234fd8b599d3c782e22aecffb7a442ef62fcc52`:
+standalone **1350 tests, 1346 passed, 4 skipped, 0 failed**; productization
+**104 PASS, 6 explicit SKIP** (four host-bound, two live cost-gated).
+The internal productization unit reporter independently gives the same counts.
+Both terminal records have status 0, null signal and null error.
+Raw evidence: `check-process-diagnosis-20261004-gates-job/capture`.
+
+The complete product stand was frozen after these gates, without further product
+changes, in `check-process-diagnosis-20261004-frozen/package`:
+package SHA-256 `bde4ff32d99c768aa361b305b523d6d2852f54421cd9cc74f2b23e3fd007132a`;
+installed CLI SHA-256 `d41dc6606447b7f2d5cd4d18a1aa00dfe1191fd7b46683bdfd9963827ff294d9`.
+The earlier frozen artifact remains preserved and does not contain this correction.
+
+To continue independent controls despite the Refactron prerequisite failure,
+the matrix now accepts explicit existing `--tasks` labels. Default scope stays
+all six. Selection and unselected labels are recorded. Selected controls get a
+separate capture status; the full matrix remains INCOMPLETE with fewer than
+12 passing controls. No assertion or the full-scope denominator was reduced.
+H1/H2/H3/H5/S1 will run independently; R1 remains an unresolved prerequisite,
+and both planned R1 native sessions remain unexecuted rather than successful.
+This partial continuation does not fulfill the six-task plan or prove 8/10.
