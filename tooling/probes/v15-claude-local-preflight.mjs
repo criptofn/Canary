@@ -24,6 +24,13 @@ const preparation = preparedRoot ? JSON.parse(fs.readFileSync(path.join(prepared
 if (preparation) {
   assert.equal(preparation.status, 'complete'); assert.equal(preparation.records.length, preparation.tasks.length * 2);
   assert.equal(preparation.cliSha256, crypto.createHash('sha256').update(fs.readFileSync(cli)).digest('hex'));
+  for (const record of preparation.records.filter((r) => !taskSelection || taskSelection.includes(r.label))) {
+    const attempt = JSON.parse(fs.readFileSync(path.join(record.output, 'attempt-result.json'), 'utf8'));
+    assert.ok(attempt.commands.some((c) => c.name === 'plain-tests')
+      && attempt.commands.every((c) => c.exitCode === 0 && !c.signal && !c.timedOut && !c.spawnError),
+    `${record.label}/${record.arm}: baseline checks must pass before model calls`);
+    if (record.arm === 'canary') assert.equal(record.canaryVerdict, 'READY');
+  }
 }
 for (const [name, value] of Object.entries({ cli, claude, ollama, out })) assert.ok(value && path.isAbsolute(value), `absolute --${name} required`);
 for (const [name, value] of Object.entries({ cli, claude, ollama })) assert.ok(fs.statSync(value, { throwIfNoEntry: false })?.isFile(), `--${name} must be an existing file`);
