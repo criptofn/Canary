@@ -87,9 +87,11 @@ if (label === 'H1') {
   const matches = [...original.matchAll(marker)];
   if (matches.length !== 1) throw new Error(`H3 oracle expected one quantizeSymmetric declaration, found ${matches.length}`);
   const modulePath = path.join(outDir, 'matrixNormCore.mjs');
-  fs.writeFileSync(modulePath, original.replace(marker, '$1export function quantizeSymmetric(a, bits) {'), { flag: 'wx' });
+  // A private alias also works when the worker already exports the function.
+  // Rewriting its declaration to `export function` duplicates a named export.
+  fs.writeFileSync(modulePath, `${original}\nexport { quantizeSymmetric as __canaryOracleQuantize };\n`, { flag: 'wx' });
   const file = path.join(outDir, 'oracle.mjs');
-  fs.writeFileSync(file, `import assert from 'node:assert/strict';\nimport { quantizeSymmetric, buildMatrixNormBriefing } from './matrixNormCore.mjs';\nfor(const bits of [0,1,1.5,17,NaN,Infinity,'4',null]) assert.throws(()=>quantizeSymmetric([[1,-1]],bits),TypeError); for(let bits=2;bits<=16;bits++){const q=quantizeSymmetric([[0,1,-1],[0.5,-0.5,0]],bits); assert.ok(q.flat().every(Number.isFinite));} assert.equal(buildMatrixNormBriefing('matrixnorm').simulation.length,8); console.log('PASS H3 independent bit-width range contract');\n`, { flag: 'wx' });
+  fs.writeFileSync(file, `import assert from 'node:assert/strict';\nimport { __canaryOracleQuantize as quantizeSymmetric, buildMatrixNormBriefing } from './matrixNormCore.mjs';\nfor(const bits of [0,1,1.5,17,NaN,Infinity,'4',null]) assert.throws(()=>quantizeSymmetric([[1,-1]],bits),TypeError); for(let bits=2;bits<=16;bits++){const q=quantizeSymmetric([[0,1,-1],[0.5,-0.5,0]],bits); assert.ok(q.flat().every(Number.isFinite));} assert.equal(buildMatrixNormBriefing('matrixnorm').simulation.length,8); console.log('PASS H3 independent bit-width range contract');\n`, { flag: 'wx' });
   generated.push('matrixNormCore.mjs', 'oracle.mjs'); outcome = runNodeOracle(file);
 } else if (label === 'H5') {
   const sourceUrl = pathToFileURL(path.join(repo, sourceFiles[0])).href;
