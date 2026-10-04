@@ -2162,10 +2162,11 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
     };
     for (const p of changed) {
       if (!signals.changes.includes(p)) continue;
-      // Imported checks often use foo-test.js rather than foo.test.js. Admit
+      // Imported checks use foo-test.js or test-foo.js as well as foo.test.js. Admit
       // that check surface here without exempting it from behaviour obligations.
       // An unused file still cannot make the sealed plan discriminate a change.
-      if (!isTestPath(p) && !/[-_](?:test|spec)\.[cm]?[jt]sx?$/i.test(p) && !namedBySealedScript(p)) continue;
+      if (!isTestPath(p) && !/[-_](?:test|spec)\.[cm]?[jt]sx?$/i.test(p)
+        && !/(?:^|\/)(?:test|spec)[-_][^/]+\.[cm]?[jt]sx?$/i.test(p) && !namedBySealedScript(p)) continue;
       // "Did this check file exist at the sealed baseline?" — asked of git, not guessed. Every
       // path in `changed` IS a change, so presence at the baseline is exactly the provenance split.
       const atBaseline = gitWithinRoot(root, ['cat-file', '-e', `${head}:${p}`]) !== null;
@@ -4660,7 +4661,9 @@ export function cmdResult(rawArgs: string[]): number {
     } else {
       o.say('checks in that run: none recorded (older checkpoint or a pre-check block)');
     }
-    o.say(`hook response: ${lastVerification.hookResponse}; session end: unknown`);
+    o.say(lastVerification.source === 'checkpoint'
+      ? `completion hook in that run: ${lastVerification.hookResponse}; session end: unknown`
+      : 'diagnostic run; no completion-hook response in this record; session end: unknown');
     if (lastVerification.next) o.say(`recorded next step: ${lastVerification.next}`);
     if (lastVerification.evidencePath) o.say(`full evidence: ${lastVerification.evidencePath}`);
   }
@@ -4671,7 +4674,7 @@ export function cmdResult(rawArgs: string[]): number {
     return 2;
   }
   o.verdict('CONNECTED',
-    lastVerification ? `last recorded completion: ${lastVerification.status} (${lastVerification.source}) at ${lastVerification.at} — a past run, not a claim about now`
+    lastVerification ? `last recorded verification: ${lastVerification.status} (${lastVerification.source}) at ${lastVerification.at} — a past run, not a claim about now`
       : 'no completion has been checked here yet — the wiring is sound, but nothing has been proven',
     'to check the code now: canary doctor');
   return 0;

@@ -191,6 +191,53 @@ To avoid repeating completed sessions, the instrument now accepts explicit
 exact scheduling, and the original pristine HEAD/clean worktree and baseline
 oracles for every selected arm. Existing integrity assertions remain binding.
 The next segment runs only H2/plain, H3/plain+Canary, H5/Canary+plain and
-S1/plain+Canary, preserving the original task order. Instrument hashes differ
+S1/Canary+plain, preserving the original task order. Instrument hashes differ
 between segments and must be reported; selected capture completion is not full
 12-session completion. R1/plain and R1/Canary remain unexecuted.
+
+All ten runnable native arms are now terminal across the two segments. Four
+Canary arms reached real Stop checkpoints. After separate H3 oracle repair,
+functional correctness plus normal completion is **4/5 Canary versus 5/5 plain**;
+requiring unchanged protected configuration reduces Canary to **3/5**. R1's
+two planned arms remain blocked. This is not completion of the twelve-session
+plan and does not establish an 8/10 product.
+
+| Task | Plain | Canary | Native total tokens plain / Canary |
+| --- | --- | --- | --- |
+| H1 | correct normal completion | incorrect, max-turn abort, no Stop | 283530 / 1154615 |
+| H2 | correct normal completion | correct Stop completion; package.json trial violation | 44981 / 792041 |
+| H3 | correct normal completion | correct Stop completion after posthoc oracle repair | 90950 / 714480 |
+| H5 | correct normal completion | correct Stop completion | 34046 / 88871 |
+| S1 | correct normal completion | correct Stop completion | 174573 / 178757 |
+
+Native API usage reconciles with Claude modelUsage in all ten arms, including
+MCP traffic. Totals: **628080 plain versus 2928764 Canary tokens** (4.66x),
+**379.052 versus 840.370 seconds** (2.22x). Provider charge remains $0.
+These small local-model trials demonstrate overhead, not token savings.
+The model/server were unloaded/stopped after both terminal segments.
+Worker archives contain 152 and 167 hashed files respectively.
+
+H3's raw oracle failure was a duplicate export introduced by the measurement
+instrument when the worker already exported quantizeSymmetric. The repaired
+instrument exposes a private alias without rewriting the declaration; identical
+invalid/valid width assertions remain. Separate posthoc evidence passes both
+unchanged candidate implementations and rejects the untouched pristine baseline.
+Original outputs remain unchanged. This is a measurement correction, not a
+product false green, and posthoc evidence has a different instrument hash.
+
+Two additional product corrections were built after the frozen pilot:
+
+* `result` no longer calls setup/doctor history a recorded completion. Human
+  output distinguishes diagnostic history from hook responses and leaves session
+  end unknown. Protocol tests: **8 pass, 0 fail, 0 skip**.
+* The H2 raw baseline log identified an unnecessary block: a sealed smoke test
+  imported `scripts/test-fileOrganizer-invoice-extensions.js`, but Canary's
+  baseline overlay recognized suffix-named tests, not prefix-named tests. The
+  overlay now also admits test-/test_/spec-/spec_ files, retaining worker
+  provenance. A new regression fails before the fix and passes afterward;
+  unused prefix tests and missing non-test helpers still cannot prove a change.
+  Focused checks: **3 pass, 0 fail, 0 skip**. No verdict or JSON schema changed.
+
+Evidence logs: `completion-history-label-20261004-{red,green}.log` and
+`imported-test-prefix-20261004-{red,green}.log`. Full required gates for these
+post-pilot changes remain pending; the previous frozen package is unchanged.

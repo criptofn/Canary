@@ -167,6 +167,28 @@ test('an unavailable baseline check dependency remains unproven and its failing 
     'the operator must be able to identify the missing dependency after the comparison tree is removed');
 });
 
+test('an imported test-prefix regression outside test directories discriminates with worker provenance', () => {
+  const root = fixture('imported-test-prefix');
+  fs.mkdirSync(path.join(root, 'scripts'));
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'scripts/test-greet-regression.cjs', "const assert = require('node:assert/strict'); const greet = require('../greet.cjs'); assert.equal(greet('  Ada'), 'hello Ada');\n");
+  write(root, 'tests/greet.test.cjs', TEST + "require('../scripts/test-greet-regression.cjs');\n");
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  const result = discriminationObligation(root, cfg);
+  assert.equal(result?.status, 'met', result?.note);
+  assert.match(result?.caveat ?? '', /scripts\/test-greet-regression\.cjs/);
+  assert.match(result?.caveat ?? '', /CREATED|WRITTEN BY THE WORKER/);
+});
+
+test('an unused test-prefix file cannot provide regression evidence', () => {
+  const root = fixture('unused-test-prefix');
+  fs.mkdirSync(path.join(root, 'scripts'));
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'scripts/test-greet-regression.cjs', "const assert = require('node:assert/strict'); const greet = require('../greet.cjs'); assert.equal(greet('  Ada'), 'hello Ada');\n");
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  assert.equal(discriminationObligation(root, cfg)?.status, 'unproven');
+});
+
 test('BLOCKER 1: a comment-only test edit cannot verify, promote, finish, or pass the completion hook', () => {
   const root = fixture('comment-only'); const candidate = work(root);
   write(candidate, 'greet.cjs', FIXED); write(candidate, 'tests/greet.test.cjs', TEST + '// regression coverage reviewed\n'); commit(candidate);
