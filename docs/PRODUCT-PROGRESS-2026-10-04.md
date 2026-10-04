@@ -154,3 +154,25 @@ continues subsequent pairs; it still refuses aggregate completion if accounting,
 declared context or required Stop evidence is missing. Protected configuration
 and baseline violations still stop the pilot immediately. Fresh project copies
 are required for the new run. Product artifact bde4ff32/d41dc660 stays unchanged.
+
+The fresh continuation job `check-process-diagnosis-20261004-native-continuation-job`
+is running with instrument commit `03a3e88`. Its first completed pair is H1:
+
+| Arm | Independent correctness | Native completion | Native input/output tokens |
+| --- | --- | --- | --- |
+| plain | pass | success, end_turn, reconciled accounting | 272016 / 11514 |
+| Canary | fail | error_max_turns at 51 reported turns; no Stop | 1136935 / 17680 |
+
+The Canary arm's recorded checkpoint is the **unchanged preparation doctor**
+checkpoint, timestamp `2026-10-04T19:29:09.838Z`, before the session began.
+It is not a verification of the final worker state or a completion approval.
+The worker's final implementation incorrectly skips every file when maxAgeDays
+is null/undefined; the hidden oracle observes an empty list instead of all files.
+Configuration and baseline ancestry remain intact. This naturally occurring
+failure was not injected and was not caught by a completion hook: the session
+never reached that hook. It is a negative product-use observation, not evidence
+of a successful block or a new live false-positive verdict.
+The previous truncated job's worker state and preflight are preserved in
+`check-process-diagnosis-20261004-frozen/incomplete-native-worker-archive`
+(129 hashed files). Remaining pairs are still running; no aggregate score is
+derived from this one completed pair.
