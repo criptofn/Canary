@@ -83,6 +83,9 @@ const sensitiveKey = /(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH|CLAUDE|OPENAI|A
 const safeEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !sensitiveKey.test(key)));
 safeEnv.CANARY_TRUST_STORE = trustStore;
 safeEnv.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
+if (process.platform === 'win32') {
+  for (const key of Object.keys(safeEnv)) if (key.toLowerCase() === 'path') delete safeEnv[key];
+}
 safeEnv.PATH = [...toolchainDirs, process.env.PATH ?? ''].filter(Boolean).join(path.delimiter);
 
 const run = (exe, args, { input, cwd = repo, env = safeEnv, timeout = timeoutMs } = {}) => spawnSync(exe, args, {
