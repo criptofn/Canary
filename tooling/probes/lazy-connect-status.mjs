@@ -25,6 +25,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
+const cliOptions = process.argv.slice(2);
+if (cliOptions.length && (cliOptions.length !== 2 || cliOptions[0] !== '--cli'))
+  throw new Error('usage: lazy-connect-status.mjs [--cli <absolute CLI file>]; unsupported options cannot fall back to a development build');
 const cliIndex = process.argv.indexOf('--cli');
 const explicitCli = cliIndex < 0 ? undefined : process.argv[cliIndex + 1];
 if (cliIndex >= 0 && (!explicitCli || !path.isAbsolute(explicitCli) || !fs.statSync(explicitCli, { throwIfNoEntry: false })?.isFile()))
