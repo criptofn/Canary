@@ -248,12 +248,20 @@ async function pilot() {
       manualInterventions: 0, providerUsdCharge: 0 };
     outcomes.push(outcome); save(`${name}-outcome.json`, outcome);
     console.log(`END ${name}: correctness=${outcome.correctness}, complete=${outcome.sessionComplete}, checkpoint=${outcome.checkpointStatus}`);
-    assert.ok(outcome.sessionCaptured, `${name}: incomplete native capture; retained and stopped`);
-    assert.equal(measured.terminal.modelUsage?.[model]?.contextWindow, metadata.contextLength, `${name}: incorrect declared context`);
+    // A failed session is an outcome, not a reason to discard independent pairs.
+    // Preserve its missing accounting/Stop event and keep the aggregate incomplete.
+    if (!outcome.sessionCaptured) console.error(`${name}: incomplete native capture; retained`);
+    if (measured.terminal?.modelUsage?.[model]?.contextWindow !== metadata.contextLength)
+      console.error(`${name}: incorrect or missing declared context; retained`);
     assert.ok(outcome.protectedUnchanged && outcome.baselinePreserved, `${name}: protected setup or baseline ancestry changed; retained and stopped`);
-    if (arm === 'canary' && outcome.sessionComplete) assert.ok(outcome.hookFired, `${name}: real Stop checkpoint missing; retained and stopped`);
+    if (arm === 'canary' && outcome.sessionComplete && !outcome.hookFired)
+      console.error(`${name}: real Stop checkpoint missing; retained`);
   }
   save('pilot-outcomes.json', outcomes);
+  assert.ok(outcomes.every((outcome) => outcome.sessionCaptured
+    && sessions.find((record) => record.name === outcome.name)?.terminal?.modelUsage?.[model]?.contextWindow === metadata.contextLength
+    && (outcome.arm !== 'canary' || !outcome.sessionComplete || outcome.hookFired)),
+  'pilot contains incomplete captures, incorrect contexts or missing Stop checkpoints; see retained outcomes');
 }
 let localEnv;
 try {

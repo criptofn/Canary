@@ -141,6 +141,16 @@ archive contains **544 byte-verified files** at
 `check-process-diagnosis-20261004-frozen/independent-controls-archive`.
 The strict complete-comparison reporter was not run against this partial
 archive; its completion requirements remain unchanged.
-Fresh solution-blind copies for the ten runnable native sessions are being
-prepared separately from these historical-solution controls. No model session
-for this frozen package has started yet.
+Fresh solution-blind copies were prepared separately from these historical
+solution controls. The native job `check-process-diagnosis-20261004-native-job`
+started and terminated after H1/plain: the independent correctness oracle passed,
+but API request 4 ended without message_stop/final usage, native accounting did
+not match, and no Stop event occurred. This is an incomplete session, not a
+successful completion. The owned model/server were stopped. No Canary arm ran.
+The local provider charge was $0; Claude's displayed cost is not provider billing.
+
+The next instrument revision retains incomplete independent sessions and
+continues subsequent pairs; it still refuses aggregate completion if accounting,
+declared context or required Stop evidence is missing. Protected configuration
+and baseline violations still stop the pilot immediately. Fresh project copies
+are required for the new run. Product artifact bde4ff32/d41dc660 stays unchanged.
