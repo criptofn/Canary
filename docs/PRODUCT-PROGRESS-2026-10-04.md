@@ -261,3 +261,22 @@ H2/H3/H5 plain arms each made zero smoke/test command calls. Functional oracle
 success is not equivalent to adding and running regression tests. Further
 improvements must reduce avoidable repair steps without dropping that evidence
 requirement. These observations do not prove a prompting change will fix it.
+
+## Post-pilot gates finished; compact entry work integrated
+
+The corrected job for product source `688654d` finished at
+2026-10-04T21:19:51.279Z with process status zero, no signal and no execution
+error. Productization reports **104 PASS, 6 explicit SKIP**: four host-bound
+steps and two cost-gated live steps. Two host-bound steps executed zero checks.
+None is counted as a pass. The standalone suite remains 1349 pass / zero fail /
+four skips. Architecture closure reports 39 pass / zero fail / zero skip;
+both master-pass and architecture mutation batteries caught all 13 mutations.
+
+The prepared compact historical verification display and optional verbose
+version diagnostics are now integrated on `codex/product-progress` from
+`codex/compact-verification-history`. The targeted status probe fails the three
+missing-feature cases against the previous installed frozen package and reports
+ALL PASS against the new isolated build; the two version contract tests pass.
+Full details and raw-log names are in
+`COMPACT-HISTORY-PROGRESS-2026-10-04.md`. Full sequential gates for this combined
+stand are prepared next. No newly frozen package or higher rating is claimed.

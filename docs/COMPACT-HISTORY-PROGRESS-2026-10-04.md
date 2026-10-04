@@ -18,8 +18,8 @@
   of silently choosing the development build.
 
 Source commits: `6377235`, `a414917`, `858d2e3`, on
-`codex/compact-verification-history`. These changes are not merged into
-`codex/product-progress` yet.
+`codex/compact-verification-history`. After the previous gate terminated
+successfully, these changes were integrated into `codex/product-progress`.
 
 ## Observations so far
 
@@ -84,8 +84,9 @@ injection handling, missing history, and unattended failing-check behavior.
 Raw logs: `compact-status-20261004-old-installed.log` and
 `compact-status-20261004-new-built.log` in the external evidence directory.
 
-The build and targeted comparisons are complete. Integration, the required
+The build, targeted comparisons and integration are complete. The required
 full sequential gates, and verification of a newly installed artifact remain.
 The primary gate has additionally reported architecture closure 39 pass / zero
 fail / zero skip, and architecture mutations 13/13 caught with zero failures;
-its overall terminal result is still pending.
+its overall terminal result subsequently reported 104 PASS / 6 explicit SKIP,
+exit zero, no signal and no execution error. See the main product progress report.
