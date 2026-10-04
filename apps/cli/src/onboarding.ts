@@ -3895,11 +3895,12 @@ export function cmdDoctor(rawArgs: string[]): number {
     for (const s of decision.skipped) o.say(`  ~ skipped ${s.step.kind}: ${s.step.script} — ${s.reason}`);
   }
   const stepsToRun = decision === null ? cfg.plan : decision.run;
+  const executionPlan = planWithFreshTests(stepsToRun);
   o.say('running the verification plan:');
   const failed: StepResult[] = [];
   const ran: StepResult[] = [];
   const refused: string[] = [];
-  for (const s of planWithFreshTests(stepsToRun)) {
+  for (const s of executionPlan) {
     let r: StepResult;
     try { r = runPlanStep(root, cfg.pm, s); }
     catch (e) { refused.push(`plan step "${s.script}" refused: ${(e as Error).message}`); continue; }
@@ -3938,7 +3939,7 @@ export function cmdDoctor(rawArgs: string[]): number {
       ? 'full runner output: could not be written (evidence storage failed) — the excerpt above is all Canary kept'
       : `full runner output: ${evidenceDir} — per-step logs and verification.json; read those, not the excerpt above`);
     for (const failure of failed) {
-      const failedStep = stepsToRun[ran.indexOf(failure)];
+      const failedStep = executionPlan[ran.indexOf(failure)];
       if (failedStep) o.say(`focused recheck after repair: ${doctorCheckCommand(stepKey(failedStep))}`);
     }
     return 2;
@@ -4136,7 +4137,8 @@ export async function cmdCheckpoint(): Promise<number> {
   const failed: StepResult[] = [];
   const ran: StepResult[] = [];
   let infra = '';
-  for (const s of planWithFreshTests(cfg.plan)) {
+  const executionPlan = planWithFreshTests(cfg.plan);
+  for (const s of executionPlan) {
     let r: StepResult;
     try { r = runPlanStep(root, cfg.pm, s); } catch (e) { infra = String(e); break; }
     ran.push(r);
@@ -4325,7 +4327,7 @@ export async function cmdCheckpoint(): Promise<number> {
   const attribution = attributeRunFailures(root, cfg, failed, cfg.plan);
   const reason = `${claimNote}${attribution.cause !== 'project' ? `${attribution.reason} NEXT: ${attribution.next}\n` : ''}${buildFailurePayload({
     steps: failed.map((f) => ({
-      id: stepKey(cfg.plan[ran.indexOf(f)]!),
+      id: stepKey(executionPlan[ran.indexOf(f)]!),
       kind: f.kind, display: f.display, exitCode: f.exitCode,
       stdout: f.stdout ?? '', stderr: f.stderr ?? '',
     })),
