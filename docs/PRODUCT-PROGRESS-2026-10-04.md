@@ -29,8 +29,39 @@ entry and human-output changes.
 
 The queued pilot for that earlier source was cancelled while waiting, with no
 commands or model sessions started, to use the complete product batch instead.
-The complete batch still requires sequential full tests and productization,
-followed by the installed controls and frozen twelve-session pilot.
+The complete batch at `457e65ba839d1f62e481409f3f0dbc6f79771604` subsequently
+completed both required gates on isolated Node 24.21.0, sequentially:
+standalone unit reporter **1349 tests, 1345 passed, 4 skipped, 0 failed**;
+productization **104 PASS, 6 explicit SKIP** (four host-bound and two live
+cost-gated). A skip remains unproven. Both terminal captures report status 0,
+null signal and null error in `product-batch-final-20261004-usage-job/capture`.
+
+That source was frozen once. Package SHA-256:
+`f15ac46ac9f2ef03a2b4017ad0c66bb37e1beb4dd1df6b4bdbff2489390b5036`;
+installed CLI SHA-256:
+`aa263badc5778c8c88716da04056d2c8f00c1231bd2a74188a6c61a77ea377c4`.
+The installed comparison and regression subset passed. No model session has
+started for this artifact. Subsequent measurement fixes did not rebuild it.
+
+The six-task controls have not completed. The unchanged Refactron baseline
+(`1fe40d8505bbb0cac703c976401c17213abf1e9d`) fails regular project tests before
+any agent work, with varying coverage assertions and Vite sourcemap failures.
+Node 24 and Node 26 both exhibited failures. A temporary logging diagnostic
+passed but did not establish a cause; its source was restored byte-exact.
+The restored countercheck again failed. No external project fix, test exclusion
+or baseline substitution is included in Canary's product progress.
+
+Raw captures remain in `product-batch-controls-20261004-envelope-job`,
+`product-batch-controls-20261004-baseline-recheck-job`,
+`refactron-baseline-path-20261004-job`, `refactron-baseline-node26-20261004-job`,
+`refactron-coverage-origin-20261004-job` and
+`refactron-restored-baseline-20261004-job`. The two matrix attempts have
+byte-verified incomplete archives. These failures do not prove a Canary defect.
+
+Measurement corrections now parse the top-level validation envelope, refuse
+bad actual baseline receipts before any model/server initialization, only mark
+preparation complete after checks pass, and normalize Windows PATH key casing.
+These are instrumentation changes, not user-facing product features.
 
 The first complete-batch unit run on `7e2f421` reported 1349 tests: 1344 passed,
 four skipped, one failed. The existing CLI contract requires a `usage:` line
@@ -50,3 +81,25 @@ The older native pilot remains the only completed native comparison: Canary
 4/6 correct normal completions versus plain 3/6, with 2.30 times the tokens and
 1.86 times the elapsed time. The new batch has no measured replacement result
 yet. A higher rating requires the new comparison, not merely more passing tests.
+
+## Next product correction: process failure diagnosis
+
+`runPlanStep` discarded supervisor errors. Its null exit code was then attributed
+to missing tools, recommending installation even for an interrupted check.
+The shared runner now retains supervisor diagnostics in the existing stderr
+evidence and keeps trusted failure facts in memory for attribution. `doctor`
+and failed completion reports identify `CHECK PROCESS FAILURE`, keep the cause
+unknown and direct the operator to inspect the command/output and resolve the
+process error or time limit. Printed project prose cannot supply those facts.
+A capture error with a zero exit code also cannot become a passing check.
+CLI statuses, exit-code contracts and serialized field names remain unchanged.
+
+The targeted regression failed before the correction
+(`check-process-diagnosis-20261004-red.log`). The complete affected test file
+then reports **30 passed, zero failed or skipped** with a canonical Node 24
+caller PATH (`check-process-diagnosis-20261004-canonical-green.log`). An earlier
+run with a mismatched caller PATH had two inventory-premise failures and is
+retained in `check-process-diagnosis-20261004-green.log`; it is not a passing run.
+Tests use the existing controller execution seam, so no extra Windows native
+process-monitor trial was consumed. Required broad gates for this correction
+are pending; the earlier frozen package does not contain it.

@@ -225,6 +225,8 @@ export interface AttributeInput {
   /** Operator-authorized directories that NO LONGER EXIST at verification time. */
   vanishedDirs: readonly string[];
   seal: ToolchainSeal | null;
+  /** Trusted supervisor observation, never inferred from project output. */
+  executionFailure?: string;
 }
 
 /** Where the operator's own environment had this program when Canary was set up (evidence only). */
@@ -248,6 +250,11 @@ function projectFailureReason(kinds: readonly string[], detail?: string): string
 
 export function attributeStepFailure(input: AttributeInput): FailureAttribution {
   const { kind, script, exitCode, output, childPathDirs, vanishedDirs, seal } = input;
+  if (input.executionFailure !== undefined) return {
+    cause: 'unknown', missing: [],
+    reason: `CHECK PROCESS FAILURE — the ${kind} check ("${script}") did not complete normally: ${input.executionFailure}. No completed check result was measured; this does not establish a missing tool or a failed assertion.`,
+    next: 'inspect the recorded command and full output; resolve the process error or time limit, then run canary doctor. Preserve the sealed plan and baseline',
+  };
   const reported = notFoundPrograms(output, exitCode);
   // Native return values, not printed crash prose. Accept signed/unsigned DWORDs.
   const nativeCode = exitCode !== null && Number.isInteger(exitCode)

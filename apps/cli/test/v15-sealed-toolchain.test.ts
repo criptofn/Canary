@@ -25,7 +25,8 @@ import { after, describe, it } from 'node:test';
 process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-v15st-'));
 
 import { sanitizedEnv } from '@canary-rn/support';
-import { takeToolchainDirs } from '../src/onboarding.js';
+import { takeToolchainDirs, runPlanStep, attributeRunFailures, type CanaryConfig } from '../src/onboarding.js';
+import { controllerExecution } from '../src/provider/execution.js';
 import {
   PROJECT_CHECK_FAILURE, SEALED_ENV_CANNOT_RESOLVE, TOOLCHAIN_CANDIDATES,
   attributeFailures, attributeStepFailure, inventoryOperatorToolchain, notFoundPrograms,
@@ -197,6 +198,32 @@ const SEAL: ToolchainSeal = {
 const NOT_FOUND_CMD = "'git' is not recognized as an internal or external command,\r\noperable program or batch file.";
 
 describe('attribution: is Canary\'s environment the cause, or the project?', () => {
+  it('preserves measured process failures and does not recommend tool authorization for them', () => {
+    const plan = [{ kind: 'tests' as const, script: 'test' }];
+    const cfg = { pm: 'npm', plan } as CanaryConfig;
+    for (const error of [new Error('spawn ETIMEDOUT'), new Error('spawn EACCES'), undefined]) {
+      controllerExecution.run({ hooksDirectory: TMP, run: () => ({ status: null, stdout: 'started\n', stderr: '', ...(error ? { error } : {}) }) }, () => {
+        const step = runPlanStep(TMP, 'npm', plan[0]!);
+        assert.equal(step.ok, false);
+        assert.equal(step.exitCode, null);
+        assert.doesNotMatch(JSON.stringify(step), /executionFailure|stepProcessFailures/);
+        if (error) assert.ok(step.stderr.includes(error.message), 'retain the actual supervisor error in evidence');
+        const attribution = attributeRunFailures(TMP, cfg, [step], plan);
+        assert.equal(attribution.cause, 'unknown');
+        assert.match(attribution.reason, /CHECK PROCESS FAILURE/);
+        assert.doesNotMatch(attribution.next, /canary setup|install the tool/);
+      });
+    }
+    controllerExecution.run({ hooksDirectory: TMP, run: () => ({ status: 1, stdout: 'spawn ETIMEDOUT', stderr: '' }) }, () => {
+      const step = runPlanStep(TMP, 'npm', plan[0]!);
+      assert.equal(attributeRunFailures(TMP, cfg, [step], plan).cause, 'project', 'printed process-error prose must not forge supervisor facts');
+    });
+    controllerExecution.run({ hooksDirectory: TMP, run: () => ({ status: 0, stdout: '', stderr: '', error: new Error('output exceeded maxBuffer') }) }, () => {
+      const step = runPlanStep(TMP, 'npm', plan[0]!);
+      assert.equal(step.ok, false, 'a capture error cannot become success even with a zero exit code');
+      assert.equal(attributeRunFailures(TMP, cfg, [step], plan).cause, 'unknown');
+    });
+  });
   const base = {
     kind: 'tests', script: 'test', exitCode: 9009, output: NOT_FOUND_CMD,
     childPathDirs: [NODE_DIR, 'C:\\Windows\\System32', 'C:\\Windows'],

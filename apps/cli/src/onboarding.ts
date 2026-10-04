@@ -1008,6 +1008,7 @@ export function attributeRunFailures(root: string, cfg: CanaryConfig, failed: St
     return {
       kind: f.kind, script: step?.script ?? f.display, exitCode: f.exitCode,
       output: `${f.stdout}${f.stderr}`, childPathDirs, vanishedDirs: vanished, seal,
+      ...(stepProcessFailures.has(f) ? { executionFailure: stepProcessFailures.get(f)! } : {}),
     };
   });
   return attributeFailures(inputs);
@@ -1249,6 +1250,9 @@ export interface StepResult {
   startedAt: string; endedAt: string;
 }
 
+// Supervisor facts stay in memory: project output cannot forge them, and existing JSON stays unchanged.
+const stepProcessFailures = new WeakMap<StepResult, string>();
+
 /** Synthetic non-ran step for resolution failures at the one call site
  *  (setup smoke) that must report honestly instead of crashing. exitCode
  *  null = "could not run at all", the same infra truth a spawn error gives. */
@@ -1299,18 +1303,20 @@ export function runPlanStep(root: string, pm: string, step: PlanStep, timeoutMs 
   // check spawns transitively.
   const r = spawnHardened(resolved, argv.slice(1), cwd, timeoutMs, toolchain, sealedToolchainDirs(root));
   const stdout = r.stdout ?? '';
-  const stderr = r.stderr ?? '';
+  const processFailure = r.error ? r.error.message : r.status === null ? 'process ended without an exit code' : undefined;
+  const stderr = (r.stderr ?? '') + (processFailure ? `\nCanary supervisor: ${processFailure}\n` : '');
   const out = `${stdout}${stderr}`;
-  const infra = r.error !== undefined && r.status === null;
-  return {
-    kind: step.kind, display, ok: !infra && r.status === 0,
-    exitCode: infra ? null : r.status, secs: 0,
+  const result: StepResult = {
+    kind: step.kind, display, ok: processFailure === undefined && r.status === 0,
+    exitCode: processFailure === undefined ? r.status : null, secs: 0,
     tail: out.split(/\r?\n/).filter(Boolean).slice(-12).join('\n'),
     argv, cwd, stdout, stderr,
     execArgv: [...resolved.spawnArgv, ...argv.slice(1)],
     exec: { file: resolved.file, digest: execDigest(resolved.file), via: resolved.via, policy: ENV_POLICY },
     startedAt, endedAt: new Date().toISOString(),
   };
+  if (processFailure !== undefined) stepProcessFailures.set(result, processFailure);
+  return result;
 }
 
 // ---------- M2 evidence: claims are not evidence ----------
