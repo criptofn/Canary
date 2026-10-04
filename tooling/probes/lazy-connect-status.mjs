@@ -32,7 +32,7 @@ const cliIndex = process.argv.indexOf('--cli');
 const explicitCli = cliIndex < 0 ? undefined : process.argv[cliIndex + 1];
 if (cliIndex >= 0 && (!explicitCli || !path.isAbsolute(explicitCli) || !fs.statSync(explicitCli, { throwIfNoEntry: false })?.isFile()))
   throw new Error('--cli requires an existing absolute CLI file; no development or global fallback is allowed');
-const CLI = explicitCli ?? path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
+const CLI = path.resolve(explicitCli ?? path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js'));
 console.log(`CLI: ${CLI}; SHA-256: ${crypto.createHash('sha256').update(fs.readFileSync(CLI)).digest('hex')}; Node: ${process.version}`);
 
 let failures = 0;
