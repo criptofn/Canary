@@ -1,6 +1,6 @@
 # Additional Canary product work, 2026-10-04
 
-## Implemented, awaiting runtime verification
+## Implemented; compact history awaits runtime verification
 
 * Bare `canary` now includes the last recorded verification in its compact
   read-only status. It explicitly labels the result historical and leaves session
@@ -26,7 +26,16 @@ Source commits: `6377235`, `a414917`, `858d2e3`, on
 The Node 24.21.0 TypeScript no-emit check succeeded after both product changes.
 `git diff --check` succeeded. Three malformed probe invocations were rejected
 before starting any fixture or Canary process. These observations do not verify
-the new runtime behavior.
+the compact history runtime behavior.
+
+A forced build of this isolated branch then succeeded. The two focused CLI
+version tests passed with zero failures and zero skips: the original version and
+bare-command contract, and the new detailed runtime/entry/hash report in both
+command spellings. The latter verifies that project bytes remain untouched.
+Only isolated version/bare CLI subprocesses ran; no project checks or supervisor
+stress ran alongside the primary gate. Raw logs are
+`compact-version-20261004-build.log` and
+`compact-version-20261004-targeted.log` in the external evidence directory.
 
 The primary post-pilot verification job continues independently on unchanged
 product source `688654d`. Its standalone suite completed with 1349 pass, zero
