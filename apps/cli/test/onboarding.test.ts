@@ -145,6 +145,34 @@ describe('setup', () => {
     assert.equal(fs.readFileSync(orderFile, 'utf8'), 'build\ntest\n'.repeat(5));
   });
 
+  it('an explicitly ordered test-before-build plan cannot certify stale artifacts at setup, doctor or Stop', () => {
+    const root = path.join(TMP, 'declared-legacy-order');
+    for (const dir of ['.git', '.claude', 'dist']) fs.mkdirSync(path.join(root, dir), { recursive: true });
+    const fixture = path.join(FIXTURES, 'build-dependent-check.cjs');
+    fs.writeFileSync(path.join(root, 'canary.project.json'), JSON.stringify({
+      schema: 'canary-project/1', scopes: [{ path: '.', checks: [
+        { name: 'tests', kind: 'tests', argv: [process.execPath, fixture, 'test'] },
+        { name: 'build', kind: 'build', argv: [process.execPath, fixture, 'build'] },
+      ] }],
+    }));
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'true\n');
+    fs.writeFileSync(path.join(root, 'dist/implementation.json'), 'true\n');
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 0, setup.stdout + setup.stderr);
+    assert.deepEqual(readCfg(root).plan.map((step) => step.kind), ['tests', 'build']);
+    const originalConfig = fs.readFileSync(cfgFile(root));
+    assert.deepEqual(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).checks.map((step: { ok: boolean }) => step.ok), [true, true, true]);
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'false\n');
+    const doctor = canary(['doctor', root]);
+    assert.equal(doctor.status, 2, doctor.stdout + doctor.stderr);
+    assert.deepEqual(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).checks.map((step: { ok: boolean }) => step.ok), [true, true, false]);
+    fs.writeFileSync(path.join(root, 'dist/implementation.json'), 'true\n');
+    const hook = canary(['checkpoint'], root, JSON.stringify({ cwd: root, stop_hook_active: false }));
+    assert.equal(hook.status, 0, hook.stderr);
+    assert.equal(JSON.parse(hook.stdout).decision, 'block');
+    assert.deepEqual(fs.readFileSync(cfgFile(root)), originalConfig, 'execution cannot reseal the ordered plan');
+  });
+
   it('colored Vitest collection failure reports the missing build and retains a block', () => {
     const root = makeProject('colored-vitest-collection', { testScript: `${fx('vitest-color-check.cjs')} collection` });
     const setup = canary(['setup', '--yes', root]);
