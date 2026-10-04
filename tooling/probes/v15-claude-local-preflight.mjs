@@ -16,9 +16,15 @@ const cli = arg('cli'), claude = arg('claude'), ollama = arg('ollama'), out = ar
 const withTools = process.argv.includes('--with-tools');
 const preparedRoot = arg('prepared-root');
 const taskSelection = arg('tasks')?.split(',') ?? null;
+const sessionSelection = arg('sessions')?.split(',') ?? null;
 assert.ok(!taskSelection || (preparedRoot && taskSelection.length && new Set(taskSelection).size === taskSelection.length
   && taskSelection.every((label) => ['H1', 'H2', 'H3', 'H5', 'R1', 'S1'].includes(label))), 'unique supported --tasks requires --prepared-root');
-const expectedSessions = preparedRoot ? (taskSelection?.length ?? 6) * 2 : withTools ? 6 : 3;
+assert.ok(!sessionSelection || (preparedRoot && sessionSelection.length
+  && new Set(sessionSelection).size === sessionSelection.length
+  && sessionSelection.every((name) => /^(H1|H2|H3|H5|R1|S1)-(plain|canary)$/.test(name)
+    && (!taskSelection || taskSelection.includes(name.split('-')[0])))),
+  'unique supported --sessions requires --prepared-root and matching --tasks');
+const expectedSessions = preparedRoot ? sessionSelection?.length ?? (taskSelection?.length ?? 6) * 2 : withTools ? 6 : 3;
 assert.ok(!preparedRoot || path.isAbsolute(preparedRoot), 'absolute --prepared-root required');
 const preparation = preparedRoot ? JSON.parse(fs.readFileSync(path.join(preparedRoot, 'preparation-summary.json'), 'utf8')) : null;
 if (preparation) {
@@ -56,7 +62,8 @@ Object.assign(safeEnv, {
 const metadata = { startedAt: new Date().toISOString(), node: process.version, model, modelDigest: digest,
   cli, cliSha256: sha(fs.readFileSync(cli)), claude, claudeSha256: sha(fs.readFileSync(claude)),
   ollama, ollamaSha256: sha(fs.readFileSync(ollama)), backend, contextLength: 65536, maxOutputTokens: 4096, maxTurns: 50,
-  instrumentSha256: sha(fs.readFileSync(fileURLToPath(import.meta.url))), workspace, profile, withTools, preparedRoot, taskSelection };
+  instrumentSha256: sha(fs.readFileSync(fileURLToPath(import.meta.url))), workspace, profile, withTools, preparedRoot, taskSelection,
+  sessionSelection, fullScopePlannedSessions: preparedRoot ? 12 : expectedSessions };
 save('instrument.mjs', fs.readFileSync(fileURLToPath(import.meta.url), 'utf8'));
 save('v15-anthropic-usage.mjs', fs.readFileSync(new URL('./v15-anthropic-usage.mjs', import.meta.url), 'utf8'));
 metadata.usageParserSha256 = sha(fs.readFileSync(new URL('./v15-anthropic-usage.mjs', import.meta.url)));
@@ -161,7 +168,9 @@ async function pilot() {
   const oracleBytes = fs.readFileSync(oracle);
   const oracleSha256 = sha(oracleBytes);
   const schedule = Object.keys(taskFiles).flatMap((label, index) => (index % 2 ? ['canary', 'plain'] : ['plain', 'canary']).map((arm) => ({ label, arm })))
-    .filter(({ label }) => !taskSelection || taskSelection.includes(label));
+    .filter(({ label, arm }) => (!taskSelection || taskSelection.includes(label))
+      && (!sessionSelection || sessionSelection.includes(`${label}-${arm}`)));
+  assert.equal(schedule.length, expectedSessions, 'selected sessions must be scheduled exactly once');
   const outcomes = [];
   save('preparation-summary.json', preparation); save('oracle-instrument.mjs', oracleBytes.toString('utf8'));
   save('pilot-protocol.json', { schedule, cliSha256: metadata.cliSha256, artifactSha256: preparation.artifactSha256,

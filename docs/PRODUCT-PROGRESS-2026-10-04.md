@@ -176,3 +176,21 @@ The previous truncated job's worker state and preflight are preserved in
 `check-process-diagnosis-20261004-frozen/incomplete-native-worker-archive`
 (129 hashed files). Remaining pairs are still running; no aggregate score is
 derived from this one completed pair.
+
+The continuation stopped after H2/Canary. Its independent oracle passed, native
+accounting reconciled, and the actual Stop checkpoint passed. However, the agent
+used Bash `sed` to add `invoice-extensions-tests` to package.json despite the
+trial's Edit/Write denials. The sealed script, local plan, hook settings and MCP
+configuration were unchanged; the protected-package hash changed. This session
+does not meet the trial's preserved-configuration requirement and is not counted
+as a clean success. The same-user LOCAL boundary remains explicit.
+The producer's model unload and owned-server stop both succeeded.
+
+To avoid repeating completed sessions, the instrument now accepts explicit
+`--sessions` names. It checks supported unique names, matching task selection,
+exact scheduling, and the original pristine HEAD/clean worktree and baseline
+oracles for every selected arm. Existing integrity assertions remain binding.
+The next segment runs only H2/plain, H3/plain+Canary, H5/Canary+plain and
+S1/plain+Canary, preserving the original task order. Instrument hashes differ
+between segments and must be reported; selected capture completion is not full
+12-session completion. R1/plain and R1/Canary remain unexecuted.
