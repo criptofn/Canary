@@ -2184,7 +2184,8 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
       overlaid.push(p);
     }
     const ran: StepResult[] = [];
-    for (const s of planWithFreshTests(cfg.plan)) {
+    const executionPlan = planWithFreshTests(cfg.plan);
+    for (const s of executionPlan) {
       let r: StepResult;
       try { r = runPlanStep(tree, cfg.pm, s, timeoutMs); } catch (e) {
         return unknown(`the sealed checks could not run against the baseline (${String(e).slice(0, 120)})`, changed);
@@ -2194,6 +2195,16 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
     }
     if (ran.length === 0) return unknown('no sealed check ran against the baseline', changed);
     const failures = ran.filter((r) => !r.ok);
+    const recoveredBeforeBuild = new Set<StepResult>();
+    for (let index = cfg.plan.length; index < ran.length; index++) {
+      const initial = ran[cfg.plan.indexOf(executionPlan[index]!)];
+      if (initial && !initial.ok && ran[index]!.ok) recoveredBeforeBuild.add(initial);
+    }
+    if (failures.length > 0 && failures.every((failure) => recoveredBeforeBuild.has(failure))) {
+      const evidence = writeVerificationBundle(root, 'baseline', ran, 'fail',
+        { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null }, { subjectRoot: tree });
+      return unknown(`the baseline failed only in pre-build tests that passed after its build, so stale artifacts do not demonstrate a source regression. Use an operator-reviewed build-before-test plan${evidence ? `; baseline output: ${evidence}` : ''}`, changed);
+    }
     if (failures.length > 0 && failures.some(looksLikeInfraFailure)) {
       const evidence = writeVerificationBundle(root, 'baseline', ran, 'fail',
         { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null }, { subjectRoot: tree });

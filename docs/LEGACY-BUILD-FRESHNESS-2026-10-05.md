@@ -51,7 +51,25 @@ unchanged. Both earlier and later outcomes remain available in the evidence.
 
 Evidence is under `C:/Users/Johannes/Desktop/canary/_canary-data/evidence`.
 Source commits: `6282c59`, `04e6732`, `4cb85ca`, `7989419` on
-`codex/legacy-build-freshness`. These changes await integration and full
-sequential gates. The candidate package is a targeted-test artifact, not a
+`codex/legacy-build-freshness`. The scheduler and result mapping have been
+integrated into `codex/product-progress`; full sequential gates remain pending.
+The candidate package is a targeted-test artifact, not a
 release or a completed productization claim. The interrupted older gate remains
 separate; passing earlier gates did not cover this newly established defect.
+
+## Baseline proof attribution
+
+A second confirmed defect concerned evidence attribution: a baseline with
+correct source but a stale broken artifact failed its first test, recovered
+after build, and was still credited as a source failure. An unrelated source
+edit therefore appeared to have discriminating evidence. The real Git regression
+in `discrimination-completion.test.ts` failed with `false` instead of `null`
+before the correction (`legacy-build-freshness-20261005-baseline-red.log`).
+
+Baseline comparison now returns unknown when every failure came from a pre-build
+test that passed after the baseline build. Both executions remain in the raw
+evidence. This does not waive any failed check in setup, doctor or Stop. A
+baseline failure that persists after build still provides discrimination; the
+same regression tests that countercase. The corrected targeted test passes
+(`legacy-build-freshness-20261005-baseline-green.log`, one pass, zero failures).
+The candidate package above predates this additional correction.

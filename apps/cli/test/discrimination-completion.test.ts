@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { after, test } from 'node:test';
-import { candidateDiffSignals, collectDiffSignals, discriminationObligation, readConfig } from '../src/onboarding.js';
+import { candidateDiffSignals, collectDiffSignals, discriminationObligation, planDiscrimination, readConfig } from '../src/onboarding.js';
 
 const CLI = path.resolve(import.meta.dirname, '../src/main.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-discrimination-completion-'));
@@ -30,6 +30,37 @@ function canary(root: string, ...args: string[]) {
   return { code: r.status, out: r.stdout + r.stderr };
 }
 function commit(root: string) { git(root, 'add', '.'); git(root, 'commit', '--allow-empty', '-m', 'fixture'); }
+
+test('a stale pre-build baseline failure cannot prove an unrelated change', () => {
+  const root = path.join(TMP, 'baseline-build-freshness');
+  for (const dir of ['.claude', 'dist']) fs.mkdirSync(path.join(root, dir), { recursive: true });
+  const program = path.resolve(import.meta.dirname, '../../../../tooling/test-support/fixtures/build-dependent-check.cjs');
+  fs.writeFileSync(path.join(root, 'canary.project.json'), JSON.stringify({ schema: 'canary-project/1', scopes: [{ path: '.', checks: [
+    { name: 'tests', kind: 'tests', argv: [process.execPath, program, 'test'] },
+    { name: 'build', kind: 'build', argv: [process.execPath, program, 'build'] },
+  ] }] }));
+  fs.writeFileSync(path.join(root, 'implementation.json'), 'true\n');
+  fs.writeFileSync(path.join(root, 'dist/implementation.json'), 'false\n');
+  fs.writeFileSync(path.join(root, 'app.cjs'), 'module.exports = 1;\n');
+  git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);
+  assert.equal(canary(root, 'setup', '--yes').code, 2, 'initial sealed failure is retained');
+  const cfg = readConfig(root);
+  assert.ok(cfg && cfg !== 'corrupt');
+  fs.writeFileSync(path.join(root, 'app.cjs'), 'module.exports = 2;\n');
+  const stale = planDiscrimination(root, cfg, 30000);
+  assert.equal(stale.basePassed, null, 'a test that recovers after the base build cannot discriminate source');
+  assert.match(stale.reason, /pre-build|before.*build/);
+
+  fs.writeFileSync(path.join(root, 'app.cjs'), 'module.exports = 1;\n');
+  fs.writeFileSync(path.join(root, 'implementation.json'), 'false\n');
+  fs.writeFileSync(path.join(root, 'dist/implementation.json'), 'true\n');
+  commit(root);
+  const base = git(root, 'rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(root, 'app.cjs'), 'module.exports = 2;\n');
+  fs.writeFileSync(path.join(root, 'implementation.json'), 'true\n');
+  const genuine = planDiscrimination(root, cfg, 30000, base);
+  assert.equal(genuine.basePassed, false, 'a failure after the base build still proves a real difference');
+});
 function write(root: string, file: string, text: string) { fs.writeFileSync(path.join(root, file), text); }
 function fixture(name: string): string {
   const root = path.join(TMP, name);
