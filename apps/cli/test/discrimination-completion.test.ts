@@ -218,6 +218,28 @@ test('an imported dash-test check is compared and retains worker provenance, whi
   assert.equal(discriminationObligation(root, cfg)?.status, 'unproven', 'asserting copied logic cannot certify the real implementation');
 });
 
+test('a failed setup links its completed output while the check and checkpoint remain failed', () => {
+  const root = fixture('setup-repair-output');
+  write(root, 'tests/greet.test.cjs', TEST + "console.log('SETUP_REPAIR_LOG_MARKER'); test('setup failure', () => assert.equal(1, 2));\n");
+  const failed = canary(root, 'setup', '--yes', '--json');
+  assert.equal(failed.code, 2, failed.out);
+  const packet = JSON.parse(failed.out.split(/\r?\n/)[0]!) as { status: string; next: string };
+  assert.equal(packet.status, 'NEEDS ATTENTION');
+  const output = packet.next.match(/full output: (.+)$/)?.[1];
+  assert.ok(output, failed.out);
+  const bundle = JSON.parse(fs.readFileSync(path.join(output, 'verification.json'), 'utf8'));
+  assert.equal(bundle.source, 'setup');
+  assert.equal(bundle.status, 'fail');
+  const check = bundle.steps.find((step: { kind: string }) => step.kind === 'tests');
+  assert.ok(check && check.exitCode !== 0 && check.ok === false);
+  assert.match(fs.readFileSync(path.join(output, check.stdout.file), 'utf8'), /SETUP_REPAIR_LOG_MARKER/);
+  const checkpoint = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8'));
+  assert.equal(checkpoint.status, 'fail');
+  assert.equal(checkpoint.source, 'setup');
+  assert.equal(checkpoint.hookResponse, 'not-applicable');
+  assert.equal(checkpoint.sessionEnd, 'unknown');
+});
+
 test('a nondiscriminating check links its actual comparison output without changing the verdict or completion history', () => {
   const root = fixture('comparison-repair-output');
   assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);

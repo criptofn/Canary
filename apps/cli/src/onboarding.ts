@@ -3440,7 +3440,8 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // environment was MEASURED to be missing the program the child named (see attributeStepFailure).
   // The verdict, the exit code and the checkpoint are unchanged: a failing check still fails.
   const attribution = attributeRunFailures(root, cfg, failed, plan);
-  o.verdict('NEEDS ATTENTION', attribution.reason, attribution.next);
+  o.verdict('NEEDS ATTENTION', attribution.reason,
+    `${attribution.next}${setupEvidence ? `; full output: ${setupEvidence}` : ''}`);
   return 2;
 }
 
