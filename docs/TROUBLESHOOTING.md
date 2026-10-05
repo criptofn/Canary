@@ -119,6 +119,13 @@ without your change and passes with it**. A pure refactor needs a check that pin
 the behaviour you preserved. The repair is the worker's job, and Canary names what
 is missing.
 
+When the repair message links `baseline output` or `comparison output`, open
+`verification.json` in that directory and the stdout/stderr files it names.
+Completed comparison bundles record the actual reference in `comparison.commit`
+and the overlaid check files in `comparison.overlaidChecks`. The logs remain
+available after the temporary comparison tree is removed. Their pass/fail status
+describes that comparison, not the current implementation or a session completion.
+
 If the message says the check does not pass with the current implementation and
 the same inputs used for the baseline comparison, read the two printed output
 bundles. A runtime crash caused by example files that exist only in your working
@@ -127,9 +134,10 @@ test, or place them in its checked test surface, so both comparison runs have
 them. Then rerun `canary doctor`. Worker-authored checks keep their provenance
 warning even when the comparison succeeds.
 
-Two things this gate never asks: a change touching only checks, prose, licences
-or generated files is exempt; and only a human can waive it (`canary accept`,
-from a real terminal).
+A change touching only checks, prose, licences or generated files is exempt.
+`canary accept` closes only subjective candidate duties from a real terminal;
+it cannot waive this objective regression-evidence duty. Add a distinguishing
+check, then rerun the full gate.
 
 ---
 

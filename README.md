@@ -745,13 +745,15 @@ is a transparent plan runner over *your* scripts.
 
 **A green plan is not a proven task.** `doctor` answers `NOT PROVEN` (exit 2)
 and the Stop hook blocks the completion in two cases the old READY hid: when a
-stated requirement is registered but no sealed check covers it (bind it in
-`package.json` `canary.proofs`, or a human accepts it in a terminal), and when
+stated objective requirement is registered but no sealed check covers it (bind
+it in `package.json` `canary.proofs`), and when
 the sealed checks pass on the base commit too — i.e. they cannot tell your
 change from no change, so they carry no regression evidence for it. The repair
 is to make the proof discriminate: a check that fails without the change and
-passes with it. Only a human can waive either duty, and `canary accept` does
-that, in a terminal.
+passes with it. The repair message links the baseline output so you can inspect
+what actually ran without the change. A passing baseline is not a passing current
+verification. `canary accept` closes only subjective candidate duties, in a
+terminal; it cannot close either of these objective proof gaps.
 
 Release-grade proof pipeline:
 
