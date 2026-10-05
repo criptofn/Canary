@@ -1906,8 +1906,8 @@ export function cmdSessionStart(): number {
  * `null` means no comparison duty applies (for example, no behavior changed).
  * A required comparison that could not run remains objectively UNPROVEN.
  */
-export function discriminationObligation(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string): Obligation | null {
-  const disc = planDiscrimination(root, cfg, timeoutMs, isolationBase);
+export function discriminationObligation(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string, writeComparison?: typeof writeVerificationBundle): Obligation | null {
+  const disc = planDiscrimination(root, cfg, timeoutMs, isolationBase, writeComparison);
   if (!disc.applicable) return null;
   if (disc.basePassed === null) return {
     id: 'regression-evidence', mode: 'objective', status: 'unproven',
@@ -2031,8 +2031,8 @@ export interface DiscriminationResult {
  * unproven change means. It also never mutates the working tree — the comparison happens in a
  * throwaway `git worktree` at the sealed baseline, removed in a `finally`.
  */
-export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string): DiscriminationResult {
-  const sealed = comparePlanAtBase(root, cfg, timeoutMs, isolationBase);
+export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string, writeComparison?: typeof writeVerificationBundle): DiscriminationResult {
+  const sealed = comparePlanAtBase(root, cfg, timeoutMs, isolationBase, writeComparison);
   if (sealed.basePassed !== false) return sealed;
   // Keep the sealed comparison mandatory. A prior fix can make it fail forever,
   // however, so it cannot by itself distinguish the next change in the same repo.
@@ -2067,7 +2067,7 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
     }
   }
   if (previous === base) return sealed;
-  const latest = comparePlanAtBase(root, cfg, timeoutMs, previous);
+  const latest = comparePlanAtBase(root, cfg, timeoutMs, previous, writeComparison);
   if (!latest.applicable) return unknown('the latest change comparison could not establish a product delta');
   if (latest.basePassed !== false) return {
     ...latest, comparisonBase: previous, reason: `latest change comparison against ${previous}: ${latest.reason}`,
@@ -2077,7 +2077,7 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
   return sealed;
 }
 
-function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, isolationBase?: string): DiscriminationResult {
+function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, isolationBase?: string, writeComparison = writeVerificationBundle): DiscriminationResult {
   const none = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
     ({ applicable: false, reason, changedPaths, overlaidChecks: [], addedChecks: [], modifiedChecks: [], basePassed: null, baseFailures: [] });
   const unknown = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
@@ -2207,13 +2207,13 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
       if (initial && !initial.ok && ran[index]!.ok) recoveredBeforeBuild.add(initial);
     }
     if (failures.length > 0 && failures.every((failure) => recoveredBeforeBuild.has(failure))) {
-      const evidence = writeVerificationBundle(root, 'baseline', ran, 'fail',
-        { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null }, { subjectRoot: tree });
+      const evidence = writeComparison(root, 'baseline', ran, 'fail',
+        { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null }, { subjectRoot: tree, subjectIdentity: candidateIdentity(tree) });
       return unknown(`the baseline failed only in pre-build tests that passed after its build, so stale artifacts do not demonstrate a source regression. Use an operator-reviewed build-before-test plan${evidence ? `; baseline output: ${evidence}` : ''}`, changed);
     }
     if (failures.length > 0 && failures.some(looksLikeInfraFailure)) {
-      const evidence = writeVerificationBundle(root, 'baseline', ran, 'fail',
-        { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null }, { subjectRoot: tree });
+      const evidence = writeComparison(root, 'baseline', ran, 'fail',
+        { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null }, { subjectRoot: tree, subjectIdentity: candidateIdentity(tree) });
       return unknown(`the baseline run failed in an environment-shaped way (a missing module or file), so it proves nothing either way${evidence ? `; baseline output: ${evidence}` : ''}`, changed);
     }
     if (overlaid.length > 0 && failures.some((r) => /\b(?:TypeError|ReferenceError|SyntaxError)(?:\s*\[[^\]]+\])?:/.test(`${r.stdout}\n${r.stderr}`))) {
@@ -2233,14 +2233,14 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
       const control = planWithFreshTests(cfg.plan).map((s) => runPlanStep(controlTree!, cfg.pm, s, timeoutMs));
       if (control.some((r) => !r.ok)) {
         const provenance = { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null };
-        const baseEvidence = writeVerificationBundle(root, 'baseline', ran, 'fail', provenance, { subjectRoot: tree });
-        const controlEvidence = writeVerificationBundle(root, 'baseline-control', control, 'fail', provenance, { subjectRoot: controlTree });
+        const baseEvidence = writeComparison(root, 'baseline', ran, 'fail', provenance, { subjectRoot: tree, subjectIdentity: candidateIdentity(tree) });
+        const controlEvidence = writeComparison(root, 'baseline-control', control, 'fail', provenance, { subjectRoot: controlTree, subjectIdentity: candidateIdentity(controlTree) });
         return unknown(`the worker-authored check does not pass with the current implementation and the same inputs used for the baseline comparison. Make its input fixtures available inside the check, then rerun verification${baseEvidence ? `; baseline output: ${baseEvidence}` : ''}${controlEvidence ? `; input-control output: ${controlEvidence}` : ''}`, changed);
       }
     }
-    const baselineEvidence = writeVerificationBundle(root, 'baseline', ran, failures.length === 0 ? 'pass' : 'fail',
+    const baselineEvidence = writeComparison(root, 'baseline', ran, failures.length === 0 ? 'pass' : 'fail',
       { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null },
-      { subjectRoot: tree, extra: { comparison: { commit: head, overlaidChecks: overlaid,
+      { subjectRoot: tree, subjectIdentity: candidateIdentity(tree), extra: { comparison: { commit: head, overlaidChecks: overlaid,
         note: 'Counterfactual comparison only; this is not verification of the current implementation or a session completion.' } } });
     return {
       applicable: true,
@@ -2684,6 +2684,8 @@ export function writeVerificationBundle(root: string, source: string, results: S
   evidenceRoot?: string;
   /** which tree cwd/candidate identity describe (defaults to the steps' root) */
   subjectRoot?: string;
+  /** Trusted execution-time identity when persistence follows temporary-tree cleanup. */
+  subjectIdentity?: ReturnType<typeof candidateIdentity>;
   /** additive, plainly-labeled observation fields (never read back for verdicts) */
   extra?: Record<string, unknown>;
 }): string | null {
@@ -2729,7 +2731,7 @@ export function writeVerificationBundle(root: string, source: string, results: S
       note: 'Written from Canary\'s OWN execution. Agent reports and printed summaries are claims, not evidence; this bundle is never read back to produce a verdict.',
       canaryEntry: CLI_ENTRY,
       runtime: { node: process.version, execPath: process.execPath, platform: process.platform, arch: process.arch },
-      cwd: subjectRoot, candidate: candidateIdentity(subjectRoot), envOverrides: relevantEnvNames(),
+      cwd: subjectRoot, candidate: o?.subjectIdentity ?? candidateIdentity(subjectRoot), envOverrides: relevantEnvNames(),
       execPolicy: ENV_POLICY, steps,
       // M4 provenance: WHICH plan/code/task this evidence belongs to, stamped
       // from trusted in-memory state at write time — never re-derived from

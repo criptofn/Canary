@@ -552,11 +552,19 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   };
   let results: StepResult[];
   let regression: ReturnType<typeof discriminationObligation> = null;
+  const comparisonWrites: Array<() => string | null> = [];
+  const deferComparison: typeof writeVerificationBundle = (_subject, source, steps, status, provenance, options) => {
+    // Keep Canary's own diagnostic writes outside the authority window and
+    // outside the candidate. Execution-time subject identity is already captured.
+    comparisonWrites.push(() => writeVerificationBundle(root, source, steps, status, provenance,
+      { ...options, evidenceRoot: root }));
+    return null;
+  };
   try {
     results = planWithFreshTests(cfg.plan).map((step) => runPlanStep(rec.root, cfg.pm, step));
     // Both executions stay inside the authority sandwich. The comparison uses
     // the frozen isolation base, never setup's possibly older baseline.
-    if (results.every((r) => r.ok)) regression = discriminationObligation(rec.root, cfg, 600_000, rec.baseHead);
+    if (results.every((r) => r.ok)) regression = discriminationObligation(rec.root, cfg, 600_000, rec.baseHead, deferComparison);
   }
   catch (e) {
     const threwDrift = inWindowDrift();
@@ -576,6 +584,10 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   // refused, so the mutated plan surface cannot re-baseline to a PASS.
   const postSeal = sealViolation('after execution');
   if (postSeal) return authorityBlock('after execution', [{ file: postSeal.file, before: 'sealed at setup — held when the window opened', after: postSeal.why }]);
+  for (const persist of comparisonWrites) {
+    const evidence = persist();
+    if (evidence && regression?.status === 'unproven') regression.note += `; comparison output: ${evidence}`;
+  }
   // M10 §10 — the obligation ladder over the CANDIDATE diff (baseHead frozen
   // in the record; the worktree started provably clean at isolation, so every
   // deletion here is the candidate's). The sealed plan passing is the FLOOR,
