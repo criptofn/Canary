@@ -7,7 +7,12 @@ import { createRequire } from 'node:module';
 import { after, test } from 'node:test';
 import { candidateDiffSignals, collectDiffSignals, discriminationObligation, planDiscrimination, readConfig } from '../src/onboarding.js';
 
-const CLI = path.resolve(import.meta.dirname, '../src/main.js');
+const packagedCli = process.env.CANARY_TEST_CLI;
+const CLI = packagedCli ?? path.resolve(import.meta.dirname, '../src/main.js');
+if (packagedCli !== undefined) {
+  assert.ok(path.isAbsolute(CLI), 'CANARY_TEST_CLI must be absolute; no development fallback');
+  assert.ok(fs.statSync(CLI, { throwIfNoEntry: false })?.isFile(), 'CANARY_TEST_CLI must name an existing file');
+}
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-discrimination-completion-'));
 process.env.CANARY_TRUST_STORE = path.join(TMP, 'store');
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
