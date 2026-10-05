@@ -20,3 +20,6 @@ packages/support/test/fixtures/runner-manifests/** text eol=lf
 
 # Preserve exact bytes for the post-v1.5 pilot preflight and its SHA-256 manifest.
 /tooling/benchmark/results/session-evidence/post-v15-pilot-20260927/** -text
+
+# Retain captured evidence while keeping generated results collapsed in GitHub reviews.
+/tooling/benchmark/results/** linguist-generated
