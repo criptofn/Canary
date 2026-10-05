@@ -63,3 +63,25 @@ verification. The ownership refusal is preserved; no config was resealed and no
 frozen installation was overwritten. The controlled regression uses a correctly
 owned installation. Full sequential gates and a new installed artifact for this
 additional correction remain pending.
+
+## Delivered correction
+
+Product source `a77acf9` completed the required standalone suite (1354 pass,
+zero fail, four explicit skips) and productization (104 pass, six explicit skips)
+sequentially. The gate ended at 2026-10-05T13:22:12.779Z with status zero, no
+signal and no execution error. The frozen archive hash is
+`be58e82ef213612edb9899066149caa22572113041022536fa21011c543baf0d`;
+installed entry hash is
+`1cb802b88186ad04fd15cde857d5e6cbcdf1ead28353001af2727af88c0b730f`.
+
+The existing regression now accepts an explicit absolute `CANARY_TEST_CLI`
+(test-only commit `dd74819`); malformed selection is refused rather than falling
+back. It reproduces exit 2 instead of zero against the older installed entry
+`10c482d2...7805`, then passes against the newly installed entry, including real
+source/untracked countercases, Doctor/Stop and worker provenance. This uses fresh
+fixtures sealed by their selected installations and preserves the original H1
+native outcome. Captures and exact hashes are in
+`normalized-product-delta-20261005-frozen/installed-normalized-receipt.json`.
+Status controls, seven provenance observations and eleven build-order
+observations also pass on that installed artifact. The user requested a closing
+report and then a goal pause; no new native pilot follows this delivery.

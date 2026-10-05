@@ -320,3 +320,15 @@ the full six-task/twelve-session practical scope: Refactron's baseline remains
 unresolved, and the new frozen product has not yet had a native comparison.
 The old pilot's failures and overhead remain visible. No higher rating, merge
 or publication is claimed from code gates alone.
+
+## Closing delivery requested by the user
+
+The additional Windows normalized-content false block is corrected and delivered
+as source `a77acf9`, with complete sequential gates and a tested installed archive.
+Its regression reproduces the old package's unnecessary block and passes on the
+new package while preserving genuine-change countercases and test provenance.
+The final assessment is product 7/10 and technique 8/10; the full practical 8/10
+objective is not proven. Scope, artifact paths, hashes, native outcomes and open
+requirements are in `ABSCHLUSS-PRODUKTSTAND-2026-10-05.md`. The user explicitly
+requested pausing the active objective after this report; no further pilot or
+implementation round follows the closing delivery.
