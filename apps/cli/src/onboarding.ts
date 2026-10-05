@@ -2041,10 +2041,14 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
   if (head === base) return sealed;
   const behaviour = (p: string): boolean => !isCanaryOwnArtifact(p) && !isGeneratedArtifact(p)
     && !isDepPath(p) && !isTestPath(p) && !isNonBehaviourPath(p);
-  const pending = candidateDiffSignals(root, head);
-  if (!pending.resolved) return unknown('the latest working-tree change could not be resolved');
+  // Porcelain can report a normalized-equal LF/CRLF rewrite as modified.
+  // Select the comparison base from the final tracked delta, plus new files.
+  const pending = gitWithinRoot(root, ['diff', '--no-ext-diff', '--no-textconv', '--name-status', '-z', head]);
+  const untracked = gitWithinRoot(root, ['ls-files', '--others', '--exclude-standard', '-z']);
+  if (pending === null || untracked === null) return unknown('the latest working-tree change could not be resolved');
+  const pendingPaths = [...parseNameStatus(pending).flatMap((entry) => entry.paths), ...untracked.split('\0').filter(Boolean)];
   let previous = head;
-  if (!pending.touched.some(behaviour)) {
+  if (!pendingPaths.some(behaviour)) {
     // A test/doc-only commit must not hide the most recent product edit. Follow
     // first parents, including merge deltas, rather than trusting commit messages.
     const commits = gitWithinRoot(root, ['rev-list', '--first-parent', '--parents', `${base}..HEAD`]);

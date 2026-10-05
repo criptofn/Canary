@@ -119,6 +119,37 @@ function assertDoctorAndHookBlocked(root: string, reason: RegExp) {
   assert.match(hook(root, true).systemMessage ?? '', /NOT PROVEN/);
 }
 
+test('a normalized-equal source rewrite cannot hide a committed covered fix', () => {
+  const root = fixture('normalized-source-rewrite');
+  git(root, 'config', 'core.autocrlf', 'true');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', '// production greeting\n' + FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  commit(root);
+  // Git reports this LF rewrite as dirty against a CRLF checkout, although
+  // its own normalized content comparison is empty (the observed Windows case).
+  assert.equal(git(root, 'config', '--get', 'core.autocrlf'), 'true');
+  fs.unlinkSync(path.join(root, 'greet.cjs'));
+  git(root, 'checkout-index', '-f', '-u', '--', 'greet.cjs');
+  const checkout = fs.readFileSync(path.join(root, 'greet.cjs'), 'utf8');
+  assert.match(checkout, /\r\n/);
+  write(root, 'greet.cjs', checkout.replace(/\r\n$/, '\n'));
+  assert.equal(git(root, 'diff', '--name-only', 'HEAD', '--', 'greet.cjs'), '');
+  assert.ok(candidateDiffSignals(root, git(root, 'rev-parse', 'HEAD')).touched.includes('greet.cjs'), 'fixture must retain the status-only source change');
+  const covered = canary(root, 'doctor', '--json');
+  assert.equal(covered.code, 0, covered.out);
+  assert.match(covered.out, /CHECK TEXT WRITTEN BY THE WORKER ITSELF/);
+  const completion = hook(root);
+  assert.notEqual(completion.decision, 'block');
+  assert.match(completion.systemMessage ?? '', /CHECK TEXT WRITTEN BY THE WORKER ITSELF/);
+
+  write(root, 'greet.cjs', '// production greeting\n' + FIXED + "module.exports.uncovered = () => 'wrong';\n");
+  assertDoctorAndHookBlocked(root, /base commit too/);
+  write(root, 'greet.cjs', '// production greeting\n' + FIXED);
+  write(root, 'uncovered.cjs', 'module.exports = 42;\n');
+  assertDoctorAndHookBlocked(root, /base commit too/);
+});
+
 test('a committed earlier regression cannot prove a later uncovered change', () => {
   const root = fixture('consecutive-changes');
   assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
