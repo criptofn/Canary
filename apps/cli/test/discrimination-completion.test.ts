@@ -218,6 +218,34 @@ test('an imported dash-test check is compared and retains worker provenance, whi
   assert.equal(discriminationObligation(root, cfg)?.status, 'unproven', 'asserting copied logic cannot certify the real implementation');
 });
 
+test('a nondiscriminating check links its actual comparison output without changing the verdict or completion history', () => {
+  const root = fixture('comparison-repair-output');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  const blocked = canary(root, 'doctor', '--json');
+  assert.equal(blocked.code, 2, blocked.out);
+  const packet = JSON.parse(blocked.out.split(/\r?\n/)[0]!) as { problems: string[] };
+  const output = packet.problems.find((problem) => problem.includes('baseline output: '))?.match(/baseline output: (.+)$/)?.[1];
+  assert.ok(output, blocked.out);
+  const bundle = JSON.parse(fs.readFileSync(path.join(output, 'verification.json'), 'utf8'));
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  assert.equal(bundle.source, 'baseline');
+  assert.equal(bundle.status, 'pass');
+  assert.equal(bundle.comparison.commit, cfg.baseline?.head);
+  assert.match(bundle.comparison.note, /not verification.*current implementation/);
+  assert.ok(bundle.steps.some((step: { stdout: { file: string } }) => fs.readFileSync(path.join(output, step.stdout.file), 'utf8').includes('greet')));
+  assert.equal(fs.existsSync(bundle.cwd), false, 'output survives removal of the comparison tree');
+
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const covered = canary(root, 'doctor', '--json');
+  assert.equal(covered.code, 0, covered.out);
+  assert.match(covered.out, /CHECK TEXT WRITTEN BY THE WORKER ITSELF/);
+  const history = canary(root, 'result', '--json');
+  const historyPacket = JSON.parse(history.out.split(/\r?\n/)[0]!) as { lastVerification: { status: string; source: string } };
+  assert.equal(historyPacket.lastVerification.status, 'pass');
+  assert.equal(historyPacket.lastVerification.source, 'doctor', 'a baseline failure is not a failed current verification');
+});
+
 test('an unavailable baseline check dependency remains unproven and its failing output survives temporary-tree cleanup', () => {
   const root = fixture('baseline-output-survives');
   fs.mkdirSync(path.join(root, 'scripts'));

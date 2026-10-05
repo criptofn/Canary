@@ -1939,7 +1939,7 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
     const target = sealedTestHint ? 'that suite or command' : 'a suite the sealed plan runs';
     return {
       id: 'regression-evidence', mode: 'objective', status: 'unproven',
-      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more})${disc.comparisonBase ? ` — additional comparison against the latest change's preceding commit ${disc.comparisonBase}` : ''}: existing behaviour that must be preserved needs a check that FAILS without the change and passes with it.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a human can also accept the risk from an interactive terminal — a green plan alone does not close this`,
+      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more})${disc.comparisonBase ? ` — additional comparison against the latest change's preceding commit ${disc.comparisonBase}` : ''}: existing behaviour that must be preserved needs a check that FAILS without the change and passes with it.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a green plan alone does not close this${disc.baselineEvidence ? `; baseline output: ${disc.baselineEvidence}` : ''}`,
     };
   }
   return {
@@ -1979,6 +1979,8 @@ function looksLikeInfraFailure(r: StepResult): boolean {
 export interface DiscriminationResult {
   /** Additional reference only; the original sealed comparison still must pass. */
   comparisonBase?: string;
+  /** Actual comparison output for diagnosis only; never read back for verdicts. */
+  baselineEvidence?: string;
   /** false only when no comparison duty applies; true with basePassed:null means UNPROVEN. */
   applicable: boolean;
   reason: string;
@@ -2236,6 +2238,10 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
         return unknown(`the worker-authored check does not pass with the current implementation and the same inputs used for the baseline comparison. Make its input fixtures available inside the check, then rerun verification${baseEvidence ? `; baseline output: ${baseEvidence}` : ''}${controlEvidence ? `; input-control output: ${controlEvidence}` : ''}`, changed);
       }
     }
+    const baselineEvidence = writeVerificationBundle(root, 'baseline', ran, failures.length === 0 ? 'pass' : 'fail',
+      { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null },
+      { subjectRoot: tree, extra: { comparison: { commit: head, overlaidChecks: overlaid,
+        note: 'Counterfactual comparison only; this is not verification of the current implementation or a session completion.' } } });
     return {
       applicable: true,
       reason: failures.length === 0
@@ -2247,6 +2253,7 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
       modifiedChecks,
       basePassed: failures.length === 0,
       baseFailures: failures.map((f) => f.kind),
+      ...(baselineEvidence ? { baselineEvidence } : {}),
     };
   } catch (e) {
     return unknown(`the baseline comparison failed (${String(e).slice(0, 120)})`, changed);
