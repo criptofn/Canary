@@ -10,7 +10,7 @@ assert.ok(out && path.isAbsolute(out) && !fs.existsSync(out), 'new absolute outp
 const root = path.resolve(import.meta.dirname, '../..');
 fs.mkdirSync(out, { recursive: true });
 const startedAt = new Date().toISOString();
-const command = [process.execPath, 'tooling/verify-productization.mjs'];
+const command = [process.execPath, 'tooling/verify-productization.mjs', '--raw-log-dir', path.join(out, 'steps')];
 fs.writeFileSync(path.join(out, 'started.json'), JSON.stringify({ startedAt, pid: process.pid, root, command,
   npmAlias: 'npm run verify:productization', caveat: 'Start is not completion.' }, null, 2));
 if (process.argv.includes('--unit-first')) {

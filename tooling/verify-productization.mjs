@@ -216,6 +216,12 @@ import { recoverInterruptedMutation } from './test-support/dist-mutation-guard.m
 
 const CANARY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SH = process.platform === 'win32';
+const rawLogIndex = process.argv.indexOf('--raw-log-dir');
+const rawLogDir = rawLogIndex < 0 ? null : process.argv[rawLogIndex + 1];
+if (rawLogIndex >= 0 && (!rawLogDir || !path.isAbsolute(rawLogDir) || fs.existsSync(rawLogDir))) {
+  throw new Error('--raw-log-dir requires a new absolute directory');
+}
+if (rawLogDir) fs.mkdirSync(rawLogDir, { recursive: true });
 // 1.1 P0 isolation: every step spawns the CLI (directly or through a probe),
 // and every such spawn inherits/spreads this process's env — pointing it at
 // ONE fresh temp trust store keeps all verification sealing out of the real
@@ -588,7 +594,16 @@ for (const [label, cmd, args] of STEPS) {
   // runtime class exceeds it (master-pass: ~993 s against a 900 s cap). Finite everywhere still:
   // a real deadlock must be caught, it just must not be confused with a slow valid workload.
   const budget = budgetFor(label);
+  const startedAt = new Date().toISOString();
   const r = runStep(cmd, args, budget);
+  if (rawLogDir) {
+    const prefix = path.join(rawLogDir, String(results.length + 1).padStart(3, '0'));
+    fs.writeFileSync(`${prefix}.stdout.log`, r.stdout ?? '', { flag: 'wx' });
+    fs.writeFileSync(`${prefix}.stderr.log`, r.stderr ?? '', { flag: 'wx' });
+    fs.writeFileSync(`${prefix}.json`, JSON.stringify({ label, command: [cmd, ...args], cwd: CANARY,
+      budgetMs: budget, startedAt, finishedAt: new Date().toISOString(), status: r.status, signal: r.signal,
+      error: r.error ? { code: r.error.code, message: r.error.message } : null }, null, 2), { flag: 'wx' });
+  }
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
   const tail = out.split(/\r?\n/).filter(Boolean).slice(-25).join('\n');
   console.log(tail);
