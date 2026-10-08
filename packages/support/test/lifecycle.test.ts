@@ -262,14 +262,17 @@ describe('audit F5 — sweep mechanism (live parent, positive proof)', () => {
 });
 
 describe('Windows sweep output contract', () => {
-  it('accepts a complete descendant-only result and fails on survivors, cap, or malformed output', () => {
-    assert.deepEqual(parseWin32SweepOutput('snapshot=42\nlimit=0\nkilled=21,22\nsurvivors=\n'), { killed: [21, 22], failed: false });
-    assert.deepEqual(parseWin32SweepOutput('snapshot=42\nlimit=0\nkilled=\nsurvivors=22\n'), {
+  it('accepts a complete descendant-only result and fails on survivors, cap, unknown identity, or malformed output', () => {
+    assert.deepEqual(parseWin32SweepOutput('snapshot=42\nlimit=0\nuncertain=0\nkilled=21,22\nsurvivors=\n'), { killed: [21, 22], failed: false });
+    assert.deepEqual(parseWin32SweepOutput('snapshot=42\nlimit=0\nuncertain=0\nkilled=\nsurvivors=22\n'), {
       killed: [], failed: true, reason: 'surviving process ids: 22',
     });
-    assert.equal(parseWin32SweepOutput('snapshot=42\nlimit=1\nkilled=21\nsurvivors=\n').failed, true,
+    assert.deepEqual(parseWin32SweepOutput('snapshot=42\nlimit=0\nuncertain=1\nkilled=\nsurvivors=\n'), {
+      killed: [], failed: true, reason: 'process identity unavailable for one or more descendants',
+    });
+    assert.equal(parseWin32SweepOutput('snapshot=42\nlimit=1\nuncertain=0\nkilled=21\nsurvivors=\n').failed, true,
       'a partially traversed tree is never reported as clear');
-    assert.equal(parseWin32SweepOutput('snapshot=42\nkilled=\n').failed, true,
+    assert.equal(parseWin32SweepOutput('snapshot=42\nlimit=0\nkilled=\nsurvivors=\n').failed, true,
       'a truncated output protocol is never read as an empty tree');
   });
 });

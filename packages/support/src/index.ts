@@ -767,9 +767,10 @@ function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
     `$q=New-Object System.Collections.Generic.Queue[int]; $q.Enqueue(${pid});` +
     `$seen=New-Object System.Collections.Generic.HashSet[int];` +
     `$desc=New-Object System.Collections.Generic.List[object];` +
+    `$uncertain=$false;` +
     `$done=New-Object System.Collections.Generic.HashSet[int]; $limited=$false;` +
     `while($q.Count -gt 0){ $parent=$q.Dequeue(); if(-not $done.Add($parent)){continue}; if(-not $byParent.ContainsKey($parent)){continue};` +
-    `foreach($child in $byParent[$parent]){ $childId=[int]$child.ProcessId; if($childId -eq ${pid} -or -not $child.CreationDate -or $child.CreationDate.ToUniversalTime() -lt $cut -or -not $seen.Add($childId)){continue};` +
+    `foreach($child in $byParent[$parent]){ $childId=[int]$child.ProcessId; if($childId -eq ${pid} -or -not $seen.Add($childId)){continue}; if(-not $child.CreationDate){$uncertain=$true;continue}; if($child.CreationDate.ToUniversalTime() -lt $cut){continue};` +
     `if($desc.Count -ge ${SWEEP_MAX_PROCESSES}){ $limited=$true; break }; $desc.Add($child); $q.Enqueue($childId) }; if($limited){break} };` +
     `$before=@(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop | Where-Object { $_ -ne $null });` +
     `$k=New-Object System.Collections.Generic.List[int];` +
@@ -780,6 +781,7 @@ function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
     `$survivors=New-Object System.Collections.Generic.List[int]; foreach($row in $desc){ $id=[int]$row.ProcessId; $created=$row.CreationDate.ToUniversalTime().Ticks;` +
     `$still=$after | Where-Object { [int]$_.ProcessId -eq $id -and $_.CreationDate -and $_.CreationDate.ToUniversalTime().Ticks -eq $created } | Select-Object -First 1; if($null -ne $still){$survivors.Add($id)} };` +
     `Write-Output ('limit=' + $(if($limited){1}else{0}));` +
+    `Write-Output ('uncertain=' + $(if($uncertain){1}else{0}));` +
     `Write-Output ('killed=' + ($k -join ','));` +
     `Write-Output ('survivors=' + ($survivors -join ','))`;
   const r = spawnSync(psExe,
@@ -809,14 +811,15 @@ export function parseWin32SweepOutput(stdout: string): SweepResult & { reason?: 
   const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const fields = new Map<string, string>();
   for (const line of lines) {
-    const match = /^(snapshot|limit|killed|survivors)=(.*)$/.exec(line);
+    const match = /^(snapshot|limit|uncertain|killed|survivors)=(.*)$/.exec(line);
     if (!match || fields.has(match[1]!)) return { killed: [], failed: true, reason: `unrecognised output: ${line.slice(0, 160)}` };
     fields.set(match[1]!, match[2]!);
   }
   const snapshot = Number(fields.get('snapshot'));
   const limit = fields.get('limit');
+  const uncertain = fields.get('uncertain');
   if (!Number.isSafeInteger(snapshot) || snapshot <= 0 || (limit !== '0' && limit !== '1')
-      || !fields.has('killed') || !fields.has('survivors')) {
+      || (uncertain !== '0' && uncertain !== '1') || !fields.has('killed') || !fields.has('survivors')) {
     return { killed: [], failed: true, reason: 'missing or malformed snapshot/limit/result fields' };
   }
   const parsePids = (value: string): number[] | null => {
@@ -828,8 +831,13 @@ export function parseWin32SweepOutput(stdout: string): SweepResult & { reason?: 
   const killed = parsePids(fields.get('killed')!);
   const survivors = parsePids(fields.get('survivors')!);
   if (killed === null || survivors === null) return { killed: [], failed: true, reason: 'malformed process id list' };
-  const failed = limit === '1' || survivors.length > 0;
-  return { killed, failed, ...(failed ? { reason: limit === '1' ? `process traversal exceeded ${SWEEP_MAX_PROCESSES} descendants` : `surviving process ids: ${survivors.join(',')}` } : {}) };
+  const failed = limit === '1' || uncertain === '1' || survivors.length > 0;
+  const reason = limit === '1'
+    ? `process traversal exceeded ${SWEEP_MAX_PROCESSES} descendants`
+    : uncertain === '1'
+      ? 'process identity unavailable for one or more descendants'
+      : `surviving process ids: ${survivors.join(',')}`;
+  return { killed, failed, ...(failed ? { reason } : {}) };
 }
 
 export const ExitCode = {
