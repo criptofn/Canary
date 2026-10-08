@@ -288,7 +288,7 @@ describe('a real call relays Canary own words and exit code, unmodified', () => 
     const registered = textOf(response[0]!);
     assert.equal(registered.exitCode, 0, JSON.stringify(registered));
     assert.match(String(registered.stdout), /AGENT_REPORTED/);
-    assert.match(String(registered.stdout), /needs proof or acceptance/);
+    assert.match(String(registered.stdout), /needs sealed proof/);
     assert.match(String(registered.stdout), /operator action only/i);
     assert.match(String(registered.stdout), /agents must not run it/i);
     const task = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'task', 'current.json'), 'utf8')) as {
