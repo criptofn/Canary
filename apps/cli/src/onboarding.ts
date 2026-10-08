@@ -2015,6 +2015,13 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
       ...(pendingCaveat ? { caveat: pendingCaveat } : {}),
     };
   }
+  if (disc.pendingCountIncreases?.length) {
+    return {
+      id: 'regression-evidence', mode: 'objective', status: 'unproven',
+      note: `the sealed checks fail on the base, but the candidate reported more skipped/pending cases (${disc.pendingCountIncreases.map((x) => `test check ${x.testRun}: ${x.baseline}→${x.candidate}`).join(', ')}), so the two runs did not execute a comparable set of checks. Run those cases on the candidate or bind an equivalent operator-controlled check, then verify again${disc.baselineEvidence ? `; baseline output: ${disc.baselineEvidence}` : ''}`,
+      ...(caveat ? { caveat } : {}),
+    };
+  }
   return {
     id: 'regression-evidence', mode: 'objective', status: 'met',
     note: `the sealed checks fail without this change (${disc.baseFailures.join(', ') || 'a sealed step'}), so their pass is evidence about it${disc.overlaidChecks.length > 0 ? ` (candidate check files overlaid on the base: ${disc.overlaidChecks.slice(0, 3).map(safePath).join(', ')})` : ''}`,
@@ -4176,6 +4183,9 @@ export function cmdDoctor(rawArgs: string[]): number {
       `the checks passed, but the task is not proven: ${because} — a green plan is not a proven deliverable (NO PROOF, NO DONE).`,
       next);
     for (const ob of unproven) o.say(`  - UNPROVEN [${ob.id}] (${ob.mode}): ${ob.note}`);
+    o.say(evidenceDir === null
+      ? 'full evidence could not be written; no saved run logs are available'
+      : `full evidence: ${evidenceDir} — per-step logs and verification.json`);
     return 2;
   }
   writeCheckpoint(root, 'pass', [], 'doctor', { checks: ran, hookResponse: 'not-applicable', evidencePath: evidenceDir ?? undefined, proof });
@@ -4432,7 +4442,10 @@ export async function cmdCheckpoint(): Promise<number> {
           writeCheckpoint(root, 'unproven', objectiveOpen.map((x) => x.id), 'checkpoint', {
             checks: ran, hookResponse: 'blocked', next: obligationNext, evidencePath: evidenceDir ?? undefined, proof,
           });
-          return emit({ decision: 'block', reason: `Canary blocked completion: NOT PROVEN — ${why.slice(0, 1200)}`.slice(0, 1400) });
+          const prefix = 'Canary blocked completion: NOT PROVEN — ';
+          const evidenceHint = evidenceDir ? ` Full test evidence: ${evidenceDir}` : '';
+          const availableWhy = Math.max(0, 1400 - prefix.length - evidenceHint.length);
+          return emit({ decision: 'block', reason: `${prefix}${why.slice(0, availableWhy)}${evidenceHint}` });
         }
 
         // Every open objective duty is operator-only. Say so, and let the turn end.

@@ -346,24 +346,25 @@ test('a discriminating check allows the same candidate to finish and promote', (
   assert.equal(canary(root, 'doctor').code, 0); assert.notEqual(hook(root).decision, 'block');
 });
 
-test('completion reports a newly skipped test while preserving the passing gate', () => {
+test('completion refuses to prove a change when the candidate skips an extra test', () => {
   const root = fixture('pending-count-increase');
   assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
   write(root, 'greet.cjs', FIXED);
   write(root, 'tests/greet.test.cjs', TEST + SKIPPED_REGRESSION);
   const completion = hook(root);
-  assert.notEqual(completion.decision, 'block');
-  assert.match(completion.systemMessage ?? '', /more skipped\/pending cases.*test check 1: 0→1/);
-  assert.match(completion.systemMessage ?? '', /green exit code alone does not show that they ran/);
+  assert.equal(completion.decision, 'block');
+  const completionText = completion.systemMessage ?? completion.reason ?? '';
+  assert.match(completionText, /more skipped\/pending cases.*test check 1: 0→1/);
+  assert.match(completionText, /did not execute a comparable set of checks/);
   const checkpoint = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8')) as {
     status: string; evidencePath?: string; proof: { obligations: Array<{ id: string; caveat?: string }> };
   };
-  assert.equal(checkpoint.status, 'pass', 'the coverage caveat is report-only');
+  assert.equal(checkpoint.status, 'unproven', 'extra skipped tests cannot support a passing proof');
   assert.ok(checkpoint.evidencePath);
-  assert.ok(completion.systemMessage?.includes(`Full test evidence: ${checkpoint.evidencePath}`));
+  assert.ok(completionText.includes(`Full test evidence: ${checkpoint.evidencePath}`));
   assert.match(checkpoint.proof.obligations.find((x) => x.id === 'regression-evidence')?.caveat ?? '', /0→1/);
   const doctor = canary(root, 'doctor', '--json');
-  assert.equal(doctor.code, 0, doctor.out);
+  assert.equal(doctor.code, 2, doctor.out);
   const doctorCheckpoint = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8')) as { evidencePath?: string };
   assert.ok(doctorCheckpoint.evidencePath);
   assert.ok(doctor.out.includes(`full evidence: ${doctorCheckpoint.evidencePath}`));
@@ -382,8 +383,10 @@ test('completion reports a newly skipped test while preserving the passing gate'
   write(candidate, 'tests/greet.test.cjs', TEST + SKIPPED_REGRESSION);
   commit(candidate);
   const finish = canary(candidateRoot, 'finish', 'fix');
-  assert.equal(finish.code, 0, finish.out);
+  assert.equal(finish.code, 2, finish.out);
+  assert.match(finish.out, /CANDIDATE NOT PROVEN/);
   assert.match(finish.out, /more skipped\/pending cases.*test check 1: 0→1/);
+  assert.match(finish.out, /did not execute a comparable set of checks/);
   assert.match(finish.out, /baseline comparison evidence:/);
   assert.match(finish.out, /full evidence: .*per-step logs and verification\.json/);
 });

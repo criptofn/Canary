@@ -694,7 +694,9 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     // startHead so M8 gate 1 cannot launder a green-plan-but-unproven run
     // into an apply. Closing an obligation is real work (a test, a sealed
     // bench step) — not a bytes edit.
-    writeVerificationBundle(root, 'candidate', results, 'unproven', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
+    const evidence = writeVerificationBundle(root, 'candidate', results, 'unproven', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
+    if (evidence) o.say(`full evidence: ${evidence} — per-step logs and verification.json`);
+    else o.say('Evidence storage unavailable — no saved candidate run logs are available.');
     if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
     const met = obligations.filter((x) => x.status === 'met');
     // PART II split semantics: when EVERY open obligation is one only an
