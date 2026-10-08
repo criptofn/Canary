@@ -245,6 +245,8 @@ describe('setup', () => {
     assert.match(context, /finish.*normally/i);
     assert.match(context, /scripts\.test/);
     assert.match(context, /not a verification result/i);
+    assert.match(context, /file or case filter for early feedback/i);
+    assert.match(context, /full sealed checks at completion/i);
     assert.ok(context.includes(CLI), 'repair command must name the installed CLI');
     assert.equal(fs.existsSync(marker), false, 'startup must not execute the sealed check');
     assert.deepEqual(fs.readFileSync(cpFile(root)), before, 'startup must not write a verification result');

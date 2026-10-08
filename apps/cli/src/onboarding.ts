@@ -1946,7 +1946,7 @@ export function cmdSessionStart(): number {
       'Canary completion workflow (not a verification result).',
       `Work in ${JSON.stringify(root)}.`,
       'Implement the requested change and regression assertions, then finish normally with a factual summary.',
-      'The automatic Stop hook runs the full sealed checks. Do not keep rerunning the full suite to obtain a Canary verdict before responding.',
+      'Use the project test runner\'s file or case filter for early feedback. The Stop hook runs the full sealed checks at completion; do not rerun the full suite just for a Canary verdict.',
       'If the hook reports a failure, repair that problem and recheck its exact id with canary_doctor(check). A focused result is PARTIAL.',
       `If MCP is unavailable, run this installed CLI instead of guessing a global canary command: ${buildHookCommand(CLI_ENTRY)!.replace(/checkpoint$/, 'doctor --check "<reported-id>"')}.`,
       'Preserve the sealed plan, baseline and hooks; do not setup, bind or accept to clear a failure.',

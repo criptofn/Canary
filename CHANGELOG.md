@@ -15,6 +15,8 @@ changed*; the evidence ledgers record *what was observed*.
 - Everyday MCP descriptions and instructions remove repeated wording; the initialized four-tool payload
   has a 3,600-byte base budget, and the standard configured project stays under 3,900 bytes with its
   sealed test-entry hint. The completion-hook and authority rules remain included.
+- Claude startup and MCP guidance now recommend runner-native file/case filters for quick feedback,
+  leaving the full sealed plan to the completion hook.
 - `canary setup` now explains that `READY` covers the configured checks and hooks, and shows how to
   register and bind task-specific acceptance criteria before handing work to an agent.
 - Node test summaries from the TAP and spec reporters are recognized, including skipped tests.

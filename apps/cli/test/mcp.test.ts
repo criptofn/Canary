@@ -129,8 +129,9 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     // half is deliberate — the aggressive variant that FORBADE self-verification produced a false done
     // and a false green — so the model keeps the decision to check and only loses the repetition.
     assert.match(instructions, /automatic completion hook/i);
-    assert.match(instructions, /Do not run canary_doctor just to repeat/i);
-    assert.match(instructions, /run the full gate when no completion hook is available/i);
+    assert.match(instructions, /file or case filter/i);
+    assert.match(instructions, /do not repeat a just-passed full gate/i);
+    assert.match(instructions, /without a hook, run the full gate/i);
     assert.match(instructions, /Use canary_result for a read-only summary/i);
     assert.doesNotMatch(instructions, /canary_work|canary_finish/);
   });
