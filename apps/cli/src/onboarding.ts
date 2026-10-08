@@ -3597,7 +3597,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
       // first-run summary can sound like Canary also assessed acceptance criteria
       // that were never supplied.
       o.say('note: no task acceptance criteria are registered. READY means these checks and hooks are set up; Canary cannot assess requirements it was never given.');
-      o.say('  for task-specific checks, register measurable behavior with `canary task --requirement "<observable behavior>"`, link each to an existing check with `canary bind <script> --requirement "<same text>"`, commit the change, then run `canary setup` again.');
+      o.say('  for task checks, add measurable requirements with `canary task --requirement "<behavior>"`, then bind them to an existing check with `canary bind <script> --requirement "<same>" --reseal` (commits and reruns setup).');
     }
     o.verdict('READY', 'Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.', `try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor`);
     return 0;
@@ -4213,7 +4213,7 @@ export function cmdDoctor(rawArgs: string[]): number {
     return 2;
   }
   writeCheckpoint(root, 'pass', [], 'doctor', { checks: ran, hookResponse: 'not-applicable', evidencePath: evidenceDir ?? undefined, proof });
-  o.verdict('READY', 'wiring verified; the checks just ran and passed, and no proof obligation is open.', 'nothing to do — the agent finishes, Canary checks');
+  o.verdict('READY', 'wiring verified; the checks just ran and passed, and nothing more needs proof.', 'nothing to do — the agent finishes, Canary checks');
   if (unproven.length > 0) {
     // Nothing was authorized, so these are Canary's own observations about the diff. They are said
     // plainly — READY here means "your checks passed", never "your change is proven".

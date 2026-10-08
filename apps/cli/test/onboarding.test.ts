@@ -126,6 +126,8 @@ describe('setup', () => {
     assert.match(setup.stdout, /READY/);
     assert.match(setup.stdout, /no task acceptance criteria are registered/);
     assert.match(setup.stdout, /cannot assess requirements it was never given/);
+    assert.match(setup.stdout, /bind them to an existing check/);
+    assert.match(setup.stdout, /--reseal/);
 
     const registered = canary(['task', 'fix the behavior', '--requirement', 'preserve the documented result'], root);
     assert.equal(registered.status, 0, `${registered.stdout} ${registered.stderr}`);
