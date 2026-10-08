@@ -97,13 +97,27 @@ const TOOLS: readonly McpTool[] = [
     annotations: { title: 'Canary agent capabilities (read-only)', readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
+    name: 'canary_task',
+    description:
+      'Record explicit acceptance criteria (`canary task`). AGENT_REPORTED input only: adds duties, never binds checks or proves them. Unbound duties stay NOT PROVEN.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        intent: { type: 'string', minLength: 1 },
+        requirements: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
+      },
+      required: ['intent', 'requirements'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'Canary task intake', readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
     name: 'canary_doctor',
     description:
-      'Runs the sealed checks and executes project code. Omit `check` for the full gate; an exact sealed '
-      + 'check id returns PARTIAL and cannot certify completion. When an automatic completion hook is '
-      + 'installed, do not use the full gate as your final check: finish normally and let the hook verify '
-      + 'once. Use this tool for early feedback or a focused repair. If no completion hook is available, '
-      + 'use the full gate for final verification. A non-zero exit means failure or incomplete verification; relay the verdict.',
+      'Runs sealed checks and project code. Omit `check` for the full gate; an exact check id is PARTIAL only. '
+      + 'When an automatic completion hook is installed, finish normally and let the hook verify once; use '
+      + 'this for early feedback or a focused repair. Without a hook, use the full gate for final verification. '
+      + 'Relay non-zero exits.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -160,23 +174,23 @@ const TOOLS: readonly McpTool[] = [
 ];
 
 const SERVER_INSTRUCTIONS = [
-  'Only the trusted CLI issues Canary verdicts; this server relays its output and exit code. Never claim a result it did not report or present agent-run tests as Canary proof.',
+  'The trusted CLI alone issues verdicts; relay its output and exit code. Agent-run tests are not Canary proof.',
   '',
-  'It cannot mint a PASS, acceptance or promotion, or bypass the terminal gate on `canary accept`;',
-  'acceptance is a human act, and only a human may close a SUBJECTIVE duty.',
+  'No MCP call can mint a PASS or promotion, or bypass the terminal gate on `canary accept`; only a human may accept or close a SUBJECTIVE duty.',
   '',
-  'With an automatic completion hook, finish normally and let it run the full plan once. For earlier feedback, use the project test runner\'s file or case filter; do not repeat a just-passed full gate.',
-  'Use canary_doctor for early feedback or one focused PARTIAL check; without a hook, run the full gate.',
+  'With an automatic completion hook, finish normally and let it run the plan once. For early feedback, use the runner\'s file or case filter; do not repeat a passed full gate.',
+  'Use canary_doctor for early feedback or a focused PARTIAL check; without a hook, use the full gate.',
   'Use canary_result for a read-only summary.',
+  'For explicit criteria, call canary_task before editing and copy each verbatim. It records AGENT_REPORTED input only; if unbound, surface it before substantial work: NOT PROVEN.',
   'Preserve operator-approved checks, baseline and hooks. Do not run setup or bind to clear a verdict.',
-  'A regression test must exercise the implementation through the sealed test entry; copied implementation cannot prove the change.',
-  'A worker-authored caveat records test provenance, not test failure. When READY, finish normally and report the caveat.',
+  'Regression proof must test the implementation through the sealed test entry; copied code is not proof.',
+  'A worker caveat records provenance, not failure. When READY, finish normally and report it.',
 ].join('\n');
 
 const EXPERT_INSTRUCTIONS = '\n\nFor work that must be isolated, `canary_work` opens a candidate and `canary_finish` verifies it and promotes only if the proof holds.';
 
 function toolsFor(profile: McpProfile): readonly McpTool[] {
-  return profile === 'expert' ? TOOLS : TOOLS.filter((t) => t.name !== 'canary_work' && t.name !== 'canary_finish');
+  return profile === 'expert' ? TOOLS : TOOLS.filter((t) => t.name !== 'canary_agents' && t.name !== 'canary_work' && t.name !== 'canary_finish');
 }
 
 function parseMcpProfile(args: readonly string[]): McpProfile | null {
@@ -293,6 +307,16 @@ function callTool(name: string, args: Record<string, unknown>): { content: Array
       return cliToolResult(runCli(['status', '--json'], cwdFor(args)));
     case 'canary_agents':
       return cliToolResult(runCli(['agents', '--json'], cwdFor(args)));
+    case 'canary_task': {
+      const intent = asString(args.intent, 'intent');
+      if (typeof intent !== 'string') return errorResult(intent.error);
+      const requirements = asStringArray(args.requirements, 'requirements');
+      if (!Array.isArray(requirements)) return errorResult(requirements.error);
+      if (requirements.length === 0) return errorResult('requirements must include at least one explicit criterion');
+      const argv = ['task', intent];
+      for (const requirement of requirements) argv.push('--requirement', requirement);
+      return cliToolResult(runCli(argv, process.cwd()));
+    }
     case 'canary_doctor': {
       if (args.fast === true && args.check !== undefined) return errorResult('fast and check cannot be combined');
       const check = args.check === undefined ? undefined : asString(args.check, 'check');
@@ -404,7 +428,7 @@ export async function cmdMcp(rawArgs: string[]): Promise<number> {
         if (typeof name !== 'string') { if (!isNotification) rpcError(id, -32602, 'invalid params: "name" is required'); break; }
         const refusal = REFUSED_TOOLS[name];
         if (refusal !== undefined) { if (!isNotification) rpcResult(id, errorResult(refusal)); break; }
-        if ((name === 'canary_work' || name === 'canary_finish') && profile === 'everyday') {
+        if ((name === 'canary_agents' || name === 'canary_work' || name === 'canary_finish') && profile === 'everyday') {
           if (!isNotification) rpcResult(id, errorResult(`"${name}" is available in the expert tool profile. Enable it with: canary setup --mcp-profile expert`));
           break;
         }

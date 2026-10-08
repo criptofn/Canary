@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
+import { materialDigest } from '../src/authorization.js';
 
 process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-mcp-'));
 
@@ -70,7 +71,7 @@ describe('transport: stdout is the protocol channel and nothing else', () => {
 });
 
 describe('tools: a fixed template over operations the CLI already had', () => {
-  const EXPECTED = ['canary_result', 'canary_status', 'canary_agents', 'canary_doctor', 'canary_work', 'canary_finish'];
+  const EXPECTED = ['canary_result', 'canary_status', 'canary_agents', 'canary_task', 'canary_doctor', 'canary_work', 'canary_finish'];
 
   it('exposes exactly the reviewed tool set', () => {
     const tools = resultOf(session([req(1, 'tools/list')]).parsed[0]!).tools as Array<Record<string, unknown>>;
@@ -100,6 +101,12 @@ describe('tools: a fixed template over operations the CLI already had', () => {
       assert.equal(ann(readOnly).readOnlyHint, true, `${readOnly} writes nothing and must say so`);
     }
     assert.equal(ann('canary_doctor').readOnlyHint, false, 'doctor executes the sealed plan');
+    assert.equal(ann('canary_task').readOnlyHint, false, 'task intake writes AGENT_REPORTED requirements');
+    const taskSchema = byName.get('canary_task')!.inputSchema as {
+      required: string[]; properties: { requirements: { minItems?: number } };
+    };
+    assert.deepEqual(taskSchema.required, ['intent', 'requirements']);
+    assert.equal(taskSchema.properties.requirements.minItems, 1);
     assert.equal(ann('canary_work').readOnlyHint, false);
     assert.equal(ann('canary_finish').readOnlyHint, false);
   });
@@ -108,10 +115,9 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     const tools = resultOf(session([req(1, 'tools/list')]).parsed[0]!).tools as Array<Record<string, unknown>>;
     const doctor = String(tools.find((t) => t.name === 'canary_doctor')!.description);
     assert.match(doctor, /when an automatic completion hook is installed/i);
-    assert.match(doctor, /do not use the full gate as your final check/i);
     assert.match(doctor, /finish normally and let the hook verify once/i);
     assert.match(doctor, /early feedback or a focused repair/i);
-    assert.match(doctor, /if no completion hook is available, use the full gate for final verification/i);
+    assert.match(doctor, /without a hook, use the full gate for final verification/i);
   });
 
   it('states the authority limit in the initialize instructions', () => {
@@ -120,7 +126,7 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.equal(info.name, 'canary');
     assert.equal(r.protocolVersion, '2025-06-18', 'a supported client revision is honoured');
     const instructions = String(r.instructions);
-    assert.match(instructions, /cannot mint a PASS/i);
+    assert.match(instructions, /mint a PASS/i);
     assert.match(instructions, /terminal gate/i);
     assert.match(instructions, /SUBJECTIVE/i);
     // v1.3 §A — the measured instruction. The `guarded` arm (agent works normally, told verification is
@@ -130,9 +136,12 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     // and a false green — so the model keeps the decision to check and only loses the repetition.
     assert.match(instructions, /automatic completion hook/i);
     assert.match(instructions, /file or case filter/i);
-    assert.match(instructions, /do not repeat a just-passed full gate/i);
-    assert.match(instructions, /without a hook, run the full gate/i);
+    assert.match(instructions, /do not repeat a (just-)?passed full gate/i);
+    assert.match(instructions, /without a hook, (run|use) the full gate/i);
     assert.match(instructions, /Use canary_result for a read-only summary/i);
+    assert.match(instructions, /call canary_task before editing/i);
+    assert.match(instructions, /AGENT_REPORTED input only/i);
+    assert.match(instructions, /if unbound, surface it before substantial work: NOT PROVEN/i);
     assert.doesNotMatch(instructions, /canary_work|canary_finish/);
   });
 
@@ -157,7 +166,7 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.ok(new RegExp(check.pattern!).test('test'));
   });
 
-  it('everyday profile exposes the four common tools and keeps its base payload under 3.6 KB', () => {
+  it('everyday profile exposes common tools and keeps its base payload under 3.6 KB', () => {
     const messages = (profile: string[]) => session([
       req(1, 'initialize', { protocolVersion: '2025-06-18' }), req(2, 'tools/list'),
     ], TMP, profile).parsed;
@@ -165,7 +174,7 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     const expert = messages(['--profile', 'expert']);
     const everydayTools = resultOf(everyday[1]!).tools as Array<Record<string, unknown>>;
     const expertTools = resultOf(expert[1]!).tools as Array<Record<string, unknown>>;
-    assert.deepEqual(everydayTools.map((t) => t.name), ['canary_result', 'canary_status', 'canary_agents', 'canary_doctor']);
+    assert.deepEqual(everydayTools.map((t) => t.name), ['canary_result', 'canary_status', 'canary_task', 'canary_doctor']);
     assert.deepEqual(expertTools.map((t) => t.name), [...EXPECTED]);
     const bytes = (rows: Array<Record<string, unknown>>) => Buffer.byteLength(JSON.stringify({
       instructions: resultOf(rows[0]!).instructions, tools: resultOf(rows[1]!).tools,
@@ -209,6 +218,10 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.equal((unknown.error as { code: number }).code, -32602);
     const missing = session([req(1, 'tools/call', { name: 'canary_work', arguments: { intent: 'no name given' } })]).parsed[0]!;
     assert.match(String((resultOf(missing).content as Array<{ text: string }>)[0]!.text), /name must be a non-empty string/);
+    const missingTask = session([req(1, 'tools/call', { name: 'canary_task', arguments: {} })]).parsed[0]!;
+    assert.match(String((resultOf(missingTask).content as Array<{ text: string }>)[0]!.text), /intent must be a non-empty string/);
+    const missingTaskRequirements = session([req(1, 'tools/call', { name: 'canary_task', arguments: { intent: 'a change' } })]).parsed[0]!;
+    assert.match(String((resultOf(missingTaskRequirements).content as Array<{ text: string }>)[0]!.text), /requirements must include at least one explicit criterion/);
   });
 });
 
@@ -248,6 +261,39 @@ describe('a real call relays Canary own words and exit code, unmodified', () => 
     assert.deepEqual(fs.readFileSync(path.join(root, 'runs.txt')), runs);
   });
 
+  it('canary_task records exact requirements as untrusted input and cannot make an unbound task READY', () => {
+    const root = path.join(TMP, 'task-intake-project');
+    fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+    assert.equal(spawnSync('git', ['-C', root, 'init', '-b', 'main'], { encoding: 'utf8' }).status, 0);
+    const pass = path.join(REPO, 'tooling', 'test-support', 'fixtures', 'f-pass.js');
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: `node "${pass}"` } }));
+    assert.equal(spawnSync('git', ['-C', root, 'add', 'package.json'], { encoding: 'utf8' }).status, 0);
+    assert.equal(spawnSync('git', ['-C', root, '-c', 'user.name=Canary Regression', '-c', 'user.email=regression@canary.local', 'commit', '-m', 'sealed test baseline'], { encoding: 'utf8' }).status, 0);
+    const setup = spawnSync(process.execPath, [CLI, 'setup', '--yes', root], { encoding: 'utf8', timeout: 180_000 });
+    assert.equal(setup.status, 0, `${setup.stdout}\n${setup.stderr}`);
+
+    const response = session([
+      req(1, 'tools/call', { name: 'canary_task', arguments: {
+        intent: 'Improve user name validation', requirements: ['reject whitespace in user names'],
+      } }),
+      req(2, 'tools/call', { name: 'canary_doctor', arguments: {} }),
+    ], root, ['--profile', 'everyday']).parsed;
+    const registered = textOf(response[0]!);
+    assert.equal(registered.exitCode, 0, JSON.stringify(registered));
+    assert.match(String(registered.stdout), /AGENT_REPORTED/);
+    assert.match(String(registered.stdout), /needs proof or acceptance/);
+    const task = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'task', 'current.json'), 'utf8')) as {
+      taskDigest: string; trustClass: string; requirementCount: number; requirementDigests: string[];
+    };
+    assert.equal(task.trustClass, 'AGENT_REPORTED');
+    assert.equal(task.taskDigest, materialDigest('Improve user name validation'));
+    assert.equal(task.requirementCount, 1);
+    assert.deepEqual(task.requirementDigests, [materialDigest('reject whitespace in user names')]);
+
+    const doctor = textOf(response[1]!);
+    assert.equal(doctor.verdict, 'NOT PROVEN');
+    assert.notEqual(doctor.exitCode, 0);
+  });
   it('canary_result returns the CLI envelope and tracks the child exit code', () => {
     const root = path.join(TMP, 'repo');
     fs.mkdirSync(root, { recursive: true });

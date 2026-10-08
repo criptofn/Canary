@@ -156,8 +156,12 @@ every tool a project script may launch; actual setup still runs the checks.
 `setup` prints the checks it found, smoke-runs them once, and ends in `READY` —
 or tells you exactly what it could not do. It wires Claude Code automatically
 (merging with, never overwriting, your existing hooks) and registers Canary's
-four everyday MCP tools. Add `--mcp-profile expert` only when the agent needs
-isolated `work` / `finish` operations.
+four everyday MCP tools. When a request states explicit acceptance criteria,
+the agent records them with `canary_task` before editing. This is untrusted
+input: it adds obligations but cannot bind checks or prove completion. Unbound
+criteria stay `NOT PROVEN` and are surfaced before substantial work. Add
+`--mcp-profile expert` for isolated `work` / `finish` operations or the MCP
+integration inventory; `canary agents` remains available on the CLI.
 
 Setup checks all managed config files before writing hooks. If a later write fails,
 Canary restores earlier hook and MCP files when their bytes still match the changes
