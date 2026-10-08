@@ -16,13 +16,19 @@ export interface TaskIdentity {
   kinds: TaskKind[];
   requirementCount: number;
   requirementDigests: string[];
+  /** Requirement digests whose own wording is subjective and may be human-accepted. */
+  subjectiveRequirementDigests: string[];
   subjectiveVisual: boolean;
   subjectivePerformance: boolean;
   objectiveTargets: ObjectiveTarget[];
 }
 const aesthetic = /\b(prett\w*|beautiful\w*|aesthetic\w*|stylish|elegan\w*|warmer|cooler|nicer|polish\w*|better[- ]looking|look and feel|make it pop)\b/i;
+const subjectivePerformance = /\b(feel\w*|snapp\w*|smooth\w*|responsive\w*)\b/i;
 const numericPerformance = /\d+(?:\.\d+)?\s*(?:ms|msecs?|secs?|seconds?|minutes?|fps|[kmgt]?bytes?|[kmgt]b|%|hz)\b|\d+(?:\.\d+)?\s*%/i;
 const numericUi = /#[\da-f]{3,8}\b|\d+(?:\.\d+)?\s*(?:px|rem|em)\b/i;
+
+const isSubjectiveRequirement = (requirement: string, kinds: TaskKind[]): boolean =>
+  aesthetic.test(requirement) || (kinds.includes('performance') && subjectivePerformance.test(requirement));
 
 export function declaredTask(text: string, kinds: TaskKind[], requirements: string[]): TaskIdentity {
   if (requirements.length > MAX_REQUIREMENTS) throw new Error(`at most ${MAX_REQUIREMENTS} requirements are supported; nothing was registered`);
@@ -31,8 +37,9 @@ export function declaredTask(text: string, kinds: TaskKind[], requirements: stri
     taskDigest: materialDigest(text), kinds,
     requirementCount: requirements.length,
     requirementDigests: requirements.map(materialDigest),
+    subjectiveRequirementDigests: requirements.filter(r => isSubjectiveRequirement(r, kinds)).map(materialDigest),
     subjectiveVisual: parts.some(s => aesthetic.test(s)),
-    subjectivePerformance: parts.some(s => /\b(feel\w*|snapp\w*|smooth\w*|responsive\w*)\b/i.test(s)) && kinds.includes('performance'),
+    subjectivePerformance: parts.some(s => subjectivePerformance.test(s)) && kinds.includes('performance'),
     objectiveTargets: parts.flatMap(s => numericPerformance.test(s)
       ? [{ digest: materialDigest(s), kind: 'bench' }]
       : numericUi.test(s) ? [{ digest: materialDigest(s), kind: 'e2e' }] : []),
@@ -49,12 +56,22 @@ export function canonicalTask(value: unknown): TaskIdentity | null {
     || !Number.isInteger(t.requirementCount) || t.requirementCount < 0 || t.requirementCount > MAX_REQUIREMENTS
     || !Array.isArray(t.requirementDigests) || t.requirementDigests.length !== t.requirementCount
     || !t.requirementDigests.every(d => typeof d === 'string' && HEX.test(d))
+    || (t.subjectiveRequirementDigests !== undefined && (!Array.isArray(t.subjectiveRequirementDigests)
+      || !t.subjectiveRequirementDigests.every(d => typeof d === 'string' && HEX.test(d))))
     || typeof t.subjectiveVisual !== 'boolean' || typeof t.subjectivePerformance !== 'boolean' || !Array.isArray(t.objectiveTargets)
     || !t.objectiveTargets.every(o => o && HEX.test(o.digest) && (o.kind === 'bench' || o.kind === 'e2e')
       && (o.digest === t.taskDigest || t.requirementDigests.includes(o.digest)))) return null;
+  const subjectiveRequirementDigests = t.subjectiveRequirementDigests ?? [];
+  const remainingRequirements = [...t.requirementDigests];
+  for (const d of subjectiveRequirementDigests) {
+    const i = remainingRequirements.indexOf(d);
+    if (i < 0) return null;
+    remainingRequirements.splice(i, 1);
+  }
   return {
     taskDigest: t.taskDigest, kinds: [...new Set(t.kinds)].sort(),
     requirementCount: t.requirementCount, requirementDigests: [...t.requirementDigests].sort(),
+    subjectiveRequirementDigests: [...subjectiveRequirementDigests].sort(),
     subjectiveVisual: t.subjectiveVisual,
     subjectivePerformance: t.subjectivePerformance,
     objectiveTargets: [...new Map(t.objectiveTargets.map(o => [`${o.kind}:${o.digest}`, { digest: o.digest, kind: o.kind }])).values()]
@@ -72,6 +89,9 @@ export function taskWeakening(frozen: TaskIdentity, live: TaskIdentity | null): 
     const i = remaining.indexOf(d);
     if (i < 0) { reasons.push('frozen requirement removed or replaced; re-isolate for revised requirements'); break; }
     remaining.splice(i, 1);
+  }
+  if (JSON.stringify(frozen.subjectiveRequirementDigests) !== JSON.stringify(live.subjectiveRequirementDigests)) {
+    reasons.push('subjective requirement classification changed; re-isolate so human acceptance stays bound to the registered criteria');
   }
   if (frozen.subjectiveVisual && !live.subjectiveVisual) reasons.push('frozen subjective visual intent removed');
   if (frozen.subjectivePerformance && !live.subjectivePerformance) reasons.push('frozen subjective performance intent removed');

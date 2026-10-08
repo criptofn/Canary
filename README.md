@@ -214,6 +214,8 @@ smoke test (running your own project scripts):
 
 note: no task acceptance criteria are registered. READY means these checks and hooks are set up; Canary cannot assess requirements it was never given.
   for task-specific proof, register measurable criteria before handing off with `canary task --requirement "<observable behavior>"`, then bind them to a sealed script with `canary bind <plan-script> --requirement "<same text>" --reseal`.
+Objective requirements need a matching sealed check. Human acceptance applies to subjective
+requirements only; approving one subjective part never waives a separate measurable requirement.
 
 READY — Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.
 next: try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor

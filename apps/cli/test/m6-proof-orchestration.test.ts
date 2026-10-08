@@ -256,6 +256,18 @@ describe('canary task — an AGENT_REPORTED hint with zero authority', () => {
     assert.equal(JSON.stringify(rec).includes('lodash'), false);
     assert.equal(rec.taskDigest, sha256('upgrade the lodash dependency to v5'));
   });
+  it('stores subjective eligibility per criterion without retaining the criterion text', () => {
+    const root = makeProject('task-subjective-digests');
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const subjective = 'the dialog looks nicer';
+    const objective = 'saving a record persists it after reload';
+    const r = canary(['task', 'make the dialog prettier', '--requirement', subjective, '--requirement', objective], root);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const rec = taskRecord(root);
+    assert.deepEqual(rec.subjectiveRequirementDigests, [sha256(subjective)]);
+    assert.equal(JSON.stringify(rec).includes(subjective), false, 'the classification stores a digest, not subjective prose');
+    assert.equal(JSON.stringify(rec).includes(objective), false, 'objective requirement prose is not persisted either');
+  });
   it('--kind ADDS to inference and never removes it; --requirement forces multi; hostile input is usage, not a crash', () => {
     const root = makeProject('task-flags');
     assert.equal(canary(['setup', '--yes', root]).status, 0);

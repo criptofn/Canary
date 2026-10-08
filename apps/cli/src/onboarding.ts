@@ -2516,7 +2516,10 @@ export function obligationsFor(
     return script !== undefined && authority!.plan.some(s => s.script === script) ? script : null;
   };
   const digests = task?.requirementDigests ?? [];
+  const subjectiveDigests = new Set(task?.subjectiveRequirementDigests ?? []);
   const uncovered = digests.filter(d => !task!.objectiveTargets.some(t => t.digest === d) && boundScriptFor(d) === null);
+  const uncoveredObjective = uncovered.filter(d => !subjectiveDigests.has(d));
+  const uncoveredSubjective = uncovered.filter(d => subjectiveDigests.has(d));
   if (digests.length > 0 && uncovered.length === 0) {
     const bound = digests.map(d => boundScriptFor(d)).filter((s): s is string => s !== null);
     add({ id: 'per-requirement', mode: 'objective', status: 'met',
@@ -2532,15 +2535,12 @@ export function obligationsFor(
      * routes non-objective duties down its operator-only branch — a worker facing it was told
      * "none of them is yours to close" and left to loop. Benchmarked at 1.5-1.85M tokens.
      *
-     * The rule now: an uncovered requirement is a MEASUREMENT duty (objective, unproven) unless
-     * the registration itself carries a subjective marker. A declared requirement is a
-     * requirement; "the dashboard should feel cleaner" is subjective only because it says so, and
-     * that case keeps its own acceptance path via `subjective-visual-acceptance` /
-     * `subjectivePerformance`.
+     * Subjective eligibility is attached to each requirement digest, never inferred from another
+     * part of the task. A mixed task stays objective while any uncovered objective requirement is
+     * open; subjective parts retain their separate human-judgment path.
      */
-    const subjectiveRegistration = task?.subjectiveVisual === true || task?.subjectivePerformance === true;
-    add({ id: 'per-requirement', mode: subjectiveRegistration ? 'non-objective' : 'objective', status: 'unproven', note: requirementCount > 0
-      ? `multi-part task: ${requirementCount} registered requirement(s), ${uncovered.length} with NO sealed proof — a green plan proves the plan, NOT each part. Bind each uncovered digest in package.json canary.proofs to a script your plan runs and re-run canary setup (acceptance cannot replace measurement for an objective requirement)${subjectiveRegistration ? ', or accept the candidate from an interactive terminal (canary accept <candidate>)' : ''} — until then UNPROVEN, never permanently dead`
+    add({ id: 'per-requirement', mode: !task || uncoveredObjective.length > 0 || requirementCount === 0 ? 'objective' : 'non-objective', status: 'unproven', note: requirementCount > 0
+      ? `multi-part task: ${requirementCount} registered requirement(s), ${uncoveredObjective.length} objective part(s) with NO sealed proof${uncoveredSubjective.length ? `, ${uncoveredSubjective.length} subjective part(s) waiting for human judgment` : ''} — a green plan proves the plan, NOT each objective part. Bind each uncovered objective digest in package.json canary.proofs to a script your plan runs and re-run canary setup${uncoveredObjective.length === 0 && uncoveredSubjective.length > 0 ? ', or accept the subjective result from an interactive terminal (canary accept <candidate>)' : ''} — until then UNPROVEN, never permanently dead`
       : 'multi-part task detected but requirements were never enumerated — ask the human ONCE which parts must be proven separately, or register them: canary task "..." --requirement "..." per part (BEFORE isolation), or accept the candidate as-is from an interactive terminal: canary accept <candidate>' });
   }
   return out;
@@ -2557,7 +2557,7 @@ export interface UnboundRequirement {
 export interface UnboundReport {
   /** Digests with no frozen binding and no frozen objective target. */
   unbound: UnboundRequirement[];
-  /** True when the registration itself carries a subjective marker, so acceptance is a real path. */
+  /** True when every listed unbound requirement is individually subjective. */
   subjective: boolean;
   /** Every script the sealed plan will run, so a suggestion is always actionable. */
   planScripts: string[];
@@ -2605,7 +2605,7 @@ export function unboundRequirements(
 
   return {
     unbound,
-    subjective: task.subjectiveVisual === true || task.subjectivePerformance === true,
+    subjective: unbound.length > 0 && unbound.every(({ digest }) => task.subjectiveRequirementDigests.includes(digest)),
     planScripts: cfg.plan.map((s) => s.script),
   };
 }
@@ -2818,7 +2818,7 @@ export function cmdTask(rawArgs: string[]): number {
       ? `[objective ${target.kind} target${script ? ` bound to "${script}"` : '; needs matching proof'}]`
       : script
         ? `[bound to sealed proof "${script}"; successful result still required]`
-        : `[needs sealed proof${task.subjectiveVisual || task.subjectivePerformance ? ' or human acceptance' : ''}]`;
+        : `[needs sealed proof${task.subjectiveRequirementDigests.includes(d) ? ' or human acceptance' : ''}]`;
     o.say(`requirement ${state}: ${d} — "${canonicalText(r).slice(0, 90)}"`);
     if (!target && !script) bindHint(d);
   }
