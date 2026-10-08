@@ -564,7 +564,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     results = planWithFreshTests(cfg.plan).map((step) => runPlanStep(rec.root, cfg.pm, step));
     // Both executions stay inside the authority sandwich. The comparison uses
     // the frozen isolation base, never setup's possibly older baseline.
-    if (results.every((r) => r.ok)) regression = discriminationObligation(rec.root, cfg, 600_000, rec.baseHead, deferComparison);
+    if (results.every((r) => r.ok)) regression = discriminationObligation(rec.root, cfg, 600_000, rec.baseHead, deferComparison, results);
   }
   catch (e) {
     const threwDrift = inWindowDrift();
@@ -666,7 +666,8 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
       } else acceptanceStale = true;
     }
   }
-  const obList = obligations.map((x) => ({ id: x.id, mode: x.mode, status: x.status, note: x.note }));
+  const obList = obligations.map((x) => ({ id: x.id, mode: x.mode, status: x.status, note: x.note, ...(x.caveat ? { caveat: x.caveat } : {}) }));
+  for (const x of obligations) if (x.caveat) o.say(`evidence caveat [${x.id}]: ${x.caveat}`);
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     // FAIL stays FAIL — but the bundle now carries the obligation read too

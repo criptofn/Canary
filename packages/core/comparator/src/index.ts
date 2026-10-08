@@ -284,9 +284,9 @@ export function parseUnittestCounts(log: string): SummaryCounts | undefined {
   return { passing, failing, pending };
 }
 
-// ─────────────────── node:test TAP summary (v1.1 Phase 2) ───────────────────
+// ─────────────────── node:test summary (TAP + spec reporters) ──────────────
 /**
- * `node --test` prints a TAP summary block at the END of stdout:
+ * `node --test` prints a TAP (`#`) or spec (`ℹ`) summary block at the END of stdout:
  *
  *   # tests 7
  *   # suites 0
@@ -296,16 +296,18 @@ export function parseUnittestCounts(log: string): SummaryCounts | undefined {
  *   # skipped 1
  *   # todo 1
  *
- * THREE measured properties make this parseable without trusting the subject:
+ * For TAP, the reporter escapes a subject's matching lines. The spec reporter
+ * does not, so its summary is read from the LAST anchored occurrences; both
+ * reporters emit their aggregate after test output. In both formats:
  *
- *  1. The lines are ANCHORED (`^# pass N$`) and the LAST occurrence wins. The TAP
+ *  1. The lines are ANCHORED (`^(?:#|ℹ) pass N$`) and the LAST occurrence wins. The TAP
  *     reporter escapes a subject's own printed output: a test that runs
  *     `console.log('# pass 9')` appears on stdout as `# \# pass 9` (MEASURED, see
  *     `tooling/probes/node-test-reporter-events.mjs`), which does not match an
  *     anchored pattern. An unanchored `/ # pass (\d+)/` WOULD match it — the
  *     substring is there — which is why anchoring is load-bearing and not style.
- *  2. `# skipped` and `# todo` are SEPARATE counters and neither is inside
- *     `# pass` (measured: 1 skipped + 1 todo alongside `# pass 3` of 7 tests).
+ *  2. `skipped` and `todo` are SEPARATE counters and neither is inside
+ *     `pass` (measured: 1 skipped + 1 todo alongside `pass 3` of 7 tests).
  *     Both are `pending` here, because that is what the frames carry.
  *  3. The arithmetic must close: pass + fail + skipped + todo == tests. Text that
  *     cannot describe a run is not accepted as a summary, and a `# cancelled N`
@@ -315,7 +317,7 @@ export function parseUnittestCounts(log: string): SummaryCounts | undefined {
 export function parseNodeTestCounts(log: string): SummaryCounts | undefined {
   const norm = runnerView(log);
   const last = (key: string): number | undefined => {
-    const re = new RegExp(`^# ${key} (\\d+)\\s*$`, 'gm');
+    const re = new RegExp(`^(?:#|ℹ) ${key} (\\d+)\\s*$`, 'gm');
     let m: RegExpExecArray | null = null;
     let value: number | undefined;
     while ((m = re.exec(norm)) !== null) value = Number(m[1]);

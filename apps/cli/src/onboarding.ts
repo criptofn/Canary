@@ -60,6 +60,7 @@ import { fileURLToPath } from 'node:url';
 import sea from 'node:sea';
 import { buildFailurePayload, doctorCheckCommand } from './failure-payload.js';
 import { resolveNpmCli, sanitizedEnv, canonicalPath } from '@canary-rn/support';
+import { parseSummaryCountsFor } from '@canary-rn/comparator';
 
 // M9 §9.5 — the quarantine marker filename. authority.ts imports only node
 // builtins, so this direction adds no cycle (candidate.ts already imports it).
@@ -1970,8 +1971,8 @@ export function cmdSessionStart(): number {
  * `null` means no comparison duty applies (for example, no behavior changed).
  * A required comparison that could not run remains objectively UNPROVEN.
  */
-export function discriminationObligation(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string, writeComparison?: typeof writeVerificationBundle): Obligation | null {
-  const disc = planDiscrimination(root, cfg, timeoutMs, isolationBase, writeComparison);
+export function discriminationObligation(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string, writeComparison?: typeof writeVerificationBundle, candidateRuns?: readonly StepResult[]): Obligation | null {
+  const disc = planDiscrimination(root, cfg, timeoutMs, isolationBase, writeComparison, candidateRuns);
   if (!disc.applicable) return null;
   if (disc.basePassed === null) return {
     id: 'regression-evidence', mode: 'objective', status: 'unproven',
@@ -1998,20 +1999,26 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
     ...disc.addedChecks.map((p) => `${safePath(p)} (created by this session)`),
     ...disc.modifiedChecks.map((p) => `${safePath(p)} (EXISTING check rewritten by this session)`),
   ];
+  const workerCaveat = workerAuthored.length > 0
+    ? `the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (${workerAuthored.slice(0, 3).join(', ')}) — sensitive to the change, but authored by the same worker whose work it judges, so it is NOT independent authority. This is a provenance caveat, not a failed obligation; retain it in your report. Do not re-run setup or rewrite the baseline to remove it. Independent coverage needs an operator-bound check (package.json canary.proofs, or canary.project.json proofs) or a human's acceptance`
+    : undefined;
+  const pendingCaveat = disc.pendingCountIncreases?.length
+    ? `the test runner reported more skipped/pending cases on the candidate than on the comparison baseline (${disc.pendingCountIncreases.map((x) => `test check ${x.testRun}: ${x.baseline}→${x.candidate}`).join(', ')}); review those cases because a green exit code alone does not show that they ran`
+    : undefined;
+  const caveat = [workerCaveat, pendingCaveat].filter((x): x is string => x !== undefined).join('; ');
   if (disc.basePassed === true) {
     const sealedTestHint = sealedTestEntryHint(root, cfg);
     const target = sealedTestHint ? 'that suite or command' : 'a suite the sealed plan runs';
     return {
       id: 'regression-evidence', mode: 'objective', status: 'unproven',
-      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more})${disc.comparisonBase ? ` — additional comparison against the latest change's preceding commit ${disc.comparisonBase}` : ''}: existing behaviour that must be preserved needs a check that FAILS without the change and passes with it.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a green plan alone does not close this${disc.baselineEvidence ? `; baseline output: ${disc.baselineEvidence}` : ''}`,
+      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more})${disc.comparisonBase ? ` — additional comparison against the latest change's preceding commit ${disc.comparisonBase}` : ''}: existing behaviour that must be preserved needs a check that FAILS without the change and passes with it.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a green plan alone does not close this${pendingCaveat ? `; ${pendingCaveat}` : ''}${disc.baselineEvidence ? `; baseline output: ${disc.baselineEvidence}` : ''}`,
+      ...(pendingCaveat ? { caveat: pendingCaveat } : {}),
     };
   }
   return {
     id: 'regression-evidence', mode: 'objective', status: 'met',
     note: `the sealed checks fail without this change (${disc.baseFailures.join(', ') || 'a sealed step'}), so their pass is evidence about it${disc.overlaidChecks.length > 0 ? ` (candidate check files overlaid on the base: ${disc.overlaidChecks.slice(0, 3).map(safePath).join(', ')})` : ''}`,
-    ...(workerAuthored.length > 0
-      ? { caveat: `the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (${workerAuthored.slice(0, 3).join(', ')}) — sensitive to the change, but authored by the same worker whose work it judges, so it is NOT independent authority. This is a provenance caveat, not a failed obligation; retain it in your report. Do not re-run setup or rewrite the baseline to remove it. Independent coverage needs an operator-bound check (package.json canary.proofs, or canary.project.json proofs) or a human's acceptance` }
-      : {}),
+    ...(caveat ? { caveat } : {}),
   };
 }
 
@@ -2038,6 +2045,47 @@ function copyInto(fromRoot: string, toRoot: string, relPath: string): boolean {
 function looksLikeInfraFailure(r: StepResult): boolean {
   const text = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
   return /ENOENT|Cannot find module|MODULE_NOT_FOUND|no such file or directory|package\.json not found|could not determine executable|command not found|is not recognized as an internal or external command/i.test(text);
+}
+
+function reportedPendingCount(result: StepResult): number | null {
+  if (result.kind !== 'tests') return null;
+  const log = `${result.stdout}\n${result.stderr}`;
+  for (const runner of ['node-test', 'pytest', 'python-unittest', undefined]) {
+    const counts = parseSummaryCountsFor(runner, log);
+    if (counts.passing !== undefined || counts.failing !== undefined || counts.pending !== undefined) {
+      // Mocha omits its pending line when the count is zero. Other supported
+      // parsers also return partial summaries, so absence is zero only after
+      // at least one count proves that a summary was actually recognized.
+      return counts.pending ?? 0;
+    }
+  }
+  return null;
+}
+
+function pendingCountIncreases(
+  candidateRuns: readonly StepResult[] | undefined,
+  baselineRuns: readonly StepResult[],
+  candidateRoot: string,
+  baselineRoot: string,
+): Array<{ testRun: number; baseline: number; candidate: number }> {
+  // A fast or otherwise different plan has no safe positional pairing, so make no claim.
+  if (!candidateRuns || candidateRuns.length !== baselineRuns.length) return [];
+  const increases: Array<{ testRun: number; baseline: number; candidate: number }> = [];
+  let testRun = 0;
+  for (let i = 0; i < candidateRuns.length; i += 1) {
+    const candidate = candidateRuns[i]!;
+    const baseline = baselineRuns[i]!;
+    if (candidate.kind !== baseline.kind || candidate.display !== baseline.display
+      || path.relative(candidateRoot, candidate.cwd) !== path.relative(baselineRoot, baseline.cwd)) return [];
+    if (candidate.kind !== 'tests' || baseline.kind !== 'tests') continue;
+    testRun += 1;
+    const before = reportedPendingCount(baseline);
+    const after = reportedPendingCount(candidate);
+    if (before !== null && after !== null && after > before) {
+      increases.push({ testRun, baseline: before, candidate: after });
+    }
+  }
+  return increases;
 }
 
 export interface DiscriminationResult {
@@ -2070,6 +2118,8 @@ export interface DiscriminationResult {
   modifiedChecks: string[];
   basePassed: boolean | null;
   baseFailures: string[];
+  /** Reported pending/skipped test counts rose relative to the same sealed plan at baseline. */
+  pendingCountIncreases?: Array<{ testRun: number; baseline: number; candidate: number }>;
 }
 
 /**
@@ -2095,8 +2145,8 @@ export interface DiscriminationResult {
  * unproven change means. It also never mutates the working tree — the comparison happens in a
  * throwaway `git worktree` at the sealed baseline, removed in a `finally`.
  */
-export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string, writeComparison?: typeof writeVerificationBundle): DiscriminationResult {
-  const sealed = comparePlanAtBase(root, cfg, timeoutMs, isolationBase, writeComparison);
+export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 600_000, isolationBase?: string, writeComparison?: typeof writeVerificationBundle, candidateRuns?: readonly StepResult[]): DiscriminationResult {
+  const sealed = comparePlanAtBase(root, cfg, timeoutMs, isolationBase, writeComparison, candidateRuns);
   if (sealed.basePassed !== false) return sealed;
   // Keep the sealed comparison mandatory. A prior fix can make it fail forever,
   // however, so it cannot by itself distinguish the next change in the same repo.
@@ -2131,7 +2181,7 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
     }
   }
   if (previous === base) return sealed;
-  const latest = comparePlanAtBase(root, cfg, timeoutMs, previous, writeComparison);
+  const latest = comparePlanAtBase(root, cfg, timeoutMs, previous, writeComparison, candidateRuns);
   if (!latest.applicable) return unknown('the latest change comparison could not establish a product delta');
   if (latest.basePassed !== false) return {
     ...latest, comparisonBase: previous, reason: `latest change comparison against ${previous}: ${latest.reason}`,
@@ -2141,7 +2191,7 @@ export function planDiscrimination(root: string, cfg: CanaryConfig, timeoutMs = 
   return sealed;
 }
 
-function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, isolationBase?: string, writeComparison = writeVerificationBundle): DiscriminationResult {
+function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, isolationBase?: string, writeComparison = writeVerificationBundle, candidateRuns?: readonly StepResult[]): DiscriminationResult {
   const none = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
     ({ applicable: false, reason, changedPaths, overlaidChecks: [], addedChecks: [], modifiedChecks: [], basePassed: null, baseFailures: [] });
   const unknown = (reason: string, changedPaths: string[] = []): DiscriminationResult =>
@@ -2306,6 +2356,7 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
       { planDigest: planDigest(cfg.plan), baseline: cfg.baseline ?? null },
       { subjectRoot: tree, subjectIdentity: candidateIdentity(tree), extra: { comparison: { commit: head, overlaidChecks: overlaid,
         note: 'Counterfactual comparison only; this is not verification of the current implementation or a session completion.' } } });
+    const pendingIncreases = pendingCountIncreases(candidateRuns, ran, root, tree);
     return {
       applicable: true,
       reason: failures.length === 0
@@ -2317,6 +2368,7 @@ function comparePlanAtBase(root: string, cfg: CanaryConfig, timeoutMs: number, i
       modifiedChecks,
       basePassed: failures.length === 0,
       baseFailures: failures.map((f) => f.kind),
+      ...(pendingIncreases.length > 0 ? { pendingCountIncreases: pendingIncreases } : {}),
       ...(baselineEvidence ? { baselineEvidence } : {}),
     };
   } catch (e) {
@@ -4070,7 +4122,7 @@ export function cmdDoctor(rawArgs: string[]): number {
   const obligations = obligationsFor(task?.kinds ?? [], collectDiffSignals(root, cfg), new Set(cfg.plan.map((s) => s.kind)), task?.requirementCount ?? 0, 'setup', task, cfg);
   // Measured, not inferred: is the sealed plan SENSITIVE to this change at all? When the
   // measurement exists it supersedes the declared-kind heuristic (see cmdCheckpoint).
-  const regression = discriminationObligation(root, cfg);
+  const regression = discriminationObligation(root, cfg, 600_000, undefined, undefined, ran);
   if (regression !== null) {
     for (let i = obligations.length - 1; i >= 0; i -= 1) {
       if (obligations[i]!.id === regression.id) obligations.splice(i, 1);
@@ -4306,7 +4358,7 @@ export async function cmdCheckpoint(): Promise<number> {
      * a bugfix that turns an existing red check green (real regression evidence, no test file
      * touched) would be called unproven, and a test file touched for show would be called met.
      */
-    const regression = discriminationObligation(root, cfg);
+    const regression = discriminationObligation(root, cfg, 600_000, undefined, undefined, ran);
     if (regression !== null) {
       for (let i = obligations.length - 1; i >= 0; i -= 1) {
         if (obligations[i]!.id === regression.id) obligations.splice(i, 1);

@@ -20,6 +20,7 @@ const SOURCE = "module.exports = n => 'hello ' + n;\n";
 const FIXED = "module.exports = n => 'hello ' + n.trimStart();\n";
 const TEST = "const {test} = require('node:test'); const assert = require('node:assert/strict'); const greet = require('../greet.cjs'); test('greet', () => assert.equal(greet('Ada'), 'hello Ada'));\n";
 const REGRESSION = "test('leading whitespace', () => assert.equal(greet('  Ada'), 'hello Ada'));\n";
+const SKIPPED_REGRESSION = "test('leading whitespace', { skip: greet('  Ada') === 'hello Ada' }, () => assert.equal(greet('  Ada'), 'hello Ada'));\n";
 function git(root: string, ...args: string[]): string {
   const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', windowsHide: true });
   assert.equal(r.status, 0, r.stderr);
@@ -342,6 +343,30 @@ test('a discriminating check allows the same candidate to finish and promote', (
   const expected = git(candidate, 'rev-parse', 'HEAD');
   const r = canary(root, 'finish', 'fix'); assert.equal(r.code, 0, r.out); assert.equal(git(root, 'rev-parse', 'HEAD'), expected);
   assert.equal(canary(root, 'doctor').code, 0); assert.notEqual(hook(root).decision, 'block');
+});
+
+test('completion reports a newly skipped test while preserving the passing gate', () => {
+  const root = fixture('pending-count-increase');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + SKIPPED_REGRESSION);
+  const completion = hook(root);
+  assert.notEqual(completion.decision, 'block');
+  assert.match(completion.systemMessage ?? '', /more skipped\/pending cases.*test check 1: 0→1/);
+  assert.match(completion.systemMessage ?? '', /green exit code alone does not show that they ran/);
+  const checkpoint = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8')) as {
+    status: string; proof: { obligations: Array<{ id: string; caveat?: string }> };
+  };
+  assert.equal(checkpoint.status, 'pass', 'the coverage caveat is report-only');
+  assert.match(checkpoint.proof.obligations.find((x) => x.id === 'regression-evidence')?.caveat ?? '', /0→1/);
+
+  const control = fixture('pending-count-unchanged');
+  assert.equal(canary(control, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(control, 'greet.cjs', FIXED);
+  write(control, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const normal = hook(control);
+  assert.notEqual(normal.decision, 'block');
+  assert.doesNotMatch(normal.systemMessage ?? '', /more skipped\/pending cases/);
 });
 
 test('a worker check crashing on absent baseline data cannot certify a change', () => {

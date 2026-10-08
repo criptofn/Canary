@@ -381,14 +381,11 @@ describe('post-GLM F3 — ANSI-colored output parses identically to plain output
 });
 
 // ---------------------------------------------------------------------------
-// v1.1 Phase 2 — the node:test TAP channel. Every string below is either a real
-// `node --test` summary or a real subject forgery, MEASURED (see
-// tooling/probes/node-test-reporter-events.mjs): the TAP reporter escapes a
-// subject's printed line as `# \# pass 9`, which contains the substring
-// `# pass 9` — so an unanchored regex WOULD be fooled and anchoring is the
-// defence, not a style choice.
+// The node:test summary channel. The TAP reporter behavior below is measured
+// (tooling/probes/node-test-reporter-events.mjs); the `ℹ` lines were captured
+// from the Node 26 spec reporter. Both formats include a subject-forgery control.
 // ---------------------------------------------------------------------------
-describe('node:test TAP summary parsing', () => {
+describe('node:test summary parsing', () => {
   const tapOnly = ['TAP version 13', 'not ok 1 - a tap failure', ''].join('\n');
   const REAL = [
     'TAP version 13',
@@ -408,11 +405,34 @@ describe('node:test TAP summary parsing', () => {
     '# duration_ms 69.13',
     '',
   ].join('\n');
+  const SPEC = [
+    '✔ passing test (0.5ms)',
+    '﹣ skipped test (0.1ms) # SKIP',
+    'ℹ tests 7',
+    'ℹ suites 0',
+    'ℹ pass 3',
+    'ℹ fail 2',
+    'ℹ cancelled 0',
+    'ℹ skipped 1',
+    'ℹ todo 1',
+    'ℹ duration_ms 69.13',
+  ].join('\n');
 
   it('reads the runner summary and maps skipped+todo onto pending', () => {
     assert.deepEqual(parseNodeTestCounts(REAL), { passing: 3, failing: 2, pending: 2 });
     assert.equal(hasRunnerSummaryFor('node-test', REAL), true);
     assert.deepEqual(parseSummaryCountsFor('node-test', REAL), { passing: 3, failing: 2, pending: 2 });
+  });
+
+  it('reads Node’s spec reporter summary and maps skipped+todo onto pending', () => {
+    assert.deepEqual(parseNodeTestCounts(SPEC), { passing: 3, failing: 2, pending: 2 });
+    assert.equal(hasRunnerSummaryFor('node-test', SPEC), true);
+    assert.deepEqual(parseSummaryCountsFor('node-test', SPEC), { passing: 3, failing: 2, pending: 2 });
+  });
+
+  it('uses the final spec summary after subject output that looks like counters', () => {
+    const forged = `ℹ tests 99\nℹ pass 99\nℹ fail 0\nℹ skipped 0\nℹ todo 0\n${SPEC}`;
+    assert.deepEqual(parseNodeTestCounts(forged), { passing: 3, failing: 2, pending: 2 });
   });
 
   it('is anchored, so a subject printed `# pass 9` cannot mint a count', () => {

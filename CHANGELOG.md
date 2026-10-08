@@ -14,6 +14,9 @@ changed*; the evidence ledgers record *what was observed*.
 
 - `canary setup` now explains that `READY` covers the configured checks and hooks, and shows how to
   register and bind task-specific acceptance criteria before handing work to an agent.
+- Node test summaries from the TAP and spec reporters are recognized, including skipped tests.
+- Completion reports flag a higher skipped/pending test count than the matching baseline run. The
+  note is informational and does not change the gate result.
 
 ## [1.4.0] — release candidate, NOT published
 
