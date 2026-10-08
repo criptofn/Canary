@@ -91,44 +91,6 @@ runtime dependencies**.
 > current working tree: `npm ci && npm run build`, then `node apps/cli/dist/src/main.js`.
 > v1.3's own bytes are described in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
 
-> **Post-release native pilot (2026-10-01, unpublished improvements).** Twelve Claude Code
-> sessions on three projects using local `qwen3.5:9b` produced 6/6 correct solutions without
-> Canary and 4/6 with Canary after an explicitly post-pilot H1 check. Four Canary sessions
-> passed their actual completion hook; native token use was 3.95× the plain arm. This small
-> pilot supports no token-saving claim. [Results, artifact identity and limits](docs/POST-V15-NATIVE-PILOT-COMPLETE-2026-10-01.md).
-
-The subsequent unpublished correction accepts sufficient imported `*-test.js` checks,
-including uncommitted files, and retains baseline failure logs. Its H3 controls reject
-weak tests and the old faulty implementation. [Repair and evidence](docs/POST-V15-IMPORTED-CHECK-REPAIR-2026-10-01.md).
-Its next native H3 pair completed correctly in both arms; Canary's actual Stop
-hook passed with the worker-test provenance caveat retained. The Canary session
-used 28 turns versus four without Canary, so this remains a completion improvement
-without an efficiency claim. [Native follow-up](docs/POST-V15-IMPORTED-CHECK-NATIVE-2026-10-01.md).
-
-> **v1.5 status, stated where you will see it first: the token-saving headline is WITHDRAWN.**
-> The v1.5 candidate published `83.21 % of Plain (−16.79 %)` for the everyday path. An
-> independent audit found that aggregate pooled a cell measured by the **fallback estimator**
-> rather than the declared provider-native ledger, and the replacement run measured a tree
-> that was **edited while it ran**. Under the corrected rule
-> ([`tooling/benchmark/eligibility.mjs`](tooling/benchmark/eligibility.mjs)) the **two COMPLETE
-> runs disagree in sign** — 80.74 % (−19.26 %) and 102.91 % (**+2.91 %**) — and their spread is
-> larger than any delta pooled across them. **v1.5 therefore claims no token-saving percentage
-> at all**: not a smaller one, not a different one. What survives is a measured **cost**, not a
-> saving: the standing MCP payload is genuinely inside the guarded sessions (6/6 guarded
-> advertised it, 0/6 plain) and costs **~438 provider-native tokens** per session — **not** the
-> ~1,432 that a `bytes ÷ 4` derivation implied. One intermittent Windows containment-sweep
-> failure is **open and unexplained** (recorded as open, not re-rolled until green). Provenance of
-> the gates that have run: **`e51b6fc` is the last product-source change** — the audited product
-> fixes and the local release batteries belong to it — while the **latest fully CI-tested candidate
-> is `d3f6a9c`, all six legs green in run
-> [`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720)** (Windows core
-> terminal success: 1,211 tests, 1,206 pass, 0 fail, 5 skipped). Evidence:
-> [`docs/AUDIT-KIT-1.5.md`](docs/AUDIT-KIT-1.5.md) ·
-> [`docs/CLAIM-EVIDENCE-MATRIX-1.5.md`](docs/CLAIM-EVIDENCE-MATRIX-1.5.md) ·
-> [`docs/POST-AUDIT-CLOSURE-1.5.md`](docs/POST-AUDIT-CLOSURE-1.5.md) ·
-> [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
-
-
 ## Use your coding agent normally
 
 ```bash
@@ -501,6 +463,45 @@ the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`]
 > agent was correct in every trial; no correctness advantage was demonstrated, and Canary's own KPI
 > reads FAILS THE TOKEN REQUIREMENT.** The three measured reasons the corpus cannot show an advantage,
 > and the caveats that limit each number, are in that document.
+
+### v1.5 release and post-release evidence
+
+> **Post-release native pilot (2026-10-01, unpublished improvements).** Twelve Claude Code
+> sessions on three projects using local `qwen3.5:9b` produced 6/6 correct solutions without
+> Canary and 4/6 with Canary after an explicitly post-pilot H1 check. Four Canary sessions
+> passed their actual completion hook; native token use was 3.95× the plain arm. This small
+> pilot supports no token-saving claim. [Results, artifact identity and limits](docs/POST-V15-NATIVE-PILOT-COMPLETE-2026-10-01.md).
+
+The subsequent unpublished correction accepts sufficient imported `*-test.js` checks,
+including uncommitted files, and retains baseline failure logs. Its H3 controls reject
+weak tests and the old faulty implementation. [Repair and evidence](docs/POST-V15-IMPORTED-CHECK-REPAIR-2026-10-01.md).
+Its next native H3 pair completed correctly in both arms; Canary's actual Stop
+hook passed with the worker-test provenance caveat retained. The Canary session
+used 28 turns versus four without Canary, so this remains a completion improvement
+without an efficiency claim. [Native follow-up](docs/POST-V15-IMPORTED-CHECK-NATIVE-2026-10-01.md).
+
+> **v1.5 status: the token-saving headline is WITHDRAWN.**
+> The v1.5 candidate published `83.21 % of Plain (−16.79 %)` for the everyday path. An
+> independent audit found that aggregate pooled a cell measured by the **fallback estimator**
+> rather than the declared provider-native ledger, and the replacement run measured a tree
+> that was **edited while it ran**. Under the corrected rule
+> ([`tooling/benchmark/eligibility.mjs`](tooling/benchmark/eligibility.mjs)) the **two COMPLETE
+> runs disagree in sign** — 80.74 % (−19.26 %) and 102.91 % (**+2.91 %**) — and their spread is
+> larger than any delta pooled across them. **v1.5 therefore claims no token-saving percentage
+> at all**: not a smaller one, not a different one. What survives is a measured **cost**, not a
+> saving: the standing MCP payload is genuinely inside the guarded sessions (6/6 guarded
+> advertised it, 0/6 plain) and costs **~438 provider-native tokens** per session — **not** the
+> ~1,432 that a `bytes ÷ 4` derivation implied. One intermittent Windows containment-sweep
+> failure is **open and unexplained** (recorded as open, not re-rolled until green). Provenance of
+> the gates that have run: **`e51b6fc` is the last product-source change** — the audited product
+> fixes and the local release batteries belong to it — while the **latest fully CI-tested candidate
+> is `d3f6a9c`, all six legs green in run
+> [`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720)** (Windows core
+> terminal success: 1,211 tests, 1,206 pass, 0 fail, 5 skipped). Evidence:
+> [`docs/AUDIT-KIT-1.5.md`](docs/AUDIT-KIT-1.5.md) ·
+> [`docs/CLAIM-EVIDENCE-MATRIX-1.5.md`](docs/CLAIM-EVIDENCE-MATRIX-1.5.md) ·
+> [`docs/POST-AUDIT-CLOSURE-1.5.md`](docs/POST-AUDIT-CLOSURE-1.5.md) ·
+> [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
 
 ## Known limitations
 
