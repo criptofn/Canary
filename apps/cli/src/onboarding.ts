@@ -2003,7 +2003,7 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
     ? `the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (${workerAuthored.slice(0, 3).join(', ')}) — sensitive to the change, but authored by the same worker whose work it judges, so it is NOT independent authority. This is a provenance caveat, not a failed obligation; retain it in your report. Do not re-run setup or rewrite the baseline to remove it. Independent coverage needs an operator-bound check (package.json canary.proofs, or canary.project.json proofs) or a human's acceptance`
     : undefined;
   const pendingCaveat = disc.pendingCountIncreases?.length
-    ? `the test runner reported more skipped/pending cases on the candidate than on the comparison baseline (${disc.pendingCountIncreases.map((x) => `test check ${x.testRun}: ${x.baseline}→${x.candidate}`).join(', ')}); review those cases because a green exit code alone does not show that they ran`
+    ? `the test runner reported more skipped/pending cases on the candidate than on the comparison baseline (${disc.pendingCountIncreases.map((x) => `test check ${x.testRun}: ${x.baseline}→${x.candidate}`).join(', ')}); review those cases because a green exit code alone does not show that they ran${disc.baselineEvidence ? `; baseline comparison evidence: ${disc.baselineEvidence}` : ''}`
     : undefined;
   const caveat = [workerCaveat, pendingCaveat].filter((x): x is string => x !== undefined).join('; ');
   if (disc.basePassed === true) {
@@ -4189,6 +4189,11 @@ export function cmdDoctor(rawArgs: string[]): number {
     if (ob.caveat) o.say(`evidence caveat [${ob.id}]: ${ob.caveat}`);
     o.detail(`obligation [${ob.id}] ${ob.status.toUpperCase()} (${ob.mode}): ${ob.note}`);
   }
+  if (obligations.some((ob) => ob.caveat)) {
+    o.say(evidenceDir === null
+      ? 'full evidence could not be written; no saved run logs are available'
+      : `full evidence: ${evidenceDir} — per-step logs and verification.json`);
+  }
   // M3 (verbose-only — trust classes are evidence internals, not default UX):
   o.detail('trust: this READY is CANARY_OBSERVED — Canary executed the checks in this very invocation. Agent words are AGENT_REPORTED and never sufficient for a PASS; no class is promoted by copying bytes into a Canary-owned file (evidence is never read back for verdicts).');
   if (cfg.planAuthority) o.detail('authority: every command that just ran is one setup sealed — script-text drift is blocked before execution, not excused after it passes.');
@@ -4466,7 +4471,8 @@ export async function cmdCheckpoint(): Promise<number> {
       writeCheckpoint(root, 'pass', [], 'checkpoint', {
         checks: ran, hookResponse: 'message-and-continue', next: caveats.map((x) => x.caveat).join('; '), evidencePath: evidenceDir ?? undefined, proof,
       });
-      return emit({ systemMessage: `Canary: the sealed checks passed — with a caveat. ${caveats.map((x) => `${x.id}: ${x.caveat}`).join(' ')}`.slice(0, 2000) });
+      const evidenceHint = evidenceDir === null ? ' Full test evidence could not be written.' : ` Full test evidence: ${evidenceDir}.`;
+      return emit({ systemMessage: `Canary: the sealed checks passed — with a caveat. ${caveats.map((x) => `${x.id}: ${x.caveat}`).join(' ')}${evidenceHint}`.slice(0, 2000) });
     }
     writeCheckpoint(root, 'pass', [], 'checkpoint', { checks: ran, hookResponse: 'continued', evidencePath: evidenceDir ?? undefined, proof });
     return 0; // silent even if an agent claim contradicts — claims never BLOCK, and never CREATE a pass

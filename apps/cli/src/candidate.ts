@@ -587,6 +587,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   for (const persist of comparisonWrites) {
     const evidence = persist();
     if (evidence && regression?.status === 'unproven') regression.note += `; comparison output: ${evidence}`;
+    if (evidence && regression?.caveat?.includes('skipped/pending cases')) regression.caveat += `; baseline comparison evidence: ${evidence}`;
   }
   // M10 §10 — the obligation ladder over the CANDIDATE diff (baseHead frozen
   // in the record; the worktree started provably clean at isolation, so every
@@ -766,6 +767,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   if (cid.dirty !== false || !postIdentity.resolved || postIdentity.dirty !== false || postIdentity.head !== cid.head || postIdentity.tree !== cid.tree) return blocked('candidate is dirty / UNCOMMITTED or changed during verification — no promotable PASS for an unstable subject', 'commit the intended state and re-verify');
   const evidence = writeVerificationBundle(root, 'candidate', results, 'pass', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
   if (!evidence) o.say('Evidence storage unavailable — this verdict comes from live checks; no durable bundle is guaranteed.');
+  else if (obligations.some((x) => x.caveat)) o.say(`full evidence: ${evidence} — per-step logs and verification.json`);
   if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
   if (obligations.length) o.detail(`obligations: ${obligations.length}/${obligations.length} MET — the sealed plan plus this task's proof obligations are all satisfied (directive §10).`);
   const cnt = gitWithinRoot(rec.root, ['rev-list', '--count', '--end-of-options', `${rec.baseHead}..HEAD`]);

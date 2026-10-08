@@ -342,6 +342,7 @@ test('a discriminating check allows the same candidate to finish and promote', (
   write(candidate, 'greet.cjs', FIXED); write(candidate, 'tests/greet.test.cjs', TEST + REGRESSION); commit(candidate);
   const expected = git(candidate, 'rev-parse', 'HEAD');
   const r = canary(root, 'finish', 'fix'); assert.equal(r.code, 0, r.out); assert.equal(git(root, 'rev-parse', 'HEAD'), expected);
+  assert.match(r.out, /full evidence: .*per-step logs and verification\.json/);
   assert.equal(canary(root, 'doctor').code, 0); assert.notEqual(hook(root).decision, 'block');
 });
 
@@ -355,10 +356,17 @@ test('completion reports a newly skipped test while preserving the passing gate'
   assert.match(completion.systemMessage ?? '', /more skipped\/pending cases.*test check 1: 0→1/);
   assert.match(completion.systemMessage ?? '', /green exit code alone does not show that they ran/);
   const checkpoint = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8')) as {
-    status: string; proof: { obligations: Array<{ id: string; caveat?: string }> };
+    status: string; evidencePath?: string; proof: { obligations: Array<{ id: string; caveat?: string }> };
   };
   assert.equal(checkpoint.status, 'pass', 'the coverage caveat is report-only');
+  assert.ok(checkpoint.evidencePath);
+  assert.ok(completion.systemMessage?.includes(`Full test evidence: ${checkpoint.evidencePath}`));
   assert.match(checkpoint.proof.obligations.find((x) => x.id === 'regression-evidence')?.caveat ?? '', /0→1/);
+  const doctor = canary(root, 'doctor', '--json');
+  assert.equal(doctor.code, 0, doctor.out);
+  const doctorCheckpoint = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8')) as { evidencePath?: string };
+  assert.ok(doctorCheckpoint.evidencePath);
+  assert.ok(doctor.out.includes(`full evidence: ${doctorCheckpoint.evidencePath}`));
 
   const control = fixture('pending-count-unchanged');
   assert.equal(canary(control, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
@@ -367,6 +375,17 @@ test('completion reports a newly skipped test while preserving the passing gate'
   const normal = hook(control);
   assert.notEqual(normal.decision, 'block');
   assert.doesNotMatch(normal.systemMessage ?? '', /more skipped\/pending cases/);
+
+  const candidateRoot = fixture('candidate-pending-count-increase');
+  const candidate = work(candidateRoot);
+  write(candidate, 'greet.cjs', FIXED);
+  write(candidate, 'tests/greet.test.cjs', TEST + SKIPPED_REGRESSION);
+  commit(candidate);
+  const finish = canary(candidateRoot, 'finish', 'fix');
+  assert.equal(finish.code, 0, finish.out);
+  assert.match(finish.out, /more skipped\/pending cases.*test check 1: 0→1/);
+  assert.match(finish.out, /baseline comparison evidence:/);
+  assert.match(finish.out, /full evidence: .*per-step logs and verification\.json/);
 });
 
 test('a worker check crashing on absent baseline data cannot certify a change', () => {
