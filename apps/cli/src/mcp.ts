@@ -302,6 +302,8 @@ function cwdFor(args: Record<string, unknown>): string {
   return typeof p === 'string' && p.trim() !== '' ? p : process.cwd();
 }
 
+const GENERIC_REQUIREMENT_PLACEHOLDER = /^(?:acceptance criteria|criteria|requirements?|user criteria)(?:\s+(?:from|in|provided by|given in)\s+(?:the\s+)?(?:user(?:'s)?\s+)?(?:prompt|request))?$/i;
+
 /** Validate + dispatch one tools/call. Returns null for an unknown tool. */
 function callTool(name: string, args: Record<string, unknown>): { content: Array<{ type: 'text'; text: string }>; isError: boolean; structuredContent?: Record<string, unknown> } {
   switch (name) {
@@ -317,6 +319,9 @@ function callTool(name: string, args: Record<string, unknown>): { content: Array
       const requirements = asStringArray(args.requirements, 'requirements');
       if (!Array.isArray(requirements)) return errorResult(requirements.error);
       if (requirements.length === 0) return errorResult('requirements must include at least one explicit criterion');
+      if (requirements.some((requirement) => GENERIC_REQUIREMENT_PLACEHOLDER.test(requirement.trim().replace(/\s+/g, ' ')))) {
+        return errorResult('requirements must be explicit user criteria copied verbatim; a generic placeholder cannot be recorded');
+      }
       const argv = ['task', intent];
       for (const requirement of requirements) argv.push('--requirement', requirement);
       return cliToolResult(runCli(argv, process.cwd()));

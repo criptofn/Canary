@@ -303,6 +303,28 @@ describe('a real call relays Canary own words and exit code, unmodified', () => 
     assert.equal(doctor.verdict, 'NOT PROVEN');
     assert.notEqual(doctor.exitCode, 0);
   });
+  it('canary_task refuses generic placeholder criteria without writing a task record', () => {
+    const root = path.join(TMP, 'task-placeholder-project');
+    fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+    assert.equal(spawnSync('git', ['-C', root, 'init', '-b', 'main'], { encoding: 'utf8' }).status, 0);
+    const pass = path.join(REPO, 'tooling', 'test-support', 'fixtures', 'f-pass.js');
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: `node "${pass}"` } }));
+    assert.equal(spawnSync('git', ['-C', root, 'add', 'package.json'], { encoding: 'utf8' }).status, 0);
+    assert.equal(spawnSync('git', ['-C', root, '-c', 'user.name=Canary Regression', '-c', 'user.email=regression@canary.local', 'commit', '-m', 'sealed test baseline'], { encoding: 'utf8' }).status, 0);
+    const setup = spawnSync(process.execPath, [CLI, 'setup', '--yes', root], { encoding: 'utf8', timeout: 180_000 });
+    assert.equal(setup.status, 0, `${setup.stdout}\n${setup.stderr}`);
+
+    const response = session([
+      req(1, 'tools/call', { name: 'canary_task', arguments: {
+        intent: 'Improve this project', requirements: ['  Acceptance criteria   from user prompt  '],
+      } }),
+    ], root, ['--profile', 'everyday']).parsed[0]!;
+    const result = resultOf(response);
+    assert.equal(result.isError, true);
+    assert.equal(result.exitCode, undefined, 'placeholder is refused before invoking the CLI');
+    assert.match(JSON.stringify(result.content), /generic placeholder cannot be recorded/i);
+    assert.equal(fs.existsSync(path.join(root, '.canary', 'task', 'current.json')), false);
+  });
   it('canary_result returns the CLI envelope and tracks the child exit code', () => {
     const root = path.join(TMP, 'repo');
     fs.mkdirSync(root, { recursive: true });
