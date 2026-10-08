@@ -286,7 +286,7 @@ describe('Windows sweep snapshot refresh', () => {
       `$script:first=@(${first.join(',')})`,
       `$script:before=@(${before.join(',')})`,
       `$script:after=@(${after.join(',')})`,
-      'function Get-CimInstance { [CmdletBinding()] param([string]$ClassName); $script:enumerations++; if($script:enumerations -eq 1){$script:first} elseif($script:enumerations -eq 2){$script:before} else {$script:after} }',
+      'function Get-CimInstance { [CmdletBinding()] param([string]$ClassName,[string[]]$Property); if(($Property -join ",") -ne "ProcessId,ParentProcessId,CreationDate"){throw "unexpected process snapshot properties"}; $script:enumerations++; if($script:enumerations -eq 1){$script:first} elseif($script:enumerations -eq 2){$script:before} else {$script:after} }',
       'function Stop-Process { [CmdletBinding()] param([int]$Id,[switch]$Force) }',
     ].join(';');
     const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `${setup}; ${buildWin32SweepScript(rootPid, spawnedAtMs)}`], {

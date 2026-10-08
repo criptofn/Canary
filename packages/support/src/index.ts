@@ -739,8 +739,8 @@ function sweepWin32(pid: number, spawnedAtMs: number): SweepResult {
   const script = buildWin32SweepScript(pid, spawnedAtMs);
   const r = spawnSync(psExe,
     ['-NoProfile', '-NonInteractive', '-Command', script],
-    // Three bounded snapshots instead of 30+ per-process queries; the budget is per sweep and a
-    // timeout still fails CLOSED (never "no survivors") and now names its cause.
+    // Bounded snapshots request only process identity fields; a timeout still fails CLOSED
+    // (never "no survivors") and names its cause.
     { timeout: 60_000, windowsHide: true, encoding: 'utf8', shell: false, env: containmentEnv() });
   const why = r.error !== undefined && r.error !== null
     ? `powershell spawn failed: ${r.error.message}`
@@ -768,6 +768,9 @@ export function buildWin32SweepScript(pid: number, spawnedAtMs: number): string 
   // seconds of slack covers truncation without admitting an unrelated process
   // that reused a parent PID minutes before this child was spawned.
   const cut = new Date(spawnedAtMs - 2_000).toISOString();
+  // Request only ProcessId, ParentProcessId, and CreationDate from each snapshot.
+  // Process command lines and executable paths add cost but are not used for lineage
+  // or PID-reuse checks.
   // THREE FULL-TREE SNAPSHOTS, NOT ONE QUERY PER PROCESS. MEASURED (v1.4 release gate, GitHub
   // Windows runner, run 35636516908): the previous shape issued
   // `Get-CimInstance -Filter "ParentProcessId=$p"` for EVERY node of the BFS. A
@@ -789,7 +792,7 @@ export function buildWin32SweepScript(pid: number, spawnedAtMs: number): string 
   return (
     `$ErrorActionPreference='Stop';` +
     `$cut=[DateTime]::Parse('${cut}').ToUniversalTime();` +
-    `$all=@(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop | Where-Object { $_ -ne $null });` +
+    `$all=@(Get-CimInstance -ClassName Win32_Process -Property ProcessId,ParentProcessId,CreationDate -ErrorAction Stop | Where-Object { $_ -ne $null });` +
     `if($all.Count -le 0){ throw 'empty process snapshot' };` +
     `Write-Output ('snapshot=' + $all.Count);` +
     `$script:desc=New-Object System.Collections.Generic.List[object];` +
@@ -804,13 +807,13 @@ export function buildWin32SweepScript(pid: number, spawnedAtMs: number): string 
     `$identity=('{0}:{1}' -f $childId, $child.CreationDate.ToUniversalTime().Ticks);` +
     `if(-not $script:descIds.Contains($identity)){ if($script:desc.Count -ge ${SWEEP_MAX_PROCESSES}){ $script:limited=$true; break }; [void]$script:descIds.Add($identity); [void]$script:desc.Add($child) }; $q.Enqueue($childId) }; if($script:limited){break} } };` +
     `Add-Descendants $all;` +
-    `$before=@(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop | Where-Object { $_ -ne $null });` +
+    `$before=@(Get-CimInstance -ClassName Win32_Process -Property ProcessId,ParentProcessId,CreationDate -ErrorAction Stop | Where-Object { $_ -ne $null });` +
     `if($before.Count -le 0){ throw 'empty pre-kill process snapshot' }; Add-Descendants $before;` +
     `$k=New-Object System.Collections.Generic.List[int];` +
     `for($i=$script:desc.Count-1; $i -ge 0; $i--){ $row=$script:desc[$i]; $id=[int]$row.ProcessId; $created=$row.CreationDate.ToUniversalTime().Ticks;` +
     `$live=$before | Where-Object { [int]$_.ProcessId -eq $id -and $_.CreationDate -and $_.CreationDate.ToUniversalTime().Ticks -eq $created } | Select-Object -First 1;` +
     `if($null -ne $live){ try{ Stop-Process -Id $id -Force -ErrorAction Stop; $k.Add($id) }catch{} } };` +
-    `$after=@(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop | Where-Object { $_ -ne $null });` +
+    `$after=@(Get-CimInstance -ClassName Win32_Process -Property ProcessId,ParentProcessId,CreationDate -ErrorAction Stop | Where-Object { $_ -ne $null });` +
     `if($after.Count -le 0){ throw 'empty post-kill process snapshot' }; Add-Descendants $after;` +
     `$afterIds=@{}; foreach($row in $after){ if($row.CreationDate){ $key=('{0}:{1}' -f [int]$row.ProcessId, $row.CreationDate.ToUniversalTime().Ticks); $afterIds[$key]=$true } };` +
     `$survivors=New-Object System.Collections.Generic.List[int]; foreach($row in $script:desc){ $id=[int]$row.ProcessId; $created=$row.CreationDate.ToUniversalTime().Ticks; $key=('{0}:{1}' -f $id, $created); if($afterIds.ContainsKey($key)){[void]$survivors.Add($id)} };` +

@@ -3597,7 +3597,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
       // first-run summary can sound like Canary also assessed acceptance criteria
       // that were never supplied.
       o.say('note: no task acceptance criteria are registered. READY means these checks and hooks are set up; Canary cannot assess requirements it was never given.');
-      o.say('  for task-specific proof, register measurable criteria before handing off with `canary task --requirement "<observable behavior>"`, then bind them to a sealed script with `canary bind <plan-script> --requirement "<same text>" --reseal`.');
+      o.say('  for task-specific checks, register measurable behavior with `canary task --requirement "<observable behavior>"`, link each to an existing check with `canary bind <script> --requirement "<same text>"`, commit the change, then run `canary setup` again.');
     }
     o.verdict('READY', 'Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.', `try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor`);
     return 0;
