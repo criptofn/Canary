@@ -1861,7 +1861,7 @@ export function projectTestEntryHint(startDir: string): string {
     const record = openSealed(storeFromEnv(), { projectId: projectIdForRoot(root), kind: 'plan-seal' });
     if (record.status !== 'valid' || !cfg.planAuthority || canonicalJson(record.envelope!.payload) !== canonicalJson(cfg.planAuthority)) return '';
     const hint = sealedTestEntryHint(root, cfg);
-    return hint ? `\n\nBefore adding regression tests:${hint}\nAdd assertions against the actual implementation to the suite this entry runs. Preserve the test command, sealed plan and baseline.` : '';
+    return hint ? `\n\nBefore adding regression tests:${hint}\nAdd assertions against the actual implementation to the suite this entry runs. Prefer observable behavior through the existing public API; do not export internals solely for tests. Preserve the test command, sealed plan and baseline.` : '';
   } catch { return ''; } // no readable trusted entry: keep the generic instructions, never guess
 }
 

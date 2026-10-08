@@ -224,6 +224,8 @@ describe('a real call relays Canary own words and exit code, unmodified', () => 
     const initialize = () => String(resultOf(session([req(1, 'initialize')], root, ['--profile', 'everyday']).parsed[0]!).instructions);
     assert.match(initialize(), /scripts\.test = "node check\.cjs"/,
       'the agent needs the real entry before writing a regression file that entry never runs');
+    assert.match(initialize(), /observable behavior through the existing public API/);
+    assert.match(initialize(), /do not export internals solely for tests/);
     assert.deepEqual(fs.readFileSync(checkpoint), before, 'initialization cannot certify completion');
     assert.deepEqual(fs.readFileSync(path.join(root, 'runs.txt')), runs, 'initialization cannot execute the test plan');
 
