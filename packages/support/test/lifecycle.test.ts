@@ -24,7 +24,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { after, describe, it } from 'node:test';
 
-import { runCommand, sweepDescendants, parseWin32SweepOutput, posixSessionMember, type RunOutcome, type WorkspaceLayout } from '../src/index.js';
+import { runCommand, sweepDescendants, buildWin32SweepScript, parseWin32SweepOutput, posixSessionMember, type RunOutcome, type WorkspaceLayout } from '../src/index.js';
 
 const NODE = process.execPath;
 const NODE_DIR = path.dirname(NODE);
@@ -274,6 +274,55 @@ describe('Windows sweep output contract', () => {
       'a partially traversed tree is never reported as clear');
     assert.equal(parseWin32SweepOutput('snapshot=42\nlimit=0\nkilled=\nsurvivors=\n').failed, true,
       'a truncated output protocol is never read as an empty tree');
+  });
+});
+
+describe('Windows sweep snapshot refresh', () => {
+  const processRow = (pid: number, parentPid: number, created: string): string =>
+    `[pscustomobject]@{ProcessId=${pid};ParentProcessId=${parentPid};CreationDate=[DateTime]::Parse('${created}')}`;
+  const runWithSnapshots = (rootPid: number, spawnedAtMs: number, first: string[], before: string[], after: string[]) => {
+    const setup = [
+      '$script:enumerations=0',
+      `$script:first=@(${first.join(',')})`,
+      `$script:before=@(${before.join(',')})`,
+      `$script:after=@(${after.join(',')})`,
+      'function Get-CimInstance { [CmdletBinding()] param([string]$ClassName); $script:enumerations++; if($script:enumerations -eq 1){$script:first} elseif($script:enumerations -eq 2){$script:before} else {$script:after} }',
+      'function Stop-Process { [CmdletBinding()] param([int]$Id,[switch]$Force) }',
+    ].join(';');
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `${setup}; ${buildWin32SweepScript(rootPid, spawnedAtMs)}`], {
+      encoding: 'utf8', timeout: 15_000, windowsHide: true, maxBuffer: 1_000_000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return parseWin32SweepOutput(result.stdout ?? '');
+  };
+
+  it('finds a descendant omitted by the first snapshot and ignores an older reused-PID child', {
+    skip: process.platform !== 'win32',
+  }, () => {
+    const rootPid = 51001;
+    const childPid = 51002;
+    const spawnedAtMs = Date.now();
+    const childCreated = new Date(spawnedAtMs - 1_000).toISOString();
+    const olderCreated = new Date(spawnedAtMs - 60_000).toISOString();
+    const root = processRow(rootPid, 100, childCreated);
+    const child = processRow(childPid, rootPid, childCreated);
+    const oldChild = processRow(51003, rootPid, olderCreated);
+    assert.deepEqual(runWithSnapshots(rootPid, spawnedAtMs,
+      [root, oldChild], [root, child, oldChild], [root, oldChild]), { killed: [childPid], failed: false });
+  });
+
+  it('fails closed when a descendant appears in the final snapshot and remains alive', {
+    skip: process.platform !== 'win32',
+  }, () => {
+    const rootPid = 52001;
+    const childPid = 52002;
+    const spawnedAtMs = Date.now();
+    const created = new Date(spawnedAtMs - 1_000).toISOString();
+    const root = processRow(rootPid, 100, created);
+    const child = processRow(childPid, rootPid, created);
+    assert.deepEqual(runWithSnapshots(rootPid, spawnedAtMs, [root], [root], [root, child]), {
+      killed: [], failed: true, reason: `surviving process ids: ${childPid}`,
+    });
   });
 });
 

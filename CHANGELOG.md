@@ -19,6 +19,9 @@ changed*; the evidence ledgers record *what was observed*.
   than its baseline. Completion and candidate promotion stay blocked until the cases run or an
   equivalent operator-controlled check is bound; the hook, doctor, and candidate output link to
   the saved evidence. An unchanged skipped/pending count keeps the existing gate behavior.
+- The Windows process sweep now refreshes descendant discovery before termination and traverses
+  the final snapshot independently, so a child missed by an earlier enumeration cannot silently
+  produce a clean result.
 
 ## [1.4.0] — release candidate, NOT published
 
