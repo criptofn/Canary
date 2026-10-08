@@ -19,8 +19,8 @@ changed*; the evidence ledgers record *what was observed*.
   than its baseline. Completion and candidate promotion stay blocked until the cases run or an
   equivalent operator-controlled check is bound; the hook, doctor, and candidate output link to
   the saved evidence. An unchanged skipped/pending count keeps the existing gate behavior.
-- Mixed test commands compare pending counts per recognized runner, so one runner's summary cannot
-  hide a skip increase reported by another; the diagnostic names the runner that reported it.
+- Mixed test commands compare pending counts per recognized runner, including Jest and Vitest, so
+  one runner's summary cannot hide a skip increase reported by another; diagnostics name the runner.
 - The Windows process sweep now refreshes descendant discovery before termination and traverses
   the final snapshot independently, so a child missed by an earlier enumeration cannot silently
   produce a clean result.

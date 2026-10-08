@@ -233,6 +233,54 @@ export function parseSummaryCounts(log: string): SummaryCounts {
   };
 }
 
+/**
+ * Jest's default summary includes every test outcome on its `Tests:` line:
+ * `Tests: 2 skipped, 1 todo, 3 passed, 6 total`. `--collectTests` can instead
+ * report `runnable`; those assertions were collected but never executed, so
+ * they belong with pending checks rather than passing evidence.
+ */
+export function parseJestCounts(log: string): SummaryCounts | undefined {
+  let summary: string | undefined;
+  for (const line of runnerView(log).split('\n')) {
+    if (/^\s*Tests:\s*/i.test(line)) summary = line.replace(/^\s*Tests:\s*/i, '').trim();
+  }
+  if (summary === undefined) return undefined;
+  const totals = [...summary.matchAll(/(?:^|,\s*)(\d+)\s+total\b/gi)];
+  if (totals.length === 0) return undefined;
+  const total = Number(totals.at(-1)![1]);
+  let passing = 0; let failing = 0; let pending = 0; let accounted = 0;
+  for (const match of summary.matchAll(/(?:^|,\s*)(\d+)\s+(passed|failed|skipped|pending|todo|runnable)\b/gi)) {
+    const count = Number(match[1]);
+    const status = match[2]!.toLowerCase();
+    accounted += count;
+    if (status === 'passed') passing += count;
+    else if (status === 'failed') failing += count;
+    else pending += count;
+  }
+  return accounted === total ? { passing, failing, pending } : undefined;
+}
+
+/** Parse Vitest's aggregate test-case row, excluding the separate `Test Files` row. */
+export function parseVitestCounts(log: string): SummaryCounts | undefined {
+  let summary: string | undefined;
+  let total: number | undefined;
+  for (const line of runnerView(log).split('\n')) {
+    const match = /^\s*Tests\s+(.+?)\s+\((\d+)\)\s*$/i.exec(line);
+    if (match) { summary = match[1]; total = Number(match[2]); }
+  }
+  if (summary === undefined || total === undefined) return undefined;
+  let passing = 0; let failing = 0; let pending = 0; let accounted = 0;
+  for (const match of summary.matchAll(/(?:^|\|\s*)(\d+)\s+(passed|failed|skipped|pending|todo)\b/gi)) {
+    const count = Number(match[1]);
+    const status = match[2]!.toLowerCase();
+    accounted += count;
+    if (status === 'passed') passing += count;
+    else if (status === 'failed') failing += count;
+    else pending += count;
+  }
+  return accounted === total ? { passing, failing, pending } : undefined;
+}
+
 /** True iff two normalized streams are identical — the determinism check. */
 export function streamsStable(hashes: readonly string[]): boolean {
   return hashes.length > 0 && hashes.every((h) => h === hashes[0]);
@@ -448,6 +496,8 @@ export function parseSummaryCountsFor(runner: string | undefined, log: string): 
   if (runner === 'python-unittest') return parseUnittestCounts(log) ?? {};
   if (runner === 'node-test') return parseNodeTestCounts(log) ?? {};
   if (runner === 'pytest') return parsePytestCounts(log) ?? {};
+  if (runner === 'jest') return parseJestCounts(log) ?? {};
+  if (runner === 'vitest') return parseVitestCounts(log) ?? {};
   return parseSummaryCounts(log);
 }
 
@@ -456,6 +506,8 @@ export function hasRunnerSummaryFor(runner: string | undefined, log: string): bo
   if (runner === 'python-unittest') return parseUnittestCounts(log) !== undefined;
   if (runner === 'node-test') return parseNodeTestCounts(log) !== undefined;
   if (runner === 'pytest') return parsePytestCounts(log) !== undefined;
+  if (runner === 'jest') return parseJestCounts(log) !== undefined;
+  if (runner === 'vitest') return parseVitestCounts(log) !== undefined;
   return parseSummaryCounts(log).passing !== undefined || parseSummaryCounts(log).failing !== undefined;
 }
 

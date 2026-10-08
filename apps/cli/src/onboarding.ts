@@ -2057,7 +2057,7 @@ function looksLikeInfraFailure(r: StepResult): boolean {
 function reportedPendingCounts(result: StepResult): Array<{ runner: string; pending: number }> {
   if (result.kind !== 'tests') return [];
   const log = `${result.stdout}\n${result.stderr}`;
-  const runners = ['node-test', 'pytest', 'python-unittest', undefined] as const;
+  const runners = ['node-test', 'pytest', 'python-unittest', 'jest', 'vitest', undefined] as const;
   return runners.flatMap((runner) => {
     const counts = parseSummaryCountsFor(runner, log);
     if (counts.passing === undefined && counts.failing === undefined && counts.pending === undefined) return [];

@@ -12,10 +12,12 @@ import {
   inDependencySubtree,
   classifyTreeObservation,
   dependencyInTree,
+  parseJestCounts,
   parseNodeTestCounts,
   parsePytestCounts,
   parseSummaryCounts,
   parseSummaryCountsFor,
+  parseVitestCounts,
   streamsStable,
 } from '../src/index.js';
 
@@ -377,6 +379,38 @@ describe('post-GLM F3 — ANSI-colored output parses identically to plain output
     const cr = COLORED.replace(/\n/g, '\r');
     assert.deepEqual(parseSummaryCounts(cr), parseSummaryCounts(COLORED));
     assert.deepEqual([...extractFailingTestNames(cr)].sort(), [...extractFailingTestNames(COLORED)].sort());
+  });
+});
+
+describe('Jest and Vitest summary parsing', () => {
+  it('counts Jest skip, todo and failed categories and refuses mismatched totals', () => {
+    const output = [
+      'Tests: 1 failed, 2 skipped, 1 todo, 3 passed, 7 total',
+      '',
+    ].join('\n');
+    assert.deepEqual(parseJestCounts(output), { passing: 3, failing: 1, pending: 3 });
+    assert.equal(hasRunnerSummaryFor('jest', output), true);
+    assert.deepEqual(parseSummaryCountsFor('jest', output), { passing: 3, failing: 1, pending: 3 });
+
+    const collectOnly = 'Tests: 3 total, 1 runnable, 1 skipped, 1 todo\n';
+    assert.deepEqual(parseJestCounts(collectOnly), { passing: 0, failing: 0, pending: 3 },
+      'collected but unexecuted assertions are not passing evidence');
+    assert.equal(parseJestCounts('Tests: 1 skipped, 3 passed, 5 total'), undefined,
+      'a summary with an unaccounted test is not accepted');
+  });
+
+  it('reads only Vitest test-case totals and keeps skipped cases separate from file counts', () => {
+    const output = [
+      ' Test Files  1 failed | 2 passed (3)',
+      '      Tests  1 failed | 2 skipped | 3 passed (6)',
+      '   Duration  1.2s',
+      '',
+    ].join('\n');
+    assert.deepEqual(parseVitestCounts(output), { passing: 3, failing: 1, pending: 2 });
+    assert.equal(hasRunnerSummaryFor('vitest', output), true);
+    assert.deepEqual(parseSummaryCountsFor('vitest', output), { passing: 3, failing: 1, pending: 2 });
+    assert.equal(parseVitestCounts('Tests  2 passed (3)'), undefined,
+      'a summary with an unaccounted test is not accepted');
   });
 });
 

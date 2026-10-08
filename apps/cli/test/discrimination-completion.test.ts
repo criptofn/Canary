@@ -107,6 +107,21 @@ function mixedSummaryFixture(name: string): string {
   commit(root); assert.equal(canary(root, 'setup', '--yes').code, 0);
   return root;
 }
+function jestSummaryFixture(name: string): string {
+  const root = path.join(TMP, name);
+  fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  write(root, 'package.json', JSON.stringify({ name, private: true, scripts: { test: 'node scripts/run-tests.cjs' } }));
+  write(root, 'greet.cjs', SOURCE);
+  write(root, 'tests/greet.test.cjs', "console.log('Tests: 1 passed, 1 total');\n");
+  write(root, 'scripts/run-tests.cjs', "require('../tests/greet.test.cjs');\n");
+  git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);
+  const setup = canary(root, 'setup', '--yes');
+  assert.equal(setup.code, 0, setup.out);
+  commit(root); assert.equal(canary(root, 'setup', '--yes').code, 0);
+  return root;
+}
 function pythonFixture(name: string): string {
   const root = path.join(TMP, name);
   fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
@@ -432,6 +447,22 @@ test('mixed runner summaries still block when one runner reports an extra skippe
   const normal = hook(control);
   assert.notEqual(normal.decision, 'block');
   assert.doesNotMatch(normal.systemMessage ?? '', /more skipped\/pending cases/);
+});
+
+test('Jest-style skipped counts keep a successful completion unproven', () => {
+  const root = jestSummaryFixture('jest-pending-summary');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', [
+    "const greet = require('../greet.cjs');",
+    "if (greet('  Ada') === 'hello Ada') console.log('Tests: 1 skipped, 1 total');",
+    "else { console.log('Tests: 1 failed, 1 total'); process.exitCode = 1; }",
+    '',
+  ].join('\n'));
+  const completion = hook(root);
+  assert.equal(completion.decision, 'block');
+  assert.match(completion.reason ?? '', /more skipped\/pending cases.*test check 1: 0→1 \(jest\)/);
+  assert.match(completion.reason ?? '', /did not execute a comparable set of checks/);
 });
 
 test('a worker check crashing on absent baseline data cannot certify a change', () => {
