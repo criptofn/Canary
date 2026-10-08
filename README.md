@@ -157,9 +157,11 @@ every tool a project script may launch; actual setup still runs the checks.
 or tells you exactly what it could not do. It wires Claude Code automatically
 (merging with, never overwriting, your existing hooks) and registers Canary's
 four everyday MCP tools. When a request states explicit acceptance criteria,
-the agent records them with `canary_task` before editing. This is untrusted
-input: it adds obligations but cannot bind checks or prove completion. Unbound
-criteria stay `NOT PROVEN` and are surfaced before substantial work. Add
+the agent records each one verbatim with `canary_task` before inspecting or
+editing. This is untrusted input: it adds obligations but cannot bind checks or
+prove completion. Unbound criteria stay `NOT PROVEN`; binding hints are for the
+operator. The agent can continue the authorized change, but must not change the
+plan or run setup/bind/accept to clear that status. Add
 `--mcp-profile expert` for isolated `work` / `finish` operations or the MCP
 integration inventory; `canary agents` remains available on the CLI.
 

@@ -23,6 +23,8 @@ changed*; the evidence ledgers record *what was observed*.
   back to a global `canary` command in agent repair guidance.
 - `canary setup` now explains that `READY` covers the configured checks and hooks, and shows how to
   register and bind task-specific acceptance criteria before handing work to an agent.
+- The everyday `canary_task` MCP tool now asks for exact user criteria, labels binding guidance as
+  operator-only, and keeps unbound work explicitly `NOT PROVEN` while allowing authorized code work.
 - Node test summaries from the TAP and spec reporters are recognized, including skipped tests.
 - A regression comparison is now NOT PROVEN when the candidate reports more skipped/pending tests
   than its baseline. Completion and candidate promotion stay blocked until the cases run or an

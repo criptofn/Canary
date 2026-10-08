@@ -99,12 +99,16 @@ const TOOLS: readonly McpTool[] = [
   {
     name: 'canary_task',
     description:
-      'Record explicit acceptance criteria (`canary task`). AGENT_REPORTED input only: adds duties, never binds checks or proves them. Unbound duties stay NOT PROVEN.',
+      'Before work, record explicit user criteria verbatim (no placeholders). AGENT_REPORTED only; cannot prove or bind. Binding hints are operator-only.',
     inputSchema: {
       type: 'object',
       properties: {
         intent: { type: 'string', minLength: 1 },
-        requirements: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
+        requirements: {
+          type: 'array', minItems: 1,
+          description: 'Explicit user criteria, one per item, copied verbatim; no summaries/placeholders.',
+          items: { type: 'string', minLength: 1, description: 'One verbatim user criterion.' },
+        },
       },
       required: ['intent', 'requirements'],
       additionalProperties: false,
@@ -178,13 +182,13 @@ const SERVER_INSTRUCTIONS = [
   '',
   'No MCP call can mint a PASS or promotion, or bypass the terminal gate on `canary accept`; only a human may accept or close a SUBJECTIVE duty.',
   '',
-  'With an automatic completion hook, finish normally and let it run the plan once. For early feedback, use the runner\'s file or case filter; do not repeat a passed full gate.',
-  'Use canary_doctor for early feedback or a focused PARTIAL check; without a hook, use the full gate.',
+  'With a completion hook, finish normally; it runs the plan once. Use file/case filters early; do not repeat a passed full gate.',
+  'Without a hook, use canary_doctor for the full gate.',
   'Use canary_result for a read-only summary.',
-  'For explicit criteria, call canary_task before editing and copy each verbatim. It records AGENT_REPORTED input only; if unbound, surface it before substantial work: NOT PROVEN.',
-  'Preserve operator-approved checks, baseline and hooks. Do not run setup or bind to clear a verdict.',
+  'For explicit criteria, call canary_task before work and copy them verbatim; never use placeholders. It records AGENT_REPORTED input only.',
+  'If unbound, keep NOT PROVEN. “Bind it” is operator-only: do not alter checks, baseline or hooks, or run setup/bind/accept. Continue authorized work.',
   'Regression proof must test the implementation through the sealed test entry; copied code is not proof.',
-  'A worker caveat records provenance, not failure. When READY, finish normally and report it.',
+  'A worker caveat is provenance, not failure; report READY normally.',
 ].join('\n');
 
 const EXPERT_INSTRUCTIONS = '\n\nFor work that must be isolated, `canary_work` opens a candidate and `canary_finish` verifies it and promotes only if the proof holds.';

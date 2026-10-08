@@ -103,10 +103,13 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.equal(ann('canary_doctor').readOnlyHint, false, 'doctor executes the sealed plan');
     assert.equal(ann('canary_task').readOnlyHint, false, 'task intake writes AGENT_REPORTED requirements');
     const taskSchema = byName.get('canary_task')!.inputSchema as {
-      required: string[]; properties: { requirements: { minItems?: number } };
+      required: string[]; properties: { requirements: { minItems?: number; description?: string; items: { description?: string } } };
     };
     assert.deepEqual(taskSchema.required, ['intent', 'requirements']);
     assert.equal(taskSchema.properties.requirements.minItems, 1);
+    assert.match(taskSchema.properties.requirements.description ?? '', /explicit user criteria.*one per item.*verbatim.*no summaries\/placeholders/i);
+    assert.match(taskSchema.properties.requirements.items.description ?? '', /one verbatim user criterion/i);
+    assert.match(String(byName.get('canary_task')!.description), /binding hints are operator-only/i);
     assert.equal(ann('canary_work').readOnlyHint, false);
     assert.equal(ann('canary_finish').readOnlyHint, false);
   });
@@ -134,14 +137,18 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     // than working without Canary: 92.7 % of plain, equal correctness, no false done. The RELIABILITY
     // half is deliberate — the aggressive variant that FORBADE self-verification produced a false done
     // and a false green — so the model keeps the decision to check and only loses the repetition.
-    assert.match(instructions, /automatic completion hook/i);
-    assert.match(instructions, /file or case filter/i);
-    assert.match(instructions, /do not repeat a (just-)?passed full gate/i);
-    assert.match(instructions, /without a hook, (run|use) the full gate/i);
+    assert.match(instructions, /completion hook/i);
+    assert.match(instructions, /file\/case filters/i);
+    assert.match(instructions, /do not repeat a passed full gate/i);
+    assert.match(instructions, /without a hook, use canary_doctor for the full gate/i);
     assert.match(instructions, /Use canary_result for a read-only summary/i);
-    assert.match(instructions, /call canary_task before editing/i);
+    assert.match(instructions, /call canary_task before work and copy them verbatim/i);
+    assert.match(instructions, /never use placeholders/i);
     assert.match(instructions, /AGENT_REPORTED input only/i);
-    assert.match(instructions, /if unbound, surface it before substantial work: NOT PROVEN/i);
+    assert.match(instructions, /“bind it” is operator-only/i);
+    assert.match(instructions, /If unbound, keep NOT PROVEN/i);
+    assert.match(instructions, /do not alter checks, baseline or hooks, or run setup\/bind\/accept/i);
+    assert.match(instructions, /Continue authorized work/i);
     assert.doesNotMatch(instructions, /canary_work|canary_finish/);
   });
 
@@ -282,6 +289,8 @@ describe('a real call relays Canary own words and exit code, unmodified', () => 
     assert.equal(registered.exitCode, 0, JSON.stringify(registered));
     assert.match(String(registered.stdout), /AGENT_REPORTED/);
     assert.match(String(registered.stdout), /needs proof or acceptance/);
+    assert.match(String(registered.stdout), /operator action only/i);
+    assert.match(String(registered.stdout), /agents must not run it/i);
     const task = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'task', 'current.json'), 'utf8')) as {
       taskDigest: string; trustClass: string; requirementCount: number; requirementDigests: string[];
     };

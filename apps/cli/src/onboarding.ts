@@ -1966,6 +1966,8 @@ export function cmdSessionStart(): number {
       'Canary completion workflow (not a verification result).',
       `Work in ${JSON.stringify(root)}.`,
       'Implement the requested change and regression assertions, then finish normally with a factual summary.',
+      'For stated criteria, call Canary MCP canary_task before inspecting or editing; copy each verbatim, with no placeholders. It is AGENT_REPORTED input only and cannot bind or prove criteria.',
+      'If unbound, do not edit the plan or run setup/bind/accept. Continue authorized code work, but report NOT PROVEN. If canary_task is unavailable, tell the operator.',
       'Use the project test runner\'s file or case filter for early feedback. The Stop hook runs the full sealed checks at completion; do not rerun the full suite just for a Canary verdict.',
       'If the hook reports a failure, repair that problem and recheck its exact id with canary_doctor(check). A focused result is PARTIAL.',
       cliPrefix === null
@@ -2797,7 +2799,7 @@ export function cmdTask(rawArgs: string[]): number {
     const d = materialDigest(r);
     const covered = task.objectiveTargets.some((t) => t.digest === d);
     o.say(`requirement ${covered ? '[frozen target]' : '[needs proof or acceptance]'}: ${d} — "${canonicalText(r).slice(0, 90)}"`);
-    if (!covered) o.say(`  bind it: package.json "canary": { "proofs": { "${d}": "<script name from your plan>" } }, then: canary setup`);
+    if (!covered) o.say(`  operator action only (agents must not run it): bind it through package.json "canary": { "proofs": { "${d}": "<script name from your plan>" } }, then: canary setup`);
   }
   o.say('this is an AGENT_REPORTED hint with zero authority — the next checkpoint proves the sealed plan PLUS this task\'s obligations; nothing here weakens either.');
   if (text !== '' && inferred.length === 0) {
