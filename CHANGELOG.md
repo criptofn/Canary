@@ -25,6 +25,8 @@ changed*; the evidence ledgers record *what was observed*.
   register and bind task-specific acceptance criteria before handing work to an agent.
 - The everyday `canary_task` MCP tool now requires exact user criteria, rejects generic placeholders,
   labels binding guidance as operator-only, and keeps unbound work `NOT PROVEN` while allowing code work.
+- `canary task` now reports existing sealed requirement bindings instead of asking the operator to
+  bind them again. Numeric bench/E2E targets require a proof binding to the matching check type.
 - Node test summaries from the TAP and spec reporters are recognized, including skipped tests.
 - A regression comparison is now NOT PROVEN when the candidate reports more skipped/pending tests
   than its baseline. Completion and candidate promotion stay blocked until the cases run or an

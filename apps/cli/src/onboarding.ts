@@ -2786,20 +2786,41 @@ export function cmdTask(rawArgs: string[]): number {
     o.verdict('NEEDS ATTENTION', `could not record the task (${String(e).slice(0, 140)}).`, 'fix the file/permission, then re-run'); return 2;
   }
   o.say(`task registered: ${kinds.length ? kinds.join(' + ') : 'no kind inferred'}${requirementCount ? ` (${requirementCount} requirement(s))` : ''}.`);
-  for (const target of task.objectiveTargets) o.say(`objective ${target.kind} target: ${target.digest} — matching proof must be sealed via package.json canary.proofs`);
+  const proofScriptFor = (digest: string, kind?: 'bench' | 'e2e'): string | null => {
+    const script = cfg.planAuthority?.proofBindings?.[digest];
+    return script !== undefined && cfg.plan.some(step => step.script === script && (kind === undefined || step.kind === kind))
+      ? script : null;
+  };
+  const bindHint = (digest: string, kind?: 'bench' | 'e2e'): void => {
+    const expected = kind ? `a sealed ${kind} script from your plan` : 'a script from your plan';
+    o.say(`  operator action only (agents must not run it): bind this digest to ${expected} in package.json "canary": { "proofs": { "${digest}": "<script name>" } }, then run: canary setup`);
+  };
+  for (const target of task.objectiveTargets) {
+    const script = proofScriptFor(target.digest, target.kind);
+    o.say(`objective ${target.kind} target: ${target.digest} — ${script
+      ? `bound to sealed "${script}" check; its successful result is still required`
+      : 'needs a matching sealed proof binding'}`);
+    if (!script) bindHint(target.digest, target.kind);
+  }
   /**
    * Print every requirement's digest so the operator can actually BIND it.
    *
    * MEASURED gap this closes: `canary.proofs` accepts any requirement digest, but nothing ever told
-   * the operator what the digest was — so "bind this requirement to a sealed check" was advice with
-   * no way to follow it, and the only reachable end state was human acceptance. Coverage has to be
-   * attainable, or "every objective requirement has a frozen proof obligation" is not a promise.
+   * the operator what the digest was, so the proof-binding path had no actionable input. Coverage
+   * has to be attainable, or "every objective requirement has a frozen proof obligation" is not a
+   * promise.
    */
   for (const r of requirements) {
     const d = materialDigest(r);
-    const covered = task.objectiveTargets.some((t) => t.digest === d);
-    o.say(`requirement ${covered ? '[frozen target]' : '[needs proof or acceptance]'}: ${d} — "${canonicalText(r).slice(0, 90)}"`);
-    if (!covered) o.say(`  operator action only (agents must not run it): bind it through package.json "canary": { "proofs": { "${d}": "<script name from your plan>" } }, then: canary setup`);
+    const target = task.objectiveTargets.find((t) => t.digest === d);
+    const script = proofScriptFor(d, target?.kind);
+    const state = target
+      ? `[objective ${target.kind} target${script ? ` bound to "${script}"` : '; needs matching proof'}]`
+      : script
+        ? `[bound to sealed proof "${script}"; successful result still required]`
+        : `[needs sealed proof${task.subjectiveVisual || task.subjectivePerformance ? ' or human acceptance' : ''}]`;
+    o.say(`requirement ${state}: ${d} — "${canonicalText(r).slice(0, 90)}"`);
+    if (!target && !script) bindHint(d);
   }
   o.say('this is an AGENT_REPORTED hint with zero authority — the next checkpoint proves the sealed plan PLUS this task\'s obligations; nothing here weakens either.');
   if (text !== '' && inferred.length === 0) {

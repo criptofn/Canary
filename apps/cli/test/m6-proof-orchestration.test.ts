@@ -298,6 +298,50 @@ describe('canary task — an AGENT_REPORTED hint with zero authority', () => {
     assert.equal(canary(['task', 'intent', '--requirment', 'x'], root).status, 3);
     assert.equal(fs.readFileSync(recordPath, 'utf8'), bytes, 'a refused registration must leave the record untouched');
   });
+  it('task guidance reflects sealed bindings and still requires a kind-matched objective proof', () => {
+    const plainRoot = makeProject('task-bound-guidance');
+    assert.equal(canary(['setup', '--yes', plainRoot]).status, 0);
+    const plainRequirement = 'the greeting trims leading and trailing whitespace';
+    const plainDigest = sha256(plainRequirement);
+    const unbound = canary(['task', 'add a trimming greeting', '--requirement', plainRequirement], plainRoot);
+    assert.equal(unbound.status, 0, unbound.stdout + unbound.stderr);
+    assert.match(unbound.stdout, /needs sealed proof/);
+    assert.match(unbound.stdout, /operator action only/);
+
+    const plainPackagePath = path.join(plainRoot, 'package.json');
+    const plainPackage = JSON.parse(fs.readFileSync(plainPackagePath, 'utf8')) as Record<string, any>;
+    plainPackage.canary = { proofs: { [plainDigest]: 'test' } };
+    fs.writeFileSync(plainPackagePath, JSON.stringify(plainPackage, null, 2));
+    assert.equal(canary(['setup', '--yes', plainRoot]).status, 0);
+    const bound = canary(['task', 'add a trimming greeting', '--requirement', plainRequirement], plainRoot);
+    assert.equal(bound.status, 0, bound.stdout + bound.stderr);
+    assert.match(bound.stdout, /bound to sealed proof "test"/);
+    assert.doesNotMatch(bound.stdout, /operator action only/);
+
+    const targetRoot = makeProject('task-target-guidance');
+    const targetPackagePath = path.join(targetRoot, 'package.json');
+    const targetPackage = JSON.parse(fs.readFileSync(targetPackagePath, 'utf8')) as Record<string, any>;
+    targetPackage.scripts.bench = fx('f-pass.js');
+    assert.equal(canary(['setup', '--yes', targetRoot]).status, 0);
+    const targetRequirement = 'benchmark under 200 ms for 10k rows';
+    const targetDigest = sha256(targetRequirement);
+    targetPackage.canary = { proofs: { [targetDigest]: 'test' } };
+    fs.writeFileSync(targetPackagePath, JSON.stringify(targetPackage, null, 2));
+    assert.equal(canary(['setup', '--yes', targetRoot]).status, 0);
+    const wrongKind = canary(['task', 'improve runtime', '--requirement', targetRequirement], targetRoot);
+    assert.equal(wrongKind.status, 0, wrongKind.stdout + wrongKind.stderr);
+    assert.match(wrongKind.stdout, /objective bench target: .*needs a matching sealed proof binding/);
+    assert.match(wrongKind.stdout, /operator action only .*sealed bench script/);
+
+    targetPackage.canary = { proofs: { [targetDigest]: 'bench' } };
+    fs.writeFileSync(targetPackagePath, JSON.stringify(targetPackage, null, 2));
+    assert.equal(canary(['setup', '--yes', targetRoot]).status, 0);
+    const targetBound = canary(['task', 'improve runtime', '--requirement', targetRequirement], targetRoot);
+    assert.equal(targetBound.status, 0, targetBound.stdout + targetBound.stderr);
+    assert.match(targetBound.stdout, /objective bench target: .*bound to sealed "bench" check/);
+    assert.match(targetBound.stdout, /requirement \[objective bench target bound to "bench"\]/);
+    assert.doesNotMatch(targetBound.stdout, /operator action only/);
+  });
   it('registering a task against no setup / no git says so; nothing is written', () => {
     const bare = path.join(TMP, 'task-nosetup');
     fs.mkdirSync(path.join(bare, '.git'), { recursive: true });
