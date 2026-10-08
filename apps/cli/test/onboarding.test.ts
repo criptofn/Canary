@@ -364,6 +364,7 @@ describe('setup', () => {
     const root = makeProject('expert-profile');
     const first = canary(['setup', '--mcp-profile', 'expert', '--yes', root]);
     assert.equal(first.status, 0, first.stdout + first.stderr);
+    assert.match(first.stdout, /MCP tools: expert profile \(4 everyday tools plus 3 expert tools: agents, work, finish\)/);
     const mcpPath = path.join(root, '.mcp.json');
     const readProfile = (): string[] => ((JSON.parse(fs.readFileSync(mcpPath, 'utf8')) as {
       mcpServers: { canary: { args: string[] } };

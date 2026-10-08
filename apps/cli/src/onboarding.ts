@@ -3473,7 +3473,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   // config write threw above, quarantine stands (fail-closed).
   try { fs.rmSync(path.join(root, CONFIG_DIR, QUARANTINE_FILE), { force: true }); } catch { /* absent is the common case */ }
   if (wantsClaude) o.say(`Claude Code will run Canary automatically when the agent finishes a turn here.${prev && prev !== 'corrupt' ? ' (re-run: existing Canary hook refreshed, no duplicates)' : ''}`);
-  o.say(`MCP tools: ${mcpProfile} profile (${mcpProfile === 'everyday' ? '4 everyday tools' : '4 everyday tools plus 2 expert isolation tools'}).`);
+  o.say(`MCP tools: ${mcpProfile} profile (${mcpProfile === 'everyday' ? '4 everyday tools' : '4 everyday tools plus 3 expert tools: agents, work, finish'}).`);
   if (codex?.touched) {
     /**
      * v1.4 §C — THE TRUST REQUIREMENT IS SAID OUT LOUD, because it is the difference between a file
