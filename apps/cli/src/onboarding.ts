@@ -2050,16 +2050,14 @@ function looksLikeInfraFailure(r: StepResult): boolean {
 function reportedPendingCount(result: StepResult): number | null {
   if (result.kind !== 'tests') return null;
   const log = `${result.stdout}\n${result.stderr}`;
-  for (const runner of ['node-test', 'pytest', 'python-unittest', undefined]) {
-    const counts = parseSummaryCountsFor(runner, log);
-    if (counts.passing !== undefined || counts.failing !== undefined || counts.pending !== undefined) {
-      // Mocha omits its pending line when the count is zero. Other supported
-      // parsers also return partial summaries, so absence is zero only after
-      // at least one count proves that a summary was actually recognized.
-      return counts.pending ?? 0;
-    }
-  }
-  return null;
+  const summaries = ['node-test', 'pytest', 'python-unittest', undefined]
+    .map((runner) => parseSummaryCountsFor(runner, log))
+    .filter((counts) => counts.passing !== undefined || counts.failing !== undefined || counts.pending !== undefined);
+  if (summaries.length === 0) return null;
+  // Mocha omits its pending line when zero. If mixed output parses as multiple
+  // runners with conflicting counts, do not guess which summary is the plan's.
+  const pending = summaries[0]!.pending ?? 0;
+  return summaries.every((counts) => (counts.pending ?? 0) === pending) ? pending : null;
 }
 
 function pendingCountIncreases(
