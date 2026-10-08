@@ -106,13 +106,12 @@ const TOOLS: readonly McpTool[] = [
   {
     name: 'canary_doctor',
     description:
-      'Runs the repository\'s sealed checks. With no check, this is the full completion gate. '
-      + 'Set check to a sealed check id for a focused diagnostic; that returns PARTIAL and never '
-      + 'certifies completion or updates the completion checkpoint. This EXECUTES project commands, '
-      + 'so it is not read-only. When an automatic completion hook is installed, do not use the full gate '
-      + 'as your final check; finish normally and let the hook verify once. Use this tool for early feedback '
-      + 'or a focused repair. If no completion hook is available, use the full gate for final verification. '
-      + 'A non-zero exit means the gate failed or could not complete — relay the verdict.',
+      'Runs sealed project checks. With no `check`, this is the full completion gate. Pass the exact '
+      + 'sealed check id for a focused diagnostic: it returns PARTIAL and never certifies completion or '
+      + 'updates the checkpoint. It executes project commands and is not read-only. When an automatic '
+      + 'completion hook is installed, do not use the full gate as your final check; finish normally and let the hook verify '
+      + 'once. Use this tool for early feedback or a focused repair. If no completion hook is available, '
+      + 'use the full gate for final verification. A non-zero exit means failure or incomplete verification — relay the verdict.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -169,30 +168,27 @@ const TOOLS: readonly McpTool[] = [
 ];
 
 const SERVER_INSTRUCTIONS = [
-  'Canary is an independent verification layer. Its verdicts (PASS, ACCEPTED, PROMOTED, NOT PROVEN) are',
-  'produced by the trusted `canary` CLI, never by this server: every tool here runs that CLI and reports',
-  'what it decided, exit code included. This server can only REQUEST operations.',
+  'Canary verdicts (PASS, ACCEPTED, PROMOTED, NOT PROVEN) come only from the trusted `canary` CLI;',
+  'this server requests operations and relays the CLI result and exit code.',
   '',
-  'What it cannot do, by construction:',
-  '- it cannot mint a PASS, an acceptance, or a promotion;',
-  '- it cannot bypass the terminal gate on `canary accept` — that is a human act and is deliberately not',
-  '  exposed as a tool;',
-  '- it cannot close a SUBJECTIVE duty. A model may do objective work; only a human accepts a judgement.',
+  'Limits:',
+  '- it cannot mint a PASS, acceptance or promotion, or bypass the terminal gate on `canary accept`;',
+  '  that human act is not a tool;',
+  '- only a human can close a SUBJECTIVE duty.',
   '',
-  'Working rule: when this harness has Canary\'s automatic completion hook, finish the task normally;',
-  'the sealed checks run at completion. Do not run canary_doctor just to repeat a check that just ran.',
-  'Call canary_doctor for early feedback or to run the full gate when no completion hook is available.',
-  'For a repair loop, pass the exact sealed check id shown by doctor to run only that check.',
-  'A selected check returns PARTIAL and never replaces the full completion gate or its checkpoint.',
+  'When this harness has an automatic completion hook, finish normally; its sealed checks run at completion.',
+  'Do not run canary_doctor just to repeat a check that just ran.',
+  'Use canary_doctor for early feedback or run the full gate when no completion hook is available.',
+  'For repair, pass the exact sealed check id; the focused result is PARTIAL and never replaces the full gate or checkpoint.',
   'Use canary_result for a read-only summary.',
-  'During an ordinary task, preserve the sealed plan, baseline and hook configuration. Do not run',
-  'setup or bind to clear a verdict; changes to verification authority need the operator.',
-  'A worker-authored evidence caveat records test provenance; it is not a failed check. When the',
-  'gate is READY and obligations are met, finish normally and retain the caveat in your report.',
-  'For NOT PROVEN, add an assertion that calls the actual implementation from the sealed test entry.',
-  'Do not copy the implementation into the test: that cannot distinguish the unchanged base.',
+  'Preserve the sealed plan, baseline and hooks. Do not run setup or bind to clear a verdict; the operator',
+  'owns changes to verification authority.',
+  'A worker-authored evidence caveat records test provenance, not test failure. When READY and obligations',
+  'are met, finish normally and retain the caveat in your report.',
+  'For NOT PROVEN, add an assertion that calls the implementation through the sealed test entry; copied',
+  'implementation cannot distinguish the unchanged base.',
   '',
-  'Never restate your own test output as proof, and never claim a result this server did not report.',
+  'Never present your own test output as proof or claim a result this server did not report.',
 ].join('\n');
 
 const EXPERT_INSTRUCTIONS = '\n\nFor work that must be isolated, `canary_work` opens a candidate and `canary_finish` verifies it and promotes only if the proof holds.';
