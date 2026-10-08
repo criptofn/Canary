@@ -90,6 +90,7 @@ describe('the payload is compact, actionable and points at the full log', () => 
     assert.equal(doctorCheckCommand('web app::test', 'win32'), "canary doctor --check 'web app::test'");
     assert.equal(doctorCheckCommand("web'$name::test", 'win32'), "canary doctor --check 'web''$name::test'");
     assert.equal(doctorCheckCommand("web'$name::test", 'linux'), "canary doctor --check 'web'\\''$name::test'");
+    assert.equal(doctorCheckCommand('test', 'win32', 'node "C:\\Program Files\\Canary\\main.js"'), 'node "C:\\Program Files\\Canary\\main.js" doctor --check test');
   });
   it('names the check, the identity, the detail and the log path', () => {
     const message = buildFailurePayload({
@@ -140,6 +141,17 @@ describe('the payload is compact, actionable and points at the full log', () => 
       assert.ok(message.includes(`canary doctor --check ${id}`), message);
       assert.ok([...logs.values()].some((text) => text.includes(id)));
     }
+  });
+
+  it('uses the hook installation path for repair commands instead of a global canary binary', () => {
+    const prefix = 'node "C:\\Program Files\\Canary\\main.js"';
+    const message = buildFailurePayload({
+      steps: [step({ id: 'test', stderr: 'Error: assertion failed' })],
+      doctorCommandPrefix: prefix,
+      writeLog: () => 'C:\\repo\\.canary\\evidence\\tests.log',
+    });
+    assert.ok(message.includes(`${prefix} doctor --check test`), message);
+    assert.ok(!message.includes('canary doctor --check test'), message);
   });
 
   it('never clips a log path or repair command to meet the payload limit', () => {

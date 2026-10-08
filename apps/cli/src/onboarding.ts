@@ -259,6 +259,19 @@ export function buildHookCommand(cliPath: string): string | null {
   return sea.isSea() ? `"${cliPath}" checkpoint` : `node "${cliPath}" checkpoint`;
 }
 
+/** Reuse the installed CLI path from the hook for agent-visible repair commands. */
+function installedCliPrefix(): string {
+  const hook = buildHookCommand(CLI_ENTRY);
+  return hook === null ? 'canary' : hook.replace(/ checkpoint$/, '');
+}
+
+function installedDoctorCommand(checkId?: string): string {
+  const prefix = installedCliPrefix();
+  return checkId === undefined
+    ? `${prefix} doctor`
+    : doctorCheckCommand(checkId, process.platform, prefix);
+}
+
 // ---------- config + settings.json plumbing ----------
 
 export function configPath(root: string): string { return path.join(root, CONFIG_DIR, CONFIG_FILE); }
@@ -1948,7 +1961,7 @@ export function cmdSessionStart(): number {
       'Implement the requested change and regression assertions, then finish normally with a factual summary.',
       'Use the project test runner\'s file or case filter for early feedback. The Stop hook runs the full sealed checks at completion; do not rerun the full suite just for a Canary verdict.',
       'If the hook reports a failure, repair that problem and recheck its exact id with canary_doctor(check). A focused result is PARTIAL.',
-      `If MCP is unavailable, run this installed CLI instead of guessing a global canary command: ${buildHookCommand(CLI_ENTRY)!.replace(/checkpoint$/, 'doctor --check "<reported-id>"')}.`,
+      `If MCP is unavailable, run this installed CLI instead of guessing a global canary command: ${installedCliPrefix()} doctor --check "<reported-id>".`,
       'Preserve the sealed plan, baseline and hooks; do not setup, bind or accept to clear a failure.',
       hint.trim(),
     ].join('\n');
@@ -3970,7 +3983,7 @@ export function cmdDoctor(rawArgs: string[]): number {
   if (doctorArgs.problems.length > 0 || (doctorArgs.check !== undefined && opts.fast)) {
     const reason = doctorArgs.problems.join('; ') || '--check cannot be combined with --fast';
     o.context({ exitCode: 3, problems: [reason] });
-    o.verdict('NEEDS ATTENTION', `invalid doctor options: ${reason}.`, 'use `canary doctor --check <sealed-check-id>` for one diagnostic check, or `canary doctor` for the full gate');
+    o.verdict('NEEDS ATTENTION', `invalid doctor options: ${reason}.`, `use \`${installedDoctorCommand('<sealed-check-id>')}\` for one diagnostic check, or \`${installedDoctorCommand()}\` for the full gate`);
     return 3;
   }
   const root = findRepoRoot(dirArg(rest) ?? process.cwd());
@@ -4021,7 +4034,7 @@ export function cmdDoctor(rawArgs: string[]): number {
       const reason = `no sealed check has id "${doctorArgs.check}"`;
       const ids = `available ids: ${available.join(', ') || '(none)'}`;
       o.context({ exitCode: 3, problems: [`${reason}; ${ids}`] });
-      o.verdict('NEEDS ATTENTION', `${reason}; ${ids}.`, 'copy one id exactly, then run `canary doctor --check <sealed-check-id>`');
+      o.verdict('NEEDS ATTENTION', `${reason}; ${ids}.`, `copy one id exactly, then run \`${installedDoctorCommand('<sealed-check-id>')}\``);
       return 3;
     }
     const id = stepKey(step);
@@ -4053,7 +4066,7 @@ export function cmdDoctor(rawArgs: string[]): number {
       : result.ok
         ? `the selected check "${id}" passed; this diagnostic did not evaluate completion.`
         : `the selected check "${id}" failed; this diagnostic did not evaluate completion.`,
-    `repair or inspect this check, rerun: ${doctorCheckCommand(id)}; then run the full gate: canary doctor`);
+    `repair or inspect this check, rerun: ${installedDoctorCommand(id)}; then run the full gate: ${installedDoctorCommand()}`);
     return !blocked && result.ok ? 0 : 2;
   }
   // READY is earned HERE, now — the plan runs in every doctor invocation, so a
@@ -4118,7 +4131,7 @@ export function cmdDoctor(rawArgs: string[]): number {
       : `full runner output: ${evidenceDir} — per-step logs and verification.json; read those, not the excerpt above`);
     for (const failure of failed) {
       const failedStep = executionPlan[ran.indexOf(failure)];
-      if (failedStep) o.say(`focused recheck after repair: ${doctorCheckCommand(stepKey(failedStep))}`);
+      if (failedStep) o.say(`focused recheck after repair: ${installedDoctorCommand(stepKey(failedStep))}`);
     }
     return 2;
   }
@@ -4304,7 +4317,7 @@ export async function cmdCheckpoint(): Promise<number> {
   if (distrust) return emit({ systemMessage: `Canary found local config it does not trust (${distrust}) — nothing was verified; this completion is UNVERIFIED. Run: canary setup` });
   if (!Array.isArray(cfg.plan) || cfg.plan.length === 0) {
     // degenerate/hand-edited config: executing zero checks is NOT a pass — say so, don't fake green
-    return emit({ systemMessage: 'Canary: the verification plan is empty, so nothing was checked — this completion is UNVERIFIED, not a pass. Run: canary doctor' });
+    return emit({ systemMessage: `Canary: the verification plan is empty, so nothing was checked — this completion is UNVERIFIED, not a pass. Run: ${installedDoctorCommand()}` });
   }
   // M5: check the SEALED AUTHORITY before executing anything — a candidate-
   // edited command must never be certified as proof, not even by failing on
@@ -4346,7 +4359,7 @@ export async function cmdCheckpoint(): Promise<number> {
   if (infra) {
     const evidenceDir = writeVerificationBundle(root, 'checkpoint', ran, 'infra', prov);
     writeCheckpoint(root, 'infra', failed.map((f) => f.kind), 'checkpoint', {
-      checks: ran, hookResponse: 'message-and-continue', next: 'run canary doctor to inspect and retry the checks',
+      checks: ran, hookResponse: 'message-and-continue', next: `run ${installedDoctorCommand()} to inspect and retry the checks`,
       evidencePath: evidenceDir ?? undefined,
     });
     return emit({ systemMessage: `Canary could not run the checks (${infra.slice(0, 160)}) — this completion is UNVERIFIED, not a pass.` });
@@ -4499,13 +4512,13 @@ export async function cmdCheckpoint(): Promise<number> {
   const bundleDir = writeVerificationBundle(root, 'checkpoint', ran, 'fail', prov);
   if (input.stop_hook_active === true) {
     writeCheckpoint(root, 'fail', failed.map((f) => f.kind), 'checkpoint', {
-      checks: ran, hookResponse: 'message-and-continue', next: 'run canary doctor to inspect the full failure',
+      checks: ran, hookResponse: 'message-and-continue', next: `run ${installedDoctorCommand()} to inspect the full failure`,
       evidencePath: bundleDir ?? undefined,
     });
     // already one repair attempt this turn — never loop the agent; surface honestly instead
     // v1.5 §4D — MEASURED (clean-room first run): this message named what failed and why Canary
     // stopped, but gave the human it hands off to no next action. One clause, no mechanism change.
-    return emit({ systemMessage: `Canary: checks still failing (${failed.map((f) => f.kind).join(', ')}) after one repair attempt — stopping anyway; a human should look. Run: canary doctor` });
+    return emit({ systemMessage: `Canary: checks still failing (${failed.map((f) => f.kind).join(', ')}) after one repair attempt — stopping anyway; a human should look. Run: ${installedDoctorCommand()}` });
   }
   writeCheckpoint(root, 'fail', failed.map((f) => f.kind), 'checkpoint', {
     checks: ran, hookResponse: 'blocked', next: 'repair the observed failures and finish again', evidencePath: bundleDir ?? undefined,
@@ -4534,6 +4547,7 @@ export async function cmdCheckpoint(): Promise<number> {
       kind: f.kind, display: f.display, exitCode: f.exitCode,
       stdout: f.stdout ?? '', stderr: f.stderr ?? '',
     })),
+    doctorCommandPrefix: installedCliPrefix(),
     writeLog: (name, text) => {
       if (typeof bundleDir !== 'string' || bundleDir === '') return null;
       const p = path.join(bundleDir, `${name}.log`); // numbered, safe name derived by the payload builder

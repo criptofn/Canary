@@ -17,6 +17,8 @@ changed*; the evidence ledgers record *what was observed*.
   sealed test-entry hint. The completion-hook and authority rules remain included.
 - Claude startup and MCP guidance now recommend runner-native file/case filters for quick feedback,
   leaving the full sealed plan to the completion hook.
+- Hook and doctor repair commands now name the installed CLI path, preventing a global Canary
+  installation from being used for a focused recheck.
 - `canary setup` now explains that `READY` covers the configured checks and hooks, and shows how to
   register and bind task-specific acceptance criteria before handing work to an agent.
 - Node test summaries from the TAP and spec reporters are recognized, including skipped tests.

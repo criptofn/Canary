@@ -218,7 +218,7 @@ describe('setup', () => {
     assert.match(response.reason, /failure-ids\.test\.ts > extractFailureIds > preserves hyphenated params/);
     assert.match(response.reason, /AssertionError: expected false to be true/);
     assert.match(response.reason, /failure-ids\.test\.ts:42:9/);
-    assert.match(response.reason, /doctor --check test/);
+    assert.ok(response.reason.includes(`${buildHookCommand(CLI)!.replace(/ checkpoint$/, '')} doctor --check test`), response.reason);
     assert.doesNotMatch(response.reason, /passing\.test\.ts/);
     const log = response.reason.split('full output: ')[1]?.split('\n')[0];
     assert.ok(log && fs.existsSync(log));
@@ -515,7 +515,8 @@ describe('checkpoint (harness entry)', () => {
     assert.match(out.reason, /npm run test/);
     assert.match(out.reason, /exit 1/);
     assert.match(out.reason, /Fix this before finishing/);
-    assert.match(out.reason, /canary doctor --check test/);
+    assert.ok(out.reason.includes(`${buildHookCommand(CLI)!.replace(/ checkpoint$/, '')} doctor --check test`), out.reason);
+    assert.ok(!out.reason.includes('canary doctor --check test'), out.reason);
     assert.match(out.reason, /full output: .+\.log/);
     assert.ok(out.reason.length <= 1200, `the model-visible payload must stay bounded, got ${out.reason.length} chars`);
     const cp = JSON.parse(fs.readFileSync(cpFile(root), 'utf8')) as { status: string; checks: Array<{ ok: boolean }>; hookResponse: string };
@@ -555,8 +556,9 @@ describe('checkpoint (harness entry)', () => {
     assert.equal(canary(['setup', '--yes', root]).status, 2, 'the sealed baseline fails both assertions');
     const first = JSON.parse(canary(['checkpoint'], root, hookInput(root)).stdout) as { decision: string; reason: string };
     assert.equal(first.decision, 'block');
-    assert.match(first.reason, /canary doctor --check backend::test/);
-    assert.ok(first.reason.includes("canary doctor --check 'front end::test'"), first.reason);
+    const cliPrefix = buildHookCommand(CLI)!.replace(/ checkpoint$/, '');
+    assert.ok(first.reason.includes(`${cliPrefix} doctor --check backend::test`), first.reason);
+    assert.ok(first.reason.includes(`${cliPrefix} doctor --check 'front end::test'`), first.reason);
     const logs = [...first.reason.matchAll(/full output: (.+)$/gm)].map((match) => match[1]!);
     assert.equal(new Set(logs).size, 2);
     for (const [i, file] of logs.entries()) {
@@ -587,7 +589,7 @@ describe('checkpoint (harness entry)', () => {
     assert.deepEqual(fs.readFileSync(cpFile(root)), beforePartial);
     const stillRed = canary(['doctor', root]);
     assert.equal(stillRed.status, 2, stillRed.stdout + stillRed.stderr);
-    assert.ok(stillRed.stdout.includes("canary doctor --check 'front end::test'"));
+    assert.ok(stillRed.stdout.includes(`${cliPrefix} doctor --check 'front end::test'`));
     const handoff = JSON.parse(canary(['checkpoint'], root, hookInput(root, true)).stdout);
     assert.match(handoff.systemMessage, /still failing/);
     assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
@@ -767,7 +769,7 @@ describe('doctor + uninstall', () => {
     const full = canary(['doctor', root]);
     assert.equal(full.status, 2, full.stdout + full.stderr);
     assert.match(full.stdout, /checks just failed \(build\)/i);
-    assert.match(full.stdout, /focused recheck after repair: canary doctor --check build/);
+    assert.ok(full.stdout.includes(`focused recheck after repair: ${buildHookCommand(CLI)!.replace(/ checkpoint$/, '')} doctor --check build`));
     assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail', 'the full gate still records the other failed check');
   });
 

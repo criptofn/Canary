@@ -113,19 +113,21 @@ export interface FailurePayloadInput {
   steps: readonly FailingStep[];
   /** Writes the full text somewhere durable and returns its path, or null when it could not. */
   writeLog: (name: string, text: string) => string | null;
+  /** Prefix of this installation's CLI, so repair guidance cannot hit another global install. */
+  doctorCommandPrefix?: string;
 }
 
 /** Display command: PowerShell on Windows, POSIX shell elsewhere. Never splice a scope into code. */
-export function doctorCheckCommand(id: string, platform = process.platform): string {
+export function doctorCheckCommand(id: string, platform = process.platform, commandPrefix = 'canary'): string {
   const arg = /^[A-Za-z0-9_./:-]+$/.test(id) ? id
     : platform === 'win32' ? `'${id.replace(/'/g, "''")}'` : `'${id.replace(/'/g, "'\\''")}'`;
-  return `canary doctor --check ${arg}`;
+  return `${commandPrefix} doctor --check ${arg}`;
 }
 
 /**
  * Build the compact reason. Deterministic: same failure, same message.
  */
-export function buildFailurePayload({ steps, writeLog }: FailurePayloadInput): string {
+export function buildFailurePayload({ steps, writeLog, doctorCommandPrefix = 'canary' }: FailurePayloadInput): string {
   const failing = steps.slice(0, MAX_CHECKS).map((step, i) => {
     const text = `${step.stdout}\n${step.stderr}`;
     const kind = /^[a-z][a-z0-9-]{0,31}$/.test(step.kind) ? step.kind : 'step';
@@ -141,15 +143,15 @@ export function buildFailurePayload({ steps, writeLog }: FailurePayloadInput): s
         .join('; ')}. Fix this before finishing.`;
       const blocks = shown.map(({ step, text, log }) => [
         ...(details ? [...extractFailureIdentities(text), ...extractDetailLines(text).map((d) => `  ${d}`)] : []),
-        ...(step.id === undefined ? [] : [`  focused recheck after repair: ${doctorCheckCommand(step.id)}`]),
+        ...(step.id === undefined ? [] : [`  focused recheck after repair: ${doctorCheckCommand(step.id, process.platform, doctorCommandPrefix)}`]),
         `  full output: ${log ?? 'unavailable (evidence storage failed)'}`,
       ].join('\n'));
       const extra = steps.length > count
-        ? `\nAdditional failing checks: ${steps.length - count}. Run canary result --json for the evidence bundle.` : '';
+        ? `\nAdditional failing checks: ${steps.length - count}. Run ${doctorCommandPrefix} result --json for the evidence bundle.` : '';
       const message = `${head}\n${blocks.join('\n')}${extra}`;
       if (message.length <= MAX_TOTAL_CHARS) return message;
     }
   }
   return `Canary verification failed: ${clip(steps[0]?.kind ?? 'checks', 32)}. Fix this before finishing.\n` +
-    'Full output and recheck details exceed the message limit; run canary result --json for the evidence bundle, or canary doctor for the full gate.';
+    `Full output and recheck details exceed the message limit; run ${doctorCommandPrefix} result --json for the evidence bundle, or ${doctorCommandPrefix} doctor for the full gate.`;
 }
