@@ -109,7 +109,10 @@ const TOOLS: readonly McpTool[] = [
       'Runs the repository\'s sealed checks. With no check, this is the full completion gate. '
       + 'Set check to a sealed check id for a focused diagnostic; that returns PARTIAL and never '
       + 'certifies completion or updates the completion checkpoint. This EXECUTES project commands, '
-      + 'so it is not read-only. A non-zero exit means the gate failed or could not complete — relay the verdict.',
+      + 'so it is not read-only. When an automatic completion hook is installed, do not use the full gate '
+      + 'as your final check; finish normally and let the hook verify once. Use this tool for early feedback '
+      + 'or a focused repair. If no completion hook is available, use the full gate for final verification. '
+      + 'A non-zero exit means the gate failed or could not complete — relay the verdict.',
     inputSchema: {
       type: 'object',
       properties: {

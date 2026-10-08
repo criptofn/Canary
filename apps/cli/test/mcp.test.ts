@@ -104,6 +104,16 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.equal(ann('canary_finish').readOnlyHint, false);
   });
 
+  it('warns against repeating the full doctor gate when a completion hook is installed', () => {
+    const tools = resultOf(session([req(1, 'tools/list')]).parsed[0]!).tools as Array<Record<string, unknown>>;
+    const doctor = String(tools.find((t) => t.name === 'canary_doctor')!.description);
+    assert.match(doctor, /when an automatic completion hook is installed/i);
+    assert.match(doctor, /do not use the full gate as your final check/i);
+    assert.match(doctor, /finish normally and let the hook verify once/i);
+    assert.match(doctor, /early feedback or a focused repair/i);
+    assert.match(doctor, /if no completion hook is available, use the full gate for final verification/i);
+  });
+
   it('states the authority limit in the initialize instructions', () => {
     const r = resultOf(session([req(1, 'initialize', { protocolVersion: '2025-06-18' })], TMP, ['--profile', 'everyday']).parsed[0]!);
     const info = r.serverInfo as { name: string };
@@ -120,6 +130,7 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     // and a false green — so the model keeps the decision to check and only loses the repetition.
     assert.match(instructions, /automatic completion hook/i);
     assert.match(instructions, /Do not run canary_doctor just to repeat/i);
+    assert.match(instructions, /run the full gate when no completion hook is available/i);
     assert.match(instructions, /Use canary_result for a read-only summary/i);
     assert.doesNotMatch(instructions, /canary_work|canary_finish/);
   });
