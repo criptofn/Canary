@@ -19,6 +19,8 @@ changed*; the evidence ledgers record *what was observed*.
   leaving the full sealed plan to the completion hook.
 - Hook and doctor repair commands now name the installed CLI path, preventing a global Canary
   installation from being used for a focused recheck.
+- Hook setup now refuses CLI paths with shell expansion characters, and unsafe paths cannot fall
+  back to a global `canary` command in agent repair guidance.
 - `canary setup` now explains that `READY` covers the configured checks and hooks, and shows how to
   register and bind task-specific acceptance criteria before handing work to an agent.
 - Node test summaries from the TAP and spec reporters are recognized, including skipped tests.

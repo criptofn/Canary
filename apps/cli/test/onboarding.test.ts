@@ -99,9 +99,16 @@ describe('detection (pure)', () => {
     assert.throws(() => stepArgv('bash', 'test'), /refused unsafe/);
     assert.deepEqual(stepArgv('npm', 'test'), ['npm', 'run', 'test']);
   });
-  it('a quote-bearing CLI path cannot be embedded — buildHookCommand refuses', () => {
+  it('a shell-expanding CLI path cannot be embedded in a hook command', () => {
     assert.equal(buildHookCommand('C:\\p"ath\\main.js'), null);
+    assert.equal(buildHookCommand('C:\\p%PATH%\\main.js'), null);
+    assert.equal(buildHookCommand('C:\\p!PATH!\\main.js'), null);
+    assert.equal(buildHookCommand('C:\\p\nmain.js'), null);
+    assert.equal(buildHookCommand('/tmp/canary$(touch owned)/main.js'), null);
+    assert.equal(buildHookCommand('/tmp/canary`touch owned`/main.js'), null);
+    assert.equal(buildHookCommand('C:\\p\\main.js\r'), null);
     assert.equal(buildHookCommand('C:\\plain path\\main.js'), 'node "C:\\plain path\\main.js" checkpoint');
+    assert.equal(buildHookCommand('C:\\A&B (test)\\main.js'), 'node "C:\\A&B (test)\\main.js" checkpoint');
   });
   it('containedRealPath: inside stays inside, outside resolves to null (S3 floor)', () => {
     const root = makeProject('contain');

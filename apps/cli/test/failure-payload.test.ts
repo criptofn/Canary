@@ -154,6 +154,16 @@ describe('the payload is compact, actionable and points at the full log', () => 
     assert.ok(!message.includes('canary doctor --check test'), message);
   });
 
+  it('does not recommend a PATH-resolved CLI when this installation path is unsafe for shells', () => {
+    const message = buildFailurePayload({
+      steps: [step({ id: 'test', stderr: 'Error: assertion failed' })],
+      doctorCommandPrefix: null,
+      writeLog: () => '/repo/.canary/evidence/tests.log',
+    });
+    assert.match(message, /configured Canary MCP canary_doctor\(check\)/);
+    assert.doesNotMatch(message, /canary doctor/);
+  });
+
   it('never clips a log path or repair command to meet the payload limit', () => {
     const steps = ['tests', 'build', 'typecheck'].map((kind) => ({
       ...step({ kind, display: 'x'.repeat(500), stdout: 'Error: '.repeat(40) }), id: kind,

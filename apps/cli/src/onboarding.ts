@@ -251,22 +251,28 @@ function hasExe(name: string): boolean {
   return trustedDirs().some((d) => names.some((n) => fs.existsSync(path.join(d, n))));
 }
 
-/** Build the hook command; null when the CLI path cannot be safely quoted. */
+/** Build the hook command; null when a supported shell could interpret the CLI path. */
 export function buildHookCommand(cliPath: string): string | null {
-  if (cliPath.includes('"') || cliPath.includes('\n')) return null; // cannot embed safely
+  // This command is embedded in Claude/Codex hook settings and evaluated by a host shell.
+  // Double quotes preserve spaces, but not shell expansion: `$()` / PowerShell backticks,
+  // `%VAR%` in cmd.exe, and `!VAR!` with delayed expansion can rewrite or execute the path.
+  if (/["\r\n$`%!]/.test(cliPath)) return null;
   // A single-executable Canary IS the command: prefixing `node` would demand a
   // Node installation, which is exactly what the standalone build removes.
   return sea.isSea() ? `"${cliPath}" checkpoint` : `node "${cliPath}" checkpoint`;
 }
 
 /** Reuse the installed CLI path from the hook for agent-visible repair commands. */
-function installedCliPrefix(): string {
+function installedCliPrefix(): string | null {
   const hook = buildHookCommand(CLI_ENTRY);
-  return hook === null ? 'canary' : hook.replace(/ checkpoint$/, '');
+  return hook === null ? null : hook.replace(/ checkpoint$/, '');
 }
 
 function installedDoctorCommand(checkId?: string): string {
   const prefix = installedCliPrefix();
+  if (prefix === null) return checkId === undefined
+    ? 'the configured Canary MCP full verification tool'
+    : 'Canary MCP canary_doctor(check)';
   return checkId === undefined
     ? `${prefix} doctor`
     : doctorCheckCommand(checkId, process.platform, prefix);
@@ -1955,13 +1961,16 @@ export function cmdSessionStart(): number {
     if (!hint || !cfg || cfg === 'corrupt' || planAuthorityDrift(root, cfg)) return 0;
     const doc = parseJsonOrNull(settingsPath(root));
     if (!doc || !hasCanaryEntry(doc, new Set(cfg.hookCommands))) return 0;
+    const cliPrefix = installedCliPrefix();
     const context = [
       'Canary completion workflow (not a verification result).',
       `Work in ${JSON.stringify(root)}.`,
       'Implement the requested change and regression assertions, then finish normally with a factual summary.',
       'Use the project test runner\'s file or case filter for early feedback. The Stop hook runs the full sealed checks at completion; do not rerun the full suite just for a Canary verdict.',
       'If the hook reports a failure, repair that problem and recheck its exact id with canary_doctor(check). A focused result is PARTIAL.',
-      `If MCP is unavailable, run this installed CLI instead of guessing a global canary command: ${installedCliPrefix()} doctor --check "<reported-id>".`,
+      cliPrefix === null
+        ? 'This CLI path cannot be safely embedded in a shell command. Use the configured Canary MCP canary_doctor(check) tool or ask a human to inspect the installation.'
+        : `If MCP is unavailable, run this installed CLI instead of guessing a global canary command: ${cliPrefix} doctor --check "<reported-id>".`,
       'Preserve the sealed plan, baseline and hooks; do not setup, bind or accept to clear a failure.',
       hint.trim(),
     ].join('\n');
@@ -3224,7 +3233,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     if (!harnesses.integrable) issues.push('no supported agent harness was detected');
     const hookCommand = buildHookCommand(CLI_ENTRY);
     if (hookCommand === null && harnesses.integrables.some((h) => h.name === 'claude-code' || h.name === 'codex')) {
-      issues.push('Canary could not form a safe hook command for this CLI path');
+      issues.push('Canary cannot safely embed this CLI path in a hook command; move the installation to a path without shell expansion characters');
     }
     if (foreignHooks.length) issues.push('Canary hooks from another installation are already present: ' + foreignHooks.join('; '));
     if (hookCommand && harnesses.integrables.some((h) => h.name === 'claude-code')) {
@@ -3302,7 +3311,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
 
   const hookCommand = buildHookCommand(CLI_ENTRY);
   if (!hookCommand) {
-    o.verdict('NEEDS ATTENTION', 'the Canary installation path contains characters that cannot be safely embedded in a hook command.', 'reinstall Canary to a plain path (no double quotes) and run setup again'); return 2;
+    o.verdict('NEEDS ATTENTION', 'the Canary installation path contains characters a hook shell could expand or execute.', 'reinstall Canary to a path without quotes, line breaks or shell expansion characters, then run setup again'); return 2;
   }
   if (foreignHooks.length) {
     o.verdict('NEEDS ATTENTION',
