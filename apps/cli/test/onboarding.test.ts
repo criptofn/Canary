@@ -834,7 +834,8 @@ describe('doctor + uninstall', () => {
     }
   });
   it('uninstall removes exactly Canary, preserves everything else; repeat is safe', () => {
-    const root = makeProject('uninst', { settings: { $schema: 'https://x', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo user-hook' }] }] } } });
+    const userHook = 'node "tools/custom-checkpoint.js" checkpoint';
+    const root = makeProject('uninst', { settings: { $schema: 'https://x', hooks: { Stop: [{ hooks: [{ type: 'command', command: userHook }] }] } } });
     assert.equal(canary(['setup', '--yes', root]).status, 0);
     const cfg = readCfg(root);
     const r = canary(['uninstall', root]);
@@ -842,7 +843,7 @@ describe('doctor + uninstall', () => {
     assert.match(r.stdout, /READY/);
     const cmds = stopCommands(root);
     assert.ok(!cmds.some((c) => cfg.hookCommands.includes(c)), 'canary command fully gone');
-    assert.equal(cmds.filter((c) => c === 'echo user-hook').length, 1, 'user hook intact');
+    assert.equal(cmds.filter((c) => c === userHook).length, 1, 'user hook intact and not mistaken for Canary');
     const doc = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'settings.json'), 'utf8')) as Record<string, unknown>;
     assert.equal(doc.$schema, 'https://x', 'unrelated keys preserved');
     assert.ok(!fs.existsSync(path.join(root, '.canary')));
@@ -850,13 +851,48 @@ describe('doctor + uninstall', () => {
     assert.match(canary(['uninstall', root]).stdout, /not installed/);
     // reinstall works
     assert.equal(canary(['setup', '--yes', root]).status, 0);
-    assert.equal(stopCommands(root).filter((c) => c.includes('checkpoint')).length, 1);
+    assert.equal(stopCommands(root).filter((c) => c === readCfg(root).hookCommand).length, 1);
+  });
+  it('setup refuses to stack a hook from a different Canary installation', () => {
+    const foreign = 'node "C:/old/node_modules/@canary-rn/cli/dist/main.js" checkpoint';
+    const root = makeProject('setup-foreign-hook', { settings: { hooks: { Stop: [{ hooks: [{ type: 'command', command: foreign }] }] } } });
+    const settings = path.join(root, '.claude', 'settings.json');
+    const before = fs.readFileSync(settings);
+    const check = canary(['setup', '--check', root]);
+    assert.equal(check.status, 2, check.stdout);
+    assert.match(check.stdout, /Canary hooks from another installation/i);
+    assert.deepEqual(fs.readFileSync(settings), before);
+    assert.ok(!fs.existsSync(cfgFile(root)));
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 2, setup.stdout);
+    assert.match(setup.stdout, /another Canary installation/i);
+    assert.deepEqual(fs.readFileSync(settings), before);
+    assert.ok(!fs.existsSync(cfgFile(root)));
+  });
+  it('uninstall reports and preserves an unowned hook from another Canary installation', () => {
+    const root = makeProject('uninst-foreign-hook');
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const cfg = readCfg(root);
+    const foreign = 'node "C:/old/node_modules/@canary-rn/cli/dist/main.js" checkpoint';
+    const settings = path.join(root, '.claude', 'settings.json');
+    const doc = JSON.parse(fs.readFileSync(settings, 'utf8')) as { hooks: { Stop: Array<{ hooks: Array<Record<string, unknown>> }> } };
+    doc.hooks.Stop.push({ hooks: [{ type: 'command', command: foreign }] });
+    fs.writeFileSync(settings, JSON.stringify(doc, null, 2));
+
+    const result = canary(['uninstall', root]);
+    assert.equal(result.status, 2, result.stdout);
+    assert.match(result.stdout, /unowned Canary hook/i);
+    assert.doesNotMatch(result.stdout, /Canary is fully removed/);
+    assert.deepEqual(stopCommands(root), [foreign]);
+    assert.ok(!stopCommands(root).includes(cfg.hookCommand));
+    assert.ok(!fs.existsSync(cfgFile(root)));
   });
   it('S1: an out-of-repo touched path in the config is refused, untouched, loudly', () => {
     const root = makeProject('s1');
     assert.equal(canary(['setup', '--yes', root]).status, 0);
     const victim = path.join(TMP, 's1-victim-settings.json');
     const cfg = readCfg(root);
+    const originalTouched = cfg.touched;
     fs.writeFileSync(victim, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: cfg.hookCommand }] }] } }, null, 2));
     const before = fs.readFileSync(victim);
     cfg.touched = [{ path: victim, created: false }]; // a doctored record steering writes outward
@@ -867,10 +903,11 @@ describe('doctor + uninstall', () => {
     assert.deepEqual(fs.readFileSync(victim), before); // not one byte changed
     assert.ok(fs.existsSync(cfgFile(root)), 'ownership record kept for the retry');
     // honest record -> honest removal
-    cfg.touched = [{ path: path.join(root, '.claude', 'settings.json'), created: false }];
+    cfg.touched = originalTouched;
     writeCfg(root, cfg);
     assert.equal(canary(['uninstall', root]).status, 0);
-    assert.ok(!stopCommands(root).some((c) => c === cfg.hookCommand));
+    const localSettings = path.join(root, '.claude', 'settings.json');
+    assert.ok(!fs.existsSync(localSettings) || !stopCommands(root).includes(cfg.hookCommand));
   });
   it('S6: partial cleanup keeps .canary so the promised retry can actually finish', () => {
     const root = makeProject('s6');

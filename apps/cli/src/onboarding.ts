@@ -614,6 +614,70 @@ export function hasCanaryEntry(doc: Record<string, unknown>, owned: Set<string>)
     && (g as { hooks: Array<{ command?: string }> }).hooks.some((h) => owned.has(String(h?.command ?? ''))));
 }
 
+function isCanaryCheckpointCommand(command: string): boolean {
+  const normalized = command.replace(/\\/g, '/').toLowerCase();
+  // Match Canary entry paths, not arbitrary user scripts whose command happens to say checkpoint.
+  return /\bcheckpoint(?:\s|$)/.test(normalized)
+    && (normalized.includes('/@canary-rn/cli/dist/main.js')
+      || normalized.includes('/apps/cli/dist/src/main.js')
+      || /(?:^|[\/\s"'])canary(?:\.cmd|\.exe)?\s+checkpoint(?:\s|$)/.test(normalized));
+}
+
+function findUnownedCanaryHookEntries(
+  root: string,
+  file: string,
+  ownedByEvent: Readonly<Record<string, ReadonlySet<string>>>,
+): string[] {
+  if (!fs.existsSync(file) || containedRealPath(root, file) === null) return [];
+  try { assertPlainTarget(file); } catch { return []; }
+  const doc = parseJsonOrNull(file);
+  const hooks = doc?.hooks;
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return [];
+
+  const found: string[] = [];
+  for (const [event, owned] of Object.entries(ownedByEvent)) {
+    const groups = (hooks as Record<string, unknown>)[event];
+    if (!Array.isArray(groups)) continue;
+    for (const group of groups) {
+      const handlers = group && typeof group === 'object'
+        ? (group as { hooks?: unknown }).hooks : undefined;
+      if (!Array.isArray(handlers)) continue;
+      for (const handler of handlers) {
+        const command = handler && typeof handler === 'object'
+          ? (handler as { command?: unknown }).command : undefined;
+        if (typeof command === 'string' && isCanaryCheckpointCommand(command) && !owned.has(command)) {
+          found.push(rel(root, file) + ' (' + event + '): ' + command);
+        }
+      }
+    }
+  }
+  return found;
+}
+
+function findForeignCanaryHooks(
+  root: string,
+  command: string,
+  claude: boolean,
+  codex: boolean,
+  priorClaudeCommands: ReadonlySet<string>,
+  priorStartupCommands: ReadonlySet<string>,
+  priorCodexCommands: ReadonlySet<string>,
+): string[] {
+  const found: string[] = [];
+  if (claude) {
+    found.push(...findUnownedCanaryHookEntries(root, settingsPath(root), {
+      Stop: new Set([command, ...priorClaudeCommands]),
+      SessionStart: new Set([command + ' --session-start', ...priorStartupCommands]),
+    }));
+  }
+  if (codex) {
+    found.push(...findUnownedCanaryHookEntries(root, codexHooksPath(root), {
+      Stop: new Set([command, ...priorCodexCommands]),
+    }));
+  }
+  return found;
+}
+
 // ---------- v1.4 §C: OpenAI Codex CLI, a SECOND measured completion gate ----------
 //
 // WHY THIS FILE IS WRITTEN AND NOT MERELY DESCRIBED. `apps/cli/src/agents.ts` said Codex was
@@ -3065,6 +3129,22 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const prevUsable = !!prev && prev !== 'corrupt' && !untrustedConfigReason(root, prev);
   const setupPrevCfg = prevUsable ? prev as CanaryConfig : null;
   const mcpProfile: McpProfile = setupArgs.profile ?? setupPrevCfg?.mcpProfile ?? 'everyday';
+  const hookPreflightHarnesses = detectHarnesses(root);
+  const hookPreflightCommand = buildHookCommand(CLI_ENTRY);
+  const priorClaudeHooks = new Set<string>(setupPrevCfg ? [...setupPrevCfg.hookCommands, setupPrevCfg.hookCommand] : []);
+  const priorStartupHooks = new Set<string>(setupPrevCfg?.sessionStartCommands ?? []);
+  const priorCodexHooks = new Set<string>(setupPrevCfg?.codexHookCommands ?? []);
+  const foreignHooks = hookPreflightCommand
+    ? findForeignCanaryHooks(
+      root,
+      hookPreflightCommand,
+      hookPreflightHarnesses.integrables.some((h) => h.name === 'claude-code'),
+      hookPreflightHarnesses.integrables.some((h) => h.name === 'codex'),
+      priorClaudeHooks,
+      priorStartupHooks,
+      priorCodexHooks,
+    )
+    : [];
   if (setupArgs.check) {
     const harnesses = detectHarnesses(root);
     const issues: string[] = [];
@@ -3074,6 +3154,7 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
     if (hookCommand === null && harnesses.integrables.some((h) => h.name === 'claude-code' || h.name === 'codex')) {
       issues.push('Canary could not form a safe hook command for this CLI path');
     }
+    if (foreignHooks.length) issues.push('Canary hooks from another installation are already present: ' + foreignHooks.join('; '));
     if (hookCommand && harnesses.integrables.some((h) => h.name === 'claude-code')) {
       const checkHook = installStopHook(root, hookCommand, new Set(setupPrevCfg?.hookCommands ?? []), path.join(root, CONFIG_DIR, 'backups'), true, new Set(setupPrevCfg?.sessionStartCommands ?? []));
       if (!checkHook.ok) issues.push(`Claude Code hook: ${checkHook.problem}`);
@@ -3150,6 +3231,13 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
   const hookCommand = buildHookCommand(CLI_ENTRY);
   if (!hookCommand) {
     o.verdict('NEEDS ATTENTION', 'the Canary installation path contains characters that cannot be safely embedded in a hook command.', 'reinstall Canary to a plain path (no double quotes) and run setup again'); return 2;
+  }
+  if (foreignHooks.length) {
+    o.verdict('NEEDS ATTENTION',
+      'a hook from another Canary installation is already present. Setup will not stack another completion hook or rewrite an entry this installation does not own.',
+      'remove the listed hook with the installation that wrote it, or remove that exact entry manually, then run canary setup again');
+    for (const entry of foreignHooks) o.say('  - ' + entry);
+    return 2;
   }
 
   // read prior config (self-heal: reuse recorded hook commands for dedupe)
@@ -4084,6 +4172,19 @@ export function cmdUninstall(rawArgs: string[]): number {
     // keep .canary: it is the ownership record the advertised retry needs (S6)
     o.verdict('NEEDS ATTENTION', `Canary removed ${removed} of its hook entries but ${problems.length} file(s) could not be cleaned completely; its ownership record (.canary) is kept so a retry can finish the job:`, 'fix the listed files, then re-run: canary uninstall is safe to repeat');
     for (const p of problems) console.log(`  - ${p}`);
+    return 2;
+  }
+  const remainingCanaryHooks = [
+    ...findUnownedCanaryHookEntries(root, settingsPath(root), { Stop: new Set(), SessionStart: new Set() }),
+    ...findUnownedCanaryHookEntries(root, codexHooksPath(root), { Stop: new Set() }),
+  ];
+  if (remainingCanaryHooks.length) {
+    fs.rmSync(path.join(root, CONFIG_DIR), { recursive: true, force: true });
+    o.say('removed ' + removed + ' hook entries owned by this installation; other Canary hooks remain:');
+    for (const entry of remainingCanaryHooks) o.say('  - ' + entry);
+    o.verdict('NEEDS ATTENTION',
+      'this installation was removed, but unowned Canary hook commands were left untouched.',
+      'remove the listed entries with their owning installation or edit those exact hook entries manually');
     return 2;
   }
   fs.rmSync(path.join(root, CONFIG_DIR), { recursive: true, force: true });
