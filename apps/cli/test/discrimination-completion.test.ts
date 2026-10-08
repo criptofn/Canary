@@ -84,6 +84,29 @@ function fixture(name: string): string {
   commit(root); assert.equal(canary(root, 'setup', '--yes').code, 0);
   return root;
 }
+function mixedSummaryFixture(name: string): string {
+  const root = path.join(TMP, name);
+  fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  write(root, 'package.json', JSON.stringify({ name, private: true, scripts: { test: 'node scripts/run-tests.cjs' } }));
+  write(root, 'greet.cjs', SOURCE);
+  write(root, 'tests/greet.test.cjs', TEST);
+  write(root, 'scripts/run-tests.cjs', [
+    "const { spawnSync } = require('node:child_process');",
+    "const result = spawnSync(process.execPath, ['--test', 'tests/greet.test.cjs'], { cwd: process.cwd(), encoding: 'utf8' });",
+    "process.stdout.write(result.stdout ?? '');",
+    "process.stderr.write(result.stderr ?? '');",
+    "process.stdout.write('\\n1 passing\\n0 pending\\n');",
+    'process.exitCode = result.status ?? 1;',
+    '',
+  ].join('\n'));
+  git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);
+  const setup = canary(root, 'setup', '--yes');
+  assert.equal(setup.code, 0, setup.out);
+  commit(root); assert.equal(canary(root, 'setup', '--yes').code, 0);
+  return root;
+}
 function pythonFixture(name: string): string {
   const root = path.join(TMP, name);
   fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
@@ -389,6 +412,26 @@ test('completion refuses to prove a change when the candidate skips an extra tes
   assert.match(finish.out, /did not execute a comparable set of checks/);
   assert.match(finish.out, /baseline comparison evidence:/);
   assert.match(finish.out, /full evidence: .*per-step logs and verification\.json/);
+});
+
+test('mixed runner summaries still block when one runner reports an extra skipped test', () => {
+  const root = mixedSummaryFixture('mixed-pending-summaries');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + SKIPPED_REGRESSION);
+  const completion = hook(root);
+  assert.equal(completion.decision, 'block');
+  const completionText = completion.systemMessage ?? completion.reason ?? '';
+  assert.match(completionText, /more skipped\/pending cases.*test check 1: 0→1 \(node-test\)/);
+  assert.match(completionText, /did not execute a comparable set of checks/);
+
+  const control = mixedSummaryFixture('mixed-pending-summaries-control');
+  assert.equal(canary(control, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(control, 'greet.cjs', FIXED);
+  write(control, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const normal = hook(control);
+  assert.notEqual(normal.decision, 'block');
+  assert.doesNotMatch(normal.systemMessage ?? '', /more skipped\/pending cases/);
 });
 
 test('a worker check crashing on absent baseline data cannot certify a change', () => {

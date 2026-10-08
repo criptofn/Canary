@@ -2003,7 +2003,7 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
     ? `the evidence that discriminates this change is CHECK TEXT WRITTEN BY THE WORKER ITSELF (${workerAuthored.slice(0, 3).join(', ')}) — sensitive to the change, but authored by the same worker whose work it judges, so it is NOT independent authority. This is a provenance caveat, not a failed obligation; retain it in your report. Do not re-run setup or rewrite the baseline to remove it. Independent coverage needs an operator-bound check (package.json canary.proofs, or canary.project.json proofs) or a human's acceptance`
     : undefined;
   const pendingCaveat = disc.pendingCountIncreases?.length
-    ? `the test runner reported more skipped/pending cases on the candidate than on the comparison baseline (${disc.pendingCountIncreases.map((x) => `test check ${x.testRun}: ${x.baseline}→${x.candidate}`).join(', ')}); review those cases because a green exit code alone does not show that they ran${disc.baselineEvidence ? `; baseline comparison evidence: ${disc.baselineEvidence}` : ''}`
+    ? `the test runner reported more skipped/pending cases on the candidate than on the comparison baseline (${disc.pendingCountIncreases.map((x) => `test check ${x.testRun}: ${x.baseline}→${x.candidate} (${x.runner})`).join(', ')}); review those cases because a green exit code alone does not show that they ran${disc.baselineEvidence ? `; baseline comparison evidence: ${disc.baselineEvidence}` : ''}`
     : undefined;
   const caveat = [workerCaveat, pendingCaveat].filter((x): x is string => x !== undefined).join('; ');
   if (disc.basePassed === true) {
@@ -2018,7 +2018,7 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
   if (disc.pendingCountIncreases?.length) {
     return {
       id: 'regression-evidence', mode: 'objective', status: 'unproven',
-      note: `the sealed checks fail on the base, but the candidate reported more skipped/pending cases (${disc.pendingCountIncreases.map((x) => `test check ${x.testRun}: ${x.baseline}→${x.candidate}`).join(', ')}), so the two runs did not execute a comparable set of checks. Run those cases on the candidate or bind an equivalent operator-controlled check, then verify again${disc.baselineEvidence ? `; baseline output: ${disc.baselineEvidence}` : ''}`,
+      note: `the sealed checks fail on the base, but the candidate reported more skipped/pending cases (${disc.pendingCountIncreases.map((x) => `test check ${x.testRun}: ${x.baseline}→${x.candidate} (${x.runner})`).join(', ')}), so the two runs did not execute a comparable set of checks. Run those cases on the candidate or bind an equivalent operator-controlled check, then verify again${disc.baselineEvidence ? `; baseline output: ${disc.baselineEvidence}` : ''}`,
       ...(caveat ? { caveat } : {}),
     };
   }
@@ -2054,17 +2054,17 @@ function looksLikeInfraFailure(r: StepResult): boolean {
   return /ENOENT|Cannot find module|MODULE_NOT_FOUND|no such file or directory|package\.json not found|could not determine executable|command not found|is not recognized as an internal or external command/i.test(text);
 }
 
-function reportedPendingCount(result: StepResult): number | null {
-  if (result.kind !== 'tests') return null;
+function reportedPendingCounts(result: StepResult): Array<{ runner: string; pending: number }> {
+  if (result.kind !== 'tests') return [];
   const log = `${result.stdout}\n${result.stderr}`;
-  const summaries = ['node-test', 'pytest', 'python-unittest', undefined]
-    .map((runner) => parseSummaryCountsFor(runner, log))
-    .filter((counts) => counts.passing !== undefined || counts.failing !== undefined || counts.pending !== undefined);
-  if (summaries.length === 0) return null;
-  // Mocha omits its pending line when zero. If mixed output parses as multiple
-  // runners with conflicting counts, do not guess which summary is the plan's.
-  const pending = summaries[0]!.pending ?? 0;
-  return summaries.every((counts) => (counts.pending ?? 0) === pending) ? pending : null;
+  const runners = ['node-test', 'pytest', 'python-unittest', undefined] as const;
+  return runners.flatMap((runner) => {
+    const counts = parseSummaryCountsFor(runner, log);
+    if (counts.passing === undefined && counts.failing === undefined && counts.pending === undefined) return [];
+    // A project can combine runners in one command. Keep their summaries
+    // separate so a conflicting total cannot erase a skip increase.
+    return [{ runner: runner ?? 'mocha/ava', pending: counts.pending ?? 0 }];
+  });
 }
 
 function pendingCountIncreases(
@@ -2072,10 +2072,10 @@ function pendingCountIncreases(
   baselineRuns: readonly StepResult[],
   candidateRoot: string,
   baselineRoot: string,
-): Array<{ testRun: number; baseline: number; candidate: number }> {
+): Array<{ testRun: number; runner: string; baseline: number; candidate: number }> {
   // A fast or otherwise different plan has no safe positional pairing, so make no claim.
   if (!candidateRuns || candidateRuns.length !== baselineRuns.length) return [];
-  const increases: Array<{ testRun: number; baseline: number; candidate: number }> = [];
+  const increases: Array<{ testRun: number; runner: string; baseline: number; candidate: number }> = [];
   let testRun = 0;
   for (let i = 0; i < candidateRuns.length; i += 1) {
     const candidate = candidateRuns[i]!;
@@ -2084,10 +2084,12 @@ function pendingCountIncreases(
       || path.relative(candidateRoot, candidate.cwd) !== path.relative(baselineRoot, baseline.cwd)) return [];
     if (candidate.kind !== 'tests' || baseline.kind !== 'tests') continue;
     testRun += 1;
-    const before = reportedPendingCount(baseline);
-    const after = reportedPendingCount(candidate);
-    if (before !== null && after !== null && after > before) {
-      increases.push({ testRun, baseline: before, candidate: after });
+    const before = new Map(reportedPendingCounts(baseline).map((summary) => [summary.runner, summary.pending]));
+    for (const summary of reportedPendingCounts(candidate)) {
+      const previous = before.get(summary.runner) ?? 0;
+      if (summary.pending > previous) {
+        increases.push({ testRun, runner: summary.runner, baseline: previous, candidate: summary.pending });
+      }
     }
   }
   return increases;
@@ -2124,7 +2126,7 @@ export interface DiscriminationResult {
   basePassed: boolean | null;
   baseFailures: string[];
   /** Reported pending/skipped test counts rose relative to the same sealed plan at baseline. */
-  pendingCountIncreases?: Array<{ testRun: number; baseline: number; candidate: number }>;
+  pendingCountIncreases?: Array<{ testRun: number; runner: string; baseline: number; candidate: number }>;
 }
 
 /**
