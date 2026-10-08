@@ -3511,6 +3511,12 @@ export async function cmdSetup(rawArgs: string[]): Promise<number> {
       // fact that is true in that case and names where the exact next step is printed. No exit code,
       // no verdict and no gate changes; READY still means what it meant.
       o.say(`note: you registered ${unbound.unbound.length} requirement(s) that no machine check here measures — a completion cannot be reported as PROVEN on those; the exact next step for each is printed by: canary doctor`);
+    } else if ((readTaskRecord(root)?.requirementCount ?? 0) === 0) {
+      // READY means the harness and its sealed checks work. Without this note, the
+      // first-run summary can sound like Canary also assessed acceptance criteria
+      // that were never supplied.
+      o.say('note: no task acceptance criteria are registered. READY means these checks and hooks are set up; Canary cannot assess requirements it was never given.');
+      o.say('  for task-specific proof, register measurable criteria before handing off with `canary task --requirement "<observable behavior>"`, then bind them to a sealed script with `canary bind <plan-script> --requirement "<same text>" --reseal`.');
     }
     o.verdict('READY', 'Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.', `try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor`);
     return 0;

@@ -8,6 +8,13 @@ Numbers quoted here come from executed reporter output, per
 [`docs/TEST-COUNTING.md`](docs/TEST-COUNTING.md): this file records *what
 changed*; the evidence ledgers record *what was observed*.
 
+## [Unreleased]
+
+### Changed
+
+- `canary setup` now explains that `READY` covers the configured checks and hooks, and shows how to
+  register and bind task-specific acceptance criteria before handing work to an agent.
+
 ## [1.4.0] — release candidate, NOT published
 
 **CANARY v1.4.0 — "last known-gaps release".** Candidate bytes frozen on branch

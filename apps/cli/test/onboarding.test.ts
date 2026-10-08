@@ -112,6 +112,22 @@ describe('detection (pure)', () => {
 });
 
 describe('setup', () => {
+  it('explains the task-scope limit when no acceptance criteria were registered', () => {
+    const root = makeProject('setup-no-task-criteria');
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 0, `${setup.stdout} ${setup.stderr}`);
+    assert.match(setup.stdout, /READY/);
+    assert.match(setup.stdout, /no task acceptance criteria are registered/);
+    assert.match(setup.stdout, /cannot assess requirements it was never given/);
+
+    const registered = canary(['task', 'fix the behavior', '--requirement', 'preserve the documented result'], root);
+    assert.equal(registered.status, 0, `${registered.stdout} ${registered.stderr}`);
+    const withRequirement = canary(['setup', '--yes', root]);
+    assert.equal(withRequirement.status, 0, `${withRequirement.stdout} ${withRequirement.stderr}`);
+    assert.doesNotMatch(withRequirement.stdout, /no task acceptance criteria are registered/);
+    assert.match(withRequirement.stdout, /registered 1 requirement/);
+  });
+
   it('build-dependent tests pass on first setup and completion after clean, while compiled regressions stay blocked', () => {
     const root = makeProject('build-dependent', {
       testScript: `${fx('build-dependent-check.cjs')} test`,

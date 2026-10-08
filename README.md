@@ -205,6 +205,9 @@ agent tools: registered in .mcp.json — your agent can now ask Canary whether i
 smoke test (running your own project scripts):
 ✓ tests: npm run test (exit 0)
 
+note: no task acceptance criteria are registered. READY means these checks and hooks are set up; Canary cannot assess requirements it was never given.
+  for task-specific proof, register measurable criteria before handing off with `canary task --requirement "<observable behavior>"`, then bind them to a sealed script with `canary bind <plan-script> --requirement "<same text>" --reseal`.
+
 READY — Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.
 next: try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor
 ```
