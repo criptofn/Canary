@@ -196,6 +196,30 @@ describe('1.1 hardening — custody refusals', () => {
 });
 
 describe('1.1 hardening — minting is serialized', () => {
+  it('a verified existing lock directory also counts as contention when mkdir reports EPERM', (t) => {
+    const s = freshStore();
+    const realMkdir = fs.mkdirSync.bind(fs);
+    let lockAttempts = 0;
+    const simulatedWindowsRace = ((...args: Parameters<typeof fs.mkdirSync>) => {
+      const dir = args[0];
+      if (typeof dir === 'string' && path.basename(dir) === '.authority-lock') {
+        lockAttempts++;
+        if (lockAttempts === 1) {
+          realMkdir(...args);
+          throw Object.assign(new Error('simulated Windows mkdir race'), { code: 'EPERM' });
+        }
+        if (lockAttempts === 2) fs.rmdirSync(dir);
+      }
+      return realMkdir(...args);
+    }) as typeof fs.mkdirSync;
+    t.mock.method(fs, 'mkdirSync', simulatedWindowsRace);
+
+    const env = sealTest(s);
+    assert.equal(lockAttempts, 2, 'the EPERM path waited for the existing lock and retried');
+    assert.equal(env.seq, 1);
+    assert.equal(store.openSealed(s, { projectId: 'proj-a', kind: 'registration' }).status, 'valid');
+  });
+
   it('concurrent minters never share a generation (no lost ledger update)', async () => {
     const s = freshStore();
     const spawnOne = (): Promise<{ seq: number; pid: number }> => new Promise((resolve, reject) => {

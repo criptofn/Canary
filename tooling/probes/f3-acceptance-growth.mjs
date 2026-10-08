@@ -133,7 +133,7 @@ check('F3 GLM exact repro: accept at 0 requirements → grow to 2 → old accept
   accept(root, 'c');
   assertEq(canary(['isolate', '--verify', 'c', root], root).status, 0, 'F3: accepted scope PASSes (pre-growth)');
   // THE ATTACK: the live task registration GROWS after the acceptance rode it.
-  register(root, 'make the dialog warmer', ['ui'], ['make dialog warmer', 'improve icon spacing']);
+  register(root, 'make the dialog warmer', ['ui'], ['make dialog warmer', 'make icon styling more polished']);
   const v = canary(['isolate', '--verify', 'c', root], root);
   assertEq(v.status, 2, 'F3: grown acceptance-eligible scope must NOT be closed by the old acceptance');
   assert(/SUBJECTIVE ACCEPTANCE: USER JUDGMENT REQUIRED/.test(v.stdout), `F3: the verdict must demand judgment on the NEW scope:\n${v.stdout}`);
@@ -163,12 +163,12 @@ check('A1 accept → change nothing → verify PASSes: accept-side and verify-si
 // -------------------------------------------------------- A2 add one duty --
 check('A2 accept → add ONE requirement → STALE → NOT PROVEN', () => {
   const root = makeRepo('a2');
-  register(root, 'make the dialog warmer', ['ui'], ['dialog uses the new palette']);
+  register(root, 'make the dialog warmer', ['ui'], ['the dialog palette feels warmer']);
   const c = isolate(root, 'c');
   candCommit(c, { 'src/dialog.js': 'palette v1\n' });
   accept(root, 'c');
   assertEq(canary(['isolate', '--verify', 'c', root], root).status, 0, 'A2: fresh before the growth');
-  register(root, 'make the dialog warmer', ['ui'], ['dialog uses the new palette', 'spacing on the dialog is calmer']);
+  register(root, 'make the dialog warmer', ['ui'], ['the dialog palette feels warmer', 'spacing on the dialog is calmer']);
   const v = canary(['isolate', '--verify', 'c', root], root);
   assertEq(v.status, 2, `A2: +1 requirement must reopen everything acceptance-eligible:\n${v.stdout}`);
   assert(/STALE/.test(v.stdout), 'A2: staleness named');
@@ -178,7 +178,7 @@ check('A2 accept → add ONE requirement → STALE → NOT PROVEN', () => {
 // --------------------------------------------- A4 same-count, different reqs --
 check('A4 accept [A,B] → replace with [C,D] (same count) → STALE: requirement identity, not a count', () => {
   const root = makeRepo('a4');
-  register(root, 'two-part polish', ['ui'], ['make dialog warmer', 'improve icon spacing']);
+  register(root, 'two-part polish', ['ui'], ['make dialog warmer', 'make icon styling more polished']);
   const c = isolate(root, 'c');
   candCommit(c, { 'src/dialog.js': 'warmer\n', 'src/icon.js': 'spaced\n' });
   accept(root, 'c');

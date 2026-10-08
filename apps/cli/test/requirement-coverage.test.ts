@@ -67,6 +67,15 @@ test('a SUBJECTIVE registration keeps the human-acceptance path (it is not a mea
   assert.deepEqual(task.subjectiveRequirementDigests, [materialDigest('the dialog looks nicer')]);
 });
 
+test('a calmer UI animation can be accepted subjectively without making a numeric target subjective', () => {
+  const subjective = 'the menu animation feels calmer';
+  const objective = 'the animation completes within 200 ms';
+  const task = declaredTask('refine the menu animation', ['ui'] as TaskKind[], [subjective, objective]);
+
+  assert.deepEqual(task.subjectiveRequirementDigests, [materialDigest(subjective)]);
+  assert.deepEqual(task.objectiveTargets, [{ digest: materialDigest(objective), kind: 'bench' }]);
+});
+
 test('one subjective requirement cannot make a separate objective requirement acceptance-eligible', () => {
   const objective = 'saving a record persists it after reload';
   const subjective = 'the dialog looks nicer';
@@ -88,6 +97,11 @@ test('one subjective requirement cannot make a separate objective requirement ac
 
   const maliciousReclassification = { ...task, subjectiveRequirementDigests: [...task.subjectiveRequirementDigests, materialDigest(objective)] };
   assert.match(taskWeakening(task, maliciousReclassification).join(' '), /subjective requirement classification changed/);
+  const scopeGrowth = declaredTask('make the dialog prettier', ['ui'] as TaskKind[], [objective, subjective, 'the menu animation feels calmer']);
+  assert.deepEqual(taskWeakening(task, scopeGrowth), [], 'a new classified criterion grows the live scope; only reclassifying a frozen criterion weakens authority');
+  const duplicate = declaredTask('polish the dialog', ['ui'] as TaskKind[], [subjective, subjective]);
+  assert.equal(canonicalTask({ ...duplicate, subjectiveRequirementDigests: [materialDigest(subjective)] }), null,
+    'duplicate criteria cannot have ambiguous per-copy subjectivity');
   assert.equal(canonicalTask({ ...task, subjectiveRequirementDigests: [materialDigest('not a registered requirement')] }), null,
     'classification digests must belong to registered requirements');
 });

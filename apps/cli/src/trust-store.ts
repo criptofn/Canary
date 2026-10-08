@@ -153,7 +153,20 @@ function locked<T>(s: TrustStore, action: () => T): T {
   for (;;) {
     try { fs.mkdirSync(lock, { mode: 0o700 }); acquired = true; break; }
     catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      const code = (e as NodeJS.ErrnoException).code;
+      let held = code === 'EEXIST';
+      // Windows can surface a racing mkdir of an existing directory as EPERM.
+      // Treat it as lock contention only when lstat confirms a real directory;
+      // other permission errors and links still fail closed.
+      if (!held && code === 'EPERM') {
+        try {
+          const stat = fs.lstatSync(lock);
+          held = stat.isDirectory() && !stat.isSymbolicLink();
+        } catch (probeError) {
+          if ((probeError as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        }
+      }
+      if (!held) throw e;
       if (Date.now() >= deadline) throw new Error(`the trust store is busy: another Canary process holds ${lock} — refusing to mint a record that could overwrite a concurrent seal; the lock is never stolen, so a killed writer needs the lock directory removed`);
       sleepSync(LOCK_POLL_MS);
     }
