@@ -371,13 +371,13 @@ try {
   };
   const everyday = mcpTools('everyday');
   const expert = mcpTools('expert');
-  const everydayExpected = ['canary_agents', 'canary_doctor', 'canary_result', 'canary_status'];
-  check('G7-the-configured-everyday-profile-lists-the-four-common-tools',
+  const everydayExpected = ['canary_doctor', 'canary_result', 'canary_status', 'canary_task'];
+  const expertExpected = [...everydayExpected, 'canary_agents', 'canary_finish', 'canary_work'].sort();
+  check('G7-the-everyday-profile-lists-status-and-explicit-task-intake-tools',
     !!everyday.init?.result?.serverInfo && JSON.stringify(everyday.names) === JSON.stringify(everydayExpected),
     { server: everyday.init?.result?.serverInfo?.name, tools: everyday.names });
-  check('G8-the-expert-profile-adds-isolated-work-and-finish',
-    !!expert.init?.result?.serverInfo && expert.names.length === 6
-    && expert.names.includes('canary_work') && expert.names.includes('canary_finish'),
+  check('G8-the-expert-profile-adds-agent-listing-and-isolated-work-and-finish',
+    !!expert.init?.result?.serverInfo && JSON.stringify(expert.names) === JSON.stringify(expertExpected),
     { server: expert.init?.result?.serverInfo?.name, tools: expert.names });
   check('G9-the-accept-power-is-not-exposed-as-a-tool',
     !expert.names.some((n) => /accept/i.test(n)), expert.names.join(', '));

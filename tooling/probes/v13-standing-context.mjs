@@ -39,9 +39,9 @@ const check = (name, fn) => {
 };
 const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
 
-/** The tools that belong to the EXPERT surface: the candidate lifecycle the audit measured as
- *  costing 177.8% of plain. An everyday user never calls these, and pays for them per turn. */
+/** The candidate lifecycle tools the audit measured as costing 177.8% of plain. */
 const CEREMONY = ['canary_work', 'canary_finish'];
+const EXPERT_ONLY = ['canary_agents', ...CEREMONY];
 
 const env = { ...process.env, CANARY_TRUST_STORE: path.join(temp, 'local-trust') };
 const run = (exe, args, cwd, input) => spawnSync(exe, args, {
@@ -112,7 +112,7 @@ try {
   console.log(`INFO everyday payload (setup default): ${standingBytes} B = ${instrBytes} B instructions + ${toolsBytes} B tool definitions (${tools.length} tools)`);
   for (const t of perTool) console.log(`INFO   ${String(t.bytes).padStart(5)} B  ${t.name}`);
   console.log(`INFO expert payload: ${expert.standingBytes} B = ${expert.instrBytes} B instructions + ${expert.toolsBytes} B tool definitions (${expert.tools.length} tools)`);
-  console.log(`INFO expert-only tools (${CEREMONY.join(', ')}): ${expertCeremonyBytes} B`);
+  console.log(`INFO expert lifecycle tools (${CEREMONY.join(', ')}): ${expertCeremonyBytes} B`);
 
   check('A1-the-server-answers-the-handshake-with-instructions-a-client-really-receives', () => {
     assert(init?.result?.serverInfo?.name === 'canary', 'no canary serverInfo');
@@ -138,12 +138,12 @@ try {
     const args = mcp?.mcpServers?.canary?.args;
     assert(Array.isArray(args) && args.slice(-3).join('\0') === ['mcp', '--profile', 'everyday'].join('\0'),
       `setup did not configure the everyday profile: ${JSON.stringify(args)}`);
-    assert(CEREMONY.every((n) => expert.tools.some((t) => t.name === n)),
+    assert(EXPERT_ONLY.every((n) => expert.tools.some((t) => t.name === n)),
       `expert profile omitted an isolation lifecycle tool: ${JSON.stringify(expert.tools.map((t) => t.name))}`);
-    assert(CEREMONY.every((n) => !tools.some((t) => t.name === n)),
-      'the everyday profile still advertises work/finish');
-    assert(expert.tools.length === tools.length + CEREMONY.length,
-      `expected expert to add exactly ${CEREMONY.length} tools: everyday=${tools.length}, expert=${expert.tools.length}`);
+    assert(EXPERT_ONLY.every((n) => !tools.some((t) => t.name === n)),
+      'the everyday profile still advertises expert-only tools');
+    assert(expert.tools.length === tools.length + EXPERT_ONLY.length,
+      `expected expert to add exactly ${EXPERT_ONLY.length} tools: everyday=${tools.length}, expert=${expert.tools.length}`);
     assert(standingBytes <= expert.standingBytes * 0.7,
       `everyday payload is not at least 30% smaller: everyday=${standingBytes} B, expert=${expert.standingBytes} B`);
   });
