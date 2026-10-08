@@ -2516,6 +2516,7 @@ export function obligationsFor(
     return script !== undefined && authority!.plan.some(s => s.script === script) ? script : null;
   };
   const digests = task?.requirementDigests ?? [];
+  const taskIdentityMatchesCount = task !== null && task !== undefined && task.requirementCount === requirementCount;
   const subjectiveDigests = new Set(task?.subjectiveRequirementDigests ?? []);
   const uncovered = digests.filter(d => !task!.objectiveTargets.some(t => t.digest === d) && boundScriptFor(d) === null);
   const uncoveredObjective = uncovered.filter(d => !subjectiveDigests.has(d));
@@ -2539,8 +2540,13 @@ export function obligationsFor(
      * part of the task. A mixed task stays objective while any uncovered objective requirement is
      * open; subjective parts retain their separate human-judgment path.
      */
-    add({ id: 'per-requirement', mode: !task || uncoveredObjective.length > 0 || requirementCount === 0 ? 'objective' : 'non-objective', status: 'unproven', note: requirementCount > 0
-      ? `multi-part task: ${requirementCount} registered requirement(s), ${uncoveredObjective.length} objective part(s) with NO sealed proof${uncoveredSubjective.length ? `, ${uncoveredSubjective.length} subjective part(s) waiting for human judgment` : ''} — a green plan proves the plan, NOT each objective part. Bind each uncovered objective digest in package.json canary.proofs to a script your plan runs and re-run canary setup${uncoveredObjective.length === 0 && uncoveredSubjective.length > 0 ? ', or accept the subjective result from an interactive terminal (canary accept <candidate>)' : ''} — until then UNPROVEN, never permanently dead`
+    const completionPath = !taskIdentityMatchesCount
+      ? 'register each exact requirement with canary task before isolation'
+      : uncoveredObjective.length > 0
+        ? 'bind each uncovered objective digest in package.json canary.proofs to a script your plan runs and re-run canary setup'
+        : 'review and accept the subjective result from an interactive terminal (canary accept <candidate>)';
+    add({ id: 'per-requirement', mode: !taskIdentityMatchesCount || uncoveredObjective.length > 0 || requirementCount === 0 ? 'objective' : 'non-objective', status: 'unproven', note: requirementCount > 0
+      ? `multi-part task: ${requirementCount} registered requirement(s), ${uncoveredObjective.length} objective part(s) with NO sealed proof${uncoveredSubjective.length ? `, ${uncoveredSubjective.length} subjective part(s) waiting for human judgment` : ''} — a green plan proves the plan, NOT each objective part. ${completionPath} — until then UNPROVEN, never permanently dead`
       : 'multi-part task detected but requirements were never enumerated — ask the human ONCE which parts must be proven separately, or register them: canary task "..." --requirement "..." per part (BEFORE isolation), or accept the candidate as-is from an interactive terminal: canary accept <candidate>' });
   }
   return out;
