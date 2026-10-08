@@ -41,6 +41,8 @@ Der Paketstand ist unveröffentlicht und meldet weiterhin `canary 1.5.0`. Das Ar
 
 Der vollständige Sechs-Aufgaben-Pilot ist noch nicht abgeschlossen. Eine belastbare Begrenzung der Anbieterabrechnung fehlt, daher wurden keine bezahlten Live-Sitzungen gestartet. Ein H1-Vergleich mit dem eingefrorenen Paket hatte einen korrekten Canary-Lauf; der Lauf ohne Canary endete in einem Bun-Segmentation-Fault ohne vollständige Abrechnung. Dieses unvollständige Paar belegt keine Zeit- oder Tokenersparnis.
 
-Refactrons Einrichtung bleibt widersprüchlich: Ein Setup meldete einen Python-Coverage-Fehler, ein späterer Doctor-Lauf war READY. Die Ursache des älteren Windows-Prozessüberwachungsbefunds ist trotz der vereinbarten Diagnosegrenze offen. `LOCAL` bleibt auf gleichem Benutzerkonto eine Vertrauensgrenze. Diese Befunde sind nicht durch die neuen Regressionen geschlossen.
+Der bisherige Refactron-Hinweis fasste getrennte Läufe irreführend zusammen. Im R1-Lauf vom 24.09. schlugen beim Setup 27 Python-/Shell-abhängige Checks in Canarys Ausführungsumgebung fehl; der spätere Doctor auf dem Agenten-Endstand blieb `NEEDS ATTENTION` mit 12 Testfehlern ([Rohbericht](REAL-WORLD-EVIDENCE-1.5.md)). Ein separater R1-Retry vom 03.10. protokolliert beim Setup einen Vitest-Abbruch mit `ERR_IPC_CHANNEL_CLOSED`; der spätere Doctor meldete `READY` auf einem anderen Commit (Setup: `1fe40d8…`, Doctor: `0e46cf7…`). Die Ursache des Abbruchs ist ungeklärt. Diese Ausführungen belegen weder einen Widerspruch auf demselben Stand noch eine Canary-Ursache ([Nachgang](POST-V15-BUILD-ORDER-2026-10-03.md)).
+
+Die Ursache des älteren Windows-Prozessüberwachungsbefunds ist trotz der vereinbarten Diagnosegrenze offen. `LOCAL` bleibt auf gleichem Benutzerkonto eine Vertrauensgrenze. Diese Befunde sind nicht durch die neuen Regressionen geschlossen.
 
 Merge und Veröffentlichung sind separat. Die 8/10-Bewertung bleibt offen, bis der reale Pilot und die offenen Praxiskriterien belegt sind.
