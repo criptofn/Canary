@@ -124,6 +124,11 @@ try {
     assert(perTool.length === tools.length, 'not every advertised tool was attributed');
   });
 
+  check('A2b-the-reference-everyday-handshake-stays-under-3900-bytes', () => {
+    assert(standingBytes <= 3900,
+      `everyday initialize+tools payload exceeds the 3,900-byte reference budget: ${standingBytes} B`);
+  });
+
   check('A3-acceptance-is-still-not-advertised-as-a-tool', () => {
     assert(!tools.some((t) => /accept/i.test(t.name)), 'canary_accept was advertised');
   });

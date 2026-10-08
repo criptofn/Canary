@@ -68,37 +68,30 @@ const TOOLS: readonly McpTool[] = [
   {
     name: 'canary_result',
     description:
-      'What Canary knows about this repository, machine-readable (runs `canary result --json`). '
-      + 'Read-only and free: it writes nothing. Use this first to learn the sealed checks, the '
-      + 'measured custody level and what to do next.',
+      'Read-only summary of this repository: checks, protection level and next action (`canary result --json`).',
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string', description: 'Repository directory to inspect (defaults to the server working directory).' } },
+      properties: { path: { type: 'string', description: 'Repository root (defaults to server cwd).' } },
       additionalProperties: false,
     },
     annotations: { title: 'Canary result (read-only)', readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
     name: 'canary_status',
-    description:
-      'Whether Canary is active in this repository and how it is wired (runs `canary status --json`). '
-      + 'Read-only: performs no writes.',
+    description: 'Read-only wiring status for this repository (`canary status --json`).',
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string', description: 'Repository directory to inspect.' } },
+      properties: { path: { type: 'string', description: 'Repository root (defaults to server cwd).' } },
       additionalProperties: false,
     },
     annotations: { title: 'Canary status (read-only)', readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
     name: 'canary_agents',
-    description:
-      'Which agent harnesses are present here and the REAL capability of each — GATED (can block a '
-      + 'completion) versus ADVISORY (told, but free to ignore). Never reports an advisory integration '
-      + 'as if it could gate.',
+    description: 'Lists available agent integrations and whether each can block completion or only advise.',
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string', description: 'Repository directory to inspect.' } },
+      properties: { path: { type: 'string', description: 'Repository root (defaults to server cwd).' } },
       additionalProperties: false,
     },
     annotations: { title: 'Canary agent capabilities (read-only)', readOnlyHint: true, destructiveHint: false, idempotentHint: true },
@@ -106,18 +99,17 @@ const TOOLS: readonly McpTool[] = [
   {
     name: 'canary_doctor',
     description:
-      'Runs sealed project checks. With no `check`, this is the full completion gate. Pass the exact '
-      + 'sealed check id for a focused diagnostic: it returns PARTIAL and never certifies completion or '
-      + 'updates the checkpoint. It executes project commands and is not read-only. When an automatic '
-      + 'completion hook is installed, do not use the full gate as your final check; finish normally and let the hook verify '
+      'Runs the sealed checks and executes project code. Omit `check` for the full gate; an exact sealed '
+      + 'check id returns PARTIAL and cannot certify completion. When an automatic completion hook is '
+      + 'installed, do not use the full gate as your final check: finish normally and let the hook verify '
       + 'once. Use this tool for early feedback or a focused repair. If no completion hook is available, '
-      + 'use the full gate for final verification. A non-zero exit means failure or incomplete verification — relay the verdict.',
+      + 'use the full gate for final verification. A non-zero exit means failure or incomplete verification; relay the verdict.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Repository directory to check.' },
+        path: { type: 'string', description: 'Repository root (defaults to server cwd).' },
         fast: { type: 'boolean', description: 'Opt-in adaptive fast path: leave out only the checks whose declared paths the change provably missed. Never available to promotion.' },
-        check: { type: 'string', minLength: 1, pattern: '\\S', description: 'Omit this property entirely for the full gate. Otherwise use an exact nonblank sealed check id for a focused diagnostic; the result is PARTIAL and cannot certify completion.' },
+        check: { type: 'string', minLength: 1, pattern: '\\S', description: 'Exact nonblank sealed check id for a focused PARTIAL diagnostic; omit for the full gate.' },
       },
       additionalProperties: false,
     },
@@ -168,27 +160,18 @@ const TOOLS: readonly McpTool[] = [
 ];
 
 const SERVER_INSTRUCTIONS = [
-  'Canary verdicts (PASS, ACCEPTED, PROMOTED, NOT PROVEN) come only from the trusted `canary` CLI;',
-  'this server requests operations and relays the CLI result and exit code.',
+  'Only the trusted CLI issues Canary verdicts; this server relays its output and exit code. Never claim a result it did not report or present agent-run tests as Canary proof.',
   '',
-  'Limits:',
-  '- it cannot mint a PASS, acceptance or promotion, or bypass the terminal gate on `canary accept`;',
-  '  that human act is not a tool;',
-  '- only a human can close a SUBJECTIVE duty.',
+  'It cannot mint a PASS, acceptance or promotion, or bypass the terminal gate on `canary accept`;',
+  'acceptance is a human act, and only a human may close a SUBJECTIVE duty.',
   '',
-  'When this harness has an automatic completion hook, finish normally; its sealed checks run at completion.',
+  'When an automatic completion hook is installed, finish normally and let its sealed checks run.',
   'Do not run canary_doctor just to repeat a check that just ran.',
-  'Use canary_doctor for early feedback or run the full gate when no completion hook is available.',
-  'For repair, pass the exact sealed check id; the focused result is PARTIAL and never replaces the full gate or checkpoint.',
+  'Use canary_doctor for early feedback or a focused check (PARTIAL). Run the full gate when no completion hook is available.',
   'Use canary_result for a read-only summary.',
-  'Preserve the sealed plan, baseline and hooks. Do not run setup or bind to clear a verdict; the operator',
-  'owns changes to verification authority.',
-  'A worker-authored evidence caveat records test provenance, not test failure. When READY and obligations',
-  'are met, finish normally and retain the caveat in your report.',
-  'For NOT PROVEN, add an assertion that calls the implementation through the sealed test entry; copied',
-  'implementation cannot distinguish the unchanged base.',
-  '',
-  'Never present your own test output as proof or claim a result this server did not report.',
+  'Preserve operator-approved checks, baseline and hooks. Do not run setup or bind to clear a verdict.',
+  'A regression test must exercise the implementation through the sealed test entry; copied implementation cannot prove the change.',
+  'A worker-authored caveat records test provenance, not test failure. When READY, finish normally and report the caveat.',
 ].join('\n');
 
 const EXPERT_INSTRUCTIONS = '\n\nFor work that must be isolated, `canary_work` opens a candidate and `canary_finish` verifies it and promotes only if the proof holds.';

@@ -156,7 +156,7 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.ok(new RegExp(check.pattern!).test('test'));
   });
 
-  it('everyday profile exposes the four common tools and cuts at least 30% of the MCP payload', () => {
+  it('everyday profile exposes the four common tools and keeps its base payload under 3.6 KB', () => {
     const messages = (profile: string[]) => session([
       req(1, 'initialize', { protocolVersion: '2025-06-18' }), req(2, 'tools/list'),
     ], TMP, profile).parsed;
@@ -169,8 +169,11 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     const bytes = (rows: Array<Record<string, unknown>>) => Buffer.byteLength(JSON.stringify({
       instructions: resultOf(rows[0]!).instructions, tools: resultOf(rows[1]!).tools,
     }));
-    assert.ok(bytes(everyday) <= bytes(expert) * 0.7,
-      `everyday payload should be at least 30% smaller (everyday=${bytes(everyday)}, expert=${bytes(expert)})`);
+    const everydayBytes = bytes(everyday);
+    assert.ok(everydayBytes <= 3600,
+      `everyday base initialize+tools payload should stay under 3,600 bytes (observed=${everydayBytes})`);
+    assert.ok(everydayBytes <= bytes(expert) * 0.7,
+      `everyday payload should be at least 30% smaller (everyday=${everydayBytes}, expert=${bytes(expert)})`);
     assert.match(String(resultOf(everyday[0]!).instructions), /Use canary_result/);
     assert.doesNotMatch(String(resultOf(everyday[0]!).instructions), /canary_work|canary_finish/);
     assert.match(String(resultOf(expert[0]!).instructions), /canary_work.*canary_finish/);
