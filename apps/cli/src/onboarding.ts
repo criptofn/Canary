@@ -1922,14 +1922,14 @@ function sealedTestEntryHint(root: string, cfg: CanaryConfig): string {
       if (step.argv !== undefined) {
         const argv = assertStepArgv(step.argv);
         if (digest !== sha256(JSON.stringify(argv))) continue;
-        return ` The sealed test command is ${JSON.stringify(argv)} (entry ${JSON.stringify(step.script)}); a new test file counts only if this command runs it.`;
+        return ` The plan's test command is ${JSON.stringify(argv)} (entry ${JSON.stringify(step.script)}); a new test file counts only if this command runs it.`;
       }
       const pkgPath = path.join(scopeDir(root, step), 'package.json');
       const scripts = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
       const text = scripts[step.script];
       if (typeof text !== 'string' || digest !== sha256(text)) continue;
       const displayPath = path.relative(root, pkgPath).replaceAll('\\', '/') || 'package.json';
-      return ` The sealed test entry is ${displayPath} scripts.${step.script} = ${JSON.stringify(text.slice(0, 160))}; a new test file counts only when this entry runs it.`;
+      return ` The plan's test command is ${displayPath} scripts.${step.script} = ${JSON.stringify(text.slice(0, 160))}; a new test file counts only if this command runs it.`;
     }
   } catch { /* malformed or unavailable sealed details retain the generic guidance */ }
   return '';
@@ -1945,7 +1945,7 @@ export function projectTestEntryHint(startDir: string): string {
     const record = openSealed(storeFromEnv(), { projectId: projectIdForRoot(root), kind: 'plan-seal' });
     if (record.status !== 'valid' || !cfg.planAuthority || canonicalJson(record.envelope!.payload) !== canonicalJson(cfg.planAuthority)) return '';
     const hint = sealedTestEntryHint(root, cfg);
-    return hint ? `\n\nBefore adding regression tests:${hint}\nAdd assertions against the actual implementation to the suite this entry runs. Prefer observable behavior through the existing public API; do not export internals solely for tests. Preserve the test command, sealed plan and baseline.` : '';
+    return hint ? `\n\nRegression proof:${hint}\nPrefer observable behavior through the existing public API; do not export internals solely for tests. Keep the test command and starting commit unchanged.` : '';
   } catch { return ''; } // no readable trusted entry: keep the generic instructions, never guess
 }
 
@@ -2036,10 +2036,10 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
   const caveat = [workerCaveat, pendingCaveat].filter((x): x is string => x !== undefined).join('; ');
   if (disc.basePassed === true) {
     const sealedTestHint = sealedTestEntryHint(root, cfg);
-    const target = sealedTestHint ? 'that suite or command' : 'a suite the sealed plan runs';
+    const target = sealedTestHint ? 'that suite or command' : 'a suite Canary already runs';
     return {
       id: 'regression-evidence', mode: 'objective', status: 'unproven',
-      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more})${disc.comparisonBase ? ` — additional comparison against the latest change's preceding commit ${disc.comparisonBase}` : ''}: existing behaviour that must be preserved needs a check that FAILS without the change and passes with it. Canary runs this sealed-base comparison automatically; keep the current branch and worktree in place.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a green plan alone does not close this${pendingCaveat ? `; ${pendingCaveat}` : ''}${disc.baselineEvidence ? `; baseline output: ${disc.baselineEvidence}` : ''}`,
+      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more})${disc.comparisonBase ? ` — additional comparison against the latest change's preceding commit ${disc.comparisonBase}` : ''}: existing behaviour that must be preserved needs a check that FAILS without the change and passes with it. Canary compares with the starting commit automatically; stay on this branch.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a green plan alone does not close this${pendingCaveat ? `; ${pendingCaveat}` : ''}${disc.baselineEvidence ? `; baseline output: ${disc.baselineEvidence}` : ''}`,
       ...(pendingCaveat ? { caveat: pendingCaveat } : {}),
     };
   }
@@ -4230,7 +4230,7 @@ export function cmdDoctor(rawArgs: string[]): number {
       ? `${objectiveOpen.length} objective obligation(s) have no adequate proof`
       : `${subjectiveOpen.length} authorized requirement(s) need a human's explicit acceptance`;
     const next = objectiveOpen.some((ob) => ob.id === 'regression-evidence')
-      ? `Add a regression assertion that fails on the reported comparison commit and passes with the actual implementation. Canary runs this comparison automatically; keep the current branch and worktree in place.${sealedTestEntryHint(root, cfg)} Preserve the sealed plan and baseline; then run: canary doctor`
+      ? `Add a regression assertion that fails on the reported starting commit and passes with the actual implementation. Canary compares with the starting commit automatically; stay on this branch.${sealedTestEntryHint(root, cfg)} Keep the planned test command and starting commit unchanged; then run: canary doctor`
       : objectiveOpen.length > 0
         ? 'close it with a sealed check: bind the requirement to a matching script in package.json canary.proofs and re-run canary setup — or take the work through a candidate (canary work <name> … → canary finish <name>) and have a human accept it there'
         : 'bind each requirement to a sealed check (package.json canary.proofs + canary setup), or take the work through a candidate and have a human accept it there: canary work <name> "<intent>" → canary finish <name> → canary accept <candidate> in a terminal';

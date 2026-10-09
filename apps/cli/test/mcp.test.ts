@@ -151,7 +151,7 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.match(instructions, /If unbound, keep NOT PROVEN/i);
     assert.match(instructions, /do not alter checks, baseline or hooks, or run setup\/bind\/accept/i);
     assert.match(instructions, /Continue authorized work/i);
-    assert.match(instructions, /compares the sealed base automatically\. Keep this branch\/worktree/i);
+    assert.match(instructions, /compares against the starting commit automatically\. Stay on this branch/i);
     assert.doesNotMatch(instructions, /canary_work|canary_finish/);
   });
 
@@ -236,7 +236,7 @@ describe('tools: a fixed template over operations the CLI already had', () => {
 });
 
 describe('a real call relays Canary own words and exit code, unmodified', () => {
-  it('initialize names the trusted sealed test entry without running it or accepting changed authority', () => {
+  it('initialize names the configured test command without running it or accepting changed authority', () => {
     const root = path.join(TMP, 'upfront-test-entry');
     fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
     assert.equal(spawnSync('git', ['-C', root, 'init', '-b', 'main'], { encoding: 'utf8' }).status, 0);

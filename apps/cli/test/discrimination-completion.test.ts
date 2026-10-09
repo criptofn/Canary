@@ -215,7 +215,7 @@ test('a committed earlier regression cannot prove a later uncovered change', () 
   assert.equal(secondDoctor.code, 2, secondDoctor.out);
   const secondEnvelope = JSON.parse(secondDoctor.out.split(/\r?\n/)[0]!) as { next: string };
   assert.match(secondEnvelope.next, /regression assertion/);
-  assert.match(secondEnvelope.next, /Canary runs this comparison automatically; keep the current branch and worktree in place/);
+  assert.match(secondEnvelope.next, /Canary compares with the starting commit automatically; stay on this branch/);
   assert.match(secondEnvelope.next, /node --test tests\/greet\.test\.cjs/);
   assert.doesNotMatch(secondEnvelope.next, /re-run canary setup/);
   const second = discriminationObligation(root, cfg);
@@ -513,7 +513,7 @@ test('missing regression proof points to the sealed test entry, never a changed 
   const missing = hook(root);
   assert.equal(missing.decision, 'block');
   assert.match(missing.reason ?? '', /package\.json scripts\.test = "node --test tests\/greet\.test\.cjs"/);
-  assert.match(missing.reason ?? '', /a new test file counts only when this entry runs it/);
+  assert.match(missing.reason ?? '', /a new test file counts only if this command runs it/);
 
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   pkg.scripts.test = 'node unsealed-check.cjs';
@@ -534,7 +534,7 @@ test('argv-based projects get the exact sealed test command in regression guidan
   write(root, 'app.py', '# harmless edit; behavior is still covered by the same test\ndef value():\n    return 1\n');
   const result = hook(root);
   assert.equal(result.decision, 'block');
-  assert.ok(result.reason?.includes(`The sealed test command is ${JSON.stringify(step.argv)} (entry ${JSON.stringify(step.script)})`), result.reason);
+  assert.ok(result.reason?.includes(`The plan's test command is ${JSON.stringify(step.argv)} (entry ${JSON.stringify(step.script)})`), result.reason);
   assert.match(result.reason ?? '', /a new test file counts only if this command runs it/);
 
   const mutated = JSON.parse(fs.readFileSync(path.join(root, '.canary/canary.local.json'), 'utf8')) as typeof cfg;

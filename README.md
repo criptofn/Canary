@@ -100,10 +100,10 @@ canary setup --yes      # detect the project, seal its checks, wire your agent
 ```
 
 Claude Code also receives a short completion workflow when a session starts or
-resumes: the sealed test entry, the installed repair command, and the instruction
-to finish normally so the Stop hook runs the full checks. Startup guidance runs
-no checks and certifies nothing. Re-run setup once to add it to an existing
-installation; unrelated startup hooks are preserved.
+resumes: the test command Canary will run, the installed repair command, and the
+instruction to finish normally so the Stop hook runs the full checks. Startup
+guidance runs no checks and certifies nothing. Re-run setup once to add it to an
+existing installation; unrelated startup hooks are preserved.
 
 If your checks launch Java, Python, Git or another external tool, name it during
 setup: `canary setup --yes --toolchain java --toolchain python`. Canary finds each
@@ -214,9 +214,9 @@ When one check fails, doctor prints its sealed check id and a focused recheck co
 Use `canary doctor --check <id>` while repairing that check; it returns `PARTIAL` and
 does not update the completion checkpoint. Run `canary doctor` for the full gate.
 
-For an unproven regression, add an assertion that fails on the sealed base and passes
-with the change. Canary runs that comparison automatically in a separate worktree;
-leave your current branch and worktree in place.
+For an unproven regression, add a test that fails against the project's starting
+commit and passes with your change. Canary runs that comparison automatically;
+keep working on this branch.
 
 ## Expert mode — when a change must be *proven*, not just green
 

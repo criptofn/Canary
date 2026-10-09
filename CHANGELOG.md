@@ -15,13 +15,13 @@ changed*; the evidence ledgers record *what was observed*.
 - Top-level `canary --help` and `canary -h` now exit successfully and show help without appending
   a repository-status answer; bare invocation and unknown commands keep their misuse exit code.
 - Everyday MCP descriptions and instructions remove repeated wording; the initialized four-tool payload
-  has a 3,600-byte base budget, and the standard configured project stays under 3,900 bytes with its
-  sealed test-entry hint. The completion-hook and authority rules remain included.
+  has a 3,600-byte base budget, and the standard configured project measured 3,846 bytes against its
+  3,900-byte budget with the test-command hint. The completion-hook and authority rules remain included.
 - Claude startup and MCP guidance now recommend runner-native file/case filters for quick feedback,
   leaving the full sealed plan to the completion hook.
-- Canary's unproven-regression guidance now says that baseline comparison is automatic and tells
-  agents to keep the current branch intact; the doctor tool also clarifies that `check` takes a
-  sealed check id, not task or requirement text.
+- Canary's unproven-regression guidance explains that the starting commit is compared automatically
+  and tells agents to stay on the same branch; the doctor tool also clarifies that `check` takes a
+  check id from the plan, not task or requirement text.
 - `canary doctor` and the completion hook now advise restoring deleted verification files from the
   sealed base, including staged, unstaged, and already committed deletions. Already committed
   restorations must be committed before Canary can clear the block.
