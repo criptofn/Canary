@@ -259,6 +259,7 @@ describe('setup', () => {
     assert.match(context, /AGENT_REPORTED input only/i);
     assert.match(context, /If unbound, do not edit the plan or run setup\/bind\/accept/i);
     assert.match(context, /Continue authorized code work, but report NOT PROVEN/i);
+    assert.match(context, /Canary runs the sealed base comparison itself; do not switch, reset, or restore this branch/i);
     assert.match(context, /If canary_task is unavailable, register the same intent and every exact criterion before editing/i);
     assert.ok(context.includes(`${CLI}" task`), 'MCP fallback must use the installed CLI, not a guessed global command');
     assert.match(context, /repeat --requirement once per criterion/i);

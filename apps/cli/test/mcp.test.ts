@@ -121,6 +121,8 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.match(doctor, /finish normally and let the hook verify once/i);
     assert.match(doctor, /early feedback or a focused repair/i);
     assert.match(doctor, /without a hook, use the full gate for final verification/i);
+    assert.match(doctor, /copy `check` from the sealed checks list/i);
+    assert.match(doctor, /task and requirement text are not check ids/i);
   });
 
   it('states the authority limit in the initialize instructions', () => {
@@ -149,6 +151,7 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.match(instructions, /If unbound, keep NOT PROVEN/i);
     assert.match(instructions, /do not alter checks, baseline or hooks, or run setup\/bind\/accept/i);
     assert.match(instructions, /Continue authorized work/i);
+    assert.match(instructions, /compares against its sealed base automatically; keep the current branch and worktree in place/i);
     assert.doesNotMatch(instructions, /canary_work|canary_finish/);
   });
 

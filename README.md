@@ -214,6 +214,10 @@ When one check fails, doctor prints its sealed check id and a focused recheck co
 Use `canary doctor --check <id>` while repairing that check; it returns `PARTIAL` and
 does not update the completion checkpoint. Run `canary doctor` for the full gate.
 
+For an unproven regression, add an assertion that fails on the sealed base and passes
+with the change. Canary runs that comparison automatically in a separate worktree;
+leave your current branch and worktree in place.
+
 ## Expert mode — when a change must be *proven*, not just green
 
 Not part of the ordinary loop, and **measured to cost more than the everyday path**

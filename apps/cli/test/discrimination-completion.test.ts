@@ -215,6 +215,7 @@ test('a committed earlier regression cannot prove a later uncovered change', () 
   assert.equal(secondDoctor.code, 2, secondDoctor.out);
   const secondEnvelope = JSON.parse(secondDoctor.out.split(/\r?\n/)[0]!) as { next: string };
   assert.match(secondEnvelope.next, /regression assertion/);
+  assert.match(secondEnvelope.next, /Canary runs this comparison automatically; keep the current branch and worktree in place/);
   assert.match(secondEnvelope.next, /node --test tests\/greet\.test\.cjs/);
   assert.doesNotMatch(secondEnvelope.next, /re-run canary setup/);
   const second = discriminationObligation(root, cfg);

@@ -119,6 +119,7 @@ const TOOLS: readonly McpTool[] = [
     name: 'canary_doctor',
     description:
       'Runs sealed checks and project code. Omit `check` for the full gate; an exact check id is PARTIAL only. '
+      + 'Copy `check` from the sealed checks list; task and requirement text are not check ids. '
       + 'When an automatic completion hook is installed, finish normally and let the hook verify once; use '
       + 'this for early feedback or a focused repair. Without a hook, use the full gate for final verification. '
       + 'Relay non-zero exits.',
@@ -187,7 +188,7 @@ const SERVER_INSTRUCTIONS = [
   'Use canary_result for a read-only summary.',
   'For explicit criteria, call canary_task before work and copy them verbatim; never use placeholders. It records AGENT_REPORTED input only.',
   'If unbound, keep NOT PROVEN. “Bind it” is operator-only: do not alter checks, baseline or hooks, or run setup/bind/accept. Continue authorized work.',
-  'Regression proof must test the implementation through the sealed test entry; copied code is not proof.',
+  'Regression proof must test the implementation through the sealed test entry; copied code is not proof. Canary compares against its sealed base automatically; keep the current branch and worktree in place.',
   'A worker caveat is provenance, not failure; report READY normally.',
 ].join('\n');
 

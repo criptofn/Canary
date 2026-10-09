@@ -1968,6 +1968,7 @@ export function cmdSessionStart(): number {
       'Implement the requested change and regression assertions, then finish normally with a factual summary.',
       'For stated criteria, call Canary MCP canary_task before inspecting or editing; copy each verbatim, with no placeholders. It is AGENT_REPORTED input only and cannot bind or prove criteria.',
       'If unbound, do not edit the plan or run setup/bind/accept. Continue authorized code work, but report NOT PROVEN.',
+      'Canary runs the sealed base comparison itself; do not switch, reset, or restore this branch to reproduce the baseline.',
       cliPrefix === null
         ? 'If canary_task is unavailable, tell the operator so they can register the exact criteria before you edit; no installed CLI path is safe to run from this hook.'
         : `If canary_task is unavailable, register the same intent and every exact criterion before editing with ${cliPrefix} task "<intent>" --requirement "<criterion>" (repeat --requirement once per criterion; quote each value safely for this shell). This is still AGENT_REPORTED input only and cannot bind or prove criteria.`,
@@ -2038,7 +2039,7 @@ export function discriminationObligation(root: string, cfg: CanaryConfig, timeou
     const target = sealedTestHint ? 'that suite or command' : 'a suite the sealed plan runs';
     return {
       id: 'regression-evidence', mode: 'objective', status: 'unproven',
-      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more})${disc.comparisonBase ? ` — additional comparison against the latest change's preceding commit ${disc.comparisonBase}` : ''}: existing behaviour that must be preserved needs a check that FAILS without the change and passes with it.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a green plan alone does not close this${pendingCaveat ? `; ${pendingCaveat}` : ''}${disc.baselineEvidence ? `; baseline output: ${disc.baselineEvidence}` : ''}`,
+      note: `the sealed checks pass on the base commit too, so they carry no evidence about this change (${files}${more})${disc.comparisonBase ? ` — additional comparison against the latest change's preceding commit ${disc.comparisonBase}` : ''}: existing behaviour that must be preserved needs a check that FAILS without the change and passes with it. Canary runs this sealed-base comparison automatically; keep the current branch and worktree in place.${sealedTestHint} Add a regression assertion to ${target}, or have the operator bind another check and re-run setup; a green plan alone does not close this${pendingCaveat ? `; ${pendingCaveat}` : ''}${disc.baselineEvidence ? `; baseline output: ${disc.baselineEvidence}` : ''}`,
       ...(pendingCaveat ? { caveat: pendingCaveat } : {}),
     };
   }
@@ -4228,7 +4229,7 @@ export function cmdDoctor(rawArgs: string[]): number {
       ? `${objectiveOpen.length} objective obligation(s) have no adequate proof`
       : `${subjectiveOpen.length} authorized requirement(s) need a human's explicit acceptance`;
     const next = objectiveOpen.some((ob) => ob.id === 'regression-evidence')
-      ? `Add a regression assertion that fails on the reported comparison commit and passes with the actual implementation.${sealedTestEntryHint(root, cfg)} Preserve the sealed plan and baseline; then run: canary doctor`
+      ? `Add a regression assertion that fails on the reported comparison commit and passes with the actual implementation. Canary runs this comparison automatically; keep the current branch and worktree in place.${sealedTestEntryHint(root, cfg)} Preserve the sealed plan and baseline; then run: canary doctor`
       : objectiveOpen.length > 0
         ? 'close it with a sealed check: bind the requirement to a matching script in package.json canary.proofs and re-run canary setup — or take the work through a candidate (canary work <name> … → canary finish <name>) and have a human accept it there'
         : 'bind each requirement to a sealed check (package.json canary.proofs + canary setup), or take the work through a candidate and have a human accept it there: canary work <name> "<intent>" → canary finish <name> → canary accept <candidate> in a terminal';

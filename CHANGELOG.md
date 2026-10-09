@@ -19,6 +19,9 @@ changed*; the evidence ledgers record *what was observed*.
   sealed test-entry hint. The completion-hook and authority rules remain included.
 - Claude startup and MCP guidance now recommend runner-native file/case filters for quick feedback,
   leaving the full sealed plan to the completion hook.
+- Canary's unproven-regression guidance now says that baseline comparison is automatic and tells
+  agents to keep the current branch intact; the doctor tool also clarifies that `check` takes a
+  sealed check id, not task or requirement text.
 - Hook and doctor repair commands now name the installed CLI path, preventing a global Canary
   installation from being used for a focused recheck.
 - Hook setup now refuses CLI paths with shell expansion characters, and unsafe paths cannot fall
