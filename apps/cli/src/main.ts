@@ -66,7 +66,7 @@ import { cmdProvider } from './provider/commands.js'; // 1.1 §E: provider lifec
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
-function usage(): never {
+function usage(exitCode = 3): never {
   console.log(`canary ${CANARY_VERSION} — cool diff. prove that it actually made the project better.
 
 usage:
@@ -171,11 +171,11 @@ usage:
                             proofs are never acceptance-material; mixed tasks
                             need BOTH
   canary version [--verbose]                runtime, entry file and its SHA-256 for a bug report`);
-  // Lazy-Connect: a bare `canary` inside a repo is a question, not only a
-  // mistake — answer the state part read-only so the next step is obvious.
-  // (exit stays 3: no command was given; the note is a courtesy, not a verdict.)
-  cmdStatus([]); // same read-only recognition as the explicit status command
-  process.exit(3);
+  if (exitCode !== 0) {
+    // Lazy-Connect: an unknown command also answers the state question read-only.
+    cmdStatus([]);
+  }
+  process.exit(exitCode);
 }
 
 function loadJson(p: string): unknown {
@@ -409,6 +409,7 @@ async function main(argv: string[]): Promise<number> {
     console.log('usage: canary <command>. Verification result: canary result. All commands: canary --help.');
     return 3; // Preserve the no-command exit contract; the state answer is read-only.
   }
+  if (cmd === '--help' || cmd === '-h') return usage(0);
   if (cmd === 'run' && rest[0]) return cmdRun(rest[0]);
   if (cmd === 'prove' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), true);
   if (cmd === 'check' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), false);

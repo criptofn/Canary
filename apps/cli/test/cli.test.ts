@@ -167,14 +167,23 @@ describe('audit M8 — CLI subprocess exit-code contract', () => {
     assert.match(html, /candidate breaks widget/);
   });
 
-  it('version exits 0; no command prints usage and exits 3 (misuse)', () => {
+  it('help exits 0; no command and unknown commands remain misuse', () => {
     const repoRoot = fs.mkdtempSync(path.join(TMP, 'bare-'));
     const v = cli(repoRoot, ['version']);
     assert.equal(v.status, 0);
     assert.match(v.stdout, /canary \d+\.\d+\.\d+/);
+    for (const flag of ['--help', '-h']) {
+      const help = cli(repoRoot, [flag]);
+      assert.equal(help.status, 0, help.stdout + help.stderr);
+      assert.match(help.stdout, /usage:/);
+      assert.doesNotMatch(help.stdout, /\r?\n(?:NOT CONNECTED|NEEDS ATTENTION|CONNECTED) —/);
+    }
     const none = cli(repoRoot, []);
     assert.equal(none.status, 3);
     assert.match(none.stdout, /usage:/);
+    const unknown = cli(repoRoot, ['not-a-command']);
+    assert.equal(unknown.status, 3);
+    assert.match(unknown.stdout, /usage:/);
   });
 
   it('verbose version identifies the runtime and entry bytes without changing the plain contract or project', () => {

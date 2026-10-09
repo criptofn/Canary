@@ -12,6 +12,8 @@ changed*; the evidence ledgers record *what was observed*.
 
 ### Changed
 
+- Top-level `canary --help` and `canary -h` now exit successfully and show help without appending
+  a repository-status answer; bare invocation and unknown commands keep their misuse exit code.
 - Everyday MCP descriptions and instructions remove repeated wording; the initialized four-tool payload
   has a 3,600-byte base budget, and the standard configured project stays under 3,900 bytes with its
   sealed test-entry hint. The completion-hook and authority rules remain included.
