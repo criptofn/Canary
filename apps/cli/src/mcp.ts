@@ -188,7 +188,7 @@ const SERVER_INSTRUCTIONS = [
   'Use canary_result for a read-only summary.',
   'For explicit criteria, call canary_task before work and copy them verbatim; never use placeholders. It records AGENT_REPORTED input only.',
   'If unbound, keep NOT PROVEN. “Bind it” is operator-only: do not alter checks, baseline or hooks, or run setup/bind/accept. Continue authorized work.',
-  'Regression proof must test the implementation through the sealed test entry; copied code is not proof. Canary compares against its sealed base automatically; keep the current branch and worktree in place.',
+  'For regression proof, use the sealed test entry; Canary compares the sealed base automatically. Keep this branch/worktree.',
   'A worker caveat is provenance, not failure; report READY normally.',
 ].join('\n');
 

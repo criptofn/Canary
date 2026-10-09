@@ -151,7 +151,7 @@ describe('tools: a fixed template over operations the CLI already had', () => {
     assert.match(instructions, /If unbound, keep NOT PROVEN/i);
     assert.match(instructions, /do not alter checks, baseline or hooks, or run setup\/bind\/accept/i);
     assert.match(instructions, /Continue authorized work/i);
-    assert.match(instructions, /compares against its sealed base automatically; keep the current branch and worktree in place/i);
+    assert.match(instructions, /compares the sealed base automatically\. Keep this branch\/worktree/i);
     assert.doesNotMatch(instructions, /canary_work|canary_finish/);
   });
 
