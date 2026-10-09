@@ -3,10 +3,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { after, test } from 'node:test';
-import { discriminationObligation, readConfig } from '../src/onboarding.js';
+import { candidateDiffSignals, collectDiffSignals, discriminationObligation, planDiscrimination, readConfig } from '../src/onboarding.js';
 
-const CLI = path.resolve(import.meta.dirname, '../src/main.js');
+const packagedCli = process.env.CANARY_TEST_CLI;
+const CLI = packagedCli ?? path.resolve(import.meta.dirname, '../src/main.js');
+if (packagedCli !== undefined) {
+  assert.ok(path.isAbsolute(CLI), 'CANARY_TEST_CLI must be absolute; no development fallback');
+  assert.ok(fs.statSync(CLI, { throwIfNoEntry: false })?.isFile(), 'CANARY_TEST_CLI must name an existing file');
+}
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-discrimination-completion-'));
 process.env.CANARY_TRUST_STORE = path.join(TMP, 'store');
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -14,16 +20,53 @@ const SOURCE = "module.exports = n => 'hello ' + n;\n";
 const FIXED = "module.exports = n => 'hello ' + n.trimStart();\n";
 const TEST = "const {test} = require('node:test'); const assert = require('node:assert/strict'); const greet = require('../greet.cjs'); test('greet', () => assert.equal(greet('Ada'), 'hello Ada'));\n";
 const REGRESSION = "test('leading whitespace', () => assert.equal(greet('  Ada'), 'hello Ada'));\n";
+const SKIPPED_REGRESSION = "test('leading whitespace', { skip: greet('  Ada') === 'hello Ada' }, () => assert.equal(greet('  Ada'), 'hello Ada'));\n";
 function git(root: string, ...args: string[]): string {
   const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', windowsHide: true });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim();
+}
+function pythonRuns(): boolean {
+  const command = process.platform === 'win32' ? 'python.exe' : 'python';
+  const r = spawnSync(command, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 10_000 });
+  return r.status === 0;
 }
 function canary(root: string, ...args: string[]) {
   const r = spawnSync(process.execPath, [CLI, ...args], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
   return { code: r.status, out: r.stdout + r.stderr };
 }
 function commit(root: string) { git(root, 'add', '.'); git(root, 'commit', '--allow-empty', '-m', 'fixture'); }
+
+test('a stale pre-build baseline failure cannot prove an unrelated change', () => {
+  const root = path.join(TMP, 'baseline-build-freshness');
+  for (const dir of ['.claude', 'dist']) fs.mkdirSync(path.join(root, dir), { recursive: true });
+  const program = path.resolve(import.meta.dirname, '../../../../tooling/test-support/fixtures/build-dependent-check.cjs');
+  fs.writeFileSync(path.join(root, 'canary.project.json'), JSON.stringify({ schema: 'canary-project/1', scopes: [{ path: '.', checks: [
+    { name: 'tests', kind: 'tests', argv: [process.execPath, program, 'test'] },
+    { name: 'build', kind: 'build', argv: [process.execPath, program, 'build'] },
+  ] }] }));
+  fs.writeFileSync(path.join(root, 'implementation.json'), 'true\n');
+  fs.writeFileSync(path.join(root, 'dist/implementation.json'), 'false\n');
+  fs.writeFileSync(path.join(root, 'app.cjs'), 'module.exports = 1;\n');
+  git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);
+  assert.equal(canary(root, 'setup', '--yes').code, 2, 'initial sealed failure is retained');
+  const cfg = readConfig(root);
+  assert.ok(cfg && cfg !== 'corrupt');
+  fs.writeFileSync(path.join(root, 'app.cjs'), 'module.exports = 2;\n');
+  const stale = planDiscrimination(root, cfg, 30000);
+  assert.equal(stale.basePassed, null, 'a test that recovers after the base build cannot discriminate source');
+  assert.match(stale.reason, /pre-build|before.*build/);
+
+  fs.writeFileSync(path.join(root, 'app.cjs'), 'module.exports = 1;\n');
+  fs.writeFileSync(path.join(root, 'implementation.json'), 'false\n');
+  fs.writeFileSync(path.join(root, 'dist/implementation.json'), 'true\n');
+  commit(root);
+  const base = git(root, 'rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(root, 'app.cjs'), 'module.exports = 2;\n');
+  fs.writeFileSync(path.join(root, 'implementation.json'), 'true\n');
+  const genuine = planDiscrimination(root, cfg, 30000, base);
+  assert.equal(genuine.basePassed, false, 'a failure after the base build still proves a real difference');
+});
 function write(root: string, file: string, text: string) { fs.writeFileSync(path.join(root, file), text); }
 function fixture(name: string): string {
   const root = path.join(TMP, name);
@@ -39,6 +82,57 @@ function fixture(name: string): string {
   git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);
   assert.equal(canary(root, 'setup', '--yes').code, 0);
   commit(root); assert.equal(canary(root, 'setup', '--yes').code, 0);
+  return root;
+}
+function mixedSummaryFixture(name: string): string {
+  const root = path.join(TMP, name);
+  fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  write(root, 'package.json', JSON.stringify({ name, private: true, scripts: { test: 'node scripts/run-tests.cjs' } }));
+  write(root, 'greet.cjs', SOURCE);
+  write(root, 'tests/greet.test.cjs', TEST);
+  write(root, 'scripts/run-tests.cjs', [
+    "const { spawnSync } = require('node:child_process');",
+    "const result = spawnSync(process.execPath, ['--test', 'tests/greet.test.cjs'], { cwd: process.cwd(), encoding: 'utf8' });",
+    "process.stdout.write(result.stdout ?? '');",
+    "process.stderr.write(result.stderr ?? '');",
+    "process.stdout.write('\\n1 passing\\n0 pending\\n');",
+    'process.exitCode = result.status ?? 1;',
+    '',
+  ].join('\n'));
+  git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);
+  const setup = canary(root, 'setup', '--yes');
+  assert.equal(setup.code, 0, setup.out);
+  commit(root); assert.equal(canary(root, 'setup', '--yes').code, 0);
+  return root;
+}
+function jestSummaryFixture(name: string): string {
+  const root = path.join(TMP, name);
+  fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  write(root, 'package.json', JSON.stringify({ name, private: true, scripts: { test: 'node scripts/run-tests.cjs' } }));
+  write(root, 'greet.cjs', SOURCE);
+  write(root, 'tests/greet.test.cjs', "console.log('Tests: 1 passed, 1 total');\n");
+  write(root, 'scripts/run-tests.cjs', "require('../tests/greet.test.cjs');\n");
+  git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);
+  const setup = canary(root, 'setup', '--yes');
+  assert.equal(setup.code, 0, setup.out);
+  commit(root); assert.equal(canary(root, 'setup', '--yes').code, 0);
+  return root;
+}
+function pythonFixture(name: string): string {
+  const root = path.join(TMP, name);
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'tests'), { recursive: true });
+  write(root, 'pyproject.toml', '[project]\nname = "sealed-command-guidance"\nversion = "0.1.0"\nrequires-python = ">=3.8"\n');
+  write(root, 'app.py', 'def value():\n    return 1\n');
+  write(root, 'tests/__init__.py', '');
+  write(root, 'tests/test_app.py', 'import unittest\nfrom app import value\n\nclass AppTests(unittest.TestCase):\n    def test_value(self):\n        self.assertEqual(value(), 1)\n');
+  git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Canary Regression'); git(root, 'config', 'user.email', 'regression@canary.local'); commit(root);
+  const setup = canary(root, 'setup', '--yes');
+  assert.equal(setup.code, 0, setup.out);
   return root;
 }
 function work(root: string): string {
@@ -68,6 +162,189 @@ function assertDoctorAndHookBlocked(root: string, reason: RegExp) {
   // The existing one-repair hook policy may stop, but must still disclose NOT PROVEN.
   assert.match(hook(root, true).systemMessage ?? '', /NOT PROVEN/);
 }
+
+test('a normalized-equal source rewrite cannot hide a committed covered fix', () => {
+  const root = fixture('normalized-source-rewrite');
+  git(root, 'config', 'core.autocrlf', 'true');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', '// production greeting\n' + FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  commit(root);
+  // Git reports this LF rewrite as dirty against a CRLF checkout, although
+  // its own normalized content comparison is empty (the observed Windows case).
+  assert.equal(git(root, 'config', '--get', 'core.autocrlf'), 'true');
+  fs.unlinkSync(path.join(root, 'greet.cjs'));
+  git(root, 'checkout-index', '-f', '-u', '--', 'greet.cjs');
+  const checkout = fs.readFileSync(path.join(root, 'greet.cjs'), 'utf8');
+  assert.match(checkout, /\r\n/);
+  write(root, 'greet.cjs', checkout.replace(/\r\n$/, '\n'));
+  assert.equal(git(root, 'diff', '--name-only', 'HEAD', '--', 'greet.cjs'), '');
+  assert.ok(candidateDiffSignals(root, git(root, 'rev-parse', 'HEAD')).touched.includes('greet.cjs'), 'fixture must retain the status-only source change');
+  const covered = canary(root, 'doctor', '--json');
+  assert.equal(covered.code, 0, covered.out);
+  assert.match(covered.out, /CHECK TEXT WRITTEN BY THE WORKER ITSELF/);
+  const completion = hook(root);
+  assert.notEqual(completion.decision, 'block');
+  assert.match(completion.systemMessage ?? '', /CHECK TEXT WRITTEN BY THE WORKER ITSELF/);
+
+  write(root, 'greet.cjs', '// production greeting\n' + FIXED + "module.exports.uncovered = () => 'wrong';\n");
+  assertDoctorAndHookBlocked(root, /base commit too/);
+  write(root, 'greet.cjs', '// production greeting\n' + FIXED);
+  write(root, 'uncovered.cjs', 'module.exports = 42;\n');
+  assertDoctorAndHookBlocked(root, /base commit too/);
+});
+
+test('a committed earlier regression cannot prove a later uncovered change', () => {
+  const root = fixture('consecutive-changes');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  const first = discriminationObligation(root, cfg);
+  assert.equal(first?.status, 'met', first?.note);
+  const firstDoctor = canary(root, 'doctor', '--json');
+  assert.equal(firstDoctor.code, 0, firstDoctor.out);
+  commit(root);
+  assert.equal(canary(root, 'task', 'fix trailing whitespace', '--kind', 'bugfix').code, 0);
+  // This second implementation still passes the earlier leading-space assertion,
+  // but does not implement the next task's trailing-space requirement.
+  write(root, 'greet.cjs', "module.exports = n => 'hello ' + n.replace(/^\\s+/, '');\n");
+  const greet = createRequire(import.meta.url)(path.join(root, 'greet.cjs')) as (n: string) => string;
+  assert.notEqual(greet('Ada  '), 'hello Ada', 'the second requested behavior is observably absent');
+  const secondDoctor = canary(root, 'doctor', '--json');
+  assert.equal(secondDoctor.code, 2, secondDoctor.out);
+  const secondEnvelope = JSON.parse(secondDoctor.out.split(/\r?\n/)[0]!) as { next: string };
+  assert.match(secondEnvelope.next, /regression assertion/);
+  assert.match(secondEnvelope.next, /Canary compares with the starting commit automatically; stay on this branch/);
+  assert.match(secondEnvelope.next, /node --test tests\/greet\.test\.cjs/);
+  assert.doesNotMatch(secondEnvelope.next, /re-run canary setup/);
+  const second = discriminationObligation(root, cfg);
+  assert.equal(second?.status, 'unproven', second?.note);
+  assert.match(second?.note ?? '', /latest change's preceding commit/);
+  commit(root);
+  const committed = canary(root, 'doctor', '--json');
+  assert.equal(committed.code, 2, committed.out);
+  write(root, 'README.md', 'Documentation after the uncovered implementation.\n');
+  commit(root);
+  assertDoctorAndHookBlocked(root, /base commit too/);
+  write(root, 'greet.cjs', "module.exports = n => 'hello ' + n.trim();\n");
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION + "test('trailing whitespace', () => assert.equal(greet('Ada  '), 'hello Ada'));\n");
+  const repaired = canary(root, 'doctor', '--json');
+  assert.equal(repaired.code, 0, repaired.out);
+  assert.match(repaired.out, /CHECK TEXT WRITTEN BY THE WORKER ITSELF/);
+  commit(root);
+  write(root, 'README.md', 'Documentation after the covered repair.\n');
+  commit(root);
+  const committedRepair = canary(root, 'doctor', '--json');
+  assert.equal(committedRepair.code, 0, committedRepair.out);
+  assert.match(committedRepair.out, /CHECK TEXT WRITTEN BY THE WORKER ITSELF/);
+});
+
+test('an imported dash-test check is compared and retains worker provenance, while unused or copied assertions cannot prove work', () => {
+  const root = fixture('imported-dash-test');
+  fs.mkdirSync(path.join(root, 'scripts'));
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'scripts/greet-regression-test.cjs', "const assert = require('node:assert/strict'); const greet = require('../greet.cjs'); assert.equal(greet('  Ada'), 'hello Ada');\n");
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  assert.ok(collectDiffSignals(root, cfg).changes.includes('scripts/greet-regression-test.cjs'));
+  assert.ok(candidateDiffSignals(root, cfg.baseline!.head!).changes.includes('scripts/greet-regression-test.cjs'));
+  assert.equal(discriminationObligation(root, cfg)?.status, 'unproven', 'an unused file cannot certify work');
+  write(root, 'tests/greet.test.cjs', TEST + "require('../scripts/greet-regression-test.cjs');\n");
+  const genuine = discriminationObligation(root, cfg);
+  assert.equal(genuine?.status, 'met', genuine?.note);
+  assert.match(genuine?.caveat ?? '', /greet-regression-test\.cjs.*created by this session/);
+  write(root, 'greet.cjs', "module.exports = n => 'hello ' + String(n);\n");
+  write(root, 'scripts/greet-regression-test.cjs', "const assert = require('node:assert/strict'); const copied = n => 'hello ' + n.trimStart(); assert.equal(copied('  Ada'), 'hello Ada');\n");
+  assert.equal(discriminationObligation(root, cfg)?.status, 'unproven', 'asserting copied logic cannot certify the real implementation');
+});
+
+test('a failed setup links its completed output while the check and checkpoint remain failed', () => {
+  const root = fixture('setup-repair-output');
+  write(root, 'tests/greet.test.cjs', TEST + "console.log('SETUP_REPAIR_LOG_MARKER'); test('setup failure', () => assert.equal(1, 2));\n");
+  const failed = canary(root, 'setup', '--yes', '--json');
+  assert.equal(failed.code, 2, failed.out);
+  const packet = JSON.parse(failed.out.split(/\r?\n/)[0]!) as { status: string; next: string };
+  assert.equal(packet.status, 'NEEDS ATTENTION');
+  const output = packet.next.match(/full output: (.+)$/)?.[1];
+  assert.ok(output, failed.out);
+  const bundle = JSON.parse(fs.readFileSync(path.join(output, 'verification.json'), 'utf8'));
+  assert.equal(bundle.source, 'setup');
+  assert.equal(bundle.status, 'fail');
+  const check = bundle.steps.find((step: { kind: string }) => step.kind === 'tests');
+  assert.ok(check && check.exitCode !== 0 && check.ok === false);
+  assert.match(fs.readFileSync(path.join(output, check.stdout.file), 'utf8'), /SETUP_REPAIR_LOG_MARKER/);
+  const checkpoint = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8'));
+  assert.equal(checkpoint.status, 'fail');
+  assert.equal(checkpoint.source, 'setup');
+  assert.equal(checkpoint.hookResponse, 'not-applicable');
+  assert.equal(checkpoint.sessionEnd, 'unknown');
+});
+
+test('a nondiscriminating check links its actual comparison output without changing the verdict or completion history', () => {
+  const root = fixture('comparison-repair-output');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  const blocked = canary(root, 'doctor', '--json');
+  assert.equal(blocked.code, 2, blocked.out);
+  const packet = JSON.parse(blocked.out.split(/\r?\n/)[0]!) as { problems: string[] };
+  const output = packet.problems.find((problem) => problem.includes('baseline output: '))?.match(/baseline output: (.+)$/)?.[1];
+  assert.ok(output, blocked.out);
+  const bundle = JSON.parse(fs.readFileSync(path.join(output, 'verification.json'), 'utf8'));
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  assert.equal(bundle.source, 'baseline');
+  assert.equal(bundle.status, 'pass');
+  assert.equal(bundle.comparison.commit, cfg.baseline?.head);
+  assert.match(bundle.comparison.note, /not verification.*current implementation/);
+  assert.ok(bundle.steps.some((step: { stdout: { file: string } }) => fs.readFileSync(path.join(output, step.stdout.file), 'utf8').includes('greet')));
+  assert.equal(fs.existsSync(bundle.cwd), false, 'output survives removal of the comparison tree');
+
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const covered = canary(root, 'doctor', '--json');
+  assert.equal(covered.code, 0, covered.out);
+  assert.match(covered.out, /CHECK TEXT WRITTEN BY THE WORKER ITSELF/);
+  const history = canary(root, 'result', '--json');
+  const historyPacket = JSON.parse(history.out.split(/\r?\n/)[0]!) as { lastVerification: { status: string; source: string } };
+  assert.equal(historyPacket.lastVerification.status, 'pass');
+  assert.equal(historyPacket.lastVerification.source, 'doctor', 'a baseline failure is not a failed current verification');
+});
+
+test('an unavailable baseline check dependency remains unproven and its failing output survives temporary-tree cleanup', () => {
+  const root = fixture('baseline-output-survives');
+  fs.mkdirSync(path.join(root, 'scripts'));
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'scripts/custom-check.cjs', "const assert = require('node:assert/strict'); const greet = require('../greet.cjs'); assert.equal(greet('  Ada'), 'hello Ada');\n");
+  write(root, 'tests/greet.test.cjs', TEST + "require('../scripts/custom-check.cjs');\n");
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  const result = discriminationObligation(root, cfg);
+  assert.equal(result?.status, 'unproven');
+  const output = result?.note.match(/baseline output: (.+?)(?: —|$)/)?.[1];
+  assert.ok(output, result?.note);
+  const files = fs.readdirSync(output).filter((file) => /\.(?:out|err)\.log$/.test(file));
+  assert.ok(files.some((file) => fs.readFileSync(path.join(output, file), 'utf8').includes('custom-check.cjs')),
+    'the operator must be able to identify the missing dependency after the comparison tree is removed');
+});
+
+test('an imported test-prefix regression outside test directories discriminates with worker provenance', () => {
+  const root = fixture('imported-test-prefix');
+  fs.mkdirSync(path.join(root, 'scripts'));
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'scripts/test-greet-regression.cjs', "const assert = require('node:assert/strict'); const greet = require('../greet.cjs'); assert.equal(greet('  Ada'), 'hello Ada');\n");
+  write(root, 'tests/greet.test.cjs', TEST + "require('../scripts/test-greet-regression.cjs');\n");
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  const result = discriminationObligation(root, cfg);
+  assert.equal(result?.status, 'met', result?.note);
+  assert.match(result?.caveat ?? '', /scripts\/test-greet-regression\.cjs/);
+  assert.match(result?.caveat ?? '', /CREATED|WRITTEN BY THE WORKER/);
+});
+
+test('an unused test-prefix file cannot provide regression evidence', () => {
+  const root = fixture('unused-test-prefix');
+  fs.mkdirSync(path.join(root, 'scripts'));
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'scripts/test-greet-regression.cjs', "const assert = require('node:assert/strict'); const greet = require('../greet.cjs'); assert.equal(greet('  Ada'), 'hello Ada');\n");
+  const cfg = readConfig(root); assert.ok(cfg && cfg !== 'corrupt');
+  assert.equal(discriminationObligation(root, cfg)?.status, 'unproven');
+});
 
 test('BLOCKER 1: a comment-only test edit cannot verify, promote, finish, or pass the completion hook', () => {
   const root = fixture('comment-only'); const candidate = work(root);
@@ -104,7 +381,255 @@ test('a discriminating check allows the same candidate to finish and promote', (
   write(candidate, 'greet.cjs', FIXED); write(candidate, 'tests/greet.test.cjs', TEST + REGRESSION); commit(candidate);
   const expected = git(candidate, 'rev-parse', 'HEAD');
   const r = canary(root, 'finish', 'fix'); assert.equal(r.code, 0, r.out); assert.equal(git(root, 'rev-parse', 'HEAD'), expected);
+  assert.match(r.out, /full evidence: .*per-step logs and verification\.json/);
   assert.equal(canary(root, 'doctor').code, 0); assert.notEqual(hook(root).decision, 'block');
+});
+
+test('completion refuses to prove a change when the candidate skips an extra test', () => {
+  const root = fixture('pending-count-increase');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + SKIPPED_REGRESSION);
+  const completion = hook(root);
+  assert.equal(completion.decision, 'block');
+  const completionText = completion.systemMessage ?? completion.reason ?? '';
+  assert.match(completionText, /more skipped\/pending cases.*test check 1: 0→1/);
+  assert.match(completionText, /did not execute a comparable set of checks/);
+  const checkpoint = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8')) as {
+    status: string; evidencePath?: string; proof: { obligations: Array<{ id: string; caveat?: string }> };
+  };
+  assert.equal(checkpoint.status, 'unproven', 'extra skipped tests cannot support a passing proof');
+  assert.ok(checkpoint.evidencePath);
+  assert.ok(completionText.includes(`Full test evidence: ${checkpoint.evidencePath}`));
+  assert.match(checkpoint.proof.obligations.find((x) => x.id === 'regression-evidence')?.caveat ?? '', /0→1/);
+  const doctor = canary(root, 'doctor', '--json');
+  assert.equal(doctor.code, 2, doctor.out);
+  const doctorCheckpoint = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8')) as { evidencePath?: string };
+  assert.ok(doctorCheckpoint.evidencePath);
+  assert.ok(doctor.out.includes(`full evidence: ${doctorCheckpoint.evidencePath}`));
+
+  const control = fixture('pending-count-unchanged');
+  assert.equal(canary(control, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(control, 'greet.cjs', FIXED);
+  write(control, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const normal = hook(control);
+  assert.notEqual(normal.decision, 'block');
+  assert.doesNotMatch(normal.systemMessage ?? '', /more skipped\/pending cases/);
+
+  const candidateRoot = fixture('candidate-pending-count-increase');
+  const candidate = work(candidateRoot);
+  write(candidate, 'greet.cjs', FIXED);
+  write(candidate, 'tests/greet.test.cjs', TEST + SKIPPED_REGRESSION);
+  commit(candidate);
+  const finish = canary(candidateRoot, 'finish', 'fix');
+  assert.equal(finish.code, 2, finish.out);
+  assert.match(finish.out, /CANDIDATE NOT PROVEN/);
+  assert.match(finish.out, /more skipped\/pending cases.*test check 1: 0→1/);
+  assert.match(finish.out, /did not execute a comparable set of checks/);
+  assert.match(finish.out, /baseline comparison evidence:/);
+  assert.match(finish.out, /full evidence: .*per-step logs and verification\.json/);
+});
+
+test('mixed runner summaries still block when one runner reports an extra skipped test', () => {
+  const root = mixedSummaryFixture('mixed-pending-summaries');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + SKIPPED_REGRESSION);
+  const completion = hook(root);
+  assert.equal(completion.decision, 'block');
+  const completionText = completion.systemMessage ?? completion.reason ?? '';
+  assert.match(completionText, /more skipped\/pending cases.*test check 1: 0→1 \(node-test\)/);
+  assert.match(completionText, /did not execute a comparable set of checks/);
+
+  const control = mixedSummaryFixture('mixed-pending-summaries-control');
+  assert.equal(canary(control, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(control, 'greet.cjs', FIXED);
+  write(control, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const normal = hook(control);
+  assert.notEqual(normal.decision, 'block');
+  assert.doesNotMatch(normal.systemMessage ?? '', /more skipped\/pending cases/);
+});
+
+test('Jest-style skipped counts keep a successful completion unproven', () => {
+  const root = jestSummaryFixture('jest-pending-summary');
+  assert.equal(canary(root, 'task', 'fix leading whitespace', '--kind', 'bugfix').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', [
+    "const greet = require('../greet.cjs');",
+    "if (greet('  Ada') === 'hello Ada') console.log('Tests: 1 skipped, 1 total');",
+    "else { console.log('Tests: 1 failed, 1 total'); process.exitCode = 1; }",
+    '',
+  ].join('\n'));
+  const completion = hook(root);
+  assert.equal(completion.decision, 'block');
+  assert.match(completion.reason ?? '', /more skipped\/pending cases.*test check 1: 0→1 \(jest\)/);
+  assert.match(completion.reason ?? '', /did not execute a comparable set of checks/);
+});
+
+test('a worker check crashing on absent baseline data cannot certify a change', () => {
+  const root = fixture('baseline-data-crash');
+  const candidate = work(root);
+  const helper = path.resolve(import.meta.dirname, '../../../../tooling/test-support/fixtures/f-check-input.cjs');
+  for (const target of [candidate, root]) {
+    fs.copyFileSync(helper, path.join(target, 'tests/check-input.cjs'));
+    write(target, 'greet.cjs', FIXED);
+    write(target, 'receipt.txt', 'agent-created input');
+    write(target, 'tests/greet.test.cjs', TEST + "require('./check-input.cjs').missingFixture();\n");
+  }
+  commit(candidate);
+  assertBlocked(root, /comparison could not be established/);
+  assertDoctorAndHookBlocked(root, /worker-authored check.*same inputs/);
+
+  // Wrapping the same crash in an assertion does not establish input parity.
+  write(root, 'tests/greet.test.cjs', TEST + "require('./check-input.cjs').missingFixtureWrapped();\n");
+  const stillMissing = canary(root, 'doctor');
+  assert.equal(stillMissing.code, 2, stillMissing.out);
+  assert.match(stillMissing.out, /same inputs used for the baseline comparison/);
+
+  // A real assertion over defined inputs still proves the fix, with worker provenance.
+  write(root, 'tests/greet.test.cjs', TEST + "require('./check-input.cjs').assertExpected();\n");
+  const repaired = canary(root, 'doctor');
+  assert.equal(repaired.code, 0, repaired.out);
+  assert.match(repaired.out, /NOT independent authority/);
+  assert.notEqual(hook(root).decision, 'block');
+});
+
+test('a genuine old implementation crash remains discriminating when the input control passes', () => {
+  const root = fixture('genuine-runtime-fix');
+  const old = path.resolve(import.meta.dirname, '../../../../tooling/test-support/fixtures/f-greet-runtime-base.cjs');
+  fs.copyFileSync(old, path.join(root, 'greet.cjs'));
+  commit(root);
+  assert.equal(canary(root, 'setup', '--yes').code, 0);
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const result = canary(root, 'doctor');
+  assert.equal(result.code, 0, result.out);
+  assert.match(result.out, /NOT independent authority/);
+});
+
+test('missing regression proof points to the sealed test entry, never a changed script', () => {
+  const root = fixture('sealed-test-guidance');
+  write(root, 'greet.cjs', FIXED);
+  const missing = hook(root);
+  assert.equal(missing.decision, 'block');
+  assert.match(missing.reason ?? '', /package\.json scripts\.test = "node --test tests\/greet\.test\.cjs"/);
+  assert.match(missing.reason ?? '', /a new test file counts only if this command runs it/);
+
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  pkg.scripts.test = 'node unsealed-check.cjs';
+  write(root, 'package.json', JSON.stringify(pkg));
+  const drift = hook(root);
+  assert.equal(drift.decision, 'block');
+  assert.doesNotMatch(drift.reason ?? '', /unsealed-check\.cjs/);
+});
+
+test('argv-based projects get the exact sealed test command in regression guidance', (t) => {
+  if (!pythonRuns()) { t.skip('no Python interpreter on PATH'); return; }
+  const root = pythonFixture('sealed-python-test-guidance');
+  const cfg = readConfig(root);
+  assert.ok(cfg && cfg !== 'corrupt');
+  const step = cfg.plan.find((candidate) => candidate.kind === 'tests');
+  assert.ok(step?.argv, 'the Python test step must use sealed argv');
+
+  write(root, 'app.py', '# harmless edit; behavior is still covered by the same test\ndef value():\n    return 1\n');
+  const result = hook(root);
+  assert.equal(result.decision, 'block');
+  assert.ok(result.reason?.includes(`The plan's test command is ${JSON.stringify(step.argv)} (entry ${JSON.stringify(step.script)})`), result.reason);
+  assert.match(result.reason ?? '', /a new test file counts only if this command runs it/);
+
+  const mutated = JSON.parse(fs.readFileSync(path.join(root, '.canary/canary.local.json'), 'utf8')) as typeof cfg;
+  mutated.plan[0]!.argv = ['python', '-c', 'print("unsealed")'];
+  write(root, '.canary/canary.local.json', JSON.stringify(mutated, null, 2));
+  const drift = hook(root);
+  assert.match(drift.reason ?? '', /verification authority changed/);
+  assert.doesNotMatch(drift.reason ?? '', /print\("unsealed"\)/);
+});
+
+test('doctor visibly labels worker-authored regression evidence as non-independent', () => {
+  const root = fixture('worker-authored-evidence');
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+
+  const human = canary(root, 'doctor');
+  assert.equal(human.code, 0, human.out);
+  assert.match(human.out, /READY/);
+  assert.match(human.out, /NOT independent authority/);
+  assert.match(human.out, /tests\/greet\.test\.cjs \(EXISTING check rewritten by this session\)/);
+
+  const json = spawnSync(process.execPath, [CLI, 'doctor', '--json'], {
+    cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000,
+  });
+  assert.equal(json.status, 0, json.stderr);
+  const envelope = JSON.parse(json.stdout);
+  assert.equal(envelope.status, 'READY');
+  assert.equal(envelope.proof.registeredRequirements, 0);
+  const evidence = envelope.proof.obligations.find((ob: { id: string }) => ob.id === 'regression-evidence');
+  assert.equal(evidence.status, 'met');
+  assert.match(evidence.caveat, /NOT independent authority/);
+  assert.match(json.stderr, /NOT independent authority/);
+
+  assert.notEqual(hook(root).decision, 'block');
+  const stored = JSON.parse(fs.readFileSync(path.join(root, '.canary/last-checkpoint.json'), 'utf8'));
+  assert.deepEqual(stored.proof, envelope.proof);
+  const history = spawnSync(process.execPath, [CLI, 'result', '--json'], { cwd: root, encoding: 'utf8', windowsHide: true });
+  const recorded = JSON.parse(history.stdout).lastVerification;
+  assert.equal(recorded.historical, true);
+  assert.deepEqual(recorded.proof, stored.proof);
+});
+
+test('JSON proof information does not upgrade an unbound task requirement to READY', () => {
+  const root = fixture('proof-unbound-requirement');
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  assert.equal(canary(root, 'task', 'fix greeting', '--requirement', 'Preserve the requested whitespace contract').code, 0);
+  const result = spawnSync(process.execPath, [CLI, 'doctor', '--json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+  assert.equal(result.status, 2, result.stderr);
+  const envelope = JSON.parse(result.stdout);
+  assert.equal(envelope.status, 'NOT PROVEN');
+  assert.equal(envelope.proof.registeredRequirements, 1);
+  assert.match(envelope.next, /bind the requirement/);
+  assert.ok(envelope.proof.obligations.some((ob: { status: string }) => ob.status === 'unproven'));
+  const checkpointPath = path.join(root, '.canary/last-checkpoint.json');
+  const forged = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
+  forged.proof = { registeredRequirements: 0, obligations: [] };
+  fs.writeFileSync(checkpointPath, JSON.stringify(forged));
+  const rechecked = spawnSync(process.execPath, [CLI, 'doctor', '--json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+  assert.equal(rechecked.status, 2, rechecked.stderr);
+  assert.equal(JSON.parse(rechecked.stdout).proof.registeredRequirements, 1, 'stored proof summaries never supply verdict authority');
+});
+
+test('historical proof retains the supported maximum requirement set and rejects malformed rows', () => {
+  const root = fixture('proof-maximum-requirements');
+  write(root, 'greet.cjs', FIXED);
+  write(root, 'tests/greet.test.cjs', TEST + REGRESSION);
+  const requirements = Array.from({ length: 64 }, (_, i) => `Keep runtime below ${i + 1} ms`);
+  assert.equal(canary(root, 'task', 'fix greeting', ...requirements.flatMap((text) => ['--requirement', text])).code, 0);
+  const doctor = spawnSync(process.execPath, [CLI, 'doctor', '--json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+  assert.equal(doctor.status, 2, doctor.stderr);
+  const proof = JSON.parse(doctor.stdout).proof;
+  assert.equal(proof.registeredRequirements, 64);
+  assert.ok(proof.obligations.length > 32, 'this exercises a legitimate large proof, not synthetic cache data');
+  assert.ok(proof.obligations.some((ob: { caveat?: string }) => /NOT independent authority/.test(ob.caveat ?? '')));
+  const readResult = () => {
+    const r = spawnSync(process.execPath, [CLI, 'result', '--json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+    assert.equal(r.status, 0, r.stderr);
+    return JSON.parse(r.stdout);
+  };
+  const historical = readResult();
+  assert.equal(historical.status, 'CONNECTED');
+  assert.equal(historical.lastVerification.historical, true);
+  assert.deepEqual(historical.lastVerification.proof, proof);
+  const checkpointPath = path.join(root, '.canary/last-checkpoint.json');
+  const malformed = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
+  malformed.proof.obligations[0].status = 'invented-pass';
+  fs.writeFileSync(checkpointPath, JSON.stringify(malformed));
+  const refused = readResult();
+  assert.equal(refused.status, 'CONNECTED');
+  assert.equal(refused.lastVerification.historical, true);
+  assert.equal(refused.lastVerification.proof, undefined, 'invalid rows cannot be displayed as observed valid proof');
+  malformed.proof = { ...proof, registeredRequirements: 65 };
+  fs.writeFileSync(checkpointPath, JSON.stringify(malformed));
+  assert.equal(readResult().lastVerification.proof, undefined, 'an unsupported requirement count is not a valid observed summary');
 });
 
 test('no change and documentation-only changes retain their comparison exemptions', () => {

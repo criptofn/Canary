@@ -1,0 +1,5 @@
+[detached HEAD 003d2f7] Canary validation setup baseline H2
+ 3 files changed, 42 insertions(+)
+ create mode 100644 .claude/settings.json
+ create mode 100644 .codex/hooks.json
+ create mode 100644 .mcp.json

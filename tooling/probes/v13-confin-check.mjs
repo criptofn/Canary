@@ -128,20 +128,18 @@ try {
     console.log(`INFO   noisy check: ${String(c.summary).length} chars returned, truncated=${c.truncated}`);
   });
 
-  // ── G: the `write` contract mismatch, MEASURED and REVERTED ──
-  // The description the model reads says "write (CREATE a file)"; the implementation overwrites. That
-  // mismatch was enforced in one round and then REVERTED, because enforcing it measured a 2.9x REGRESSION on
-  // the long fixture (see the record table below). This case pins the CURRENT shape so re-attempting the
-  // enforcement is a deliberate act with the number in hand, not an accident.
+  // ── G: full-file write semantics are explicit and match the implementation ──
+  // A create-only guard was measured and reverted: it raised the long fixture from 288,942 / 19 turns
+  // to 842,597 / 32 turns. Keep the efficient full-file replacement behavior and tell the model plainly.
   const g1 = drive(project, { operations: [{ op: 'write', path: 'data.txt', text: 'clobber\n' }] }, 'g1');
-  check('G1-write-overwrites-on-the-model-facing-path (the enforcement was REVERTED, not forgotten)', () => {
+  check('G1-write-replaces-existing-file-as-described', () => {
     assert(g1.result?.operations?.[0]?.result === 'written',
-      `write to an existing path did not succeed (${JSON.stringify(g1.result?.operations?.[0])}). If the `
-      + 'create-only guard is being re-introduced, do it with a measurement: enforcing it produced '
-      + '842,597 tokens / 32 turns against 288,942 / 19 without it on stateful-replay');
+      `write to an existing path did not succeed (${JSON.stringify(g1.result?.operations?.[0])})`);
     assert(fs.readFileSync(path.join(project, 'data.txt'), 'utf8').trim() === 'clobber',
-      'write reported success but did not change the file');
-    console.log('INFO   known mismatch, deliberately unenforced: the description says CREATE, the tool overwrites');
+      'write reported success but did not replace the existing contents');
+    const modelDescription = fs.readFileSync(path.join(repo, 'apps/cli/src/provider/worker-tools.ts'), 'utf8');
+    assert(/write \(CREATE a file or REPLACE its full contents\)/.test(modelDescription),
+      'the model-facing contract does not disclose that write replaces an existing file');
   });
 
   const g2 = drive(project, { operations: [{ op: 'edit', path: 'data.txt', find: '', replace: 'seven\n' }] }, 'g2');

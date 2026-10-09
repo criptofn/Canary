@@ -309,15 +309,15 @@ try {
 
   // ============ S12: F3 — the post-window seal recheck ============
   const sw = makeRepo('swap-exec', {
-    scripts: { build: 'node build-ok.js' },
-    files: { 'build-ok.js': 'console.log("BUILD-OK");\n' },
+    scripts: { build: FIXTURE, test: 'node test-ok.js' },
+    files: { 'test-ok.js': 'console.log("TEST-OK");\n' },
   });
   check('S12: post-window seal recheck — step 1 rewriting step 2\'s sealed text EXECUTES but never PASSes (post-window)', () => {
     const cand = isolateWithMode(sw, 'g7', 'swap');
     const r = canary(['isolate', '--verify', 'g7', sw], sw);
     assertEq(r.status, 2, `swapped-text execution must end in the mandate:\n${r.stdout}`);
     assertMatch(r.stdout, mandate, 'mandated line 1');
-    assertMatch(r.stdout, /✓ build/, 'the operator saw the tampered step claim green BEFORE the post-window flip');
+    assertMatch(r.stdout, /✓ test/, 'the operator saw the tampered step claim green BEFORE the post-window flip');
     assert(!/CANDIDATE PASS/.test(r.stdout), 'green on unsealed words is never a PASS');
     assert(fs.existsSync(path.join(cand, 'swap-ran.txt')), 'the swapped text REALLY executed — detection is after the fact, stated');
     const b = latestCandidate(sw);
@@ -329,7 +329,7 @@ try {
     assert(ch.file.replace(/\\/g, '/').endsWith('.canary/candidates/g7/package.json'), `the candidate's package.json is named: ${ch.file}`);
     assertEq(ch.before, 'sealed at setup — held when the window opened', 'the prior state is the promise, not bytes');
     assertMatch(ch.after, /drifted after execution/);
-    assertMatch(ch.after, /script "build" changed since setup sealed it/, 'the drift detail names the rewritten script');
+    assertMatch(ch.after, /script "test" changed since setup sealed it/, 'the drift detail names the rewritten script');
     assert(fs.existsSync(qp(sw)), 'a post-window catch quarantines — the mutated plan surface cannot re-baseline');
   });
 

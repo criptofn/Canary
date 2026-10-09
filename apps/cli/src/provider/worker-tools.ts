@@ -58,8 +58,9 @@ export async function workerTools(store: string, work: string): Promise<number> 
         // WHY one verb is cheaper, and the caller is the one paying.
         case 'tools/list': result = { tools: [{ name: 'implement',
           description: 'Work inside the confined workspace by sending an ordered list of operations in ONE call. '
-            + 'Operations: list (a directory), read (a file), write (CREATE a file), edit (CHANGE an existing file), exec (run argv). '
-            + 'To change an existing file use `edit` with `find` (an exact snippet that occurs EXACTLY ONCE) and `replace` '
+            + 'Operations: list (a directory), read (a file), write (CREATE a file or REPLACE its full contents), '
+            + 'edit (CHANGE an existing file), exec (run argv). '
+            + 'Use `edit` for a targeted change with `find` (an exact snippet that occurs EXACTLY ONCE) and `replace` '
             + '(the text that takes its place; "find":"" replaces the whole file). Every byte you send stays in this '
             + 'conversation and is re-read on every later turn, so send the part that changes, not the file. '
             + 'Send every operation you already know together — they run in order in one confined process — and make a '

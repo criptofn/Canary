@@ -3,8 +3,8 @@
  * one ProjectAdapter interface, so the verification/promotion core never learns
  * a per-language pipeline. This file is pure: it spawns nothing, writes
  * nothing, and knows no agent provider. The Node code below was lifted out of
- * onboarding.ts unchanged — same functions, same strings, same digests — so
- * 1.0 behavior is preserved byte-for-byte; adding an ecosystem means adding an
+ * onboarding.ts; stored plans and their digests retain their original order.
+ * New Node plans build before tests; adding an ecosystem means adding an
  * adapter here, not a second plan/seal/drift path elsewhere.
  */
 import crypto from 'node:crypto';
@@ -52,6 +52,9 @@ const SCRIPT_KINDS: Array<[string, PlanKind]> = [
   ['bench', 'bench'], ['benchmark', 'bench'], ['e2e', 'e2e'], ['test:e2e', 'e2e'],
 ];
 const PLAN_ORDER: Record<PlanKind, number> = { typecheck: 0, tests: 1, build: 2, bench: 3, e2e: 4 };
+// New Node plans build before tests that may exercise compiled output. Execution
+// follows cfg.plan verbatim; existing seals and other adapters retain their order.
+const NODE_PLAN_ORDER: Record<PlanKind, number> = { ...PLAN_ORDER, build: 1, tests: 2 };
 
 /**
  * One normalized check in the sealed plan.
@@ -135,7 +138,7 @@ export function detectPlan(pkgScripts: Record<string, unknown>): PlanStep[] {
       if (!steps.some((s) => s.kind === kind)) steps.push({ kind, script: name });
     }
   }
-  return steps.sort((a, b) => PLAN_ORDER[a.kind] - PLAN_ORDER[b.kind]);
+  return steps.sort((a, b) => NODE_PLAN_ORDER[a.kind] - NODE_PLAN_ORDER[b.kind]);
 }
 
 /** Reconstruct argv for one step. Only validated fragments ever reach here. */
@@ -232,6 +235,30 @@ export interface AuthorityCarrier {
   planAuthority?: PlanAuthority;
 }
 
+/** Nested script authority comes from that scope's manifest, never from the root or an outside link. */
+function scopedPackage(root: string, step: PlanStep): Record<string, unknown> | null {
+  if (!step.scope || scopePathProblem(step.scope) !== null) return null;
+  try {
+    const file = fs.realpathSync(path.join(scopeDir(root, step), 'package.json'));
+    const relative = path.relative(fs.realpathSync(root), file);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
+    return parseJsonOrNull(file);
+  } catch { return null; }
+}
+
+/** Script texts addressed by the same qualified keys as the composite plan. Root keys stay unchanged. */
+export function planScriptTexts(root: string, plan: PlanStep[], rootScripts: Record<string, unknown>): Record<string, unknown> {
+  const scripts = { ...rootScripts };
+  for (const step of plan) {
+    if (!step.scope || step.argv !== undefined) continue;
+    const source = scopedPackage(root, step);
+    const text = (source?.scripts as Record<string, unknown> | undefined)?.[step.script];
+    if (typeof text !== 'string' || text.trim() === '') throw new Error('a scoped package.json script cannot be read inside this repository');
+    scripts[stepKey(step)] = text;
+  }
+  return scripts;
+}
+
 /** Capture the authority this setup run seals: the plan plus the verbatim
  *  text of every script it references. detectPlan guarantees plan scripts
  *  exist as non-empty strings in pkgScripts; anything else is left unsealed
@@ -247,7 +274,7 @@ export function sealPlanAuthority(plan: PlanStep[], pkgScripts: Record<string, u
       scriptDigests[key] = sha256(JSON.stringify(assertStepArgv(s.argv)));
       continue;
     }
-    const t = pkgScripts[s.script];
+    const t = pkgScripts[key];
     if (typeof t === 'string') scriptDigests[key] = sha256(t);
   }
   // 1.1 §23 — the fast-path declaration is SEALED with the plan, and validated
@@ -284,7 +311,7 @@ export function planAuthorityDrift(root: string, cfg: AuthorityCarrier, pkg?: Re
   // the same file one line later for the lifecycle-hook scan); absent = read.
   // A plan made only of explicit-argv steps (python/rust/go) declares no
   // package.json scripts, so unreadable package.json is not drift for it.
-  const needsPkg = cfg.plan.some((s) => s.argv === undefined);
+  const needsPkg = cfg.plan.some((s) => s.argv === undefined && !s.scope) || seal.stepPaths !== undefined;
   const pkgBytes = pkg === undefined ? (needsPkg ? parseJsonOrNull(path.join(root, 'package.json')) : null) : pkg;
   const scripts = pkgBytes ? (pkgBytes.scripts ?? {}) as Record<string, unknown> : null;
   if (scripts === null && needsPkg && cfg.plan.length > 0) drift.push('package.json cannot be read to compare the sealed scripts');
@@ -315,8 +342,12 @@ export function planAuthorityDrift(root: string, cfg: AuthorityCarrier, pkg?: Re
       }
       continue;
     }
-    if (scripts === null) continue; // unreadable pkg already reported
-    const cur = scripts[s.script];
+    const stepScripts = s.scope ? scopedPackage(root, s)?.scripts as Record<string, unknown> | undefined : scripts;
+    if (stepScripts == null) {
+      if (s.scope) drift.push(`package.json for script "${name}" cannot be read inside this repository`);
+      continue; // unreadable root pkg already reported
+    }
+    const cur = stepScripts[s.script];
     if (typeof cur !== 'string') drift.push(`script "${name}" no longer exists in package.json`);
     else if (sha256(cur) !== seal.scriptDigests[key]) drift.push(`script "${name}" changed since setup sealed it`);
   }
@@ -530,7 +561,8 @@ export function planForScope(root: string, s: ProjectScope): DiscoveredProject {
   const plan = disc.plan.map((step) => (s.adapter.id === 'node' && s.scope === ''
     ? step
     : { ...step, adapter: s.adapter.id, pm: disc.pm, ...(s.scope ? { scope: s.scope } : {}) }));
-  return { ...disc, plan: plan.sort((a, b) => PLAN_ORDER[a.kind] - PLAN_ORDER[b.kind]) };
+  const order = s.adapter.id === 'node' ? NODE_PLAN_ORDER : PLAN_ORDER;
+  return { ...disc, plan: plan.sort((a, b) => order[a.kind] - order[b.kind]) };
 }
 
 export interface CompositePlan {

@@ -1,0 +1,1 @@
+PASS H2 independent invoice classification contract

@@ -74,59 +74,63 @@ Canary's vocabulary to use it.
 ## Install
 
 ```bash
-npm install -g ./canary-rn-cli-1.4.0.tgz     # Node.js 22 or newer
+npm install -g ./canary-rn-cli-1.5.0.tgz     # Node.js 22+; use a maintained LTS release
 canary --version                             # canary 1.5.0
+canary --version --verbose                   # Node, runtime path, CLI entry path and entry SHA-256
 ```
 
 Download that tarball from the
-[v1.4.0 release](https://github.com/criptofn/Canary/releases/tag/v1.4.0) and check
-it against the published `.sha256`. It is ONE self-contained bundle with **zero
+[v1.5.0 release](https://github.com/criptofn/Canary/releases/tag/v1.5.0) and check
+it against the published `.sha256`. The verified package SHA-256 is
+`cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386`. It is ONE self-contained bundle with **zero
 runtime dependencies**.
 
-> **Honest version note.** **`v1.4.0` is the newest *published* artifact** — tag `v1.4.0` →
-> `4271e6e`, the tip of `main`; the release, its tarball and its sidecar were verified
-> against it, and the published bytes and digest are recorded in
-> [`docs/RELEASE-1.4.md`](docs/RELEASE-1.4.md). This document describes the **source tree**,
-> which is the **unreleased v1.5 candidate**: under audit, **not tagged, not released, not
-> merged**. Build from source for exactly what is described here: `npm ci && npm run build`,
-> then `node apps/cli/dist/src/main.js`. v1.3's own bytes are described, with their measured
-> numbers and their known limitations, in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
-
-> **v1.5 status, stated where you will see it first: the token-saving headline is WITHDRAWN.**
-> The v1.5 candidate published `83.21 % of Plain (−16.79 %)` for the everyday path. An
-> independent audit found that aggregate pooled a cell measured by the **fallback estimator**
-> rather than the declared provider-native ledger, and the replacement run measured a tree
-> that was **edited while it ran**. Under the corrected rule
-> ([`tooling/benchmark/eligibility.mjs`](tooling/benchmark/eligibility.mjs)) the **two COMPLETE
-> runs disagree in sign** — 80.74 % (−19.26 %) and 102.91 % (**+2.91 %**) — and their spread is
-> larger than any delta pooled across them. **v1.5 therefore claims no token-saving percentage
-> at all**: not a smaller one, not a different one. What survives is a measured **cost**, not a
-> saving: the standing MCP payload is genuinely inside the guarded sessions (6/6 guarded
-> advertised it, 0/6 plain) and costs **~438 provider-native tokens** per session — **not** the
-> ~1,432 that a `bytes ÷ 4` derivation implied. One intermittent Windows containment-sweep
-> failure is **open and unexplained** (recorded as open, not re-rolled until green). Provenance of
-> the gates that have run: **`e51b6fc` is the last product-source change** — the audited product
-> fixes and the local release batteries belong to it — while the **latest fully CI-tested candidate
-> is `d3f6a9c`, all six legs green in run
-> [`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720)** (Windows core
-> terminal success: 1,211 tests, 1,206 pass, 0 fail, 5 skipped). Evidence:
-> [`docs/AUDIT-KIT-1.5.md`](docs/AUDIT-KIT-1.5.md) ·
-> [`docs/CLAIM-EVIDENCE-MATRIX-1.5.md`](docs/CLAIM-EVIDENCE-MATRIX-1.5.md) ·
-> [`docs/POST-AUDIT-CLOSURE-1.5.md`](docs/POST-AUDIT-CLOSURE-1.5.md) ·
-> [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
-
+> **Version note.** The latest published artifact is **v1.5.0** (tag `v1.5.0`, commit
+> `6471ef6a74dd89ff11a7083fb9c54dca6c2b1334`). Its published CLI package was verified
+> against the SHA-256 above. Build from source when you specifically need the checkout's
+> current working tree: `npm ci && npm run build`, then `node apps/cli/dist/src/main.js`.
+> v1.3's own bytes are described in [`docs/RELEASE-1.3.md`](docs/RELEASE-1.3.md).
 
 ## Use your coding agent normally
 
 ```bash
 cd your-repo
+canary setup --check    # optional read-only preflight; runs no project checks and writes nothing
 canary setup --yes      # detect the project, seal its checks, wire your agent
 ```
 
-That is the whole first-use path. `setup` prints the checks it found, smoke-runs
-them once, and ends in `READY` — or tells you exactly what it could not do. It
-wires Claude Code automatically (merging with, never overwriting, your existing
-hooks), registers Canary's tools for the agent, and touches nothing else.
+Claude Code also receives a short completion workflow when a session starts or
+resumes: the test command Canary will run, the installed repair command, and the
+instruction to finish normally so the Stop hook runs the full checks. Startup
+guidance runs no checks and certifies nothing. Re-run setup once to add it to an
+existing installation; unrelated startup hooks are preserved.
+
+If your checks launch Java, Python, Git or another external tool, name it during
+setup: `canary setup --yes --toolchain java --toolchain python`. Canary finds each
+named tool on your shell PATH and seals its executable directory. This authorizes
+the directory, including other executables in it; repository directories are
+refused. You can still specify a directory with `--toolchain-dir "<absolute path>"`.
+`--clear-toolchain-dirs` revokes the previously sealed directories.
+
+`setup --check` reports the checks and toolchains it can see without running
+project commands, writing files, or authorizing tool paths. It cannot discover
+every tool a project script may launch; actual setup still runs the checks.
+`setup` prints the checks it found, smoke-runs them once, and ends in `READY` —
+or tells you exactly what it could not do. It wires Claude Code automatically
+(merging with, never overwriting, your existing hooks) and registers Canary's
+four everyday MCP tools. When a request states explicit acceptance criteria,
+the agent records each one verbatim with `canary_task` before inspecting or
+editing; generic placeholders are refused. This is untrusted input: it adds
+obligations but cannot bind checks or prove completion. Unbound criteria stay
+`NOT PROVEN`; binding hints are for the operator. The agent can continue the
+authorized change, but must not change the plan or run setup/bind/accept to
+clear that status. Add
+`--mcp-profile expert` for isolated `work` / `finish` operations or the MCP
+integration inventory; `canary agents` remains available on the CLI.
+
+Setup checks all managed config files before writing hooks. If a later write fails,
+Canary restores earlier hook and MCP files when their bytes still match the changes
+from that setup attempt; a file changed in the meantime is left alone and reported.
 
 Then just ask your agent for the change. You do not run anything else.
 
@@ -170,6 +174,11 @@ agent tools: registered in .mcp.json — your agent can now ask Canary whether i
 smoke test (running your own project scripts):
 ✓ tests: npm run test (exit 0)
 
+note: no task acceptance criteria are registered. READY means these checks and hooks are set up; Canary cannot assess requirements it was never given.
+  for task-specific proof, register measurable criteria before handing off with `canary task --requirement "<observable behavior>"`, then bind them to a sealed script with `canary bind <plan-script> --requirement "<same text>" --reseal`.
+Objective requirements need a matching sealed check. Human acceptance applies to subjective
+requirements only; approving one subjective part never waives a separate measurable requirement.
+
 READY — Canary is active here: it will run these checks whenever the AI agent says it is done, and will interrupt the human only when something needs them.
 next: try it: break a test on purpose and let the agent finish — Canary will say so. doctor: canary doctor
 ```
@@ -190,6 +199,24 @@ do the checks run?" with `READY` / `NOT PROVEN` / `NEEDS ATTENTION` / `UNSUPPORT
 and the one command that fixes it. `canary status` answers the same question about
 **state** without running anything, and `canary result --json` gives an agent the
 same answer compactly and for free.
+
+Running `canary` without a command shows compact read-only connection status and
+points to `canary result` for the last verification and `canary --help` for the
+full command list. Its existing no-command exit code remains 3.
+
+`doctor` also reports how many task requirements were registered and how many
+proof obligations are met, unproven, or unmet. `result` shows the same scope for
+the historical run, including evidence caveats; older records without it say
+that the proof scope was not recorded. Passing checks alone do not establish
+acceptance criteria that were never registered.
+
+When one check fails, doctor prints its sealed check id and a focused recheck command.
+Use `canary doctor --check <id>` while repairing that check; it returns `PARTIAL` and
+does not update the completion checkpoint. Run `canary doctor` for the full gate.
+
+For an unproven regression, add a test that fails against the project's starting
+commit and passes with your change. Canary runs that comparison automatically;
+keep working on this branch.
 
 ## Expert mode — when a change must be *proven*, not just green
 
@@ -276,7 +303,9 @@ actually executed and passed in that run. Nothing executed → NEEDS
 ATTENTION, never a fake green. This auto-watched plan runner is the everyday
 path; the much stronger **attested proof pipeline** (`canary prove` /
 `canary check`, below) is a separate, different promise for release-grade
-claims.
+claims. If the only check that distinguishes a change uses assertions the worker
+added or rewrote, `doctor` prints an evidence caveat: the check is change-sensitive,
+but its contents are not independent authority.
 
 ## What the benchmarks actually show
 
@@ -439,6 +468,45 @@ the consolidated matrix and its three corrected defects: [`docs/V1.1-STATUS.md`]
 > reads FAILS THE TOKEN REQUIREMENT.** The three measured reasons the corpus cannot show an advantage,
 > and the caveats that limit each number, are in that document.
 
+### v1.5 release and post-release evidence
+
+> **Post-release native pilot (2026-10-01, unpublished improvements).** Twelve Claude Code
+> sessions on three projects using local `qwen3.5:9b` produced 6/6 correct solutions without
+> Canary and 4/6 with Canary after an explicitly post-pilot H1 check. Four Canary sessions
+> passed their actual completion hook; native token use was 3.95× the plain arm. This small
+> pilot supports no token-saving claim. [Results, artifact identity and limits](docs/POST-V15-NATIVE-PILOT-COMPLETE-2026-10-01.md).
+
+The subsequent unpublished correction accepts sufficient imported `*-test.js` checks,
+including uncommitted files, and retains baseline failure logs. Its H3 controls reject
+weak tests and the old faulty implementation. [Repair and evidence](docs/POST-V15-IMPORTED-CHECK-REPAIR-2026-10-01.md).
+Its next native H3 pair completed correctly in both arms; Canary's actual Stop
+hook passed with the worker-test provenance caveat retained. The Canary session
+used 28 turns versus four without Canary, so this remains a completion improvement
+without an efficiency claim. [Native follow-up](docs/POST-V15-IMPORTED-CHECK-NATIVE-2026-10-01.md).
+
+> **v1.5 status: the token-saving headline is WITHDRAWN.**
+> The v1.5 candidate published `83.21 % of Plain (−16.79 %)` for the everyday path. An
+> independent audit found that aggregate pooled a cell measured by the **fallback estimator**
+> rather than the declared provider-native ledger, and the replacement run measured a tree
+> that was **edited while it ran**. Under the corrected rule
+> ([`tooling/benchmark/eligibility.mjs`](tooling/benchmark/eligibility.mjs)) the **two COMPLETE
+> runs disagree in sign** — 80.74 % (−19.26 %) and 102.91 % (**+2.91 %**) — and their spread is
+> larger than any delta pooled across them. **v1.5 therefore claims no token-saving percentage
+> at all**: not a smaller one, not a different one. What survives is a measured **cost**, not a
+> saving: the standing MCP payload is genuinely inside the guarded sessions (6/6 guarded
+> advertised it, 0/6 plain) and costs **~438 provider-native tokens** per session — **not** the
+> ~1,432 that a `bytes ÷ 4` derivation implied. One intermittent Windows containment-sweep
+> failure is **open and unexplained** (recorded as open, not re-rolled until green). Provenance of
+> the gates that have run: **`e51b6fc` is the last product-source change** — the audited product
+> fixes and the local release batteries belong to it — while the **latest fully CI-tested candidate
+> is `d3f6a9c`, all six legs green in run
+> [`36168541720`](https://github.com/criptofn/Canary/actions/runs/36168541720)** (Windows core
+> terminal success: 1,211 tests, 1,206 pass, 0 fail, 5 skipped). Evidence:
+> [`docs/AUDIT-KIT-1.5.md`](docs/AUDIT-KIT-1.5.md) ·
+> [`docs/CLAIM-EVIDENCE-MATRIX-1.5.md`](docs/CLAIM-EVIDENCE-MATRIX-1.5.md) ·
+> [`docs/POST-AUDIT-CLOSURE-1.5.md`](docs/POST-AUDIT-CLOSURE-1.5.md) ·
+> [`docs/BENCHMARK-EVERYDAY-1.5.md`](docs/BENCHMARK-EVERYDAY-1.5.md).
+
 ## Known limitations
 
 What Canary does **not** claim is as much a part of the product as what it does.
@@ -567,8 +635,10 @@ The two tiers share one binary; `canary` below is the linked command, or
 **Everyday** — what an ordinary user actually types:
 
 ```bash
-canary setup     [--yes]     # detect the project + the agents, PIN the toolchain, wire, smoke-run
-canary doctor                # runs your checks NOW: READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED
+canary setup --check [--json] # read-only preflight: plan, visible toolchains, managed-file conflicts
+canary setup     [--yes] [--mcp-profile everyday|expert] # install + smoke-run; everyday is default
+canary doctor                # full gate: READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED
+canary doctor --check <id>   # one sealed diagnostic check; PARTIAL, never completion proof
 canary status                # read-only state, runs nothing: CONNECTED / NEEDS ATTENTION / NOT CONNECTED
 canary result    [--json]    # the same state as ONE compact JSON object — free, for agents and scripts
 canary agents    [install|uninstall <id>]   # which agents work here, and at what capability
@@ -692,13 +762,15 @@ is a transparent plan runner over *your* scripts.
 
 **A green plan is not a proven task.** `doctor` answers `NOT PROVEN` (exit 2)
 and the Stop hook blocks the completion in two cases the old READY hid: when a
-stated requirement is registered but no sealed check covers it (bind it in
-`package.json` `canary.proofs`, or a human accepts it in a terminal), and when
+stated objective requirement is registered but no sealed check covers it (bind
+it in `package.json` `canary.proofs`), and when
 the sealed checks pass on the base commit too — i.e. they cannot tell your
 change from no change, so they carry no regression evidence for it. The repair
 is to make the proof discriminate: a check that fails without the change and
-passes with it. Only a human can waive either duty, and `canary accept` does
-that, in a terminal.
+passes with it. The repair message links the baseline output so you can inspect
+what actually ran without the change. A passing baseline is not a passing current
+verification. `canary accept` closes only subjective candidate duties, in a
+terminal; it cannot close either of these objective proof gaps.
 
 Release-grade proof pipeline:
 
@@ -716,7 +788,7 @@ Three ways to get it, in increasing order of what you must already have:
 
 | You have | Use | Result |
 |---|---|---|
-| A Node.js 22+ installation | install `canary-rn-cli-1.2.0.tgz` from the [v1.2.0 release](https://github.com/criptofn/Canary/releases/tag/v1.2.0) (check it against the published `.sha256`), or build it yourself with `node tooling/pack.mjs`, or run straight from a checkout with `node apps/cli/dist/src/main.js` | one self-contained bundle, zero runtime dependencies |
+| A Node.js 22+ installation | install `canary-rn-cli-1.5.0.tgz` from the [v1.5.0 release](https://github.com/criptofn/Canary/releases/tag/v1.5.0) (check it against the published `.sha256`), or build it yourself with `node tooling/pack.mjs`, or run straight from a checkout with `node apps/cli/dist/src/main.js` | one self-contained bundle, zero runtime dependencies |
 | No Node.js, and a supported host | `npm run standalone` (see `tooling/standalone.mjs`) | ONE executable with Node embedded |
 | A source checkout | `npm ci && npm run build` | the development tree |
 

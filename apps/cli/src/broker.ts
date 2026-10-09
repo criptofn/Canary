@@ -84,7 +84,9 @@ export function validateSubject(v: unknown): AuthorizationSubject {
   const frozen = canonicalTask(v.frozenTask), live = canonicalTask(v.liveTask);
   requireThat(frozen && live && frozen.kinds.length && !taskWeakening(frozen, live).length, 'invalid or weakened task authority');
   for (const t of [v.frozenTask, v.liveTask]) {
-    exact(t, ['taskDigest', 'kinds', 'requirementCount', 'requirementDigests', 'subjectiveVisual', 'subjectivePerformance', 'objectiveTargets']);
+    const taskFields = ['taskDigest', 'kinds', 'requirementCount', 'requirementDigests', 'subjectiveVisual', 'subjectivePerformance', 'objectiveTargets'];
+    if (t && typeof t === 'object' && 'subjectiveRequirementDigests' in t) taskFields.push('subjectiveRequirementDigests');
+    exact(t, taskFields);
     for (const target of t.objectiveTargets as unknown[]) exact(target, ['digest', 'kind']);
   }
   ids(v.subjectiveDuties);

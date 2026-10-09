@@ -1,0 +1,64 @@
+{
+  "schema": "canary-post-v15-cost-control/1",
+  "date": "2026-09-27",
+  "model": "qwen3.8-flash",
+  "cli": "Claude Code 2.1.278",
+  "pilotSessionsPrepared": 12,
+  "pilotSessionsStarted": 0,
+  "pilotStartDecision": "withheld: CLI budget limits were exceeded and model identity was not stable",
+  "boundedDiagnosticRuns": [
+    {
+      "probe": "v13-posttool-feedback",
+      "configuredMaxUsd": 0.1,
+      "providerReportedUsd": 0.102746,
+      "overByUsd": 0.002746,
+      "tokens": 13828,
+      "result": "error_max_budget_usd",
+      "markerDelivered": false
+    },
+    {
+      "probe": "agent-token-ledger",
+      "configuredMaxUsd": 0.1,
+      "providerReportedUsd": 0.112349,
+      "overByUsd": 0.012349,
+      "tokens": 16812,
+      "result": "error_max_budget_usd",
+      "additionalError": "claude-code:unrecognized_model",
+      "measurementUsable": false
+    }
+  ],
+  "earlierUnboundedDiagnostics": [
+    {
+      "probe": "v13-posttool-feedback",
+      "configuredMaxUsd": null,
+      "tokens": 28065,
+      "providerReportedUsd": null,
+      "measurementUsable": false
+    },
+    {
+      "probe": "agent-token-ledger",
+      "configuredMaxUsd": null,
+      "tokens": 35335,
+      "providerReportedUsd": null,
+      "measurementUsable": false
+    }
+  ],
+  "knownNativeUsdAcrossBoundedDiagnostics": 0.215095,
+  "totalDiagnosticSpend": "unknown because two earlier runs did not capture provider-native cost",
+  "rawLogs": {
+    "unitTests": "unit-tests.log",
+    "productizationFinal": "verify-productization.log",
+    "productizationInitial": "verify-productization-initial.log",
+    "sha256": {
+      "unitTests": "f094528428f7270aafc5b8899d3c25b340c27f5f82bac84365491d9516fc1d73",
+      "productizationFinal": "7495f88606e51a11759ef7fb46cd49005e27f917854e3a782c0ec970919aa894",
+      "productizationInitial": "932dc8d6c5ec6f72311fa3f54c8ae7e39acbad07b0444deabb62c3cce906f06f"
+    }
+  },
+  "evidenceSha256": {
+    "pilotPreparation": "98a897aa4ca38cfab766bbd2c016b9c1687d1e335fb681950d5d51424c81ad44",
+    "oracleControls": "9b2b63aad3ceacca7ec2c2f3629b90a03c5adfa1ae89c263330221da2b4b8eb2",
+    "windowsSweep": "a0de8f7f1a3c259b89c3c863b202e27f4d41391e1c6bdce38f4630b45cac6434",
+    "windowsSweepTrace": "5ce1993fe41727bcd2ac3bc077c215eba1f5b422afe77717bbfbb1bd1a2edec2"
+  }
+}

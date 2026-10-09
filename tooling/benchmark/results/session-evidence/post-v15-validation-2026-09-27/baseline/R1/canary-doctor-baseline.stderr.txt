@@ -1,0 +1,21 @@
+proof level: LOCAL — the same user account that runs the agent can also re-run `canary setup --yes` and make a different plan and starting commit the ones that are checked, so this proof is same-user and operator-selected, NOT worker-independent. HARDENED is the level that adds a separate OS identity, and it is NOT available here.
+running the verification plan:
+✓ typecheck: npm run typecheck (exit 0)
+✗ tests: npm run test (exit 1)
+          [90m141| [39m      expect(report.testScope.signals.join(' ')).toContain('tests/test…
+      [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯[22m[39m
+      [41m[1m FAIL [22m[49m tests/unit/cli/verify-diff-wiring.test.ts[2m > [22mrunVerifyDiffCommand: test-scope note wiring (#120)[2m > [22mprints the scope note BEFORE the changed-test-files note
+      [31m[1mAssertionError[22m: expected -1 to be greater than -1[39m
+      [36m [2m❯[22m tests/unit/cli/verify-diff-wiring.test.ts:[2m212:23[22m[39m
+          [90m210| [39m      [35mconst[39m scopeAt [33m=[39m stdout[33m.[39m[34mindexOf[39m([32m'Re-run without the filter'[39m)[33m;[39m
+          [90m211| [39m      const testFilesAt = stdout.indexOf('this diff modifies test file…
+          [90m212| [39m      [34mexpect[39m(scopeAt)[33m.[39m[34mtoBeGreaterThan[39m([33m-[39m[34m1[39m)[33m;[39m
+          [90m   | [39m                      [31m^[39m
+          [90m213| [39m      [34mexpect[39m(testFilesAt)[33m.[39m[34mtoBeGreaterThan[39m([33m-[39m[34m1[39m)[33m;[39m
+          [90m214| [39m      [34mexpect[39m(scopeAt)[33m.[39m[34mtoBeLessThan[39m(testFilesAt)[33m;[39m
+      [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯[22m[39m
+✓ build: npm run build (exit 0)
+
+NEEDS ATTENTION — CANARY SEALED ENVIRONMENT CANNOT RESOLVE REQUIRED TOOLCHAIN — the tests check ("test") needed pytest. Canary runs your checks without your shell's PATH on purpose (a program planted earlier on that PATH would be executed as Canary's own authority). This is NOT your project failing.
+next: install pytest into a directory you authorize, then: canary setup --toolchain-dir "<that directory>"
+full runner output: C:\Users\Johannes\AppData\Local\Temp\canary-v15-baselines-20260927\R1\.canary\evidence\2026-09-27T01-14-18-897Z-doctor — per-step logs and verification.json; read those, not the excerpt above

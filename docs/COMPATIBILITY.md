@@ -96,6 +96,11 @@ refused at setup with a message naming it; it is never silently skipped.
 was actually detected. An integration that cannot gate is never reported as if
 it could.
 
+The explicit diagnostic `canary doctor --check <id>` uses the separate
+`canary-doctor-partial/1` envelope and reports `PARTIAL` with the selected
+check's result. The default `canary doctor` protocol remains `canary-status/1`;
+the diagnostic never writes the full completion checkpoint.
+
 ### The GATED row, measured rather than assumed
 
 Wiring is not enforcement, so the row above was MEASURED end to end on this host with
@@ -171,3 +176,31 @@ handler is missing.
   those hosts and are NOT claimed from here**. Running Canary no longer requires a
   Node installation for the supported host; a *Node project's* checks still need
   that project's own Node/npm, because Canary runs the project's scripts.
+# Claude startup orientation
+
+Setup adds a Claude Code SessionStart handler alongside its existing Stop gate.
+The handler supplies a short completion workflow and the trusted test entry;
+it neither runs checks nor writes a verification result. The installed CLI also
+supports the internal hook invocation `checkpoint --session-start`, which emits
+Claude's context-only hook JSON for a SessionStart input. The normal checkpoint
+and JSON verdict contracts are unchanged.
+
+Existing installations gain this handler by rerunning setup. Its optional
+`sessionStartCommands` ownership list is separate from Stop ownership, so retry,
+rollback and uninstall preserve unrelated startup hooks. Older configurations
+without this field remain valid. Codex's Stop integration is unchanged.
+
+Protocol reference: [Claude Code SessionStart hooks](https://code.claude.com/docs/en/hooks#sessionstart).
+
+## Compiled Node checks
+
+Newly discovered Node plans run `typecheck`, `build`, `tests`, `bench`, then `e2e`
+(only declared scripts are included). Building before tests prevents a clean
+checkout or removed `dist` from failing solely because its test runner imports
+compiled output. It also prevents tests from judging stale output before the
+current implementation is built. A failed build still fails the full gate.
+
+Previously installed plans keep their exact sealed order and digest. Upgrading
+the binary does not reorder or reseal them. An operator can apply the new order
+by reviewing and rerunning setup; this is a new seal and baseline, so do it
+between tasks. Non-Node discovery and explicit check contracts are unchanged.

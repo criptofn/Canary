@@ -1,0 +1,7 @@
+{
+  "session_id": "ws5-induced-falsedone",
+  "transcript_path": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\post-v15-validation-2026-09-27\\false-done-control\\worker-transcript-pointer.txt",
+  "cwd": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-baselines-20260927\\H1",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false
+}

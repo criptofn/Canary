@@ -1,0 +1,22 @@
+diff --git a/src/workflows/fileOrganizer.js b/src/workflows/fileOrganizer.js
+index 7f504bf..e827a7d 100644
+--- a/src/workflows/fileOrganizer.js
++++ b/src/workflows/fileOrganizer.js
+@@ -23,8 +23,6 @@ function defaultDownloadsDir() {
+ export async function previewOrganization(options = {}) {
+   const root = path.resolve(options.root || defaultDownloadsDir());
+   const targetRoot = path.resolve(root, options.targetRoot || "Hermes_Sorted");
+-  const { maxAgeDays } = options;
+-  const hasAgeFilter = typeof maxAgeDays === "number" && !Number.isNaN(maxAgeDays);
+   const entries = await fs.readdir(root, { withFileTypes: true });
+   const moves = [];
+ 
+@@ -33,7 +31,7 @@ export async function previewOrganization(options = {}) {
+     const source = path.join(root, entry.name);
+     const stats = await fs.stat(source);
+     const ageDays = (Date.now() - stats.mtimeMs) / 86400000;
+-    if (hasAgeFilter && ageDays > maxAgeDays) continue;
++    if (options.maxAgeDays && ageDays > options.maxAgeDays) continue;
+ 
+     const group = classify(entry.name);
+     moves.push({

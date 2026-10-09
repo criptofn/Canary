@@ -42,12 +42,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
-const CLI = path.join(REPO_ROOT, 'apps', 'cli', 'dist', 'src', 'main.js');
 
 function arg(name, dflt = null) {
   const i = process.argv.indexOf(`--${name}`);
   return i === -1 ? dflt : process.argv[i + 1];
 }
+const CLI = path.resolve(arg('cli') ?? path.join(REPO_ROOT, 'apps', 'cli', 'dist', 'src', 'main.js'));
 const repo = arg('repo');
 const outDir = arg('out');
 const workerCommit = arg('worker-commit');
@@ -55,7 +55,7 @@ const baseCommit = arg('base-commit');
 const source = arg('source');
 const planCmd = arg('plan-cmd', 'npm run test');
 if (!repo || !outDir || !workerCommit || !baseCommit || !source) {
-  console.error('usage: --repo <dir> --out <dir> --worker-commit <sha> --base-commit <sha> --source <repo-relative file> [--plan-cmd "<the project\'s own check command>"]');
+  console.error('usage: --repo <dir> --out <dir> --worker-commit <sha> --base-commit <sha> --source <repo-relative file> [--cli <installed main.js>] [--plan-cmd "<the project\'s own check command>"]');
   process.exit(2);
 }
 fs.mkdirSync(outDir, { recursive: true });

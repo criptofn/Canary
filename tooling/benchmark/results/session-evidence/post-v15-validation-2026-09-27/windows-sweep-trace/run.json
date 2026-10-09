@@ -1,0 +1,17 @@
+{
+  "schema": "canary-v15-windows-sweep-trace/1",
+  "probe": "tooling/probes/v15-windows-sweep-trace.mjs",
+  "probeSha256": "a773edde2a1da52f619942c7ea57c43dd6444bb2b202112b5be0df3fe2b96583",
+  "modulePath": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\packages\\support\\dist\\src\\index.js",
+  "moduleSha256": "034435a7afe11d95a135db0ebc2a3cf150f60bd5f05f6ab44589cc9a1d0f150c",
+  "testPath": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\packages\\support\\dist\\test\\lifecycle.test.js",
+  "testSha256": "9ce5f8c63430fb06b46cb37cf4e6ab5dfe30e260f6f0fe288d8a0171c5caba5c",
+  "node": "v26.7.0",
+  "platform": "win32",
+  "release": "10.0.26200",
+  "cpuCount": 24,
+  "runs": 12,
+  "loadWorkers": 8,
+  "fixture": "same parent -> one unrefed Node child with a 300 s timer; parent holds a 60 s timer",
+  "startedAt": "2026-09-27T01:54:20.568Z"
+}

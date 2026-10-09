@@ -18,7 +18,8 @@
  *      IN its own process, so this door is real — measured, unlike node:test).
  *
  * The interpreter defaults to the workspace-local `_toolchains/py` venv; override
- * with CANARY_PYTEST_PYTHON. Exits 0 only when everything holds.
+ * with CANARY_PYTEST_PYTHON. Exits 0 only when everything holds; exits 3 with
+ * an explicit host-bound SKIP when the optional local interpreter is absent.
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -42,8 +43,9 @@ function eq(actual, expected, msg) {
 }
 
 if (!fs.existsSync(PY)) {
-  console.log(`pytest interpreter not found at ${PY}`);
-  process.exit(1);
+  console.log(`SKIP host-bound: pytest interpreter not found at ${PY}`);
+  console.log('set CANARY_PYTEST_PYTHON, or provision the ignored project-local venv: python -m venv _toolchains/py && _toolchains/py/Scripts/python -m pip install pytest');
+  process.exit(3);
 }
 const PYTEST_MOD = path.join(REPO, 'packages', 'runner', 'executor', 'dist', 'src', 'observers', 'pytest-observer.js');
 const COMPARATOR_MOD = path.join(REPO, 'packages', 'core', 'comparator', 'dist', 'src', 'index.js');

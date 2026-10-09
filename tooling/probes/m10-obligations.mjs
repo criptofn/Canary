@@ -158,7 +158,7 @@ check('S1 positive control: bugfix candidate WITH a test change → CANDIDATE PA
   isolate(root, 'c');
   const rec = recOf(root, 'c');
   assert(rec.intent && typeof rec.intent === 'object', 'the record carries an intent snapshot');
-  assertEq(rec.intent.plan.map((s) => s.script).join(','), 'test,build', 'snapshot = the plan at isolation');
+  assertEq(rec.intent.plan.map((s) => s.script).join(','), 'build,test', 'snapshot = the plan at isolation');
   assert(rec.intent.seal && /^[0-9a-f]{64}$/.test(rec.intent.seal.test ?? ''), 'snapshot carries the sealed digest of the test text');
   assertEq(rec.intent.task.kinds.join(','), 'bugfix', 'snapshot froze the registered task kinds');
   candCommit(root, 'c', { 'src/login.js': 'fixed\n', 'tests/login.test.js': '// reproduces the crash\n' }, [], true);

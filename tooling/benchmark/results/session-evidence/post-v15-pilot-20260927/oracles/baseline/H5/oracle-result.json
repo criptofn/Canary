@@ -1,0 +1,41 @@
+{
+  "schema": "canary-validation-oracle/1",
+  "label": "H5",
+  "expected": "fail",
+  "probe": "tooling/probes/v15-validation-oracle.mjs",
+  "probeSha256": "798b702c9d92462075a5757905e1ada3c700e396119e756e27aadb15a09d825b",
+  "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H5\\plain",
+  "runtimeRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H5\\plain",
+  "startingHead": "7d0eb49c46d83184638fa093b44a15222feb8c51",
+  "startedAt": "2026-09-27T15:30:42.081Z",
+  "sourceFiles": [
+    {
+      "path": "src/agent/matrixNormCore.js",
+      "exists": true,
+      "sha256": "effb67a700750fbceeec8733fd9c8bd23f2e1332afacf97a2a8a4614237abfe8"
+    }
+  ],
+  "finishedAt": "2026-09-27T15:30:42.223Z",
+  "command": {
+    "executable": "C:\\Program Files\\nodejs\\node.exe",
+    "args": [
+      "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-baseline-oracles-20260927\\H5\\oracle.mjs"
+    ],
+    "cwd": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\H5\\plain"
+  },
+  "generatedArtifacts": [
+    "oracle.mjs"
+  ],
+  "exitCode": 1,
+  "signal": null,
+  "timedOut": false,
+  "spawnError": null,
+  "compileExitCode": null,
+  "runtimeExitCode": null,
+  "testPassed": false,
+  "expectedFailureObserved": true,
+  "metExpected": true,
+  "status": "complete",
+  "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderrSha256": "89c4c92d04c86b36088ef7ca84f8dc01424c3687a816111acb93999a7c37a49e"
+}

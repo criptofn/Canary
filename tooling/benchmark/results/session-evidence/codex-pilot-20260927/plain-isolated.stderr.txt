@@ -1,0 +1,14 @@
+2026-09-27T20:09:44.424059Z  WARN codex_state::runtime: failed to run startup maintenance for logs db at C:\Users\Johannes\.codex\logs_2.sqlite: error returned from database: (code: 11) database disk image is malformed
+Reading additional input from stdin...
+
+thread 'tokio-rt-worker' (64392) panicked at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library\std\src\sys\pal\windows\winsock.rs:26:9:
+assertion `left == right` failed
+  left: 10107
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'tokio-rt-worker' (57352) panicked at C:\Users\runneradmin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-util-0.1.20\src\client\legacy\connect\dns.rs:146:21:
+gai background task failed: JoinError::Panic(Id(128), "assertion `left == right` failed\n  left: 10107\n right: 0", ...)
+2026-09-27T20:09:46.384640Z  WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/
+2026-09-27T20:09:46.384665Z  WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/
+2026-09-27T20:09:46.429637Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell

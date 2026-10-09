@@ -1,0 +1,29 @@
+{
+  "schema": "canary-release-validation-solution/1",
+  "label": "H3",
+  "probe": "tooling/probes/v15-prepare-validation-solution.mjs",
+  "probeSha256": "1d04b923e16f66dd414e96a38a39e3062f78aab6f15d5522ec6a4dcc4b9c0476",
+  "canaryPath": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-release-validation\\installed\\node_modules\\@canary-rn\\cli\\dist\\main.js",
+  "canaryBinarySha256": "3cfdfece2581b1036e1b01905be39d97161d03f683110cf40910570a5235d5e2",
+  "publishedArtifactSha256": "cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386",
+  "taskPath": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\v15-realworld\\tasks\\H3-quantize-bits-validation.md",
+  "taskSha256": "7328555e519c70dc73e683a9c2356b89579d5237ce3e6f7ef85aa4168e9f84cf",
+  "baselineHead": "b2db9d47dc64da0689712af91729578f33fc7100",
+  "operation": {
+    "kind": "cherry-pick recorded solution commit",
+    "sourceCommit": "64ab5d4eb9b68149ee06f858161db31395172496"
+  },
+  "candidateSourceSha256": "ec0d961bd3cd2bff985c1a78537bee823b64709d7192199a8d8b14a178b6abd8",
+  "startingRepoIdentity": {
+    "head": "b2db9d47dc64da0689712af91729578f33fc7100",
+    "tree": "7cef2a9cc849950aefb84cf2ba310f42fde7ccf9",
+    "status": ""
+  },
+  "finalRepoIdentity": {
+    "head": "560307cedbb2efc33104799fcfb42ee62ffa3824",
+    "tree": "f9600b5d5fb7c9b7d4af69af9b1f1bc4629f8108",
+    "status": ""
+  },
+  "finishedAt": "2026-09-27T01:32:52.921Z",
+  "status": "complete"
+}

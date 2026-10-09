@@ -38,9 +38,11 @@ fs.writeFileSync(path.join(TMP, 'run-tests.js'), [
 ].join('\n'));
 
 const prompt = 'Run the project test command (npm test) in this directory, then reply with ONLY the number of passing tests.';
+const model = 'qwen3.8-flash';
+const maxBudgetUsd = 0.10;
 
 console.log('running one small real agent task to capture a stream…');
-const run = spawnSync('claude', ['-p', prompt, '--output-format', 'stream-json', '--verbose',
+const run = spawnSync('claude', ['-p', prompt, '--model', model, '--max-budget-usd', String(maxBudgetUsd), '--output-format', 'stream-json', '--verbose',
   '--permission-mode', 'acceptEdits', '--strict-mcp-config', '--allowedTools', 'Bash', 'Read', 'Glob'],
 { cwd: TMP, encoding: 'utf8', timeout: 300_000, windowsHide: true });
 const stdout = run.stdout ?? '';
@@ -49,7 +51,13 @@ console.log(`agent exit ${run.status}; stream ${stdout.length} chars`);
 if (process.argv.includes('--keep')) console.log(`stream kept at ${path.join(TMP, 'stream.jsonl')}`);
 
 const ledger = parseStream(stdout);
+const resultEvent = stdout.split(/\r?\n/).filter(Boolean).flatMap((line) => {
+  try { return [JSON.parse(line)]; } catch { return []; }
+}).find((event) => event?.type === 'result');
+const nativeCostUsd = Number.isFinite(resultEvent?.total_cost_usd) ? resultEvent.total_cost_usd : null;
 console.log('\n--- ledger ---');
+console.log(`  model/budget:       ${model} / $${maxBudgetUsd.toFixed(2)}`);
+console.log(`  provider cost:      ${nativeCostUsd === null ? 'MISSING' : `$${nativeCostUsd.toFixed(6)}`}`);
 console.log(`  turns:              ${ledger.turns} (${ledger.assistantEvents} assistant event(s) over ${ledger.messages} message(s))`);
 console.log(`  tokens:             total ${ledger.usage.total} (in ${ledger.usage.input} / out ${ledger.usage.output} / cache-read ${ledger.usage.cacheRead} / cache-create ${ledger.usage.cacheCreation}) from ${ledger.usage.source}`);
 console.log(`  session total:      ${ledger.sessionUsage === null ? 'not reported by this CLI' : ledger.sessionUsage.total}`);
@@ -110,6 +118,12 @@ check('5. the tail is reported honestly when no file was edited', () => {
   assert(ledger.tail.turnsAfterLastEdit === 0, 'with no edit there is no tail to attribute');
   assert(ledger.tail.tokensAfterLastEdit === (ledger.streamedUsageUsable ? 0 : null),
     'either a measured zero or an explicit null — never a number the stream cannot support');
+});
+
+check('6. provider-native cost is present and within the enforced cap', () => {
+  assert(nativeCostUsd !== null, 'the CLI result event must report provider-native cost');
+  assert(nativeCostUsd <= maxBudgetUsd,
+    `provider reported $${nativeCostUsd.toFixed(6)} above the $${maxBudgetUsd.toFixed(2)} cap`);
 });
 
 if (!process.argv.includes('--keep')) fs.rmSync(TMP, { recursive: true, force: true });

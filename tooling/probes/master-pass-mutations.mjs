@@ -41,6 +41,7 @@
  * (item 42) rather than performed as theater.
  */
 import { spawnSync } from 'node:child_process';
+import assert from 'node:assert/strict';
 // In-place dist mutation must be RECOVERABLE: a killed battery leaves dist mutated
 // and the build tool will not repair it (see the guard's header for the measured
 // incident this closes).
@@ -110,8 +111,20 @@ const MUTATIONS = [
  */
 function runOwner(owner) {
   const r = spawnSync(process.execPath, OWNERS[owner], { cwd: REPO, encoding: 'utf8', timeout: 900_000, maxBuffer: 64 * 1024 * 1024 });
-  return { status: r.status, green: r.status === 0 || r.status === 3 };
+  return { ...r, outcome: ownerOutcome(r) };
 }
+function ownerOutcome(r) {
+  if (r.error || r.signal != null) return 'unusable';
+  if (r.status === 0 || r.status === 3) return 'green';
+  return r.status === 1 || r.status === 2 ? 'caught' : 'unusable';
+}
+// A crashed/timed-out owner proves nothing about a mutation. Keep this control
+// in the existing battery so it runs without spawning another process.
+for (const r of [{ status: 3221225477 }, { status: 3221225501 }, { status: null }, { status: 1, signal: 'SIGTERM' }, { status: 1, error: new Error('timeout') }]) {
+  assert(ownerOutcome(r) === 'unusable', 'native or incomplete owner must not count as a mutation catch');
+}
+assert(ownerOutcome({ status: 1 }) === 'caught' && ownerOutcome({ status: 2 }) === 'caught', 'real owner failures must remain catches');
+assert(ownerOutcome({ status: 0 }) === 'green' && ownerOutcome({ status: 3 }) === 'green', 'pass and explicit host skip must not count as catches');
 let failures = 0;
 const originals = new Map();
 for (const [k, p] of Object.entries(CLI_FILES)) originals.set(k, fs.readFileSync(p));
@@ -122,9 +135,16 @@ const custody = beginDistMutation([...new Set(Object.values(CLI_FILES))]);
 
 console.log('=== master-pass-mutations: baseline owner runs ===');
 for (const owner of new Set(MUTATIONS.map((m) => m.owner))) {
-  const { status, green } = runOwner(owner);
+  const r = runOwner(owner);
+  const { status } = r;
+  const green = r.outcome === 'green';
   console.log(`${green ? 'PASS' : 'FAIL'} baseline owner=${owner} (exit ${status}${status === 3 ? ' = host-bound SKIP: ran everything this host could' : ''})`);
-  if (!green) { failures++; console.log('  baseline must be green before mutating — aborting'); process.exit(1); }
+  if (!green) {
+    failures++;
+    console.log(r.stdout ?? ''); console.error(r.stderr ?? '');
+    console.log(`  owner signal=${r.signal ?? 'none'} error=${r.error?.message ?? 'none'}`);
+    console.log('  baseline must be green before mutating — aborting'); process.exit(1);
+  }
 }
 
 for (const m of MUTATIONS) {
@@ -134,9 +154,11 @@ for (const m of MUTATIONS) {
   if (n !== 1) { failures++; console.log(`FAIL ${m.id}: anchor not unique (${n}x): ${m.from}`); continue; }
   fs.writeFileSync(p, src.replace(m.from, m.to));
   try {
-    const { status, green } = runOwner(m.owner);
-    if (green) { failures++; console.log(`FAIL ${m.id} SURVIVED: ${m.what}\n     owner=${m.owner} still green (exit ${status}) under this mutation — the proof has a hole`); }
-    else console.log(`PASS ${m.id} caught by ${m.owner} (exit ${status}): ${m.what}`);
+    const r = runOwner(m.owner);
+    const { status } = r;
+    if (r.outcome === 'green') { failures++; console.log(`FAIL ${m.id} SURVIVED: ${m.what}\n     owner=${m.owner} still green (exit ${status}) under this mutation — the proof has a hole`); }
+    else if (r.outcome === 'caught') console.log(`PASS ${m.id} caught by ${m.owner} (exit ${status}): ${m.what}`);
+    else { failures++; console.log(`FAIL ${m.id} owner unusable: exit=${status} signal=${r.signal ?? 'none'} error=${r.error?.message ?? 'none'} — no mutation catch was proven`); console.log(r.stdout ?? ''); console.error(r.stderr ?? ''); }
   } finally {
     fs.writeFileSync(p, originals.get(m.file));
     const back = fs.readFileSync(p).equals(originals.get(m.file));

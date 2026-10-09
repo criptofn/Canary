@@ -1,0 +1,70 @@
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index a413249..6441623 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -1,4 +1,7 @@
+ import assert from "node:assert/strict";
++import fs from "node:fs/promises";
++import os from "node:os";
++import path from "node:path";
+ import { reasonFromDocuments } from "../src/agent/logicCore.js";
+ import { buildMatrixNormBriefing, matchesMatrixNormTask } from "../src/agent/matrixNormCore.js";
+ import { previewOrganization } from "../src/workflows/fileOrganizer.js";
+@@ -25,4 +28,35 @@ assert.equal(math.simulation.length, 8);
+ const preview = await previewOrganization({ root: ".", maxAgeDays: 9999 });
+ assert.ok(Array.isArray(preview.moves));
+ 
++// Age-filter contract: an explicit numeric maxAgeDays always applies (including 0);
++// undefined/null and non-numeric types (string, boolean, NaN) mean "no age filter".
++const ageRoot = await fs.mkdtemp(path.join(os.tmpdir(), "hermes-age-filter-"));
++try {
++  const now = Date.now();
++  const freshName = "fresh.txt";        // mtime slightly in the future -> ageDays <= 0
++  const oldName = "old-report.txt";     // mtime 5 days ago -> ageDays ~ 5
++  await fs.writeFile(path.join(ageRoot, freshName), "fresh");
++  await fs.writeFile(path.join(ageRoot, oldName), "old");
++  await fs.utimes(path.join(ageRoot, freshName), new Date(now), new Date(now + 120000));
++  await fs.utimes(path.join(ageRoot, oldName), new Date(now), new Date(now - 5 * 86400000));
++
++  const listedFiles = async (ageOptions) => {
++    const page = await previewOrganization({ root: ageRoot, ...ageOptions });
++    return page.moves.map((move) => move.file).sort();
++  };
++  const allFiles = [freshName, oldName];
++
++  assert.deepEqual(await listedFiles({ maxAgeDays: 0 }), [freshName]);
++  assert.deepEqual(await listedFiles({ maxAgeDays: 1 }), [freshName]);
++  assert.deepEqual(await listedFiles({}), allFiles);
++  assert.deepEqual(await listedFiles({ maxAgeDays: undefined }), allFiles);
++  assert.deepEqual(await listedFiles({ maxAgeDays: null }), allFiles);
++  assert.deepEqual(await listedFiles({ maxAgeDays: "5" }), allFiles);
++  assert.deepEqual(await listedFiles({ maxAgeDays: true }), allFiles);
++  assert.deepEqual(await listedFiles({ maxAgeDays: false }), allFiles);
++  assert.deepEqual(await listedFiles({ maxAgeDays: Number.NaN }), allFiles);
++} finally {
++  await fs.rm(ageRoot, { recursive: true, force: true });
++}
++
+ console.log("Hermes smoke test passed");
+diff --git a/src/workflows/fileOrganizer.js b/src/workflows/fileOrganizer.js
+index e827a7d..7f504bf 100644
+--- a/src/workflows/fileOrganizer.js
++++ b/src/workflows/fileOrganizer.js
+@@ -23,6 +23,8 @@ function defaultDownloadsDir() {
+ export async function previewOrganization(options = {}) {
+   const root = path.resolve(options.root || defaultDownloadsDir());
+   const targetRoot = path.resolve(root, options.targetRoot || "Hermes_Sorted");
++  const { maxAgeDays } = options;
++  const hasAgeFilter = typeof maxAgeDays === "number" && !Number.isNaN(maxAgeDays);
+   const entries = await fs.readdir(root, { withFileTypes: true });
+   const moves = [];
+ 
+@@ -31,7 +33,7 @@ export async function previewOrganization(options = {}) {
+     const source = path.join(root, entry.name);
+     const stats = await fs.stat(source);
+     const ageDays = (Date.now() - stats.mtimeMs) / 86400000;
+-    if (options.maxAgeDays && ageDays > options.maxAgeDays) continue;
++    if (hasAgeFilter && ageDays > maxAgeDays) continue;
+ 
+     const group = classify(entry.name);
+     moves.push({

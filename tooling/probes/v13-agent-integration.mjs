@@ -66,7 +66,9 @@ try {
     doc = JSON.parse(fs.readFileSync(path.join(temp, '.mcp.json'), 'utf8'));
     const entry = doc?.mcpServers?.canary;
     assert.ok(entry, `.mcp.json has no canary entry: ${JSON.stringify(doc)}`);
-    assert.ok(Array.isArray(entry.args) && entry.args.at(-1) === 'mcp', `unexpected args: ${JSON.stringify(entry.args)}`);
+    assert.ok(Array.isArray(entry.args) && entry.args.includes('mcp'), `unexpected args: ${JSON.stringify(entry.args)}`);
+    assert.deepEqual(entry.args.slice(-3), ['mcp', '--profile', 'everyday'],
+      `setup must wire the measured everyday default profile: ${JSON.stringify(entry.args)}`);
     assert.ok(entry.args.some((a) => a.endsWith('main.js')), 'the entry must point at this CLI');
   });
 

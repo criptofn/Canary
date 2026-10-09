@@ -100,15 +100,86 @@ describe('1.1 protocol: one JSON object, and no verdict changes', () => {
 
     const r = canary(['result', '--json', root]);
     assert.equal(r.status, 0, r.stderr);
-    const env = JSON.parse(r.stdout) as { schema: string; command: string; status: string; checks: unknown[]; evidencePath: string };
+    const env = JSON.parse(r.stdout) as {
+      schema: string; command: string; status: string; checks: unknown[]; evidencePath: string;
+      lastVerification?: { status: string; historical: boolean; checks: Array<{ ok: boolean }>; hookResponse: string; sessionEnd: string };
+    };
     assert.equal(env.schema, 'canary-result/1');
     assert.equal(env.command, 'result');
     assert.equal(env.status, 'CONNECTED');
     assert.equal(env.checks.length, 1);
+    assert.equal(env.lastVerification?.status, 'pass');
+    assert.equal(env.lastVerification?.historical, true);
+    assert.deepEqual(env.lastVerification?.checks.map((x) => x.ok), [true]);
+    assert.equal(env.lastVerification?.hookResponse, 'not-applicable');
+    assert.equal(env.lastVerification?.sessionEnd, 'unknown');
     assert.match(env.evidencePath, /\.canary$/, 'the envelope points at the state, it does not paste it');
     assert.ok(r.stdout.length < 4000, `the envelope must stay compact, got ${r.stdout.length} bytes`);
     // and it never executes the plan or writes anything
     assert.equal(fs.readFileSync(cfgPath, 'utf8'), before, 'result must not touch the sealed config');
     assert.equal(fs.readdirSync(path.join(root, '.canary')).sort().join(','), stateBefore, 'result must not add state');
+  });
+
+  it('human results expose historical proof scope, open duties and caveats without claiming current proof', () => {
+    const root = makeProject('result-proof-scope');
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const cpPath = path.join(root, '.canary', 'last-checkpoint.json');
+    const cp = JSON.parse(fs.readFileSync(cpPath, 'utf8'));
+    cp.proof = { registeredRequirements: 2, obligations: [
+      { id: 'one', mode: 'objective', status: 'met', caveat: 'agent-authored test' },
+      { id: 'two', mode: 'objective', status: 'unproven' },
+      { id: 'three', mode: 'objective', status: 'unmet' },
+    ] };
+    fs.writeFileSync(cpPath, JSON.stringify(cp));
+    const before = fs.readFileSync(cpPath, 'utf8');
+    const r = canary(['result', root]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /proof in that run: 2 registered requirement\(s\); obligations: 1 met, 1 unproven, 1 unmet/);
+    assert.match(r.stdout, /evidence caveat in that run \[one\]: agent-authored test/);
+    assert.match(r.stdout, /historical only/);
+    assert.equal(fs.readFileSync(cpPath, 'utf8'), before);
+
+    delete cp.proof;
+    fs.writeFileSync(cpPath, JSON.stringify(cp));
+    const legacy = canary(['result', root]);
+    assert.match(legacy.stdout, /proof in that run: not recorded/);
+    assert.doesNotMatch(legacy.stdout, /obligations: .*met/);
+  });
+
+  it('doctor states when no task acceptance criteria were registered, even when checks pass', () => {
+    const root = makeProject('doctor-proof-scope');
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const r = canary(['doctor', root]);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /proof scope: 0 registered requirement\(s\); obligations:/);
+    assert.match(r.stdout, /task acceptance criteria were not registered/);
+    assert.match(r.stdout, /READY/);
+  });
+
+  it('result separates a diagnostic pass from completion-hook history and never claims session completion', () => {
+    const root = makeProject('diagnostic-is-not-completion');
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    assert.equal(canary(['doctor', root]).status, 0);
+    const cpPath = path.join(root, '.canary', 'last-checkpoint.json');
+    const before = fs.readFileSync(cpPath, 'utf8');
+    const diagnostic = canary(['result', root]);
+    assert.equal(diagnostic.status, 0);
+    assert.match(diagnostic.stdout, /diagnostic run; no completion-hook response in this record/);
+    assert.match(diagnostic.stdout, /last recorded verification: pass \(doctor\)/);
+    assert.doesNotMatch(diagnostic.stdout, /last recorded completion/);
+    assert.equal(fs.readFileSync(cpPath, 'utf8'), before, 'reading history cannot run checks or update it');
+
+    const blocked = { ...JSON.parse(before), source: 'checkpoint', status: 'unproven', hookResponse: 'blocked' };
+    fs.writeFileSync(cpPath, JSON.stringify(blocked));
+    const history = canary(['result', root]);
+    assert.equal(history.status, 0);
+    assert.match(history.stdout, /completion hook in that run: blocked; session end: unknown/);
+    assert.match(history.stdout, /last recorded verification: unproven \(checkpoint\)/);
+    assert.doesNotMatch(history.stdout, /last recorded completion/);
+    const envelope = JSON.parse(canary(['result', '--json', root]).stdout);
+    assert.equal(envelope.status, 'CONNECTED');
+    assert.equal(envelope.lastVerification.hookResponse, 'blocked');
+    assert.equal(envelope.lastVerification.sessionEnd, 'unknown');
+    assert.equal(envelope.lastVerification.historical, true);
   });
 });

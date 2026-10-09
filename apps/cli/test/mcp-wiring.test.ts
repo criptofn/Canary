@@ -49,7 +49,7 @@ describe('v1.3 MCP wiring: setup registers the server without owning anything it
     assert.equal(res.touched?.created, true);
     const entry = servers(root).canary as { command: string; args: string[] };
     assert.deepEqual(entry.args, mcpServerArgs(CLI));
-    assert.equal(entry.args.at(-1), 'mcp');
+    assert.deepEqual(entry.args.slice(-2), ['--profile', 'everyday']);
     assert.ok(entry.command.length > 0, 'a server needs a command');
   });
 
@@ -81,6 +81,34 @@ describe('v1.3 MCP wiring: setup registers the server without owning anything it
     assert.equal(installMcpServer(root, CLI, owned, backups(root)).ok, true);
     assert.equal(fs.readFileSync(mcpConfigPath(root), 'utf8'), first);
     assert.equal(Object.keys(servers(root)).length, 1, 'exactly one entry, never a growing pile');
+  });
+
+  it('migrates an older managed MCP entry to everyday and preserves an explicit expert choice', () => {
+    const root = repo();
+    const legacyArgs = [CLI, 'mcp'];
+    write(root, { mcpServers: { canary: { command: 'node', args: legacyArgs } } });
+    const legacy = new Set([JSON.stringify(legacyArgs)]);
+    assert.equal(installMcpServer(root, CLI, legacy, backups(root)).ok, true);
+    assert.deepEqual((servers(root).canary as { args: string[] }).args, mcpServerArgs(CLI, 'everyday'));
+
+    const expertRoot = repo();
+    assert.equal(installMcpServer(expertRoot, CLI, new Set(), backups(expertRoot), 'expert').ok, true);
+    assert.deepEqual((servers(expertRoot).canary as { args: string[] }).args, mcpServerArgs(CLI, 'expert'));
+  });
+
+  it('dry-run validates merge and trust rules without creating a file or backup', () => {
+    const root = repo();
+    const res = installMcpServer(root, CLI, new Set(), backups(root), 'everyday', true);
+    assert.equal(res.ok, true, res.problem);
+    assert.equal(fs.existsSync(mcpConfigPath(root)), false);
+    assert.equal(fs.existsSync(backups(root)), false);
+
+    write(root, { mcpServers: { canary: { command: 'node', args: ['foreign.js'] } } });
+    const before = fs.readFileSync(mcpConfigPath(root), 'utf8');
+    const refused = installMcpServer(root, CLI, new Set(), backups(root), 'everyday', true);
+    assert.equal(refused.ok, false);
+    assert.equal(fs.readFileSync(mcpConfigPath(root), 'utf8'), before);
+    assert.equal(fs.existsSync(backups(root)), false);
   });
 
   it('refuses invalid JSON and a non-object mcpServers, writing nothing', () => {

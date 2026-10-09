@@ -1,0 +1,120 @@
+
+> refactron@0.4.5 test
+> vitest run
+
+
+ RUN  v3.2.7 C:/Users/Johannes/AppData/Local/Temp/canary-v15-pilot-preflight2-20260927/projects/R1/plain
+
+ ✓ tests/integration/verify-diff.test.ts (27 tests) 53782ms
+   ✓ SAFE requires every coverable changed statement (issue #109) > one exercised statement no longer clears a file of ten unexercised ones  2096ms
+   ✓ SAFE requires every coverable changed statement (issue #109) > a fully exercised change is still SAFE  1691ms
+   ✓ an unparsed runner with arguments cannot earn SAFE (issue #115) > the whole unittest suite catches the change: UNSAFE  746ms
+   ✓ an unparsed runner with arguments cannot earn SAFE (issue #115) > the same diff under a single unittest module is UNPROVEN, not SAFE  1223ms
+   ✓ a narrowed testCmd cannot earn SAFE (issue #110) > the full suite catches the change: UNSAFE  1219ms
+   ✓ a narrowed testCmd cannot earn SAFE (issue #110) > the same diff under a narrowed command is UNPROVEN, not SAFE  1905ms
+   ✓ a narrowed testCmd cannot earn SAFE (issue #110) > a collect-only run selects zero tests and cannot be SAFE  2346ms
+   ✓ a narrowed testCmd cannot earn SAFE (issue #110) > the narrowed run still measured full statement coverage, so #109 would not have caught it  2776ms
+   ✓ verifyDiff with a NAME=VALUE prefix on testCmd (issue #95) > PYTHONPATH= prefix still measures coverage and can reach SAFE  5093ms
+   ✓ verifyDiff with a NAME=VALUE prefix on testCmd (issue #95) > a PYTHONPATH pointing OUTSIDE the shadow tree reads unknown, never uncovered  3783ms
+   ✓ verifyDiff with a NAME=VALUE prefix on testCmd (issue #95) > a change that BREAKS the suite can never read SAFE, whatever the prefix  3564ms
+   ✓ verifyDiff with a NAME=VALUE prefix on testCmd (issue #95) > a console-script testCmd cannot read SAFE when the gate imports another copy  2118ms
+   ✓ verifyDiff (python three-way, real coverage) > semantics-preserving edit to COVERED code → SAFE  1679ms
+   ✓ verifyDiff (python three-way, real coverage) > behavior-breaking edit to COVERED code → UNSAFE  1328ms
+   ✓ verifyDiff (python three-way, real coverage) > mixed-language diff (covered .py + unassessable .ts) → UNPROVEN, never SAFE  745ms
+   ✓ verifyDiff (python three-way, real coverage) > edit to UNCOVERED code, tests still pass → UNPROVEN  1663ms
+   ✓ verifyDiff (python three-way, real coverage) > multi-line statements > changed CONTINUATION lines of an executed statement → SAFE  1840ms
+   ✓ verifyDiff (python three-way, real coverage) > multi-line statements > changed lines under an UNEXECUTED statement → one deduped entry at the start  1683ms
+   ✓ verifyDiff (python three-way, real coverage) > a change inside a `# pragma: no cover` body maps to the excluded statement, once  1734ms
+   ✓ verifyDiff (python three-way, real coverage) > a change inside `if TYPE_CHECKING:` maps to the guarded import, never the executed guard  1846ms
+   ✓ verifyDiff (python three-way, real coverage) > semantically inert lines never vouch for unexecuted code > a changed BLANK line does not make an untested change read as covered  1666ms
+   ✓ verifyDiff (python three-way, real coverage) > semantically inert lines never vouch for unexecuted code > a changed COMMENT line does not make an untested change read as covered  1838ms
+   ✓ verifyDiff (python three-way, real coverage) > semantically inert lines never vouch for unexecuted code > a changed DOCSTRING line does not make an untested change read as covered  1658ms
+   ✓ verifyDiff (python three-way, real coverage) > semantically inert lines never vouch for unexecuted code > a change inside `if False:` is not vouched for by the executed guard above it  1838ms
+   ✓ verifyDiff (python three-way, real coverage) > semantically inert lines never vouch for unexecuted code > a file whose changed lines are ALL inert has nothing to attest, not a free pass  1889ms
+   ✓ verifyDiff (python three-way, real coverage) > semantically inert lines never vouch for unexecuted code > a partially exercised change is UNPROVEN and discloses the ratio  1671ms
+   ✓ verifyDiff (python three-way, real coverage) > a flaky test that heals on retry does NOT produce a false UNSAFE; flakyTests carries it  2141ms
+ ✓ tests/integration/coverage-reporter.test.ts (30 tests | 8 skipped) 6828ms
+   ✓ python-line-coverage reporter > returns covered lines for a tested function and skips untested  914ms
+   ✓ python-line-coverage reporter > exposes the executable (statement-start) line set per file  843ms
+   ✓ python-line-coverage reporter > counts EXCLUDED lines as executable so they cannot be attributed away  843ms
+   ✓ python-line-coverage reporter > test-command forms > measures coverage for a SCRIPT-form test command  696ms
+   ✓ python-line-coverage reporter > test-command forms > still measures coverage for module-form commands (regression guard)  847ms
+   ✓ python-line-coverage reporter > test-command forms > reports measurementFailed when the coverage run cannot execute  497ms
+   ✓ python-line-coverage reporter > test-command forms > hoists through a real coverage run, keeping the inherited env  857ms
+   ✓ python-line-coverage reporter > test-command forms > refuses to guess at shell-composite commands  313ms
+   ✓ python-line-coverage reporter > still reports real files when the suite executes phantom-filename code  866ms
+ ✓ tests/unit/verify/test-scope.test.ts (195 tests) 25ms
+ ✓ tests/unit/verify/coverage-attribution.test.ts (43 tests) 9ms
+ ✓ tests/unit/verify/verdict-fuse.test.ts (51 tests) 9ms
+ ✓ tests/unit/verify/diff-input.test.ts (33 tests) 64ms
+ ✓ tests/unit/release/release-workflow.test.ts (9 tests) 5ms
+ ✓ tests/unit/verify/statement-map.test.ts (18 tests) 1946ms
+ ✓ tests/unit/verify/gates-tests.test.ts (8 tests) 5371ms
+   ✓ testsGate > passes when shadow tree tests pass  566ms
+   ✓ testsGate > fails when a change breaks behavior  1098ms
+   ✓ testsGate > aborts with a clear message if baseline already fails  1122ms
+   ✓ testsGate > treats a cross-tree flake (heals on a fresh shadow) as flaky (id surfaced)  588ms
+   ✓ testsGate > does NOT excuse an idempotency break (cwd-marker heal) as flaky  834ms
+   ✓ testsGate > fails when a new failure persists on retry (genuine regression, not flaky)  1099ms
+ ✓ tests/unit/cli/verify-diff-wiring.test.ts (6 tests) 7183ms
+   ✓ runVerifyDiffCommand: test-scope note wiring (#120) > prints the narrowed-scope note  1660ms
+   ✓ runVerifyDiffCommand: test-scope note wiring (#120) > stays silent for a whole-suite command  1603ms
+   ✓ runVerifyDiffCommand: test-scope note wiring (#120) > --json carries testScope, and prints no human notes  907ms
+   ✓ runVerifyDiffCommand: test-scope note wiring (#120) > --json carries engineVersion, matched as a shape not a literal  1596ms
+   ✓ runVerifyDiffCommand: test-scope note wiring (#120) > discloses an unparsed command instead of letting it read as clean  511ms
+   ✓ runVerifyDiffCommand: test-scope note wiring (#120) > prints the scope note BEFORE the changed-test-files note  906ms
+ ✓ tests/unit/cli/help-drift.test.ts (10 tests) 1049ms
+   ✓ CLI help and dispatch do not drift > every advertised verb dispatches without crashing  349ms
+ ✓ tests/unit/verify/runner-env-redaction.test.ts (7 tests) 190ms
+ ✓ tests/unit/verify/gates-imports.test.ts (9 tests) 507ms
+ ✓ tests/integration/shadow-tree-immunity.test.ts (5 tests) 3605ms
+   ✓ the caller working tree is immune to the verified suite > a suite that writes to an unchanged file cannot reach the source tree  1888ms
+   ✓ the caller working tree is immune to the verified suite > a file the diff DID name is also untouched in the source tree  1687ms
+ ✓ tests/unit/cli/verify-diff-command.test.ts (24 tests) 5ms
+ ✓ tests/unit/verify/mutation.test.ts (8 tests | 1 skipped) 1021ms
+ ✓ tests/unit/verify/shadow-tree.test.ts (4 tests) 31ms
+ ✓ tests/integration/mutation-downgrade.test.ts (4 tests | 1 skipped) 6794ms
+   ✓ a surviving mutant downgrades SAFE under --mutate (#116) > a change with a weak test is SAFE without --mutate  1943ms
+   ✓ a surviving mutant downgrades SAFE under --mutate (#116) > the same change floors to UNPROVEN under --mutate  2332ms
+   ✓ a surviving mutant downgrades SAFE under --mutate (#116) > a well-tested change still reaches SAFE under --mutate  2519ms
+ ✓ tests/unit/verify/diff-intake-containment.test.ts (4 tests) 20ms
+ ✓ tests/integration/pytest-config-narrowing.test.ts (6 tests) 9411ms
+   ✓ a pytest config that narrows the suite cannot earn SAFE (#137) > refuses SAFE when pytest.ini narrows the run  1676ms
+   ✓ a pytest config that narrows the suite cannot earn SAFE (#137) > refuses SAFE when tox.ini narrows the run  1833ms
+   ✓ a pytest config that narrows the suite cannot earn SAFE (#137) > refuses SAFE when setup.cfg narrows the run  1679ms
+   ✓ a pytest config that narrows the suite cannot earn SAFE (#137) > refuses SAFE when pyproject.toml narrows the run  1674ms
+   ✓ a pytest config that narrows the suite cannot earn SAFE (#137) > still returns UNSAFE with no config, which is what makes the rows above a REGRESSION  1351ms
+   ✓ a pytest config that narrows the suite cannot earn SAFE (#137) > does not floor a project whose config narrows nothing  1197ms
+ ✓ tests/unit/mcp/verify-change.test.ts (7 tests) 3501ms
+   ✓ handleVerifyChange > returns a structured verdict for a SAFE change  1679ms
+   ✓ handleVerifyChange > reports a narrowed scope on the MCP surface, and floors the verdict  1820ms
+ ✓ tests/integration/branch-coverage-safe.test.ts (2 tests) 3681ms
+   ✓ a changed conditional with an untaken branch cannot earn SAFE (#117) > floors to UNPROVEN when one branch of the changed if is never taken  1842ms
+   ✓ a changed conditional with an untaken branch cannot earn SAFE (#117) > still reaches SAFE when every branch of the changed if is exercised  1838ms
+ ✓ tests/unit/verify/syntax-fuzz.test.ts (2 tests) 3363ms
+   ✓ syntax fuzz > rejects all hand-curated Python breakages  3301ms
+ ✓ tests/unit/verify/verifier-on-gate-complete.test.ts (2 tests) 550ms
+   ✓ RefactronVerifier callbacks > calls onGateComplete once per gate (syntax, imports, tests) in order on success  541ms
+ ✓ tests/unit/auth/credentials.test.ts (11 tests) 3ms
+ ✓ tests/unit/verify/mutate-sidecar.test.ts (6 tests) 481ms
+ ✓ tests/unit/verify/imports-python.test.ts (7 tests) 1584ms
+ ✓ tests/integration/verify-engine.test.ts (4 tests) 3469ms
+   ✓ RefactronVerifier on python-legacy-mini > passes a no-op plan  1713ms
+   ✓ RefactronVerifier on python-legacy-mini > rejects a plan that breaks tests  1529ms
+ ✓ tests/unit/verify/summarize-vitest.test.ts (5 tests) 3ms
+ ✓ tests/unit/verify/failure-ids.test.ts (7 tests) 3ms
+ ✓ tests/unit/release/changelog-parity.test.ts (4 tests) 5ms
+ ✓ tests/unit/verify/imports-typescript.test.ts (2 tests) 17ms
+ ✓ tests/unit/cli/auth-gate.test.ts (3 tests) 3ms
+ ✓ tests/unit/verify/runners-detect.test.ts (4 tests) 8ms
+ ✓ tests/unit/verify/runners-run.test.ts (4 tests) 671ms
+   ✓ runRunner > reports timeout  522ms
+ ✓ tests/unit/verify/gates-syntax.test.ts (2 tests) 72ms
+ ✓ tests/unit/verify/syntax-typescript.test.ts (4 tests) 13ms
+ ✓ tests/unit/verify/syntax-python.test.ts (3 tests) 193ms
+
+ Test Files  38 passed (38)
+      Tests  570 passed | 10 skipped (580)
+   Start at  17:19:33
+   Duration  133.67s (transform 490ms, setup 0ms, collect 10.05s, tests 115.48s, environment 4ms, prepare 3.19s)
+

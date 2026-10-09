@@ -1,0 +1,1 @@
+PASS H3 independent bit-width range contract

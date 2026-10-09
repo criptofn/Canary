@@ -233,6 +233,54 @@ export function parseSummaryCounts(log: string): SummaryCounts {
   };
 }
 
+/**
+ * Jest's default summary includes every test outcome on its `Tests:` line:
+ * `Tests: 2 skipped, 1 todo, 3 passed, 6 total`. `--collectTests` can instead
+ * report `runnable`; those assertions were collected but never executed, so
+ * they belong with pending checks rather than passing evidence.
+ */
+export function parseJestCounts(log: string): SummaryCounts | undefined {
+  let summary: string | undefined;
+  for (const line of runnerView(log).split('\n')) {
+    if (/^\s*Tests:\s*/i.test(line)) summary = line.replace(/^\s*Tests:\s*/i, '').trim();
+  }
+  if (summary === undefined) return undefined;
+  const totals = [...summary.matchAll(/(?:^|,\s*)(\d+)\s+total\b/gi)];
+  if (totals.length === 0) return undefined;
+  const total = Number(totals.at(-1)![1]);
+  let passing = 0; let failing = 0; let pending = 0; let accounted = 0;
+  for (const match of summary.matchAll(/(?:^|,\s*)(\d+)\s+(passed|failed|skipped|pending|todo|runnable)\b/gi)) {
+    const count = Number(match[1]);
+    const status = match[2]!.toLowerCase();
+    accounted += count;
+    if (status === 'passed') passing += count;
+    else if (status === 'failed') failing += count;
+    else pending += count;
+  }
+  return accounted === total ? { passing, failing, pending } : undefined;
+}
+
+/** Parse Vitest's aggregate test-case row, excluding the separate `Test Files` row. */
+export function parseVitestCounts(log: string): SummaryCounts | undefined {
+  let summary: string | undefined;
+  let total: number | undefined;
+  for (const line of runnerView(log).split('\n')) {
+    const match = /^\s*Tests\s+(.+?)\s+\((\d+)\)\s*$/i.exec(line);
+    if (match) { summary = match[1]; total = Number(match[2]); }
+  }
+  if (summary === undefined || total === undefined) return undefined;
+  let passing = 0; let failing = 0; let pending = 0; let accounted = 0;
+  for (const match of summary.matchAll(/(?:^|\|\s*)(\d+)\s+(passed|failed|skipped|pending|todo)\b/gi)) {
+    const count = Number(match[1]);
+    const status = match[2]!.toLowerCase();
+    accounted += count;
+    if (status === 'passed') passing += count;
+    else if (status === 'failed') failing += count;
+    else pending += count;
+  }
+  return accounted === total ? { passing, failing, pending } : undefined;
+}
+
 /** True iff two normalized streams are identical — the determinism check. */
 export function streamsStable(hashes: readonly string[]): boolean {
   return hashes.length > 0 && hashes.every((h) => h === hashes[0]);
@@ -284,9 +332,9 @@ export function parseUnittestCounts(log: string): SummaryCounts | undefined {
   return { passing, failing, pending };
 }
 
-// ─────────────────── node:test TAP summary (v1.1 Phase 2) ───────────────────
+// ─────────────────── node:test summary (TAP + spec reporters) ──────────────
 /**
- * `node --test` prints a TAP summary block at the END of stdout:
+ * `node --test` prints a TAP (`#`) or spec (`ℹ`) summary block at the END of stdout:
  *
  *   # tests 7
  *   # suites 0
@@ -296,16 +344,18 @@ export function parseUnittestCounts(log: string): SummaryCounts | undefined {
  *   # skipped 1
  *   # todo 1
  *
- * THREE measured properties make this parseable without trusting the subject:
+ * For TAP, the reporter escapes a subject's matching lines. The spec reporter
+ * does not, so its summary is read from the LAST anchored occurrences; both
+ * reporters emit their aggregate after test output. In both formats:
  *
- *  1. The lines are ANCHORED (`^# pass N$`) and the LAST occurrence wins. The TAP
+ *  1. The lines are ANCHORED (`^(?:#|ℹ) pass N$`) and the LAST occurrence wins. The TAP
  *     reporter escapes a subject's own printed output: a test that runs
  *     `console.log('# pass 9')` appears on stdout as `# \# pass 9` (MEASURED, see
  *     `tooling/probes/node-test-reporter-events.mjs`), which does not match an
  *     anchored pattern. An unanchored `/ # pass (\d+)/` WOULD match it — the
  *     substring is there — which is why anchoring is load-bearing and not style.
- *  2. `# skipped` and `# todo` are SEPARATE counters and neither is inside
- *     `# pass` (measured: 1 skipped + 1 todo alongside `# pass 3` of 7 tests).
+ *  2. `skipped` and `todo` are SEPARATE counters and neither is inside
+ *     `pass` (measured: 1 skipped + 1 todo alongside `pass 3` of 7 tests).
  *     Both are `pending` here, because that is what the frames carry.
  *  3. The arithmetic must close: pass + fail + skipped + todo == tests. Text that
  *     cannot describe a run is not accepted as a summary, and a `# cancelled N`
@@ -315,7 +365,7 @@ export function parseUnittestCounts(log: string): SummaryCounts | undefined {
 export function parseNodeTestCounts(log: string): SummaryCounts | undefined {
   const norm = runnerView(log);
   const last = (key: string): number | undefined => {
-    const re = new RegExp(`^# ${key} (\\d+)\\s*$`, 'gm');
+    const re = new RegExp(`^(?:#|ℹ) ${key} (\\d+)\\s*$`, 'gm');
     let m: RegExpExecArray | null = null;
     let value: number | undefined;
     while ((m = re.exec(norm)) !== null) value = Number(m[1]);
@@ -446,6 +496,8 @@ export function parseSummaryCountsFor(runner: string | undefined, log: string): 
   if (runner === 'python-unittest') return parseUnittestCounts(log) ?? {};
   if (runner === 'node-test') return parseNodeTestCounts(log) ?? {};
   if (runner === 'pytest') return parsePytestCounts(log) ?? {};
+  if (runner === 'jest') return parseJestCounts(log) ?? {};
+  if (runner === 'vitest') return parseVitestCounts(log) ?? {};
   return parseSummaryCounts(log);
 }
 
@@ -454,6 +506,8 @@ export function hasRunnerSummaryFor(runner: string | undefined, log: string): bo
   if (runner === 'python-unittest') return parseUnittestCounts(log) !== undefined;
   if (runner === 'node-test') return parseNodeTestCounts(log) !== undefined;
   if (runner === 'pytest') return parsePytestCounts(log) !== undefined;
+  if (runner === 'jest') return parseJestCounts(log) !== undefined;
+  if (runner === 'vitest') return parseVitestCounts(log) !== undefined;
   return parseSummaryCounts(log).passing !== undefined || parseSummaryCounts(log).failing !== undefined;
 }
 

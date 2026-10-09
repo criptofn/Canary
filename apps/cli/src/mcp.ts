@@ -26,7 +26,7 @@
 import { spawnSync } from 'node:child_process';
 import readline from 'node:readline';
 
-import { CLI_ENTRY, selfArgv } from './onboarding.js';
+import { CLI_ENTRY, selfArgv, projectTestEntryHint, type McpProfile } from './onboarding.js';
 import { CANARY_VERSION } from './pipeline.js';
 
 /** The MCP revision this server speaks. */
@@ -68,52 +68,67 @@ const TOOLS: readonly McpTool[] = [
   {
     name: 'canary_result',
     description:
-      'What Canary knows about this repository, machine-readable (runs `canary result --json`). '
-      + 'Read-only and free: it writes nothing. Use this first to learn the sealed checks, the '
-      + 'measured custody level and what to do next.',
+      'Read-only summary of this repository: checks, protection level and next action (`canary result --json`).',
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string', description: 'Repository directory to inspect (defaults to the server working directory).' } },
+      properties: { path: { type: 'string', description: 'Repository root (defaults to server cwd).' } },
       additionalProperties: false,
     },
     annotations: { title: 'Canary result (read-only)', readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
     name: 'canary_status',
-    description:
-      'Whether Canary is active in this repository and how it is wired (runs `canary status --json`). '
-      + 'Read-only: performs no writes.',
+    description: 'Read-only wiring status for this repository (`canary status --json`).',
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string', description: 'Repository directory to inspect.' } },
+      properties: { path: { type: 'string', description: 'Repository root (defaults to server cwd).' } },
       additionalProperties: false,
     },
     annotations: { title: 'Canary status (read-only)', readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
     name: 'canary_agents',
-    description:
-      'Which agent harnesses are present here and the REAL capability of each — GATED (can block a '
-      + 'completion) versus ADVISORY (told, but free to ignore). Never reports an advisory integration '
-      + 'as if it could gate.',
+    description: 'Lists available agent integrations and whether each can block completion or only advise.',
     inputSchema: {
       type: 'object',
-      properties: { path: { type: 'string', description: 'Repository directory to inspect.' } },
+      properties: { path: { type: 'string', description: 'Repository root (defaults to server cwd).' } },
       additionalProperties: false,
     },
     annotations: { title: 'Canary agent capabilities (read-only)', readOnlyHint: true, destructiveHint: false, idempotentHint: true },
   },
   {
-    name: 'canary_doctor',
+    name: 'canary_task',
     description:
-      'The completion gate: runs the SEALED checks now and reports whether the change is genuinely done '
-      + '(runs `canary doctor`). This EXECUTES the repository\'s own sealed plan, so it is not read-only. '
-      + 'A non-zero exit code means NOT done — relay that; do not restate your own test output as proof.',
+      'Before work, record explicit user criteria verbatim (no placeholders). AGENT_REPORTED only; cannot prove or bind. Binding hints are operator-only.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Repository directory to check.' },
+        intent: { type: 'string', minLength: 1 },
+        requirements: {
+          type: 'array', minItems: 1,
+          description: 'Explicit user criteria, one per item, copied verbatim; no summaries/placeholders.',
+          items: { type: 'string', minLength: 1, description: 'One verbatim user criterion.' },
+        },
+      },
+      required: ['intent', 'requirements'],
+      additionalProperties: false,
+    },
+    annotations: { title: 'Canary task intake', readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  {
+    name: 'canary_doctor',
+    description:
+      'Runs sealed checks and project code. Omit `check` for the full gate; an exact check id is PARTIAL only. '
+      + 'Copy `check` from the sealed checks list; task and requirement text are not check ids. '
+      + 'When an automatic completion hook is installed, finish normally and let the hook verify once; use '
+      + 'this for early feedback or a focused repair. Without a hook, use the full gate for final verification. '
+      + 'Relay non-zero exits.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Repository root (defaults to server cwd).' },
         fast: { type: 'boolean', description: 'Opt-in adaptive fast path: leave out only the checks whose declared paths the change provably missed. Never available to promotion.' },
+        check: { type: 'string', minLength: 1, pattern: '\\S', description: 'Exact nonblank sealed check id for a focused PARTIAL diagnostic; omit for the full gate.' },
       },
       additionalProperties: false,
     },
@@ -164,28 +179,41 @@ const TOOLS: readonly McpTool[] = [
 ];
 
 const SERVER_INSTRUCTIONS = [
-  'Canary is an independent verification layer. Its verdicts (PASS, ACCEPTED, PROMOTED, NOT PROVEN) are',
-  'produced by the trusted `canary` CLI, never by this server: every tool here runs that CLI and reports',
-  'what it decided, exit code included. This server can only REQUEST operations.',
+  'The trusted CLI alone issues verdicts; relay its output and exit code. Agent-run tests are not Canary proof.',
   '',
-  'What it cannot do, by construction:',
-  '- it cannot mint a PASS, an acceptance, or a promotion;',
-  '- it cannot bypass the terminal gate on `canary accept` — that is a human act and is deliberately not',
-  '  exposed as a tool;',
-  '- it cannot close a SUBJECTIVE duty. A model may do objective work; only a human accepts a judgement.',
+  'No MCP call can mint a PASS or promotion, or bypass the terminal gate on `canary accept`; only a human may accept or close a SUBJECTIVE duty.',
   '',
-  'Working rule: verification in this repository is AUTOMATIC. Finish when you believe the work is',
-  'done and the project\'s sealed checks are run for you; if anything fails you will be told exactly',
-  'what to fix — so do not re-read output you have already seen, and do not repeat a check you have just run.',
-  'You may, and should, call canary_doctor when you are unsure, when you changed behaviour',
-  'the existing checks may not cover, or before finishing a change you cannot fully reason about:',
-  'being right matters more than being quick.',
-  '',
-  'When you want the verdict, ASK: `canary_doctor` runs the sealed checks and returns what the trusted',
-  'CLI decided. Never restate your own test output as proof, and never claim a result this server did',
-  'not report. For work that must be isolated, `canary_work` opens a candidate and `canary_finish`',
-  'verifies it and promotes only if the proof holds.',
+  'With a completion hook, finish normally; it runs the plan once. Use file/case filters early; do not repeat a passed full gate.',
+  'Without a hook, use canary_doctor for the full gate.',
+  'Use canary_result for a read-only summary.',
+  'For explicit criteria, call canary_task before work and copy them verbatim; never use placeholders. It records AGENT_REPORTED input only.',
+  'If unbound, keep NOT PROVEN. “Bind it” is operator-only: do not alter checks, baseline or hooks, or run setup/bind/accept. Continue authorized work.',
+  'Regression proof uses the planned test command; Canary compares against the starting commit automatically. Stay on this branch.',
+  'A worker caveat is provenance, not failure; report READY normally.',
 ].join('\n');
+
+const EXPERT_INSTRUCTIONS = '\n\nFor work that must be isolated, `canary_work` opens a candidate and `canary_finish` verifies it and promotes only if the proof holds.';
+
+function toolsFor(profile: McpProfile): readonly McpTool[] {
+  return profile === 'expert' ? TOOLS : TOOLS.filter((t) => t.name !== 'canary_agents' && t.name !== 'canary_work' && t.name !== 'canary_finish');
+}
+
+function parseMcpProfile(args: readonly string[]): McpProfile | null {
+  if (args.length === 0) return 'expert'; // preserve the original hand-configured CLI surface
+  let profile: McpProfile | null = null;
+  let seen = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    const value = arg === '--profile' ? args[++i] : arg.startsWith('--profile=') ? arg.slice('--profile='.length) : undefined;
+    if (value === undefined) return null;
+    if (seen) return null;
+    seen = true;
+    if (value !== 'everyday' && value !== 'expert') return null;
+    if (profile !== null && profile !== value) return null;
+    profile = value;
+  }
+  return profile;
+}
 
 /** Tools a client may ask for by name even though they do not exist. Saying WHY
  *  is better than a bare "unknown tool": the absence of `accept` is a design
@@ -275,6 +303,8 @@ function cwdFor(args: Record<string, unknown>): string {
   return typeof p === 'string' && p.trim() !== '' ? p : process.cwd();
 }
 
+const GENERIC_REQUIREMENT_PLACEHOLDER = /^(?:acceptance criteria|criteria|requirements?|user criteria)(?:\s+(?:from|in|provided by|given in)\s+(?:the\s+)?(?:user(?:'s)?\s+)?(?:prompt|request))?$/i;
+
 /** Validate + dispatch one tools/call. Returns null for an unknown tool. */
 function callTool(name: string, args: Record<string, unknown>): { content: Array<{ type: 'text'; text: string }>; isError: boolean; structuredContent?: Record<string, unknown> } {
   switch (name) {
@@ -284,8 +314,28 @@ function callTool(name: string, args: Record<string, unknown>): { content: Array
       return cliToolResult(runCli(['status', '--json'], cwdFor(args)));
     case 'canary_agents':
       return cliToolResult(runCli(['agents', '--json'], cwdFor(args)));
-    case 'canary_doctor':
-      return cliToolResult(runCli(args.fast === true ? ['doctor', '--fast'] : ['doctor'], cwdFor(args)));
+    case 'canary_task': {
+      const intent = asString(args.intent, 'intent');
+      if (typeof intent !== 'string') return errorResult(intent.error);
+      const requirements = asStringArray(args.requirements, 'requirements');
+      if (!Array.isArray(requirements)) return errorResult(requirements.error);
+      if (requirements.length === 0) return errorResult('requirements must include at least one explicit criterion');
+      if (requirements.some((requirement) => GENERIC_REQUIREMENT_PLACEHOLDER.test(requirement.trim().replace(/\s+/g, ' ')))) {
+        return errorResult('requirements must be explicit user criteria copied verbatim; a generic placeholder cannot be recorded');
+      }
+      const argv = ['task', intent];
+      for (const requirement of requirements) argv.push('--requirement', requirement);
+      return cliToolResult(runCli(argv, process.cwd()));
+    }
+    case 'canary_doctor': {
+      if (args.fast === true && args.check !== undefined) return errorResult('fast and check cannot be combined');
+      const check = args.check === undefined ? undefined : asString(args.check, 'check');
+      if (check !== undefined && typeof check !== 'string') return errorResult(check.error);
+      const argv = args.fast === true ? ['doctor', '--fast', '--json']
+        : typeof check === 'string' ? ['doctor', '--check', check, '--json']
+          : ['doctor', '--json'];
+      return cliToolResult(runCli(argv, cwdFor(args)));
+    }
     case 'canary_work': {
       const n = asString(args.name, 'name');
       if (typeof n !== 'string') return errorResult(n.error);
@@ -335,8 +385,13 @@ export async function cmdMcp(rawArgs: string[]): Promise<number> {
   // bug, so route our own diagnostics to stderr explicitly.
   const log = (s: string): void => { process.stderr.write(`canary mcp: ${s}\n`); };
   if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
-    process.stderr.write('usage: canary mcp — run the MCP server on stdio (JSON-RPC 2.0, one object per line)\n');
+    process.stderr.write('usage: canary mcp [--profile everyday|expert] — run the MCP server on stdio (JSON-RPC 2.0, one object per line)\n');
     return 0;
+  }
+  const profile = parseMcpProfile(rawArgs);
+  if (profile === null) {
+    process.stderr.write('REFUSED — use exactly one MCP profile: --profile everyday or --profile expert. Nothing was run.\n');
+    return 3;
   }
   const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
   for await (const line of rl) {
@@ -360,7 +415,7 @@ export async function cmdMcp(rawArgs: string[]): Promise<number> {
             protocolVersion: version,
             capabilities: { tools: { listChanged: false } },
             serverInfo: { name: 'canary', version: CANARY_VERSION, title: 'Canary verification layer' },
-            instructions: SERVER_INSTRUCTIONS,
+            instructions: SERVER_INSTRUCTIONS + projectTestEntryHint(process.cwd()) + (profile === 'expert' ? EXPERT_INSTRUCTIONS : ''),
           });
         }
         break;
@@ -374,7 +429,7 @@ export async function cmdMcp(rawArgs: string[]): Promise<number> {
       case 'tools/list':
         if (!isNotification) {
           rpcResult(id, {
-            tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations })),
+            tools: toolsFor(profile).map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations })),
           });
         }
         break;
@@ -383,7 +438,11 @@ export async function cmdMcp(rawArgs: string[]): Promise<number> {
         if (typeof name !== 'string') { if (!isNotification) rpcError(id, -32602, 'invalid params: "name" is required'); break; }
         const refusal = REFUSED_TOOLS[name];
         if (refusal !== undefined) { if (!isNotification) rpcResult(id, errorResult(refusal)); break; }
-        if (!TOOLS.some((t) => t.name === name)) {
+        if ((name === 'canary_agents' || name === 'canary_work' || name === 'canary_finish') && profile === 'everyday') {
+          if (!isNotification) rpcResult(id, errorResult(`"${name}" is available in the expert tool profile. Enable it with: canary setup --mcp-profile expert`));
+          break;
+        }
+        if (!toolsFor(profile).some((t) => t.name === name)) {
           if (!isNotification) rpcError(id, -32602, `unknown tool "${name}" — see tools/list`);
           break;
         }

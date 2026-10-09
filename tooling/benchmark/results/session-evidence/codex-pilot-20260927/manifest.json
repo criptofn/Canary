@@ -1,0 +1,153 @@
+{
+  "schema": "canary-codex-pilot/1",
+  "createdAtUtc": "2026-09-27T19:53:05.0729641Z",
+  "repoCommit": "223595e0bb08ad2db17c8103ac26d5d6dce5a0d2",
+  "cliVersion": "canary 1.5.0",
+  "publishedRelease": {
+    "packageSha256": "cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386",
+    "installedCliSha256": "3cfdfece2581b1036e1b01905be39d97161d03f683110cf40910570a5235d5e2",
+    "setupOutput": "release-setup.txt",
+    "doctorRegressionRepro": "doctor-on-published-1.5.0.txt",
+    "candidatePatch": "candidate.patch",
+    "note": "The live model pair used the workspace build at repoCommit. The exact published release was used separately for the no-model doctor regression reproduction."
+  },
+  "codexVersion": "codex-cli 0.154.0",
+  "model": "gpt-5.6-sol",
+  "reasoningEffort": "low",
+  "task": "refactor-preserve",
+  "taskSha256": "3d98f6aefbf8245051444733fbe90cc707e8a3dcba38693c940ce4d27291d4c4",
+  "fixtureFiles": [
+    {
+      "path": "package.json",
+      "sha256": "ca9248e88a3674c971903b93a49064995bac51fe1e80dbdf48df1cf8f96b091a"
+    },
+    {
+      "path": "run-tests.js",
+      "sha256": "68546fcc9a73eb70806145803bc32e75b83b62df3be87c5810d46ec2178b3a73"
+    },
+    {
+      "path": "src\\money.js",
+      "sha256": "7058e2d5a7c7a17be4b62187a811ec2a9ffc37ea81aaddac139ab73e1b646988"
+    },
+    {
+      "path": "tests\\money.test.js",
+      "sha256": "7ea69921058b6d6f9c03d2f8f5a64cfe88887ea031a9f6113325b8bb3bd056f2"
+    }
+  ],
+  "frozenBaseline": "4e274ae4418b63c96a087afad19c1615ff3e738d",
+  "arms": [
+    "plain-isolated",
+    "canary-stop-hook-isolated"
+  ],
+  "limits": {
+    "sessionTimeoutMinutes": 15,
+    "sessions": 2,
+    "reasoning": "low",
+    "usdSpent": null,
+    "usdSpentNote": "Codex account quota was used; this CLI did not expose a dollar charge or enforce a dollar cap."
+  },
+  "context": {
+    "userMcpServersEnabled": false,
+    "userPluginsEnabled": false,
+    "ponytailSkill": "Ponytail was available through global user config and invoked during this task; its effect on the live result cannot be excluded"
+  },
+  "hookTrust": "Reviewed and trusted only Canary's Stop hook interactively with Codex /hooks. No hook-trust bypass was used in either counted session; Ponytail hooks stayed untrusted.",
+  "results": {
+    "plain-isolated": {
+      "transcript": "plain-isolated.jsonl",
+      "stderr": "plain-isolated.stderr.txt",
+      "exitCode": 0,
+      "elapsedSeconds": 101,
+      "visibleTests": "6/6",
+      "independentOracle": "16/16",
+      "claimedDone": true,
+      "usage": {
+        "inputTokens": 211833,
+        "cachedInputTokens": 191744,
+        "outputTokens": 2990,
+        "reasoningOutputTokens": 931
+      }
+    },
+    "canary-stop-hook-isolated": {
+      "transcript": "guarded-isolated.jsonl",
+      "stderr": "guarded-isolated.stderr.txt",
+      "exitCode": 0,
+      "elapsedSeconds": 90,
+      "visibleTests": "5/5",
+      "independentOracle": "16/16",
+      "claimedDone": true,
+      "usage": {
+        "inputTokens": 160768,
+        "cachedInputTokens": 145280,
+        "outputTokens": 2794,
+        "reasoningOutputTokens": 811
+      },
+      "canary": {
+        "hookInvoked": true,
+        "checkpointStatus": "pass",
+        "hookResponse": "message-and-continue",
+        "sessionEnd": "unknown",
+        "evidenceCaveatWasVisibleInDoctor": false
+      }
+    }
+  },
+  "limitations": [
+    "One paired correctness task only; no estimate of broad reliability, token savings, or general product value.",
+    "Codex CLI with gpt-5.6-sol substituted for the planned Claude Code pilot; provider cost was not observable or dollar-capped.",
+    "A separate 120-cell Claude harness attempt produced zero model runs because child process creation failed at git init with ENOENT; see the bench artifact next to this evidence directory."
+  ],
+  "excludedAttempts": [
+    {
+      "transcript": "plain-gpt56-sol.jsonl",
+      "reason": "Completed, but excluded from the pair because ambient user MCP/plugin context made it non-comparable.",
+      "usage": {
+        "inputTokens": 159483,
+        "cachedInputTokens": 134912,
+        "outputTokens": 2856,
+        "reasoningOutputTokens": 862
+      }
+    },
+    {
+      "transcript": "plain-gpt6-sol.jsonl",
+      "reason": "The configured model was rejected before a completed turn; no native usage event was emitted."
+    },
+    {
+      "transcript": "plain.jsonl",
+      "reason": "Preflight attempt failed before a completed turn; no native usage event was emitted."
+    }
+  ],
+  "usageTotals": {
+    "countedPair": {
+      "inputTokens": 372601,
+      "cachedInputTokens": 337024,
+      "outputTokens": 5784,
+      "reasoningOutputTokens": 1742
+    },
+    "includingCompletedExcludedAttempt": {
+      "inputTokens": 532084,
+      "cachedInputTokens": 471936,
+      "outputTokens": 8640,
+      "reasoningOutputTokens": 2604
+    }
+  },
+  "evidenceSha256": {
+    "plain-isolated.jsonl": "9c8a421b935c9e103730021e5285ec9cb2fb1bc5d84b96ee172ef28ae4a57046",
+    "guarded-isolated.jsonl": "724dbdabef886f2b966e0e2fdb4de27260c7e378328e4209097105f50419ad1e",
+    "doctor-on-published-1.5.0.txt": "585869ec1d1ee627c357dfdc574fd66c67f0599c7d71392f1a5f8a261e26fa35",
+    "release-setup.txt": "198ae41de3ef634e82155b233fc2c68a9630c0b65f4a0c21c342f6ea9db5f74a",
+    "doctor-after-fix.txt": "409acfca34bed4be9af15aecb7e7db3876d89a3f596065b62d75e64675b65619",
+    "candidate.patch": "c710847d34f193d00afff8132c4896ae42532e4d5b25457349230dccc4bf3042"
+  },
+  "invalidAttempts": [
+    {
+      "id": "ollama-local-endpoint-smoke-2026-09-28",
+      "status": "invalid",
+      "artifact": "ollama-smoke-invalid-2026-09-28.md",
+      "sha256": "8dbdf1210742c8cdbdcfb983a436687eb58b64c756588b9bfaf12be15c7594ea",
+      "countedAsPilotSession": false,
+      "reportedCostUsd": 0.01325,
+      "actualCharge": "unknown",
+      "reason": "CLI reported unrecognized_model and provider=firstParty, while Ollama showed the local model loaded; response provenance and actual billing cannot be established."
+    }
+  ]
+}

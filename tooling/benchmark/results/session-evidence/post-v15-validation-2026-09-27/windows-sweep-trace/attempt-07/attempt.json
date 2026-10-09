@@ -1,0 +1,55 @@
+{
+  "number": 7,
+  "scenario": "loaded",
+  "startedAt": "2026-09-27T01:54:37.016Z",
+  "finishedAt": "2026-09-27T01:54:39.214Z",
+  "elapsedMs": 2198,
+  "parentPid": 68716,
+  "childPid": 64648,
+  "loadWorkerPids": [
+    66940,
+    61532,
+    58676,
+    70580,
+    70068,
+    6456,
+    60800,
+    69760
+  ],
+  "spawnedAtMs": 1790474076317,
+  "aliveBefore": {
+    "parent": true,
+    "child": true
+  },
+  "beforeSnapshot": {
+    "exitCode": 0,
+    "error": null,
+    "stdout": "snapshotCount=347\r\nrow=68716;present=true;ppid=65132;creationDate=2026-09-27T01:54:37.0130480Z\r\nrow=64648;present=true;ppid=68716;creationDate=2026-09-27T01:54:37.0560840Z",
+    "stderr": ""
+  },
+  "aliveImmediatelyBeforeSweep": {
+    "parent": true,
+    "child": true
+  },
+  "sweep": {
+    "killed": [
+      68716,
+      64648
+    ],
+    "failed": false
+  },
+  "aliveImmediatelyAfterSweep": {
+    "parent": false,
+    "child": false
+  },
+  "afterSnapshot": {
+    "exitCode": 0,
+    "error": null,
+    "stdout": "snapshotCount=344\r\nrow=68716;present=false\r\nrow=64648;present=false",
+    "stderr": ""
+  },
+  "childGoneAfterSweep": true,
+  "sweepRecordedChildKill": true,
+  "sweepFailed": false,
+  "interpretation": "sweep explicitly reported terminating the child"
+}

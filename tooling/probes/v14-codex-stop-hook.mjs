@@ -358,7 +358,7 @@ try {
     if (session.status === null) {
       skip('v14-end-to-end: the `codex exec` session did not finish within 300s on this host — the real-session measurement was NOT obtained');
     } else if (session.status !== 0) {
-      skip(`v14-end-to-end: \`codex exec\` exited ${session.status} (not authenticated, or it refused to run unattended here) — the real-session measurement was NOT obtained`);
+      skip(`v14-end-to-end: \`codex exec\` exited ${session.status}; this exit alone does not establish the cause — inspect the recorded session output. The real-session measurement was NOT obtained`);
     } else {
       check('E1-the-real-codex-session-EXECUTED-Canarys-hook-(its-checkpoint-record-reappeared)', () => {
         assert(hookRecord !== null, 'no .canary/last-checkpoint.json appeared during the session — the hook did not run');

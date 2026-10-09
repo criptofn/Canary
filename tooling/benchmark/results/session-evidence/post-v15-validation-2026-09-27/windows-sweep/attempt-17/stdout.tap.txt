@@ -1,0 +1,22 @@
+▶ audit F5 — sweep mechanism (live parent, positive proof)
+  ✔ sweepDescendants finds and kills a live parent's child process (1082.7789ms)
+✔ audit F5 — sweep mechanism (live parent, positive proof) (1083.6578ms)
+▶ audit F5 — containment through runCommand
+  ✔ normal exit-0 of a child that left a helper behind: sweep clean, no survivors (979.3224ms)
+  ✔ a clean exit with no descendants sweeps nothing and does not fail (513.9364ms)
+  ✔ timeout: tree kill + sweep leave no survivors and do not fail (2866.8364ms)
+  ✔ the swept child PID itself is never listed as killed (only descendants) (507.2769ms)
+✔ audit F5 — containment through runCommand (4867.8884ms)
+▶ audit S1 — POSIX session-membership predicate (setpgid escapees)
+  ✔ a member of the child session is caught even after it setpgid()s (0.1851ms)
+  ✔ a member of the child group is caught (0.1015ms)
+  ✔ an unrelated process is not swept (0.1094ms)
+✔ audit S1 — POSIX session-membership predicate (setpgid escapees) (0.5809ms)
+ℹ tests 8
+ℹ suites 3
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6032.3886

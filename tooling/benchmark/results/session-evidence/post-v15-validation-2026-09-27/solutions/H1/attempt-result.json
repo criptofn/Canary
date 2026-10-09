@@ -1,0 +1,29 @@
+{
+  "schema": "canary-release-validation-solution/1",
+  "label": "H1",
+  "probe": "tooling/probes/v15-prepare-validation-solution.mjs",
+  "probeSha256": "1d04b923e16f66dd414e96a38a39e3062f78aab6f15d5522ec6a4dcc4b9c0476",
+  "canaryPath": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-release-validation\\installed\\node_modules\\@canary-rn\\cli\\dist\\main.js",
+  "canaryBinarySha256": "3cfdfece2581b1036e1b01905be39d97161d03f683110cf40910570a5235d5e2",
+  "publishedArtifactSha256": "cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386",
+  "taskPath": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\v15-realworld\\tasks\\H1-maxagedays-zero.md",
+  "taskSha256": "56c8c17ece9ff675b2648ef1bdc71ee2dc30e2dde6d53131586b4b089ab0e977",
+  "baselineHead": "fdb28cd600a7df620fb67ed54b6ee627b0acfd1c",
+  "operation": {
+    "kind": "cherry-pick recorded solution commit",
+    "sourceCommit": "4f35b9c51d787b3a2f05c91a2ae0c8377a2b5840"
+  },
+  "candidateSourceSha256": "9b180d061e0af0db6dac2c904cc1cdc27dc6392ec509b2021081fb805f9778ff",
+  "startingRepoIdentity": {
+    "head": "fdb28cd600a7df620fb67ed54b6ee627b0acfd1c",
+    "tree": "7cef2a9cc849950aefb84cf2ba310f42fde7ccf9",
+    "status": ""
+  },
+  "finalRepoIdentity": {
+    "head": "e6ed172dc22861b90487b3392b859542d53f8d30",
+    "tree": "e803e95e6d300548a4b9e7ef1bc0562793c9661f",
+    "status": ""
+  },
+  "finishedAt": "2026-09-27T01:32:52.926Z",
+  "status": "complete"
+}

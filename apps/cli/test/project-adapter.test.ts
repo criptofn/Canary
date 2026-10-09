@@ -1,7 +1,8 @@
 /**
- * 1.1 §1 — the PROJECT ADAPTER seam must not change what Node projects do, and
+ * 1.1 §1 — the PROJECT ADAPTER seam must preserve stored Node authority, and
  * must not be able to loosen anything. Concretely: detection/discovery/digests
- * match the 1.0 functions byte-for-byte; an unregistered adapter id fails
+ * keep stored seals byte-compatible (new Node discovery builds before tests);
+ * an unregistered adapter id fails
  * closed to 'corrupt' (status 2 / never READY); setup still writes no
  * `project` key, so 1.0 config bytes are stable.
  */
@@ -44,7 +45,7 @@ function dir(name: string, files: Record<string, string>): string {
 const pkg = (scripts: Record<string, string>): string => JSON.stringify({ name: 'fx', scripts }, null, 2);
 const PLAN: PlanStep[] = [{ kind: 'tests', script: 'test' }];
 
-describe('Node detection/discovery unchanged behind the adapter', () => {
+describe('Node detection/discovery behind the adapter', () => {
   it('detects package.json presence as the same plain fact 1.0 reported', () => {
     const withPkg = dir('detect-pkg', { 'package.json': pkg({ test: 'node t.js' }) });
     assert.deepEqual(project.nodeAdapter.detect(withPkg), { detected: true, confidence: 'high', reason: 'package.json found' });
@@ -64,7 +65,7 @@ describe('Node detection/discovery unchanged behind the adapter', () => {
   it('plan discovery keeps kind ordering and name safety', () => {
     const root = dir('disc-order', { 'package.json': pkg({ build: 'tsc -b', test: 'vitest run', typecheck: 'tsc --noEmit', 'bad name': 'x', 'rm -rf': 'x' }) });
     assert.deepEqual(project.nodeAdapter.discoverChecks(root).plan,
-      [{ kind: 'typecheck', script: 'typecheck' }, { kind: 'tests', script: 'test' }, { kind: 'build', script: 'build' }]);
+      [{ kind: 'typecheck', script: 'typecheck' }, { kind: 'build', script: 'build' }, { kind: 'tests', script: 'test' }]);
     assert.equal(project.isSafeScriptName('bad name'), false);
   });
   it('the re-exports ARE the moved functions (identity, not a copy)', () => {
@@ -78,6 +79,17 @@ describe('Node detection/discovery unchanged behind the adapter', () => {
 });
 
 describe('seal/drift stay byte-compatible', () => {
+  it('a previously sealed tests-before-build plan remains intact and a reordering is drift', () => {
+    const scripts = { test: 'vitest run', build: 'tsc -b' };
+    const root = dir('legacy-sealed-order', { 'package.json': pkg(scripts) });
+    const legacy: PlanStep[] = [{ kind: 'tests', script: 'test' }, { kind: 'build', script: 'build' }];
+    const authority = project.sealPlanAuthority(legacy, scripts);
+    assert.equal(project.nodeAdapter.drift(root, { plan: legacy, planAuthority: authority }), null);
+    assert.equal(authority.planDigest, sha256('[{"kind":"tests","script":"test"},{"kind":"build","script":"build"}]'));
+    assert.match(project.nodeAdapter.drift(root, { plan: [...legacy].reverse(), planAuthority: authority })!, /plan no longer matches/);
+    assert.deepEqual(legacy.map((s) => s.kind), ['tests', 'build']);
+  });
+
   it('planDigest and scriptDigests equal the same sha256 1.0 wrote', () => {
     assert.equal(project.planDigest(PLAN), sha256('[{"kind":"tests","script":"test"}]'));
     const seal = project.sealPlanAuthority(PLAN, { test: 'vitest run' });
@@ -192,11 +204,38 @@ describe('1.1 plan-step foundation (byte-compatible with 1.0 seals)', () => {
       { kind: 'tests', script: 'test', adapter: 'node', scope: 'web' },
       { kind: 'tests', script: 'test', adapter: 'python', scope: 'backend', argv: ['python', '-m', 'pytest'] },
     ];
-    const seal = project.sealPlanAuthority(plan, { test: 'node web-test.js' });
+    const seal = project.sealPlanAuthority(plan, { 'web::test': 'node web-test.js' });
     assert.deepEqual(Object.keys(seal.scriptDigests).sort(), ['backend::test', 'web::test']);
     assert.equal(seal.scriptDigests['web::test'], sha256('node web-test.js'));
     assert.equal(seal.scriptDigests['backend::test'], sha256(JSON.stringify(['python', '-m', 'pytest'])));
     assert.notEqual(seal.scriptDigests['web::test'], seal.scriptDigests['backend::test']);
+  });
+
+  it('nested Node scripts seal their own manifests and drift never consults the root decoy', () => {
+    const root = dir('scoped-node-seal', {
+      'package.json': pkg({ test: 'node decoy.js' }),
+      'web/package.json': pkg({ test: 'node web.js' }),
+      'backend/package.json': pkg({ test: 'node backend.js' }),
+    });
+    const plan: PlanStep[] = ['web', 'backend'].map((scope) => ({ kind: 'tests', script: 'test', adapter: 'node', scope }));
+    const seal = project.sealPlanAuthority(plan, project.planScriptTexts(root, plan, { test: 'node decoy.js' }));
+    assert.equal(seal.scriptDigests['web::test'], sha256('node web.js'));
+    assert.equal(seal.scriptDigests['backend::test'], sha256('node backend.js'));
+    assert.equal(project.planAuthorityDrift(root, { plan, planAuthority: seal }), null);
+    fs.writeFileSync(path.join(root, 'backend/package.json'), pkg({ test: 'node changed.js' }));
+    assert.match(project.planAuthorityDrift(root, { plan, planAuthority: seal }) ?? '', /backend::test.*changed since setup sealed it/);
+    fs.rmSync(path.join(root, 'web/package.json'));
+    assert.match(project.planAuthorityDrift(root, { plan, planAuthority: seal }) ?? '', /web::test.*cannot be read/);
+  });
+
+  it('a linked scope outside the repository cannot supply script authority', () => {
+    const root = dir('scoped-link-root', {});
+    const outside = dir('scoped-link-outside', { 'package.json': pkg({ test: 'node outside.js' }) });
+    fs.symlinkSync(outside, path.join(root, 'web'), process.platform === 'win32' ? 'junction' : 'dir');
+    const plan: PlanStep[] = [{ kind: 'tests', script: 'test', adapter: 'node', scope: 'web' }];
+    assert.throws(() => project.planScriptTexts(root, plan, {}), /scoped package.json script cannot be read inside/);
+    const seal = project.sealPlanAuthority(plan, { 'web::test': 'node outside.js' });
+    assert.match(project.planAuthorityDrift(root, { plan, planAuthority: seal }) ?? '', /cannot be read inside this repository/);
   });
 
   it('a changed explicit argv is drift, and an unsealed step is drift', () => {

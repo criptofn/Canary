@@ -1,0 +1,29 @@
+{
+  "schema": "canary-release-validation-solution/1",
+  "label": "S1",
+  "probe": "tooling/probes/v15-prepare-validation-solution.mjs",
+  "probeSha256": "1d04b923e16f66dd414e96a38a39e3062f78aab6f15d5522ec6a4dcc4b9c0476",
+  "canaryPath": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-release-validation\\installed\\node_modules\\@canary-rn\\cli\\dist\\main.js",
+  "canaryBinarySha256": "3cfdfece2581b1036e1b01905be39d97161d03f683110cf40910570a5235d5e2",
+  "publishedArtifactSha256": "cf8f777a68f3646df0cf0228b245a8084f56329c2999bb082134a20de0b89386",
+  "taskPath": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\v15-realworld\\tasks\\S1-idlookup-ambiguity.md",
+  "taskSha256": "a06a666f8d7674b266d5d721c1872b38b48c2cd4071ec3cc8fc36f7bcd5ec57b",
+  "baselineHead": "f0adb62843bc0b9489e00912c99eace4f0dd2f25",
+  "operation": {
+    "kind": "cherry-pick recorded solution commit",
+    "sourceCommit": "761b863760af4ad81df3e27529ab694259f2012d"
+  },
+  "candidateSourceSha256": "5449c9b905c54f876d2acecbd652b53d642a1ca1b60c9ab525287a737ea06490",
+  "startingRepoIdentity": {
+    "head": "f0adb62843bc0b9489e00912c99eace4f0dd2f25",
+    "tree": "8a9ba6b22e88de8975c6559ea148e750759beda8",
+    "status": ""
+  },
+  "finalRepoIdentity": {
+    "head": "1663020d827895019b79e5c1b0b59972feaaff83",
+    "tree": "b38cb7c3f6c8db2a92e4ea9f85ff2cbfe005f576",
+    "status": ""
+  },
+  "finishedAt": "2026-09-27T01:32:52.923Z",
+  "status": "complete"
+}

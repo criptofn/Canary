@@ -1,0 +1,29 @@
+{
+  "schema": "canary-release-validation-solution/1",
+  "label": "R1",
+  "probe": "tooling/probes/v15-prepare-validation-solution.mjs",
+  "probeSha256": "ff2e3a8a458fed45573618d635526ccb13c77f380316b277d64c04c322ca12be",
+  "canaryPath": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-post-v15-improved-install-20260927\\node_modules\\@canary-rn\\cli\\dist\\main.js",
+  "canaryBinarySha256": "ba741bbeaa5d513b50e96385b999c7b0cf82392f9ae85e5f046f45f360e4ed7a",
+  "publishedArtifactSha256": "8243f3fc0c1f15fd5ec9977ba4ba240af5aeea1a4ff4d2c3027dd89fac8caf25",
+  "taskPath": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-product-progress\\tooling\\benchmark\\results\\session-evidence\\v15-realworld\\tasks\\R1-pytest-id-collision.md",
+  "taskSha256": "5a596c667197f13cb39092f9ab41ea7e2fd272c18642c4a0d82898e4ebab0efa",
+  "baselineHead": "1fe40d8505bbb0cac703c976401c17213abf1e9d",
+  "operation": {
+    "kind": "filtered recorded diff; only task source and its regression tests",
+    "sourcePath": "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-product-progress\\tooling\\benchmark\\results\\session-evidence\\v15-realworld\\runs\\R1-refactron-pytest-ids\\agent.diff"
+  },
+  "candidateSourceSha256": "7131e21520438aecac9c15c52ece19765f8becbf032a9f62872ebe46c7dbfb17",
+  "startingRepoIdentity": {
+    "head": "1fe40d8505bbb0cac703c976401c17213abf1e9d",
+    "tree": "c62d126b711dc4226f6fb02393461ee63f63eeea",
+    "status": ""
+  },
+  "finalRepoIdentity": {
+    "head": "5c115516cc462580df0f2f459a87d3a82ca31c66",
+    "tree": "9837beeffd43a4298a7ac406a3785f58eef1bc7e",
+    "status": ""
+  },
+  "finishedAt": "2026-09-27T15:34:01.798Z",
+  "status": "complete"
+}

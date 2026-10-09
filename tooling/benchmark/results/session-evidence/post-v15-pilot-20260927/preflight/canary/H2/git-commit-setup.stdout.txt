@@ -1,0 +1,5 @@
+[pilot-base 9be0142] Canary validation setup baseline H2
+ 3 files changed, 44 insertions(+)
+ create mode 100644 .claude/settings.json
+ create mode 100644 .codex/hooks.json
+ create mode 100644 .mcp.json

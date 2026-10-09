@@ -1,0 +1,18 @@
+{
+  "schema": "canary-validation-oracle/1",
+  "label": "H2",
+  "expected": "pass",
+  "probe": "tooling/probes/v15-validation-oracle.mjs",
+  "probeSha256": "798b702c9d92462075a5757905e1ada3c700e396119e756e27aadb15a09d825b",
+  "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\projects\\H2",
+  "runtimeRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\projects\\H2",
+  "startingHead": "ec6d8ba7e7173e47d8191f5c9655e94b073dbf90",
+  "startedAt": "2026-09-27T15:33:56.391Z",
+  "sourceFiles": [
+    {
+      "path": "src/workflows/fileOrganizer.js",
+      "exists": true,
+      "sha256": "dd276e7ad8618155f9f60a95e9c57b57542d5a554c7d4dfdfd600c51d9f1ccb7"
+    }
+  ]
+}

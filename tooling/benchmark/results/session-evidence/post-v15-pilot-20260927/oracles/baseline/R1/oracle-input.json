@@ -1,0 +1,23 @@
+{
+  "schema": "canary-validation-oracle/1",
+  "label": "R1",
+  "expected": "fail",
+  "probe": "tooling/probes/v15-validation-oracle.mjs",
+  "probeSha256": "798b702c9d92462075a5757905e1ada3c700e396119e756e27aadb15a09d825b",
+  "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\R1\\plain",
+  "runtimeRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-preflight2-20260927\\projects\\R1\\plain",
+  "startingHead": "1fe40d8505bbb0cac703c976401c17213abf1e9d",
+  "startedAt": "2026-09-27T15:30:42.539Z",
+  "sourceFiles": [
+    {
+      "path": "src/verify/failure-ids.ts",
+      "exists": true,
+      "sha256": "759fd0894a217c1931399f1b890c69fbdb7ea762b0a75b37026b0ddbc6e86958"
+    },
+    {
+      "path": "src/verify/summarize-vitest.ts",
+      "exists": true,
+      "sha256": "7df79a56d3c2dd107001e8acbca9b8cf90c98f10e505f3a3b4859f8b93fcc3c4"
+    }
+  ]
+}

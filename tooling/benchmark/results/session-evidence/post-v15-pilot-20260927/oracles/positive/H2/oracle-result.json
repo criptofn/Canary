@@ -1,0 +1,41 @@
+{
+  "schema": "canary-validation-oracle/1",
+  "label": "H2",
+  "expected": "pass",
+  "probe": "tooling/probes/v15-validation-oracle.mjs",
+  "probeSha256": "798b702c9d92462075a5757905e1ada3c700e396119e756e27aadb15a09d825b",
+  "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\projects\\H2",
+  "runtimeRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\projects\\H2",
+  "startingHead": "ec6d8ba7e7173e47d8191f5c9655e94b073dbf90",
+  "startedAt": "2026-09-27T15:33:56.391Z",
+  "sourceFiles": [
+    {
+      "path": "src/workflows/fileOrganizer.js",
+      "exists": true,
+      "sha256": "dd276e7ad8618155f9f60a95e9c57b57542d5a554c7d4dfdfd600c51d9f1ccb7"
+    }
+  ],
+  "finishedAt": "2026-09-27T15:33:56.496Z",
+  "command": {
+    "executable": "C:\\Program Files\\nodejs\\node.exe",
+    "args": [
+      "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\oracle-fixed\\H2\\oracle.mjs"
+    ],
+    "cwd": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-pilot-positive-controls-20260927\\projects\\H2"
+  },
+  "generatedArtifacts": [
+    "oracle.mjs"
+  ],
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "spawnError": null,
+  "compileExitCode": null,
+  "runtimeExitCode": null,
+  "testPassed": true,
+  "expectedFailureObserved": false,
+  "metExpected": true,
+  "status": "complete",
+  "stdoutSha256": "94a8d16bc66aa77a6f2a3dfb7b7682188b2ba78d681b68cf3c89650094fab086",
+  "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

@@ -1,0 +1,45 @@
+diff --git a/scripts/smoke-test.js b/scripts/smoke-test.js
+index a413249..ee03406 100644
+--- a/scripts/smoke-test.js
++++ b/scripts/smoke-test.js
+@@ -1,6 +1,6 @@
+ import assert from "node:assert/strict";
+ import { reasonFromDocuments } from "../src/agent/logicCore.js";
+-import { buildMatrixNormBriefing, matchesMatrixNormTask } from "../src/agent/matrixNormCore.js";
++import { buildMatrixNormBriefing, matchesMatrixNormTask, quantizeSymmetric } from "../src/agent/matrixNormCore.js";
+ import { previewOrganization } from "../src/workflows/fileOrganizer.js";
+ 
+ const reasoning = reasonFromDocuments("epigenetic clock benchmark", [
+@@ -22,6 +22,15 @@ assert.match(math.markdown, /Frobenius-Norm/);
+ assert.ok(math.scores.frobenius > math.scores.spectral);
+ assert.equal(math.simulation.length, 8);
+ 
++const quantSample = [[1.5, -0.25], [0.75, -1.5]];
++for (const bits of [2, 4, 8, 16]) {
++  const q = quantizeSymmetric(quantSample, bits);
++  assert.ok(q.every((row) => row.every((x) => Number.isFinite(x))));
++}
++for (const bad of [1, 0, -3, 17, 2.5, NaN, "8", null, undefined]) {
++  assert.throws(() => quantizeSymmetric(quantSample, bad), TypeError);
++}
++
+ const preview = await previewOrganization({ root: ".", maxAgeDays: 9999 });
+ assert.ok(Array.isArray(preview.moves));
+ 
+diff --git a/src/agent/matrixNormCore.js b/src/agent/matrixNormCore.js
+index 1caf599..140772a 100644
+--- a/src/agent/matrixNormCore.js
++++ b/src/agent/matrixNormCore.js
+@@ -110,7 +110,11 @@ function spectralPower(a, iterations = 32) {
+   return l2(matVec(a, x));
+ }
+ 
+-function quantizeSymmetric(a, bits) {
++export function quantizeSymmetric(a, bits) {
++  if (!Number.isInteger(bits) || bits < 2 || bits > 16) {
++    throw new TypeError(`quantizeSymmetric: bits must be an integer in 2..16, got ${String(bits)}`);
++  }
++
+   let maxAbs = 0;
+   for (const row of a) {
+     for (const x of row) maxAbs = Math.max(maxAbs, Math.abs(x));

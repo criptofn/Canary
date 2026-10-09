@@ -1,0 +1,44 @@
+[
+  {
+    "Label": "H1",
+    "Exit": 0,
+    "Status": "complete",
+    "ExpectedFailureObserved": true,
+    "OracleExit": 1
+  },
+  {
+    "Label": "H2",
+    "Exit": 0,
+    "Status": "complete",
+    "ExpectedFailureObserved": true,
+    "OracleExit": 1
+  },
+  {
+    "Label": "H3",
+    "Exit": 0,
+    "Status": "complete",
+    "ExpectedFailureObserved": true,
+    "OracleExit": 1
+  },
+  {
+    "Label": "H5",
+    "Exit": 0,
+    "Status": "complete",
+    "ExpectedFailureObserved": true,
+    "OracleExit": 1
+  },
+  {
+    "Label": "R1",
+    "Exit": 0,
+    "Status": "complete",
+    "ExpectedFailureObserved": true,
+    "OracleExit": 1
+  },
+  {
+    "Label": "S1",
+    "Exit": 0,
+    "Status": "complete",
+    "ExpectedFailureObserved": true,
+    "OracleExit": 1
+  }
+]

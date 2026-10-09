@@ -9,6 +9,20 @@ the four commands that make a report diagnosable in one round-trip.
 the verdict. `canary doctor --json` gives the same answer as one machine-readable
 envelope; `--verbose` adds the detail behind any message.
 
+For a failed check, doctor and the completion hook print a focused recheck command.
+Run `canary doctor --check <id>` after repairing that check to get a quick diagnostic.
+It reports `PARTIAL`, leaves the full completion checkpoint unchanged, and does not
+evaluate other checks or task obligations. Run `canary doctor` for the full gate.
+Scoped failures get separate output logs. Commands containing spaces or shell
+characters are quoted for PowerShell on Windows and a POSIX shell elsewhere.
+If a failure message cannot fit all checks, it lists the remaining count and
+points to `canary result --json` for the complete evidence bundle.
+
+If a nested Node project was set up with an older package and immediately reports
+that its script was never sealed, run `canary setup --yes` with the updated
+package. Setup now records each declared scope's own `package.json` script;
+changing either scope's command still blocks verification before it can run.
+
 ---
 
 ## "no supported AI harness detected"
@@ -105,9 +119,25 @@ without your change and passes with it**. A pure refactor needs a check that pin
 the behaviour you preserved. The repair is the worker's job, and Canary names what
 is missing.
 
-Two things this gate never asks: a change touching only checks, prose, licences
-or generated files is exempt; and only a human can waive it (`canary accept`,
-from a real terminal).
+When the repair message links `baseline output` or `comparison output`, open
+`verification.json` in that directory and the stdout/stderr files it names.
+Completed comparison bundles record the actual reference in `comparison.commit`
+and the overlaid check files in `comparison.overlaidChecks`. The logs remain
+available after the temporary comparison tree is removed. Their pass/fail status
+describes that comparison, not the current implementation or a session completion.
+
+If the message says the check does not pass with the current implementation and
+the same inputs used for the baseline comparison, read the two printed output
+bundles. A runtime crash caused by example files that exist only in your working
+directory is not regression proof. Create the input fixtures inside the executed
+test, or place them in its checked test surface, so both comparison runs have
+them. Then rerun `canary doctor`. Worker-authored checks keep their provenance
+warning even when the comparison succeeds.
+
+A change touching only checks, prose, licences or generated files is exempt.
+`canary accept` closes only subjective candidate duties from a real terminal;
+it cannot waive this objective regression-evidence duty. Add a distinguishing
+check, then rerun the full gate.
 
 ---
 
@@ -159,6 +189,43 @@ lets the leg run to completion and report a named verdict rather than being
 cancelled. No assertion is skipped to make it green.
 
 ---
+
+## A requirement binding is refused before writing
+
+`canary bind` requires one sealed script and nonblank text after **each**
+`--requirement`. Unknown options, extra positional arguments, missing text, and
+an option token in place of text are refused with exit 3 before any declaration,
+commit, or seal changes. Check spelling and quote each complete requirement:
+
+```sh
+canary bind test --requirement "Keep IDs stable across runs" --requirement "Keep parameter cases distinct"
+```
+
+Text beginning with a dash, such as `"--strict preserves warnings as errors"`,
+is accepted verbatim. A successful declaration still needs sealing; `--reseal`
+performs the existing operator workflow. Invalid JSON-mode requests return one
+`NEEDS ATTENTION` envelope with the same exit code as the process.
+
+## Reading verification evidence in JSON
+
+After a full `canary doctor --json` evaluates proof obligations, its optional
+`proof` field reports `registeredRequirements` and the observed obligations
+(`id`, `mode`, `status`, and any `caveat`). A count of zero means no separate
+task requirements were registered. It does not mean all requested behavior was
+covered. A `met` obligation may still carry the caveat that an agent-authored
+regression test is **not independent authority**; JSON consumers should display
+that caveat alongside the status.
+
+Completion checkpoints retain the same information. `canary result --json`
+returns it under `lastVerification.proof`, with `historical: true`: it describes
+the recorded run and cannot certify the current files. Missing `proof` means
+this information is unavailable or invalid, rather than an empty set of proven duties.
+These fields are additive; schema names, status words, exit codes, and block
+decisions are unchanged. Saved summaries never determine a new verdict.
+
+For the MCP `canary_doctor` tool, omit `check` entirely to run the full gate.
+Supply an exact sealed check id for a focused `PARTIAL` diagnostic. Empty or
+whitespace-only values are refused and are now marked invalid in `tools/list`.
 
 ## What to include in a bug report
 

@@ -13,8 +13,8 @@
  *     CONNECTED (a statement about state; never a claim the project passes).
  *   - Subdirectory entry routes to the repo root (the agent's cwd is not a
  *     config problem to solve manually).
- *   - Bare `canary` inside a repo is no longer a dead end: usage + a footer
- *     naming the repo's state, exit still 3.
+ *   - Bare `canary` shows compact read-only state and the next commands;
+ *     the full command list remains available with --help, exit still 3.
  *   - Unattended `setup` without --yes (no TTY) runs the smoke test like
  *     doctor already does; a failing project still never reads READY.
  */
@@ -25,7 +25,15 @@ import os from 'node:os';
 import path from 'node:path';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..');
-const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
+const cliOptions = process.argv.slice(2);
+if (cliOptions.length && (cliOptions.length !== 2 || cliOptions[0] !== '--cli'))
+  throw new Error('usage: lazy-connect-status.mjs [--cli <absolute CLI file>]; unsupported options cannot fall back to a development build');
+const cliIndex = process.argv.indexOf('--cli');
+const explicitCli = cliIndex < 0 ? undefined : process.argv[cliIndex + 1];
+if (cliIndex >= 0 && (!explicitCli || !path.isAbsolute(explicitCli) || !fs.statSync(explicitCli, { throwIfNoEntry: false })?.isFile()))
+  throw new Error('--cli requires an existing absolute CLI file; no development or global fallback is allowed');
+const CLI = path.resolve(explicitCli ?? path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js'));
+console.log(`CLI: ${CLI}; SHA-256: ${crypto.createHash('sha256').update(fs.readFileSync(CLI)).digest('hex')}; Node: ${process.version}`);
 
 let failures = 0;
 function check(name, fn) {
@@ -81,6 +89,23 @@ function makeRepo(name, { setup = true } = {}) {
   }
   return root;
 }
+
+check('verbose version identifies the actual runtime and CLI bytes without touching a project', () => {
+  const root = path.join(TMP, 'version-only'); fs.mkdirSync(root);
+  fs.writeFileSync(path.join(root, 'package.json'), '{"scripts":{"test":"must never execute"}}');
+  const before = manifest(root);
+  const plain = canary(['--version'], root);
+  assertEq(plain.status, 0, 'plain version exit');
+  assert(/^canary \d+\.\d+\.\d+\r?\n$/.test(plain.stdout), 'plain version must remain one line');
+  const detailed = canary(['--version', '--verbose'], root);
+  assertEq(detailed.status, 0, detailed.stderr);
+  assertEq(detailed.stdout.split(/\r?\n/)[0], plain.stdout.trim(), 'same product version');
+  assert(detailed.stdout.includes(`Node: ${process.version} (${process.platform}/${process.arch})`), 'actual Node runtime');
+  assert(detailed.stdout.includes(`Runtime: ${JSON.stringify(process.execPath)}`), 'actual runtime executable');
+  assert(detailed.stdout.includes(`CLI entry: ${JSON.stringify(CLI)}`), 'explicit CLI must identify itself');
+  assert(detailed.stdout.includes(`CLI entry SHA-256: ${crypto.createHash('sha256').update(fs.readFileSync(CLI)).digest('hex')}`), 'hash must match executed entry bytes');
+  assertStable(root, before, 'version diagnostics');
+});
 
 check('outside any git repo: NOT CONNECTED, tells the human the one next command', () => {
   const bare = path.join(TMP, 'not-a-repo'); fs.mkdirSync(bare, { recursive: true });
@@ -177,11 +202,21 @@ check('tracked config (git-committed .canary/canary.local.json): never CONNECTED
   assertStable(root, before, 'tracked');
 });
 
-check('bare `canary` in a connected repo: usage + CONNECTED footer hint, exit still 3', () => {
+check('bare `canary`: compact read-only state, full help remains explicit, exit still 3', () => {
   const root = makeRepo('bare');
+  const before = manifest(root);
   const r = canary([], root);
   assertEq(r.status, 3, 'bare usage keeps exit 3');
-  assert(/^CONNECTED —/m.test(r.stdout) && /canary status/.test(r.stdout), 'footer points at the read-only state command:\n' + r.stdout);
+  assert(r.stdout.trimStart().startsWith('CONNECTED —'), 'state is the first answer:\n' + r.stdout);
+  assert(/last verification \(historical only\): "pass" \("setup"\)/.test(r.stdout), 'show the last diagnostic as history, not current proof');
+  assert(/session end: unknown/.test(r.stdout), 'a setup pass cannot establish session completion');
+  assert(/canary result/.test(r.stdout) && /canary --help/.test(r.stdout), 'names verification state and full help');
+  assert(!/canary isolate|canary accept|canary bind/.test(r.stdout), 'bare entry must not print the expert command list');
+  const help = canary(['--help'], root);
+  assertEq(help.status, 3, 'explicit help keeps its existing exit code');
+  assert(/canary isolate/.test(help.stdout) && /canary bind/.test(help.stdout), 'full help keeps the expert commands');
+  assertStable(root, before, 'bare and explicit help');
+  assert(!fs.existsSync(path.join(root, 'sentinel.txt')), 'bare/help must not execute project checks');
   const bare = makeRepo('bare-unconnected', { setup: false });
   const r2 = canary([], bare);
   assertEq(r2.status, 3, 'exit 3');
@@ -193,6 +228,29 @@ check('bare `canary` in a connected repo: usage + CONNECTED footer hint, exit st
   // Windows profile) — then the honest footer names the UNTRUSTED repo, which
   // is correct behavior. What must never happen: claiming CONNECTED here.
   assert(!/^CONNECTED —/m.test(r3.stdout), 'never claims CONNECTED outside a connected repo:\n' + r3.stdout);
+});
+
+check('bare history stays read-only and cannot turn a forged or absent record into current proof', () => {
+  const root = makeRepo('bare-history');
+  const file = path.join(root, '.canary', 'last-checkpoint.json');
+  for (const record of [
+    { at: '2026-01-01T00:00:00Z', source: 'checkpoint', status: 'fail', hookResponse: 'blocked' },
+    { at: '2026-01-01T00:00:00Z', source: 'doctor', status: 'pass\nREADY' },
+    { status: 'pass' },
+    null,
+  ]) {
+    if (record === null) fs.rmSync(file);
+    else fs.writeFileSync(file, JSON.stringify(record));
+    const before = manifest(root);
+    const answer = canary([], root);
+    assertEq(answer.status, 3, 'history cannot change the bare CLI exit contract');
+    assert(answer.stdout.trimStart().startsWith('CONNECTED —'), 'history cannot decide wiring');
+    assert(!/^READY/m.test(answer.stdout), 'recorded text cannot inject a current verdict');
+    assert(record?.at ? /historical only/.test(answer.stdout) : /last verification: none recorded/.test(answer.stdout),
+      'only a well-formed bounded historical record is displayed');
+    assertStable(root, before, 'bare history');
+    assert(!fs.existsSync(path.join(root, 'sentinel.txt')), 'history must never execute a project check');
+  }
 });
 
 check('unattended setup without --yes (no TTY): smoke test RUNS — READY is earned, failures still never pass', () => {

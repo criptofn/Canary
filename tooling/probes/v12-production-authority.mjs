@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 const cliIndex = process.argv.indexOf('--cli');
 const cli = cliIndex < 0 ? path.join(repo, 'apps/cli/dist/src/main.js') : path.resolve(process.argv[cliIndex + 1]);
+const reportIndex = process.argv.indexOf('--report');
+const reportFile = reportIndex < 0 ? path.join(os.tmpdir(), 'v12-production-authority.json') : path.resolve(process.argv[reportIndex + 1]);
 const installedStatus = store => {
   const r = spawnSync(process.execPath, [cli, 'provider', 'status', '--json'], {
     encoding: 'utf8', windowsHide: true, timeout: 60000, env: { ...process.env, CANARY_TRUST_STORE: store },
@@ -20,10 +22,15 @@ const installedStatus = store => {
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-production-e2e-'));
 const base = path.join(root, 'base'), store = path.join(root, 'store'), work = path.join(root, 'caller');
 let broker, enrollment; let failed = 0;
-const report = { tests: [], observations: null };
+const report = { tests: [], observations: null,
+  cli: { path: cli, sha256: crypto.createHash('sha256').update(fs.readFileSync(cli)).digest('hex'), runtime: process.execPath },
+  instrumentSha256: crypto.createHash('sha256').update(fs.readFileSync(fileURLToPath(import.meta.url))).digest('hex') };
 const check = (name, ok, detail) => { report.tests.push({ name, ok, detail }); console.log(`${ok?'PASS':'FAIL'} ${name}: ${detail}`); if(!ok) failed++; };
 const command = (exe,args,cwd=root,timeout=300000) => {
-  const r = spawnSync(exe,args,{cwd,encoding:'utf8',windowsHide:true,timeout});
+  // Keep the inner stack if the measurement crashes; a green replay cannot explain it.
+  const env = args[1] === 'provider' && args[2] === 'measure-production'
+    ? { ...process.env, CANARY_VERBOSE: '1' } : process.env;
+  const r = spawnSync(exe,args,{cwd,encoding:'utf8',windowsHide:true,timeout,env});
   if(r.status!==0) throw new Error(`${exe} ${args.join(' ')}: ${r.status}\n${r.stdout}\n${r.stderr}`);
   return r.stdout;
 };
@@ -182,6 +189,11 @@ try {
     finally { fs.writeFileSync(file,original); }
   }
   if(failed===0) {
+    report.measurementInput = {
+      enrollment: JSON.parse(fs.readFileSync(path.join(store, 'enrollment.json'), 'utf8')),
+      session: JSON.parse(fs.readFileSync(path.join(store, 'measurement-session.json'), 'utf8')),
+      authorityJournal: fs.readFileSync(path.join(store, 'authority.jsonl'), 'utf8'),
+    };
     canary(['provider','measure-production',store]);
     const measurement=await import('../../apps/cli/dist/src/provider/production-measurement.js');
     const {anchorPath,PRODUCTION_MEASUREMENT}=measurement;
@@ -275,7 +287,7 @@ finally {
     const candidate=path.join(os.tmpdir(),`canary-production-${enrollment.id}-fix`);
     if(fs.existsSync(candidate)) fs.rmSync(candidate,{recursive:true,force:true});
   }
-  fs.writeFileSync(path.join(os.tmpdir(),'v12-production-authority.json'),JSON.stringify(report,null,2));
+  fs.writeFileSync(reportFile,JSON.stringify(report,null,2));
   fs.rmSync(root,{recursive:true,force:true});
   console.log(`production authority: ${report.tests.length-failed} pass, ${failed} fail`);
   process.exitCode=capabilityVerdict ? capabilityVerdict.code : (failed?1:0);

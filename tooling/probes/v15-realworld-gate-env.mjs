@@ -27,7 +27,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
-const CLI = path.join(REPO_ROOT, 'apps', 'cli', 'dist', 'src', 'main.js');
+const cliArg = process.argv.indexOf('--cli');
+const CLI = path.resolve(cliArg === -1
+  ? path.join(REPO_ROOT, 'apps', 'cli', 'dist', 'src', 'main.js')
+  : process.argv[cliArg + 1]);
 
 let failures = 0;
 const check = (name, fn) => {

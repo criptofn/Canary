@@ -25,6 +25,8 @@ import { after, describe, it } from 'node:test';
 process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-v15st-'));
 
 import { sanitizedEnv } from '@canary-rn/support';
+import { takeToolchainDirs, runPlanStep, attributeRunFailures, type CanaryConfig } from '../src/onboarding.js';
+import { controllerExecution } from '../src/provider/execution.js';
 import {
   PROJECT_CHECK_FAILURE, SEALED_ENV_CANNOT_RESOLVE, TOOLCHAIN_CANDIDATES,
   attributeFailures, attributeStepFailure, inventoryOperatorToolchain, notFoundPrograms,
@@ -196,6 +198,32 @@ const SEAL: ToolchainSeal = {
 const NOT_FOUND_CMD = "'git' is not recognized as an internal or external command,\r\noperable program or batch file.";
 
 describe('attribution: is Canary\'s environment the cause, or the project?', () => {
+  it('preserves measured process failures and does not recommend tool authorization for them', () => {
+    const plan = [{ kind: 'tests' as const, script: 'test' }];
+    const cfg = { pm: 'npm', plan } as CanaryConfig;
+    for (const error of [new Error('spawn ETIMEDOUT'), new Error('spawn EACCES'), undefined]) {
+      controllerExecution.run({ hooksDirectory: TMP, run: () => ({ status: null, stdout: 'started\n', stderr: '', ...(error ? { error } : {}) }) }, () => {
+        const step = runPlanStep(TMP, 'npm', plan[0]!);
+        assert.equal(step.ok, false);
+        assert.equal(step.exitCode, null);
+        assert.doesNotMatch(JSON.stringify(step), /executionFailure|stepProcessFailures/);
+        if (error) assert.ok(step.stderr.includes(error.message), 'retain the actual supervisor error in evidence');
+        const attribution = attributeRunFailures(TMP, cfg, [step], plan);
+        assert.equal(attribution.cause, 'unknown');
+        assert.match(attribution.reason, /CHECK PROCESS FAILURE/);
+        assert.doesNotMatch(attribution.next, /canary setup|install the tool/);
+      });
+    }
+    controllerExecution.run({ hooksDirectory: TMP, run: () => ({ status: 1, stdout: 'spawn ETIMEDOUT', stderr: '' }) }, () => {
+      const step = runPlanStep(TMP, 'npm', plan[0]!);
+      assert.equal(attributeRunFailures(TMP, cfg, [step], plan).cause, 'project', 'printed process-error prose must not forge supervisor facts');
+    });
+    controllerExecution.run({ hooksDirectory: TMP, run: () => ({ status: 0, stdout: '', stderr: '', error: new Error('output exceeded maxBuffer') }) }, () => {
+      const step = runPlanStep(TMP, 'npm', plan[0]!);
+      assert.equal(step.ok, false, 'a capture error cannot become success even with a zero exit code');
+      assert.equal(attributeRunFailures(TMP, cfg, [step], plan).cause, 'unknown');
+    });
+  });
   const base = {
     kind: 'tests', script: 'test', exitCode: 9009, output: NOT_FOUND_CMD,
     childPathDirs: [NODE_DIR, 'C:\\Windows\\System32', 'C:\\Windows'],
@@ -208,6 +236,7 @@ describe('attribution: is Canary\'s environment the cause, or the project?', () 
     assert.deepEqual(a.missing, ['git']);
     assert.match(a.reason, new RegExp(SEALED_ENV_CANNOT_RESOLVE));
     assert.doesNotMatch(a.reason, /That is your project talking/);
+    assert.ok(a.next.includes('canary setup --yes --toolchain git'));
     /*
      * PORTABILITY (v1.5 post-audit, MEASURED on the ubuntu CI leg): this assertion hardcoded the
      * Windows separator (`C:\Program Files\Git\cmd`). The fixture's directory is built with
@@ -243,6 +272,21 @@ describe('attribution: is Canary\'s environment the cause, or the project?', () 
     } finally {
       fs.rmSync(resolvesDir, { recursive: true, force: true });
     }
+  });
+
+  it('exception-style process exits have unknown cause, not a claimed project assertion failure', () => {
+    for (const exitCode of [3221225477, 3221225501, -1073741819, -1073741795]) {
+      const input = { ...base, exitCode, output: '' };
+      for (const result of [attributeStepFailure(input), attributeFailures([input])]) {
+        assert.equal(result.cause, 'unknown');
+        assert.match(result.reason, /0xc00000(?:05|1d)/);
+        assert.doesNotMatch(result.reason, /That is your project talking/);
+        assert.match(result.next, /runtime/);
+        assert.doesNotMatch(result.next, /canary setup/);
+      }
+    }
+    assert.equal(attributeFailures([{ ...base, exitCode: 1, output: 'STATUS_ACCESS_VIOLATION' }]).cause, 'project',
+      'printed crash prose alone must not override an ordinary failed check');
   });
 
   it('ENVIRONMENT: a step that could not run at all (nothing about the project was measured)', () => {
@@ -298,8 +342,8 @@ describe('npm\'s own script PATH is part of the resolution walk', () => {
 });
 
 describe('product level: a path with spaces is sealed and used verbatim', () => {
-  it('setup accepts --toolchain-dir with spaces, records it, and the sealed step sees it', () => {
-    const root = path.join(TMP, 'spaced-fixture');
+  for (const named of [false, true]) it(`setup accepts ${named ? '--toolchain' : '--toolchain-dir'} with spaces, records it, and the sealed step sees it`, () => {
+    const root = path.join(TMP, `spaced-fixture-${named}`);
     fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
     // The check proves the directory reached the CHILD environment: it fails unless the staged
     // directory (whose path contains spaces) is on the PATH the child was handed.
@@ -328,8 +372,13 @@ describe('product level: a path with spaces is sealed and used verbatim', () => 
       const r = spawnSync('git', ['-C', root, ...a], { encoding: 'utf8', timeout: 60_000 });
       assert.equal(r.status, 0, `fixture git ${a[0]} failed: ${r.stdout}${r.stderr}`);
     }
-    const run = spawnSync(process.execPath, [CLI, 'setup', '--yes', '--toolchain-dir', SPACED_DIR], {
-      cwd: root, env: { ...process.env, CANARY_TRUST_STORE: path.join(TMP, 'trust-spaced') }, encoding: 'utf8', timeout: 300_000,
+    // Only resolution is under test: this placeholder is never executed.
+    fs.writeFileSync(path.join(SPACED_DIR, WINDOWS ? 'python.exe' : 'python'), 'placeholder\n');
+    const env = { ...process.env };
+    for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
+    env.PATH = `${SPACED_DIR}${path.delimiter}${process.env.PATH ?? ''}`;
+    const run = spawnSync(process.execPath, [CLI, 'setup', '--yes', ...(named ? ['--toolchain', 'python'] : ['--toolchain-dir', SPACED_DIR])], {
+      cwd: root, env: { ...env, CANARY_TRUST_STORE: path.join(TMP, `trust-spaced-${named}`) }, encoding: 'utf8', timeout: 300_000,
     });
     const out = `${run.stdout}${run.stderr}`;
     assert.equal(run.status, 0, `setup exited ${run.status}:\n${out.split(/\r?\n/).slice(-12).join('\n')}`);
@@ -337,5 +386,34 @@ describe('product level: a path with spaces is sealed and used verbatim', () => 
     const cfg = JSON.parse(fs.readFileSync(path.join(root, '.canary', 'canary.local.json'), 'utf8')) as { toolchain?: ToolchainSeal };
     assert.deepEqual(cfg.toolchain?.dirs, [fs.realpathSync.native(SPACED_DIR)], 'the sealed config did not record the directory verbatim');
     assert.ok(Object.keys(cfg.toolchain?.found ?? {}).length >= 3, 'the setup-time inventory was not recorded');
+  });
+  it('named toolchain options consume only their values and refuse invalid names', () => {
+    assert.deepEqual(takeToolchainDirs(['--toolchain', 'java', '--toolchain=python', '--yes', 'project']), {
+      dirs: [], tools: ['java', 'python'], rest: ['--yes', 'project'], problems: [], clear: false,
+    });
+    for (const args of [['--toolchain'], ['--toolchain', '--yes'], ['--toolchain='], ['--toolchain=unknown']]) {
+      assert.ok(takeToolchainDirs(args).problems.length > 0);
+    }
+  });
+  it('named toolchain refusals and preflight do not authorize or write partial state', () => {
+    const root = path.join(TMP, 'named-refusal');
+    fs.mkdirSync(root);
+    assert.equal(spawnSync('git', ['init', root], { encoding: 'utf8' }).status, 0);
+    fs.writeFileSync(path.join(root, WINDOWS ? 'python.exe' : 'python'), 'placeholder\n');
+    const env = { ...process.env };
+    for (const key of Object.keys(env)) if (key.toUpperCase() === 'PATH') delete env[key];
+    env.PATH = root;
+    for (const args of [
+      ['--yes', '--toolchain', 'python'], // project-local shadow must never be trusted
+      ['--yes', '--toolchain', 'java', '--toolchain-dir', SPACED_DIR], // missing tool refuses all
+      ['--yes', '--toolchain=unknown'],
+      ['--yes', '--toolchain'],
+      ['--check', '--toolchain-dir', SPACED_DIR],
+    ]) {
+      const run = spawnSync(process.execPath, [CLI, 'setup', ...args], { cwd: root, env, encoding: 'utf8', timeout: 60_000 });
+      assert.equal(run.status, 2, `${args.join(' ')}: ${run.stdout}${run.stderr}`);
+      assert.equal(fs.existsSync(path.join(root, '.canary')), false, 'refusal/preflight wrote local state');
+      assert.equal(fs.existsSync(path.join(root, '.claude')), false, 'refusal/preflight wrote agent integration');
+    }
   });
 });

@@ -116,14 +116,18 @@ canary setup --yes        # ONCE per repository: seal the plan and wire the comp
 
 Two things can then stop a completion, and both tell you exactly what to do:
 
-- **the sealed checks fail** — you get one line naming the check and the failing test, with the
-  full runner output written to disk and its path printed;
+- **the sealed checks fail** — you get the check id, the failing test, the full runner output path,
+  and a focused command (`canary doctor --check <id>`) for a repair recheck. That command reports
+  `PARTIAL`; run the full gate before treating the task as complete;
 - **the checks cannot tell your change from the sealed base** (they pass on both sides) — the
   verdict is `NOT PROVEN`, and you are asked for a check that FAILS without your change and passes
   with it. A green suite that cannot discriminate your change is not evidence about it. A change
   touching only checks, prose, licences or generated files is never asked this.
 
 `canary doctor --json` is the same gate on demand, when you want the verdict before finishing.
+For a faster repair loop, use `canary doctor --check <id>` with the id printed by doctor or setup.
+It runs only that sealed check and returns `PARTIAL`; it does not update the completion checkpoint
+or evaluate the remaining checks and task obligations.
 
 ### The candidate path — for work that must be ISOLATED
 

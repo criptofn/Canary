@@ -1,0 +1,43 @@
+{
+  "schema": "canary-validation-oracle/1",
+  "label": "S1",
+  "expected": "fail",
+  "probe": "tooling/probes/v15-validation-oracle.mjs",
+  "probeSha256": "af6836fcde8b30eb1d94770c346af5dafb4174052bcb2a65bf10be53444d9ce5",
+  "repo": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\S1",
+  "runtimeRoot": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\S1",
+  "startingHead": null,
+  "startedAt": "2026-09-27T02:49:27.148Z",
+  "sourceFiles": [
+    {
+      "path": "src/main/java/net/schniedelsmp/smp/util/IdLookup.java",
+      "exists": true,
+      "sha256": "cf0b11743a86f2cde2cefa6a258af6bdeb908b432bbb316fb1a571121624e800"
+    }
+  ],
+  "finishedAt": "2026-09-27T02:49:27.894Z",
+  "command": {
+    "executable": "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.101-hotspot\\bin\\java.exe",
+    "args": [
+      "-cp",
+      "C:\\Users\\Johannes\\Desktop\\canary\\_canary-data\\worktrees\\canary-post-v15-product-validation\\tooling\\benchmark\\results\\session-evidence\\post-v15-validation-2026-09-27\\oracle-controls-final5\\oracle-results\\baseline\\S1\\classes",
+      "IdLookupOracle"
+    ],
+    "cwd": "C:\\Users\\Johannes\\AppData\\Local\\Temp\\canary-v15-oracle-archives-20260927\\baseline\\S1"
+  },
+  "generatedArtifacts": [
+    "IdLookupOracle.java"
+  ],
+  "exitCode": 1,
+  "signal": null,
+  "timedOut": false,
+  "spawnError": null,
+  "compileExitCode": 0,
+  "runtimeExitCode": 1,
+  "testPassed": false,
+  "expectedFailureObserved": true,
+  "metExpected": true,
+  "status": "complete",
+  "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderrSha256": "28b59e8e763a61a282b60174b33f5a0de95831dfcb6b66f8cd1baa39061e4002"
+}

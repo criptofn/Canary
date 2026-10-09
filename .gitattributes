@@ -14,3 +14,12 @@ schemas/evidence.schema.json text eol=lf
 # an autocrlf checkout (adding \r before the sha) would break parsing. Force
 # LF so the committed reviewed-bytes record survives every platform.
 packages/support/test/fixtures/runner-manifests/** text eol=lf
+
+# Keep captured validation logs and source snapshots byte-for-byte for evidence hashes.
+/tooling/benchmark/results/session-evidence/post-v15-validation-2026-09-27/** -text
+
+# Preserve exact bytes for the post-v1.5 pilot preflight and its SHA-256 manifest.
+/tooling/benchmark/results/session-evidence/post-v15-pilot-20260927/** -text
+
+# Retain captured evidence while keeping generated results collapsed in GitHub reviews.
+/tooling/benchmark/results/** linguist-generated

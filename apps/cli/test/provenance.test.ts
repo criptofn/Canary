@@ -95,7 +95,14 @@ async function realRun(): Promise<{ bundle: EvidenceBundle; artifactsDir: string
     fetch: async () => ({ bytes, sha256: sha256hex(bytes) }),
     extract: (_t, ws) => fs.cpSync(stub, path.join(ws, `downstream-${FAKE_SHA}`), { recursive: true }),
   });
-  assert.equal(result.bundle.classification.label, 'CONFIRMED_REGRESSION', 'pristine run must confirm');
+  if (result.bundle.classification.label !== 'CONFIRMED_REGRESSION') {
+    // Keep the actual failed run before this suite's cleanup, so a native/process failure
+    // can be investigated without replacing it with a later successful retry.
+    const failedRun = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-provenance-failure-'));
+    fs.cpSync(repoRoot, path.join(failedRun, 'run'), { recursive: true });
+    fs.writeFileSync(path.join(failedRun, 'bundle.json'), JSON.stringify(result.bundle, null, 2));
+    assert.fail(`pristine run must confirm; observed ${JSON.stringify(result.bundle.classification)}; retained run: ${failedRun}`);
+  }
   const b = result.bundle;
   // Post-GLM Finding A: the rule-5 was EARNED — every round carries a VALID
   // Canary observation of the pinned double agreeing with the text channel.

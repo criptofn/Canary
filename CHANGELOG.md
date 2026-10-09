@@ -8,6 +8,47 @@ Numbers quoted here come from executed reporter output, per
 [`docs/TEST-COUNTING.md`](docs/TEST-COUNTING.md): this file records *what
 changed*; the evidence ledgers record *what was observed*.
 
+## [Unreleased]
+
+### Changed
+
+- Top-level `canary --help` and `canary -h` now exit successfully and show help without appending
+  a repository-status answer; bare invocation and unknown commands keep their misuse exit code.
+- Everyday MCP descriptions and instructions remove repeated wording; the initialized four-tool payload
+  has a 3,600-byte base budget, and the standard configured project measured 3,846 bytes against its
+  3,900-byte budget with the test-command hint. The completion-hook and authority rules remain included.
+- Claude startup and MCP guidance now recommend runner-native file/case filters for quick feedback,
+  leaving the full sealed plan to the completion hook.
+- Canary's unproven-regression guidance explains that the starting commit is compared automatically
+  and tells agents to stay on the same branch; the doctor tool also clarifies that `check` takes a
+  check id from the plan, not task or requirement text.
+- `canary doctor` and the completion hook now advise restoring deleted verification files from the
+  sealed base, including staged, unstaged, and already committed deletions. Already committed
+  restorations must be committed before Canary can clear the block.
+- Hook and doctor repair commands now name the installed CLI path, preventing a global Canary
+  installation from being used for a focused recheck.
+- Hook setup now refuses CLI paths with shell expansion characters, and unsafe paths cannot fall
+  back to a global `canary` command in agent repair guidance.
+- `canary setup` now explains that `READY` covers the configured checks and hooks, and shows how to
+  register and bind task-specific acceptance criteria before handing work to an agent.
+- The everyday `canary_task` MCP tool now requires exact user criteria, rejects generic placeholders,
+  labels binding guidance as operator-only, and keeps unbound work `NOT PROVEN` while allowing code work.
+- `canary task` now reports existing sealed requirement bindings instead of asking the operator to
+  bind them again. Numeric bench/E2E targets require a proof binding to the matching check type.
+- Subjective acceptance eligibility is now recorded per requirement digest. A subjective criterion
+  cannot make a separate unmeasured objective requirement acceptance-eligible; older records without
+  this classification fail closed until the task is registered again.
+- Node test summaries from the TAP and spec reporters are recognized, including skipped tests.
+- A regression comparison is now NOT PROVEN when the candidate reports more skipped/pending tests
+  than its baseline. Completion and candidate promotion stay blocked until the cases run or an
+  equivalent operator-controlled check is bound; the hook, doctor, and candidate output link to
+  the saved evidence. An unchanged skipped/pending count keeps the existing gate behavior.
+- Mixed test commands compare pending counts per recognized runner, including Jest and Vitest, so
+  one runner's summary cannot hide a skip increase reported by another; diagnostics name the runner.
+- The Windows process sweep now refreshes descendant discovery before termination and traverses
+  the final snapshot independently, so a child missed by an earlier enumeration cannot silently
+  produce a clean result.
+
 ## [1.4.0] — release candidate, NOT published
 
 **CANARY v1.4.0 — "last known-gaps release".** Candidate bytes frozen on branch

@@ -6,9 +6,8 @@
 // is exactly that kind of cost: its instructions and its tool definitions are advertised to the
 // client at handshake time and re-sent on every request afterwards.
 //
-// So this probe measures the standing payload of the everyday path — the bytes a real client
-// receives before the model has done anything — and attributes them per tool, because a tool that
-// the everyday user never calls is still paid for on every turn.
+// So this probe measures the actual setup default (everyday) and the opt-in expert path separately.
+// It attributes the bytes per tool, because even an uncalled tool is sent on every turn.
 //
 // It also records the shape the BENCHMARK measures. Historically
 // `tooling/benchmark/run-trial.mjs` ran the agent with `--strict-mcp-config` and NO
@@ -17,16 +16,12 @@
 // just ran, was not loaded either. The measured canary arms were therefore the Stop-hook-only
 // shape, and the payload measured below was NOT in the 92.7% figure.
 //
-// v1.5 CLOSED THAT. `run-trial.mjs` now passes `--mcp-config <fixture>/.mcp.json` whenever the
-// fixture has one (i.e. for every arm that ran `canary setup`), so the standing payload IS
-// inside the measurement, and the everyday figure was re-derived from a fresh run
-// (`docs/BENCHMARK-EVERYDAY-1.5.md`). A4 below now asserts that state, so a regression that
-// silently drops the payload — and thereby flatters Canary — fails this probe.
+// v1.5 fixed the harness omission: `run-trial.mjs` passes `--mcp-config <fixture>/.mcp.json`
+// whenever setup produced one. The later profile split changed which tools setup writes, so the
+// historic v1.5 token results are NOT measurements of today's everyday profile. This probe measures
+// bytes and checks that future trial runs load and record the actual setup-generated config.
 //
-// ESTIMATES ARE LABELLED. Everything in the PASS/FAIL checks is measured. The token arithmetic
-// in the measurement section is provider-native (measured by
-// `tooling/probes/v15-mcp-standing-payload.mjs`); the bytes/4 figure is kept only as a labelled
-// cross-check that the two disagree by a large factor, which is itself worth knowing.
+// No token total is reused or inferred from these byte measurements.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -44,9 +39,9 @@ const check = (name, fn) => {
 };
 const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
 
-/** The tools that belong to the EXPERT surface: the candidate lifecycle the audit measured as
- *  costing 177.8% of plain. An everyday user never calls these, and pays for them per turn. */
+/** The candidate lifecycle tools the audit measured as costing 177.8% of plain. */
 const CEREMONY = ['canary_work', 'canary_finish'];
+const EXPERT_ONLY = ['canary_agents', ...CEREMONY];
 
 const env = { ...process.env, CANARY_TRUST_STORE: path.join(temp, 'local-trust') };
 const run = (exe, args, cwd, input) => spawnSync(exe, args, {
@@ -91,26 +86,33 @@ try {
     JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
     '',
   ].join('\n');
-  const srv = run(process.execPath, [cli, 'mcp'], project, rpc);
-  const replies = (srv.stdout ?? '').split('\n').filter((l) => l.trim().startsWith('{'))
-    .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  const init = replies.find((r) => r.id === 1);
-  const list = replies.find((r) => r.id === 2);
-  const tools = list?.result?.tools ?? [];
-  const instructions = init?.result?.instructions ?? '';
-
-  // Per-tool bytes, exactly as the client receives them.
-  const perTool = tools.map((t) => ({ name: t.name, bytes: Buffer.byteLength(JSON.stringify(t), 'utf8') }))
-    .sort((a, b) => b.bytes - a.bytes);
-  const toolsBytes = Buffer.byteLength(JSON.stringify(tools), 'utf8');
-  const instrBytes = Buffer.byteLength(instructions, 'utf8');
-  const standingBytes = toolsBytes + instrBytes;
-  const ceremonyBytes = perTool.filter((t) => CEREMONY.includes(t.name))
+  const measure = (profile) => {
+    const srv = run(process.execPath, [cli, 'mcp', '--profile', profile], project, rpc);
+    assert(srv.status === 0, `${profile} MCP server failed: ${srv.stdout}${srv.stderr}`);
+    const replies = (srv.stdout ?? '').split('\n').filter((l) => l.trim().startsWith('{'))
+      .map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    const init = replies.find((r) => r.id === 1);
+    const list = replies.find((r) => r.id === 2);
+    const tools = list?.result?.tools ?? [];
+    const instructions = init?.result?.instructions ?? '';
+    const perTool = tools.map((t) => ({ name: t.name, bytes: Buffer.byteLength(JSON.stringify(t), 'utf8') }))
+      .sort((a, b) => b.bytes - a.bytes);
+    const toolsBytes = Buffer.byteLength(JSON.stringify(tools), 'utf8');
+    const instrBytes = Buffer.byteLength(instructions, 'utf8');
+    return { profile, init, tools, instructions, perTool, toolsBytes, instrBytes, standingBytes: toolsBytes + instrBytes };
+  };
+  const everyday = measure('everyday');
+  const expert = measure('expert');
+  const { init, tools, instructions, perTool, standingBytes } = everyday;
+  const instrBytes = everyday.instrBytes;
+  const toolsBytes = everyday.toolsBytes;
+  const expertCeremonyBytes = expert.perTool.filter((t) => CEREMONY.includes(t.name))
     .reduce((a, t) => a + t.bytes, 0);
 
-  console.log(`INFO standing payload: ${standingBytes} B = ${instrBytes} B instructions + ${toolsBytes} B tool definitions (${tools.length} tools)`);
+  console.log(`INFO everyday payload (setup default): ${standingBytes} B = ${instrBytes} B instructions + ${toolsBytes} B tool definitions (${tools.length} tools)`);
   for (const t of perTool) console.log(`INFO   ${String(t.bytes).padStart(5)} B  ${t.name}`);
-  console.log(`INFO ceremony (${CEREMONY.join(', ')}): ${ceremonyBytes} B = ${(100 * ceremonyBytes / standingBytes).toFixed(1)}% of the standing payload`);
+  console.log(`INFO expert payload: ${expert.standingBytes} B = ${expert.instrBytes} B instructions + ${expert.toolsBytes} B tool definitions (${expert.tools.length} tools)`);
+  console.log(`INFO expert lifecycle tools (${CEREMONY.join(', ')}): ${expertCeremonyBytes} B`);
 
   check('A1-the-server-answers-the-handshake-with-instructions-a-client-really-receives', () => {
     assert(init?.result?.serverInfo?.name === 'canary', 'no canary serverInfo');
@@ -122,54 +124,44 @@ try {
     assert(perTool.length === tools.length, 'not every advertised tool was attributed');
   });
 
+  check('A2b-the-reference-everyday-handshake-stays-under-3900-bytes', () => {
+    assert(standingBytes <= 3900,
+      `everyday initialize+tools payload exceeds the 3,900-byte reference budget: ${standingBytes} B`);
+  });
+
   check('A3-acceptance-is-still-not-advertised-as-a-tool', () => {
     assert(!tools.some((t) => /accept/i.test(t.name)), 'canary_accept was advertised');
   });
 
-  check('A4-the-benchmark-INCLUDES-this-payload-and-cannot-silently-drop-it', () => {
+  check('A4-setup-default-is-the-compact-everyday-profile-and-expert-is-explicit', () => {
+    const mcp = JSON.parse(fs.readFileSync(path.join(project, '.mcp.json'), 'utf8'));
+    const args = mcp?.mcpServers?.canary?.args;
+    assert(Array.isArray(args) && args.slice(-3).join('\0') === ['mcp', '--profile', 'everyday'].join('\0'),
+      `setup did not configure the everyday profile: ${JSON.stringify(args)}`);
+    assert(EXPERT_ONLY.every((n) => expert.tools.some((t) => t.name === n)),
+      `expert profile omitted an isolation lifecycle tool: ${JSON.stringify(expert.tools.map((t) => t.name))}`);
+    assert(EXPERT_ONLY.every((n) => !tools.some((t) => t.name === n)),
+      'the everyday profile still advertises expert-only tools');
+    assert(expert.tools.length === tools.length + EXPERT_ONLY.length,
+      `expected expert to add exactly ${EXPERT_ONLY.length} tools: everyday=${tools.length}, expert=${expert.tools.length}`);
+    assert(standingBytes <= expert.standingBytes * 0.7,
+      `everyday payload is not at least 30% smaller: everyday=${standingBytes} B, expert=${expert.standingBytes} B`);
+  });
+
+  check('A5-the-trial-harness-loads-and-records-the-setup-generated-MCP-config', () => {
     const trial = fs.readFileSync(path.join(repo, 'tooling/benchmark/run-trial.mjs'), 'utf8');
     assert(trial.includes("'--strict-mcp-config'"),
       'the trial harness no longer pins hermeticity; re-read what the measured arms contain');
-    // v1.5 — the assertion is INVERTED from its historical form on purpose. It used to fail
-    // when the harness started passing `--mcp-config`, with the message "the 92.7% figure
-    // must be re-derived before it is quoted again". That re-derivation has now happened
-    // (docs/BENCHMARK-EVERYDAY-1.5.md), so the probe pins the NEW correct state: the payload
-    // must be passed, because dropping it again would understate Canary's cost.
     assert(trial.includes("'--mcp-config'"),
-      'the trial harness no longer passes an --mcp-config, so the measured canary arms EXCLUDE the '
-      + 'standing MCP payload again. That flatters Canary: the everyday figure in '
-      + 'docs/BENCHMARK-EVERYDAY-1.5.md was measured WITH the payload inside. Restore the flag or '
-      + 're-derive the published figure');
+      'trial runs must pass --mcp-config so the agent sees the project MCP config');
     assert(/mcpConfig/.test(trial),
-      'the harness no longer RECORDS whether the payload was loaded, so a trial cannot show whether '
-      + 'the standing cost was inside its own measurement');
+      'the harness must record whether the MCP config was loaded');
   });
 
-  // ── the standing payload's TOKEN cost: MEASURED provider-natively in v1.5 ──
-  // `v15-mcp-standing-payload.mjs` differences two otherwise identical sessions that
-  // differ only by `--mcp-config`, so this number is an observation, not a derivation.
-  const MEASURED_TOKENS = 438;
-  console.log(`\nMEASURED (provider-native; tooling/probes/v15-mcp-standing-payload.mjs) — the standing payload is ~${MEASURED_TOKENS} tokens, re-sent each turn:`);
-  for (const n of [5, 10, 17, 25]) {
-    console.log(`MEASURED   ${String(n).padStart(2)} turns -> ~${(MEASURED_TOKENS * n).toLocaleString('en-US')} token-equivalents of re-read context`);
-  }
-  const approxTokens = Math.round(standingBytes / 4);
-  console.log(`CROSS-CHECK (derived: bytes/4, NOT measured) — ${standingBytes} B / 4 = ~${approxTokens} tokens.`);
-  console.log(`            The derived figure OVERSTATES the measured one by ${(approxTokens / MEASURED_TOKENS).toFixed(1)}x, because`);
-  console.log('            JSON tool schemas tokenise far better than 4 bytes/token. Do not quote bytes/4 as tokens.');
-
   const open = [];
-  console.log('RESOLVED the-benchmark-excludes-the-standing-payload: v1.5 made run-trial.mjs pass '
-    + '--mcp-config, so the ' + standingBytes + ' B measured here ARE inside the everyday figure, and the '
-    + 'figure was re-derived from a fresh run (docs/BENCHMARK-EVERYDAY-1.5.md). The historical 92.7% '
-    + 'excluded them and must not be quoted as current.');
-  if (CEREMONY.every((n) => tools.some((t) => t.name === n))) {
-    open.push('the-everyday-path-advertises-the-expert-ceremony: canary_work and canary_finish are in a '
-      + 'flat module-level TOOLS array with no mode gating, so every client pays ' + ceremonyBytes + ' B per turn '
-      + '(the audit measured that surface as costing 177.8% of plain when it is DRIVEN). Removing them '
-      + 'from tools/list is a CAPABILITY decision, not an overhead cleanup — MCP has no hidden tool, so '
-      + 'gating them makes them uncallable by any agent. Not taken here.');
-  }
+  console.log(`NOTE benchmark comparability: run-trial.mjs loads the setup-generated MCP config, but the historical v1.5 token totals do not measure today's ${standingBytes} B everyday payload. No token-saving claim is made from this probe.`);
+  console.log('RESOLVED the-everyday-path-advertises-the-expert-ceremony: setup writes the everyday profile; '
+    + 'canary_work and canary_finish appear only when the operator chooses the expert profile.');
   if (/may, and should, call canary_doctor/i.test(instructions)) {
     open.push('the-instructions-invite-a-doctor-call-beside-automatic-verification: the same text says '
       + 'verification is AUTOMATIC and then tells the model it "may, and should, call canary_doctor". '

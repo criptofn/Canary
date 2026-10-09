@@ -131,7 +131,7 @@ import { digest, canonicalTask, taskWeakening, subjectDigest, TASK_KINDS, type T
 import {
   ACCEPTANCE_SUBDIR, CLI_ENTRY, CONFIG_DIR, ENV_POLICY, EVIDENCE_DIR, Out, candidateDiffSignals, candidateIdentity, containedRealPath, configPath, ensureCanarySelfIgnore,
   discriminationObligation, execDigest, findRepoRoot, gitCommand, gitExe, gitWithinRoot, hasCanaryEntry, obligationsFor, parseGlobals, parseJsonOrNull, planAuthorityDrift, planDigest, readAcceptance, readConfig,
-  readTaskRecord, runPlanStep, settingsPath, TASK_FILE, untrustedConfigReason, writeAcceptance, writeFileAtomic, writeVerificationBundle,
+  readTaskRecord, runPlanStep, planWithFreshTests, settingsPath, TASK_FILE, untrustedConfigReason, writeAcceptance, writeFileAtomic, writeVerificationBundle,
   type AcceptanceRecord, type CanaryConfig, type GitResult, type PlanStep, type StepResult, type TaskKind,
 } from './onboarding.js';
 import { authorityDrift, quarantineInfo, QUARANTINE_FILE, shortState, snapshotAuthority, snapshotTree, stampQuarantine, treeDrift, type AuthorityChange } from './authority.js';
@@ -552,11 +552,19 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   };
   let results: StepResult[];
   let regression: ReturnType<typeof discriminationObligation> = null;
+  const comparisonWrites: Array<() => string | null> = [];
+  const deferComparison: typeof writeVerificationBundle = (_subject, source, steps, status, provenance, options) => {
+    // Keep Canary's own diagnostic writes outside the authority window and
+    // outside the candidate. Execution-time subject identity is already captured.
+    comparisonWrites.push(() => writeVerificationBundle(root, source, steps, status, provenance,
+      { ...options, evidenceRoot: root }));
+    return null;
+  };
   try {
-    results = cfg.plan.map((step) => runPlanStep(rec.root, cfg.pm, step));
+    results = planWithFreshTests(cfg.plan).map((step) => runPlanStep(rec.root, cfg.pm, step));
     // Both executions stay inside the authority sandwich. The comparison uses
     // the frozen isolation base, never setup's possibly older baseline.
-    if (results.every((r) => r.ok)) regression = discriminationObligation(rec.root, cfg, 600_000, rec.baseHead);
+    if (results.every((r) => r.ok)) regression = discriminationObligation(rec.root, cfg, 600_000, rec.baseHead, deferComparison, results);
   }
   catch (e) {
     const threwDrift = inWindowDrift();
@@ -576,6 +584,11 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   // refused, so the mutated plan surface cannot re-baseline to a PASS.
   const postSeal = sealViolation('after execution');
   if (postSeal) return authorityBlock('after execution', [{ file: postSeal.file, before: 'sealed at setup — held when the window opened', after: postSeal.why }]);
+  for (const persist of comparisonWrites) {
+    const evidence = persist();
+    if (evidence && regression?.status === 'unproven') regression.note += `; comparison output: ${evidence}`;
+    if (evidence && regression?.caveat?.includes('skipped/pending cases')) regression.caveat += `; baseline comparison evidence: ${evidence}`;
+  }
   // M10 §10 — the obligation ladder over the CANDIDATE diff (baseHead frozen
   // in the record; the worktree started provably clean at isolation, so every
   // deletion here is the candidate's). The sealed plan passing is the FLOOR,
@@ -654,7 +667,8 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
       } else acceptanceStale = true;
     }
   }
-  const obList = obligations.map((x) => ({ id: x.id, mode: x.mode, status: x.status, note: x.note }));
+  const obList = obligations.map((x) => ({ id: x.id, mode: x.mode, status: x.status, note: x.note, ...(x.caveat ? { caveat: x.caveat } : {}) }));
+  for (const x of obligations) if (x.caveat) o.say(`evidence caveat [${x.id}]: ${x.caveat}`);
   const failed = results.filter((r) => !r.ok);
   if (failed.length) {
     // FAIL stays FAIL — but the bundle now carries the obligation read too
@@ -680,7 +694,9 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
     // startHead so M8 gate 1 cannot launder a green-plan-but-unproven run
     // into an apply. Closing an obligation is real work (a test, a sealed
     // bench step) — not a bytes edit.
-    writeVerificationBundle(root, 'candidate', results, 'unproven', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
+    const evidence = writeVerificationBundle(root, 'candidate', results, 'unproven', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
+    if (evidence) o.say(`full evidence: ${evidence} — per-step logs and verification.json`);
+    else o.say('Evidence storage unavailable — no saved candidate run logs are available.');
     if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
     const met = obligations.filter((x) => x.status === 'met');
     // PART II split semantics: when EVERY open obligation is one only an
@@ -753,6 +769,7 @@ function verifyCandidate(root: string, cfg: CanaryConfig, o: Out, name: string):
   if (cid.dirty !== false || !postIdentity.resolved || postIdentity.dirty !== false || postIdentity.head !== cid.head || postIdentity.tree !== cid.tree) return blocked('candidate is dirty / UNCOMMITTED or changed during verification — no promotable PASS for an unstable subject', 'commit the intended state and re-verify');
   const evidence = writeVerificationBundle(root, 'candidate', results, 'pass', prov, { evidenceRoot: root, subjectRoot: rec.root, extra: { ...extra, obligations: obList } });
   if (!evidence) o.say('Evidence storage unavailable — this verdict comes from live checks; no durable bundle is guaranteed.');
+  else if (obligations.some((x) => x.caveat)) o.say(`full evidence: ${evidence} — per-step logs and verification.json`);
   if (cid.dirty) o.detail('candidate working tree is dirty — verification ran on the checked-out files, not a committed state');
   if (obligations.length) o.detail(`obligations: ${obligations.length}/${obligations.length} MET — the sealed plan plus this task's proof obligations are all satisfied (directive §10).`);
   const cnt = gitWithinRoot(rec.root, ['rev-list', '--count', '--end-of-options', `${rec.baseHead}..HEAD`]);

@@ -1,0 +1,5 @@
+
+> refactron@0.4.5 build
+> tsc --project tsconfig.build.json && node scripts/postbuild.mjs
+
+postbuild: 4 sidecars copied and verified, 2 bins marked executable

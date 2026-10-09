@@ -1,0 +1,14 @@
+
+> Task :compileJava
+
+> Task :processResources
+> Task :classes
+> Task :compileTestJava
+> Task :processTestResources NO-SOURCE
+> Task :testClasses
+> Task :test
+
+[Incubating] Problems report is available at: file:///C:/Users/Johannes/AppData/Local/Temp/canary-v15-pilot-preflight2-20260927/projects/S1/canary/build/reports/problems/problems-report.html
+
+BUILD SUCCESSFUL in 3s
+4 actionable tasks: 4 executed

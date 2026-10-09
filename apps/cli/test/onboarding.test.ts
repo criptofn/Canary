@@ -21,13 +21,15 @@ import { after, describe, it } from 'node:test';
 process.env.CANARY_TRUST_STORE = fs.mkdtempSync(path.join(os.tmpdir(), 'canary-trust-')); // 1.1 P0 isolation: sealed copies go to a per-process temp store, never the real user one
 
 import {
-  detectPm, detectPlan, isSafeScriptName, stepArgv, buildHookCommand, hasCanaryEntry, containedRealPath,
+  detectPm, detectPlan, planWithFreshTests, isSafeScriptName, stepArgv, buildHookCommand, hasCanaryEntry, containedRealPath,
   writeConfig, readConfig, installStopHook,
   type CanaryConfig,
 } from '../src/onboarding.js';
 
 const REPO = path.resolve(import.meta.dirname, '..', '..', '..', '..');
-const CLI = path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
+const CLI = process.env.CANARY_TEST_CLI
+  ? path.resolve(process.env.CANARY_TEST_CLI)
+  : path.join(REPO, 'apps', 'cli', 'dist', 'src', 'main.js');
 assert.ok(fs.existsSync(CLI), `build first: ${CLI} missing`);
 
 const FIXTURES = path.join(REPO, 'tooling', 'test-support', 'fixtures');
@@ -77,8 +79,19 @@ describe('detection (pure)', () => {
   });
   it('plan is conservative, ordered, and exact-name only', () => {
     const plan = detectPlan({ build: 'x', test: 'x', lint: 'x', pretest: 'x', 'type-check': 'x' });
-    assert.deepEqual(plan.map((s) => s.kind), ['typecheck', 'tests', 'build']);
+    assert.deepEqual(plan.map((s) => s.kind), ['typecheck', 'build', 'tests']);
     assert.deepEqual(detectPlan({ lint: 'x' }), []);
+  });
+  it('legacy test-before-build plans repeat only their sealed tests after the final build', () => {
+    const current = detectPlan({ build: 'x', test: 'x', 'type-check': 'x' });
+    assert.deepEqual(planWithFreshTests(current), current, 'current discovery must not add work');
+    const tests = current.find((step) => step.kind === 'tests')!;
+    const build = current.find((step) => step.kind === 'build')!;
+    const legacy = [tests, build];
+    assert.deepEqual(planWithFreshTests(legacy), [tests, build, tests]);
+    assert.deepEqual(legacy, [tests, build], 'sealed plan remains unchanged');
+    assert.deepEqual(planWithFreshTests([tests]), [tests], 'no build means no repeat');
+    assert.deepEqual(planWithFreshTests([build, tests, build]), [build, tests, build, tests]);
   });
   it('shell-shaped script names never enter a plan', () => {
     for (const bad of ['te;st', 'a b', 'x&&y', 'q"uote', '']) assert.ok(!isSafeScriptName(bad), bad);
@@ -86,9 +99,16 @@ describe('detection (pure)', () => {
     assert.throws(() => stepArgv('bash', 'test'), /refused unsafe/);
     assert.deepEqual(stepArgv('npm', 'test'), ['npm', 'run', 'test']);
   });
-  it('a quote-bearing CLI path cannot be embedded — buildHookCommand refuses', () => {
+  it('a shell-expanding CLI path cannot be embedded in a hook command', () => {
     assert.equal(buildHookCommand('C:\\p"ath\\main.js'), null);
+    assert.equal(buildHookCommand('C:\\p%PATH%\\main.js'), null);
+    assert.equal(buildHookCommand('C:\\p!PATH!\\main.js'), null);
+    assert.equal(buildHookCommand('C:\\p\nmain.js'), null);
+    assert.equal(buildHookCommand('/tmp/canary$(touch owned)/main.js'), null);
+    assert.equal(buildHookCommand('/tmp/canary`touch owned`/main.js'), null);
+    assert.equal(buildHookCommand('C:\\p\\main.js\r'), null);
     assert.equal(buildHookCommand('C:\\plain path\\main.js'), 'node "C:\\plain path\\main.js" checkpoint');
+    assert.equal(buildHookCommand('C:\\A&B (test)\\main.js'), 'node "C:\\A&B (test)\\main.js" checkpoint');
   });
   it('containedRealPath: inside stays inside, outside resolves to null (S3 floor)', () => {
     const root = makeProject('contain');
@@ -99,6 +119,274 @@ describe('detection (pure)', () => {
 });
 
 describe('setup', () => {
+  it('explains the task-scope limit when no acceptance criteria were registered', () => {
+    const root = makeProject('setup-no-task-criteria');
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 0, `${setup.stdout} ${setup.stderr}`);
+    assert.match(setup.stdout, /READY/);
+    assert.match(setup.stdout, /no task acceptance criteria are registered/);
+    assert.match(setup.stdout, /cannot assess requirements it was never given/);
+    assert.match(setup.stdout, /bind them to an existing check/);
+    assert.match(setup.stdout, /--reseal/);
+
+    const registered = canary(['task', 'fix the behavior', '--requirement', 'preserve the documented result'], root);
+    assert.equal(registered.status, 0, `${registered.stdout} ${registered.stderr}`);
+    const withRequirement = canary(['setup', '--yes', root]);
+    assert.equal(withRequirement.status, 0, `${withRequirement.stdout} ${withRequirement.stderr}`);
+    assert.doesNotMatch(withRequirement.stdout, /no task acceptance criteria are registered/);
+    assert.match(withRequirement.stdout, /registered 1 requirement/);
+  });
+
+  it('build-dependent tests pass on first setup and completion after clean, while compiled regressions stay blocked', () => {
+    const root = makeProject('build-dependent', {
+      testScript: `${fx('build-dependent-check.cjs')} test`,
+      extraScripts: { build: `${fx('build-dependent-check.cjs')} build` },
+    });
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'true\n');
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 0, `${setup.stdout} ${setup.stderr}`);
+    assert.deepEqual(readCfg(root).plan.map((s) => s.kind), ['build', 'tests']);
+    const orderFile = path.join(root, 'check-order.txt');
+    assert.equal(fs.readFileSync(orderFile, 'utf8'), 'build\ntest\n');
+    fs.rmSync(path.join(root, 'dist'), { recursive: true });
+    const hookInput = JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false, cwd: root });
+    assert.equal(canary(['checkpoint'], root, hookInput).stdout.trim(), '');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'pass');
+    // A stale passing artifact must be rebuilt, then fail the real assertion.
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'false\n');
+    const blocked = canary(['checkpoint'], root, hookInput);
+    assert.equal(JSON.parse(blocked.stdout).decision, 'block');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
+    assert.equal(fs.readFileSync(path.join(root, 'dist/implementation.json'), 'utf8'), 'false\n');
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'true\n');
+    assert.equal(canary(['doctor', root]).status, 0, 'repair rebuilds before testing stale failing output');
+    // A build failure stays red even if an older artifact passes its tests.
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'BUILD_ERROR\n');
+    const badBuild = canary(['checkpoint'], root, hookInput);
+    assert.equal(JSON.parse(badBuild.stdout).decision, 'block');
+    const failed = JSON.parse(fs.readFileSync(cpFile(root), 'utf8'));
+    assert.equal(failed.status, 'fail');
+    assert.deepEqual(failed.checks.map((s: { ok: boolean }) => s.ok), [false, true]);
+    assert.equal(fs.readFileSync(orderFile, 'utf8'), 'build\ntest\n'.repeat(5));
+  });
+
+  it('an explicitly ordered test-before-build plan cannot certify stale artifacts at setup, doctor or Stop', () => {
+    const root = path.join(TMP, 'declared-legacy-order');
+    for (const dir of ['.git', '.claude', 'dist']) fs.mkdirSync(path.join(root, dir), { recursive: true });
+    const fixture = path.join(FIXTURES, 'build-dependent-check.cjs');
+    fs.writeFileSync(path.join(root, 'canary.project.json'), JSON.stringify({
+      schema: 'canary-project/1', scopes: [{ path: '.', checks: [
+        { name: 'tests', kind: 'tests', argv: [process.execPath, fixture, 'test'] },
+        { name: 'build', kind: 'build', argv: [process.execPath, fixture, 'build'] },
+      ] }],
+    }));
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'true\n');
+    fs.writeFileSync(path.join(root, 'dist/implementation.json'), 'true\n');
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 0, setup.stdout + setup.stderr);
+    assert.deepEqual(readCfg(root).plan.map((step) => step.kind), ['tests', 'build']);
+    const originalConfig = fs.readFileSync(cfgFile(root));
+    assert.deepEqual(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).checks.map((step: { ok: boolean }) => step.ok), [true, true, true]);
+    fs.writeFileSync(path.join(root, 'implementation.json'), 'false\n');
+    const doctor = canary(['doctor', root]);
+    assert.equal(doctor.status, 2, doctor.stdout + doctor.stderr);
+    assert.deepEqual(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).checks.map((step: { ok: boolean }) => step.ok), [true, true, false]);
+    fs.writeFileSync(path.join(root, 'dist/implementation.json'), 'true\n');
+    const hook = canary(['checkpoint'], root, JSON.stringify({ cwd: root, stop_hook_active: false }));
+    assert.equal(hook.status, 0, hook.stderr);
+    assert.equal(JSON.parse(hook.stdout).decision, 'block');
+    assert.deepEqual(fs.readFileSync(cfgFile(root)), originalConfig, 'execution cannot reseal the ordered plan');
+  });
+
+  it('colored Vitest collection failure reports the missing build and retains a block', () => {
+    const root = makeProject('colored-vitest-collection', { testScript: `${fx('vitest-color-check.cjs')} collection` });
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 0, `${setup.stdout} ${setup.stderr}`);
+    fs.writeFileSync(path.join(root, '.fixture-fail'), 'trigger collection failure');
+    const r = canary(['checkpoint'], root, JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false, cwd: root }));
+    assert.equal(r.status, 0, r.stderr);
+    const response = JSON.parse(r.stdout);
+    assert.equal(response.decision, 'block');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
+    assert.match(response.reason, /help-drift\.test\.ts \[ tests\/unit\/cli\/help-drift\.test\.ts \]/);
+    assert.match(response.reason, /Error: dist CLI not found\. Run npm run build before npm test\./);
+    assert.match(response.reason, /help-drift\.test\.ts:37:9/);
+    assert.doesNotMatch(response.reason, /expected caught error|passing\.test\.ts/);
+  });
+
+  it('colored Vitest completion failure names the test and source location while preserving the red gate and raw log', () => {
+    const root = makeProject('colored-vitest-failure', { testScript: fx('vitest-color-check.cjs') });
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 0, `${setup.stdout} ${setup.stderr}`);
+    fs.writeFileSync(path.join(root, '.fixture-fail'), 'trigger the controlled failure');
+    const r = canary(['checkpoint'], root, JSON.stringify({ hook_event_name: 'Stop', stop_hook_active: false, cwd: root }));
+    assert.equal(r.status, 0, r.stderr);
+    const response = JSON.parse(r.stdout);
+    assert.equal(response.decision, 'block');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
+    assert.match(response.reason, /failure-ids\.test\.ts > extractFailureIds > preserves hyphenated params/);
+    assert.match(response.reason, /AssertionError: expected false to be true/);
+    assert.match(response.reason, /failure-ids\.test\.ts:42:9/);
+    assert.ok(response.reason.includes(`${buildHookCommand(CLI)!.replace(/ checkpoint$/, '')} doctor --check test`), response.reason);
+    assert.doesNotMatch(response.reason, /passing\.test\.ts/);
+    const log = response.reason.split('full output: ')[1]?.split('\n')[0];
+    assert.ok(log && fs.existsSync(log));
+    assert.ok(fs.readFileSync(log, 'utf8').includes('\x1b[41m'), 'raw evidence keeps the runner color bytes');
+  });
+
+  it('startup context gives a finish workflow without executing checks, survives retry and preserves foreign startup hooks', () => {
+    const userStart = 'echo user-startup';
+    const root = makeProject('startup-context', { settings: { theme: 'dark', hooks: { SessionStart: [{ hooks: [{ type: 'command', command: userStart }] }] } } });
+    const marker = path.join(root, 'startup-ran-check.txt');
+    const runner = path.join(root, 'check.cjs');
+    fs.copyFileSync(path.join(FIXTURES, 'setup-check-marker.js'), runner);
+    const pkg = { scripts: { test: `node "${runner}" "${marker}"` } };
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(pkg));
+    for (const n of [1, 2]) { const r = canary(['setup', '--yes', root]); assert.equal(r.status, 0, `setup ${n}: ${r.stdout} ${r.stderr}`); }
+    fs.rmSync(marker);
+    const before = fs.readFileSync(cpFile(root));
+    const invoke = () => canary(['checkpoint', '--session-start'], root, JSON.stringify({ hook_event_name: 'SessionStart', cwd: root }));
+    const r = invoke();
+    assert.equal(r.status, 0, r.stderr);
+    const output = JSON.parse(r.stdout);
+    assert.equal(output.hookSpecificOutput.hookEventName, 'SessionStart');
+    const context = output.hookSpecificOutput.additionalContext;
+    assert.match(context, /finish.*normally/i);
+    assert.match(context, /scripts\.test/);
+    assert.match(context, /not a verification result/i);
+    assert.match(context, /call Canary MCP canary_task before inspecting or editing/i);
+    assert.match(context, /copy each verbatim, with no placeholders/i);
+    assert.match(context, /AGENT_REPORTED input only/i);
+    assert.match(context, /If unbound, do not edit the plan or run setup\/bind\/accept/i);
+    assert.match(context, /Continue authorized code work, but report NOT PROVEN/i);
+    assert.match(context, /Canary runs the sealed base comparison itself; do not switch, reset, or restore this branch/i);
+    assert.match(context, /If canary_task is unavailable, register the same intent and every exact criterion before editing/i);
+    assert.ok(context.includes(`${CLI}" task`), 'MCP fallback must use the installed CLI, not a guessed global command');
+    assert.match(context, /repeat --requirement once per criterion/i);
+    assert.match(context, /still AGENT_REPORTED input only and cannot bind or prove criteria/i);
+    assert.match(context, /file or case filter for early feedback/i);
+    assert.match(context, /full sealed checks at completion/i);
+    assert.ok(context.includes(CLI), 'repair command must name the installed CLI');
+    assert.equal(fs.existsSync(marker), false, 'startup must not execute the sealed check');
+    assert.deepEqual(fs.readFileSync(cpFile(root)), before, 'startup must not write a verification result');
+    const settings = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
+    const starts = settings.hooks.SessionStart.flatMap((group: { hooks: Array<{ command: string }> }) => group.hooks);
+    assert.equal(starts.filter((hook: { command: string }) => hook.command.endsWith('checkpoint --session-start')).length, 1);
+    assert.equal(starts.filter((hook: { command: string }) => hook.command === userStart).length, 1);
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node unsealed.js' } }));
+    assert.equal(invoke().stdout.trim(), '', 'startup must not advertise a changed command as sealed');
+    assert.deepEqual(fs.readFileSync(cpFile(root)), before);
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(pkg));
+    assert.equal(canary(['uninstall', root]).status, 0);
+    const remaining = JSON.parse(fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8'));
+    assert.equal(remaining.theme, 'dark');
+    assert.deepEqual(remaining.hooks.SessionStart.flatMap((group: { hooks: unknown[] }) => group.hooks), [{ type: 'command', command: userStart }]);
+  });
+
+  it('startup preflight refuses malformed SessionStart hooks without replacing user settings', () => {
+    const root = makeProject('startup-malformed', { settings: { hooks: { SessionStart: 'not a list' } } });
+    const file = path.join(root, '.claude/settings.json'), before = fs.readFileSync(file);
+    const result = canary(['setup', '--yes', root]);
+    assert.equal(result.status, 2);
+    assert.match(result.stdout, /SessionStart/);
+    assert.deepEqual(fs.readFileSync(file), before);
+    assert.equal(fs.existsSync(cfgFile(root)), false);
+  });
+
+  it('startup guidance cannot clear a failing completion gate', () => {
+    const root = makeProject('startup-red-gate', { testScript: fx('f-boom.js') });
+    assert.equal(canary(['setup', '--yes', root]).status, 2);
+    const before = fs.readFileSync(cpFile(root));
+    const startup = canary(['checkpoint', '--session-start'], root, JSON.stringify({ hook_event_name: 'SessionStart' }));
+    assert.equal(JSON.parse(startup.stdout).hookSpecificOutput.hookEventName, 'SessionStart');
+    assert.deepEqual(fs.readFileSync(cpFile(root)), before);
+    const stopped = canary(['checkpoint'], root, JSON.stringify({ cwd: root, hook_event_name: 'Stop', stop_hook_active: false }));
+    assert.equal(JSON.parse(stopped.stdout).decision, 'block');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
+  });
+
+  it('setup --check is read-only and never executes the planned project command', () => {
+    const root = makeProject('preflight');
+    const marker = path.join(root, 'project-command-ran.txt');
+    const script = path.join(root, 'setup-check-marker.js');
+    fs.copyFileSync(path.join(FIXTURES, 'setup-check-marker.js'), script);
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
+    pkg.scripts.test = `node "${script}" "${marker}"`;
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(pkg));
+    const r = canary(['setup', '--check', '--json', root]);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const env = JSON.parse(r.stdout) as { schema: string; status: string; setupCheck: { plan: unknown[]; harnesses: unknown[]; limitations: string[] } };
+    assert.equal(env.schema, 'canary-setup-check/1');
+    assert.equal(env.status, 'SETUP ELIGIBLE');
+    assert.equal(env.setupCheck.plan.length, 1);
+    assert.ok(env.setupCheck.harnesses.length > 0);
+    assert.ok(env.setupCheck.limitations.some((x) => /project command was run/i.test(x)));
+    assert.equal(fs.existsSync(marker), false, 'preflight must not run the planned test script');
+    assert.equal(fs.existsSync(path.join(root, '.canary')), false, 'preflight must not create Canary state');
+    assert.equal(fs.existsSync(path.join(root, '.claude', 'settings.json')), false, 'preflight must not install a hook');
+    assert.equal(fs.existsSync(path.join(root, '.mcp.json')), false, 'preflight must not write MCP settings');
+  });
+
+  it('setup --check reports hook and MCP merge conflicts without changing either file', () => {
+    const root = makeProject('preflight-conflicts', { settings: 'corrupt' });
+    const settings = path.join(root, '.claude', 'settings.json');
+    const mcp = path.join(root, '.mcp.json');
+    fs.writeFileSync(mcp, JSON.stringify({ mcpServers: { canary: { command: 'node', args: ['foreign.js'] } } }));
+    const beforeSettings = fs.readFileSync(settings, 'utf8');
+    const beforeMcp = fs.readFileSync(mcp, 'utf8');
+    const r = canary(['setup', '--check', '--json', root]);
+    assert.equal(r.status, 2);
+    const env = JSON.parse(r.stdout) as { status: string; problems: string[] };
+    assert.equal(env.status, 'SETUP NEEDS ATTENTION');
+    assert.ok(env.problems.some((x) => /Claude Code hook/.test(x)));
+    assert.ok(env.problems.some((x) => /MCP tools/.test(x)));
+    assert.equal(fs.readFileSync(settings, 'utf8'), beforeSettings);
+    assert.equal(fs.readFileSync(mcp, 'utf8'), beforeMcp);
+    assert.equal(fs.existsSync(path.join(root, '.canary')), false);
+  });
+
+  it('restores every integration file when authority sealing fails after setup writes them', () => {
+    const root = makeProject('setup-rollback', { settings: { theme: 'dark' } });
+    const codexDir = path.join(root, '.codex');
+    fs.mkdirSync(codexDir, { recursive: true });
+    const codexHooks = path.join(codexDir, 'hooks.json');
+    const codexDoc = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo user-codex' }] }] } };
+    fs.writeFileSync(codexHooks, JSON.stringify(codexDoc));
+    const settings = path.join(root, '.claude', 'settings.json');
+    const mcp = path.join(root, '.mcp.json');
+    const mcpDoc = { mcpServers: { teammate: { command: 'node', args: ['teammate.js'] } } };
+    fs.writeFileSync(mcp, JSON.stringify(mcpDoc));
+    const before = [settings, codexHooks, mcp].map((file) => fs.readFileSync(file));
+    const blockedStore = path.join(TMP, 'trust-store-is-a-file');
+    fs.writeFileSync(blockedStore, 'not a directory');
+
+    const result = canary(['setup', '--yes', root], undefined, undefined, { CANARY_TRUST_STORE: blockedStore });
+    assert.equal(result.status, 2, result.stdout + result.stderr);
+    assert.match(result.stdout, /could not store its verification record/i);
+    assert.match(result.stdout, /verified NOTHING: no project checks were run/i);
+    for (const [index, file] of [settings, codexHooks, mcp].entries()) {
+      assert.deepEqual(fs.readFileSync(file), before[index], `${path.basename(file)} must be restored byte-for-byte`);
+    }
+    assert.equal(fs.existsSync(cfgFile(root)), false, 'failed setup must not leave an active Canary config');
+  });
+
+  it('an explicitly selected expert MCP profile survives setup re-runs', () => {
+    const root = makeProject('expert-profile');
+    const first = canary(['setup', '--mcp-profile', 'expert', '--yes', root]);
+    assert.equal(first.status, 0, first.stdout + first.stderr);
+    assert.match(first.stdout, /MCP tools: expert profile \(4 everyday tools plus 3 expert tools: agents, work, finish\)/);
+    const mcpPath = path.join(root, '.mcp.json');
+    const readProfile = (): string[] => ((JSON.parse(fs.readFileSync(mcpPath, 'utf8')) as {
+      mcpServers: { canary: { args: string[] } };
+    }).mcpServers.canary.args);
+    assert.deepEqual(readProfile().slice(-2), ['--profile', 'expert']);
+    const cfg = JSON.parse(fs.readFileSync(cfgFile(root), 'utf8')) as CanaryConfig;
+    assert.equal(cfg.mcpProfile, 'expert');
+    const second = canary(['setup', '--yes', root]);
+    assert.equal(second.status, 0, second.stdout + second.stderr);
+    assert.deepEqual(readProfile().slice(-2), ['--profile', 'expert']);
+  });
+
   it('happy path: READY, hook registered, evidence written, user repo untouched otherwise', () => {
     const root = makeProject('ok', { extraScripts: { build: fx('f-pass.js') }, settings: { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo user-hook' }] }] } } });
     const r = canary(['setup', '--yes', root]);
@@ -109,6 +397,11 @@ describe('setup', () => {
     assert.equal(cmds.filter((c) => c.includes('checkpoint')).length, 1);
     assert.equal(cmds.filter((c) => c === 'echo user-hook').length, 1); // merge, not clobber
     assert.deepEqual(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'pass');
+    assert.equal(readCfg(root).mcpProfile, 'everyday');
+    const mcpArgs = ((JSON.parse(fs.readFileSync(path.join(root, '.mcp.json'), 'utf8')) as {
+      mcpServers: { canary: { args: string[] } };
+    }).mcpServers.canary.args);
+    assert.deepEqual(mcpArgs.slice(-2), ['--profile', 'everyday']);
     assert.equal(fs.readFileSync(path.join(root, '.canary', '.gitignore'), 'utf8'), '*\n');
   });
   it('re-run is idempotent: one Canary entry, no duplicates, user entry preserved', () => {
@@ -219,6 +512,11 @@ describe('checkpoint (harness entry)', () => {
     const r = canary(['checkpoint'], root, hookInput(root));
     assert.equal(r.status, 0);
     assert.equal(r.stdout.trim(), '');
+    const cp = JSON.parse(fs.readFileSync(cpFile(root), 'utf8')) as { status: string; checks: Array<{ ok: boolean }>; hookResponse: string; sessionEnd: string };
+    assert.equal(cp.status, 'pass');
+    assert.deepEqual(cp.checks.map((x) => x.ok), [true]);
+    assert.equal(cp.hookResponse, 'continued');
+    assert.equal(cp.sessionEnd, 'unknown');
   });
   it('failure -> decision:block with the reason (agent gets a repair turn)', () => {
     const root = makeProject('cp-fail', { testScript: fx('f-needs.js') });
@@ -237,8 +535,14 @@ describe('checkpoint (harness entry)', () => {
     assert.match(out.reason, /npm run test/);
     assert.match(out.reason, /exit 1/);
     assert.match(out.reason, /Fix this before finishing/);
+    assert.ok(out.reason.includes(`${buildHookCommand(CLI)!.replace(/ checkpoint$/, '')} doctor --check test`), out.reason);
+    assert.ok(!out.reason.includes('canary doctor --check test'), out.reason);
     assert.match(out.reason, /full output: .+\.log/);
     assert.ok(out.reason.length <= 1200, `the model-visible payload must stay bounded, got ${out.reason.length} chars`);
+    const cp = JSON.parse(fs.readFileSync(cpFile(root), 'utf8')) as { status: string; checks: Array<{ ok: boolean }>; hookResponse: string };
+    assert.equal(cp.status, 'fail');
+    assert.deepEqual(cp.checks.map((x) => x.ok), [false]);
+    assert.equal(cp.hookResponse, 'blocked');
   });
   it('loop guard: stop_hook_active allows with an honest systemMessage, never re-blocks', () => {
     const root = makeProject('cp-loop', { testScript: fx('f-fail.js') });
@@ -247,6 +551,73 @@ describe('checkpoint (harness entry)', () => {
     const out = JSON.parse(r.stdout) as { decision?: string; systemMessage?: string };
     assert.equal(out.decision, undefined);
     assert.match(out.systemMessage ?? '', /still failing/);
+    const cp = JSON.parse(fs.readFileSync(cpFile(root), 'utf8')) as { status: string; hookResponse: string; sessionEnd: string };
+    assert.equal(cp.status, 'fail');
+    assert.equal(cp.hookResponse, 'message-and-continue');
+    assert.equal(cp.sessionEnd, 'unknown');
+  });
+  it('scoped failures keep separate logs and recover through PARTIAL rechecks to a full proven completion', () => {
+    const root = makeProject('cp-scoped-repair');
+    fs.rmSync(path.join(root, 'package.json'));
+    const scopes = ['backend', 'front end'];
+    for (const scope of scopes) {
+      const dir = path.join(root, scope);
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'tests'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: scope.replace(/ /g, '-'), version: '1.0.0', scripts: { test: fx('f-regression.cjs') } }));
+      fs.writeFileSync(path.join(dir, 'src', 'app.js'), 'module.exports = false;\n');
+      fs.writeFileSync(path.join(dir, 'tests', 'regression.expected.json'), 'true\n');
+    }
+    fs.writeFileSync(path.join(root, 'canary.scopes.json'), JSON.stringify({ schema: 'canary-scopes/1', scopes: scopes.map((path) => ({ path, ecosystem: 'node' })) }));
+    for (const args of [['init', '-b', 'main'], ['config', 'user.name', 'Canary Repair'], ['config', 'user.email', 'repair@canary.local'], ['add', '.'], ['commit', '-m', 'baseline']]) {
+      const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true });
+      assert.equal(r.status, 0, r.stderr);
+    }
+    assert.equal(canary(['setup', '--yes', root]).status, 2, 'the sealed baseline fails both assertions');
+    const first = JSON.parse(canary(['checkpoint'], root, hookInput(root)).stdout) as { decision: string; reason: string };
+    assert.equal(first.decision, 'block');
+    const cliPrefix = buildHookCommand(CLI)!.replace(/ checkpoint$/, '');
+    assert.ok(first.reason.includes(`${cliPrefix} doctor --check backend::test`), first.reason);
+    assert.ok(first.reason.includes(`${cliPrefix} doctor --check 'front end::test'`), first.reason);
+    const logs = [...first.reason.matchAll(/full output: (.+)$/gm)].map((match) => match[1]!);
+    assert.equal(new Set(logs).size, 2);
+    for (const [i, file] of logs.entries()) {
+      const text = fs.readFileSync(file, 'utf8');
+      assert.ok(text.includes(scopes[i]!.replace(/ /g, '-')), `each pointer must show its own scoped run:\n${text}`);
+      assert.match(text, /false !== true/);
+    }
+    const manifest = path.join(root, 'backend', 'package.json');
+    const manifestBefore = fs.readFileSync(manifest);
+    const marker = path.join(root, 'unsealed-command-ran');
+    const changed = JSON.parse(manifestBefore.toString());
+    changed.scripts.test = `${fx('setup-check-marker.js')} "${marker}"`;
+    fs.writeFileSync(manifest, JSON.stringify(changed));
+    const drift = JSON.parse(canary(['checkpoint'], root, hookInput(root)).stdout);
+    assert.equal(drift.decision, 'block');
+    assert.match(drift.reason, /verification authority changed/);
+    assert.match(drift.reason, /backend::test.*changed since setup sealed it/);
+    const unrelated = canary(['doctor', '--check', 'front end::test', '--json', root]);
+    assert.equal(unrelated.status, 2, 'a partial recheck must not hide drift in another scoped check');
+    assert.notEqual(JSON.parse(unrelated.stdout).status, 'PARTIAL');
+    assert.equal(fs.existsSync(marker), false, 'the unsealed command must never run');
+    fs.writeFileSync(manifest, manifestBefore);
+    fs.writeFileSync(path.join(root, 'backend', 'src', 'app.js'), 'module.exports = true;\n');
+    const beforePartial = fs.readFileSync(cpFile(root));
+    const partial = canary(['doctor', '--check', 'backend::test', '--json', root]);
+    assert.equal(partial.status, 0, partial.stdout + partial.stderr);
+    assert.equal(JSON.parse(partial.stdout).status, 'PARTIAL');
+    assert.deepEqual(fs.readFileSync(cpFile(root)), beforePartial);
+    const stillRed = canary(['doctor', root]);
+    assert.equal(stillRed.status, 2, stillRed.stdout + stillRed.stderr);
+    assert.ok(stillRed.stdout.includes(`${cliPrefix} doctor --check 'front end::test'`));
+    const handoff = JSON.parse(canary(['checkpoint'], root, hookInput(root, true)).stdout);
+    assert.match(handoff.systemMessage, /still failing/);
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail');
+    fs.writeFileSync(path.join(root, 'front end', 'src', 'app.js'), 'module.exports = true;\n');
+    const complete = canary(['checkpoint'], root, hookInput(root, true));
+    assert.equal(complete.status, 0, complete.stderr);
+    assert.equal(complete.stdout.trim(), '', 'the real regression check discriminates both fixes');
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'pass');
   });
   it('repo without Canary wiring: exit 0, silent (stay out of the way)', () => {
     const root = makeProject('cp-none');
@@ -387,6 +758,41 @@ describe('atomic config writes (GLM F-2)', () => {
 });
 
 describe('doctor + uninstall', () => {
+  it('a passing focused check reports PARTIAL and leaves the full checkpoint unchanged', () => {
+    const root = makeProject('doctor-focused', { extraScripts: { build: 'placeholder' } });
+    const buildScript = path.join(root, 'mutable-build.js');
+    fs.copyFileSync(path.join(FIXTURES, 'f-pass.js'), buildScript);
+    const pkgPath = path.join(root, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { scripts: Record<string, string> };
+    pkg.scripts.build = `node "${buildScript}"`;
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const checkpointBefore = fs.readFileSync(cpFile(root));
+
+    fs.copyFileSync(path.join(FIXTURES, 'f-boom.js'), buildScript);
+    const focused = canary(['doctor', '--check', 'test', '--json', root]);
+    assert.equal(focused.status, 0, focused.stdout + focused.stderr);
+    const envelope = JSON.parse(focused.stdout) as {
+      schema: string; status: string; partialCheck: { id: string; passed: boolean; ran: boolean };
+    };
+    assert.equal(envelope.schema, 'canary-doctor-partial/1');
+    assert.equal(envelope.status, 'PARTIAL');
+    assert.deepEqual(envelope.partialCheck, { id: 'test', passed: true, ran: true, exitCode: 0 });
+    assert.doesNotMatch(focused.stdout, /READY/);
+    assert.deepEqual(fs.readFileSync(cpFile(root)), checkpointBefore, 'a diagnostic must not replace the completion checkpoint');
+
+    const unknown = canary(['doctor', '--check', 'not-sealed', '--json', root]);
+    assert.equal(unknown.status, 3);
+    assert.match(unknown.stdout, /available ids: build, test/);
+    assert.deepEqual(fs.readFileSync(cpFile(root)), checkpointBefore, 'an unknown id must not execute or alter a result');
+
+    const full = canary(['doctor', root]);
+    assert.equal(full.status, 2, full.stdout + full.stderr);
+    assert.match(full.stdout, /checks just failed \(build\)/i);
+    assert.ok(full.stdout.includes(`focused recheck after repair: ${buildHookCommand(CLI)!.replace(/ checkpoint$/, '')} doctor --check build`));
+    assert.equal(JSON.parse(fs.readFileSync(cpFile(root), 'utf8')).status, 'fail', 'the full gate still records the other failed check');
+  });
+
   it('READY after a green setup; hook deletion is detected loudly; --run still works (now always-on)', () => {
     const root = makeProject('doc');
     assert.equal(canary(['setup', '--yes', root]).status, 0);
@@ -468,7 +874,8 @@ describe('doctor + uninstall', () => {
     }
   });
   it('uninstall removes exactly Canary, preserves everything else; repeat is safe', () => {
-    const root = makeProject('uninst', { settings: { $schema: 'https://x', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo user-hook' }] }] } } });
+    const userHook = 'node "tools/custom-checkpoint.js" checkpoint';
+    const root = makeProject('uninst', { settings: { $schema: 'https://x', hooks: { Stop: [{ hooks: [{ type: 'command', command: userHook }] }] } } });
     assert.equal(canary(['setup', '--yes', root]).status, 0);
     const cfg = readCfg(root);
     const r = canary(['uninstall', root]);
@@ -476,7 +883,7 @@ describe('doctor + uninstall', () => {
     assert.match(r.stdout, /READY/);
     const cmds = stopCommands(root);
     assert.ok(!cmds.some((c) => cfg.hookCommands.includes(c)), 'canary command fully gone');
-    assert.equal(cmds.filter((c) => c === 'echo user-hook').length, 1, 'user hook intact');
+    assert.equal(cmds.filter((c) => c === userHook).length, 1, 'user hook intact and not mistaken for Canary');
     const doc = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'settings.json'), 'utf8')) as Record<string, unknown>;
     assert.equal(doc.$schema, 'https://x', 'unrelated keys preserved');
     assert.ok(!fs.existsSync(path.join(root, '.canary')));
@@ -484,13 +891,48 @@ describe('doctor + uninstall', () => {
     assert.match(canary(['uninstall', root]).stdout, /not installed/);
     // reinstall works
     assert.equal(canary(['setup', '--yes', root]).status, 0);
-    assert.equal(stopCommands(root).filter((c) => c.includes('checkpoint')).length, 1);
+    assert.equal(stopCommands(root).filter((c) => c === readCfg(root).hookCommand).length, 1);
+  });
+  it('setup refuses to stack a hook from a different Canary installation', () => {
+    const foreign = 'node "C:/old/node_modules/@canary-rn/cli/dist/main.js" checkpoint';
+    const root = makeProject('setup-foreign-hook', { settings: { hooks: { Stop: [{ hooks: [{ type: 'command', command: foreign }] }] } } });
+    const settings = path.join(root, '.claude', 'settings.json');
+    const before = fs.readFileSync(settings);
+    const check = canary(['setup', '--check', root]);
+    assert.equal(check.status, 2, check.stdout);
+    assert.match(check.stdout, /Canary hooks from another installation/i);
+    assert.deepEqual(fs.readFileSync(settings), before);
+    assert.ok(!fs.existsSync(cfgFile(root)));
+    const setup = canary(['setup', '--yes', root]);
+    assert.equal(setup.status, 2, setup.stdout);
+    assert.match(setup.stdout, /another Canary installation/i);
+    assert.deepEqual(fs.readFileSync(settings), before);
+    assert.ok(!fs.existsSync(cfgFile(root)));
+  });
+  it('uninstall reports and preserves an unowned hook from another Canary installation', () => {
+    const root = makeProject('uninst-foreign-hook');
+    assert.equal(canary(['setup', '--yes', root]).status, 0);
+    const cfg = readCfg(root);
+    const foreign = 'node "C:/old/node_modules/@canary-rn/cli/dist/main.js" checkpoint';
+    const settings = path.join(root, '.claude', 'settings.json');
+    const doc = JSON.parse(fs.readFileSync(settings, 'utf8')) as { hooks: { Stop: Array<{ hooks: Array<Record<string, unknown>> }> } };
+    doc.hooks.Stop.push({ hooks: [{ type: 'command', command: foreign }] });
+    fs.writeFileSync(settings, JSON.stringify(doc, null, 2));
+
+    const result = canary(['uninstall', root]);
+    assert.equal(result.status, 2, result.stdout);
+    assert.match(result.stdout, /unowned Canary hook/i);
+    assert.doesNotMatch(result.stdout, /Canary is fully removed/);
+    assert.deepEqual(stopCommands(root), [foreign]);
+    assert.ok(!stopCommands(root).includes(cfg.hookCommand));
+    assert.ok(!fs.existsSync(cfgFile(root)));
   });
   it('S1: an out-of-repo touched path in the config is refused, untouched, loudly', () => {
     const root = makeProject('s1');
     assert.equal(canary(['setup', '--yes', root]).status, 0);
     const victim = path.join(TMP, 's1-victim-settings.json');
     const cfg = readCfg(root);
+    const originalTouched = cfg.touched;
     fs.writeFileSync(victim, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: cfg.hookCommand }] }] } }, null, 2));
     const before = fs.readFileSync(victim);
     cfg.touched = [{ path: victim, created: false }]; // a doctored record steering writes outward
@@ -501,10 +943,11 @@ describe('doctor + uninstall', () => {
     assert.deepEqual(fs.readFileSync(victim), before); // not one byte changed
     assert.ok(fs.existsSync(cfgFile(root)), 'ownership record kept for the retry');
     // honest record -> honest removal
-    cfg.touched = [{ path: path.join(root, '.claude', 'settings.json'), created: false }];
+    cfg.touched = originalTouched;
     writeCfg(root, cfg);
     assert.equal(canary(['uninstall', root]).status, 0);
-    assert.ok(!stopCommands(root).some((c) => c === cfg.hookCommand));
+    const localSettings = path.join(root, '.claude', 'settings.json');
+    assert.ok(!fs.existsSync(localSettings) || !stopCommands(root).includes(cfg.hookCommand));
   });
   it('S6: partial cleanup keeps .canary so the promised retry can actually finish', () => {
     const root = makeProject('s6');

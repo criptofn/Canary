@@ -1,0 +1,8 @@
+proof level: LOCAL — the same user account that runs the agent can also re-run `canary setup --yes` and make a different plan and starting commit the ones that are checked, so this proof is same-user and operator-selected, NOT worker-independent. HARDENED is the level that adds a separate OS identity, and it is NOT available here.
+running the verification plan:
+✓ typecheck: npm run typecheck (exit 0)
+✓ tests: npm run test (exit 0)
+✓ build: npm run build (exit 0)
+
+READY — wiring verified; the checks just ran and passed, and no proof obligation is open.
+next: nothing to do — the agent finishes, Canary checks

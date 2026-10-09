@@ -8,8 +8,8 @@
  *   canary report [evidence.json] [out.html] render the human-readable report
  *                                          (no args: the latest run's evidence)
  *   --- productization surface (see onboarding.ts for its doctrine) ---
- *   canary setup    [--yes]                  detect project+harness, wire automatic
- *                                          verification, smoke-run it (READY only on proof)
+ *   canary setup    [--check] [--yes]        inspect setup or install + smoke-run
+ *                                          (--check is read-only; READY only after proof)
  *   canary doctor                            runs the checks NOW; READY only from this run
  *   canary uninstall                         remove exactly Canary's own changes
  *   canary checkpoint                        harness-internal: verify at completion boundary
@@ -45,6 +45,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { renderHtml } from '@canary-rn/report';
 import { validateBundle, type EvidenceBundle } from '@canary-rn/evidence-schema';
@@ -56,7 +57,7 @@ import {
   type ProofExpectation, type HostFingerprint, type TrustedRunSpec,
 } from './prove.js';
 import { verifyTreeSnapshots } from './verify-tree.js';
-import { cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdClaim, cmdTask, cmdBind, cmdResult, cmdAgents } from './onboarding.js';
+import { CLI_ENTRY, cmdSetup, cmdStatus, cmdDoctor, cmdUninstall, cmdCheckpoint, cmdSessionStart, cmdClaim, cmdTask, cmdBind, cmdResult, cmdAgents } from './onboarding.js';
 import { cmdIsolate, cmdAccept } from './candidate.js';
 import { appendMetric, metricFor, metricsTarget, streamSnapshot } from './metrics.js';
 import { cmdWork, cmdFinish } from './orchestrate.js';
@@ -65,7 +66,7 @@ import { cmdProvider } from './provider/commands.js'; // 1.1 §E: provider lifec
 
 const REPO_ROOT_DEFAULT = path.resolve(process.cwd());
 
-function usage(): never {
+function usage(exitCode = 3): never {
   console.log(`canary ${CANARY_VERSION} — cool diff. prove that it actually made the project better.
 
 usage:
@@ -77,8 +78,11 @@ usage:
                                           derivation checks ON THIS MACHINE — NOT a committed-
                                           proof comparison; that is prove/check. exit 0 on
                                           self-consistency, else NOT SELF-CONSISTENT, exit 3)
-  canary setup [--yes] [--toolchain-dir <abs dir>]...
-                            one-command onboarding for a Node project (AI-harness auto-wiring).
+  canary setup [--check] [--yes] [--mcp-profile everyday|expert] [--toolchain <name>]... [--toolchain-dir <abs dir>]...
+                            inspect setup without changes (--check), or install and smoke-run it.
+                            MCP defaults to four everyday tools; expert adds work/finish.
+                            --toolchain (repeatable) finds a named tool on your shell PATH
+                            and authorizes its executable directory (for example java or python).
                             --toolchain-dir (repeatable) authorizes ONE executable directory
                             for the checks your project runs: build tools a project spawns
                             itself (java, python, git) are invisible to Canary's restricted
@@ -90,9 +94,11 @@ usage:
                             writes (a few read-only git metadata reads);
                             CONNECTED / NEEDS ATTENTION / NOT CONNECTED. A statement about
                             STATE, never a claim that anything passes
+  canary mcp [--profile everyday|expert]
+                            MCP server on stdio; manual invocations default to the legacy expert profile
   canary result             the same state answer as the status command, for PROGRAMS:
                             compact, versioned JSON on stdout (checks, sealed authority,
-                            MEASURED custody level, harness capability, last checkpoint)
+                            MEASURED custody level, harness capability, recent historical checks)
                             and no log dump — full evidence stays in the files the envelope
                             names. Never runs the plan, so it is free to call
   canary agents             which agents work in this repo and at what capability:
@@ -103,11 +109,9 @@ usage:
                             removable AGENTS.md instruction block; no command ever
                             pretends a hook exists where none does
   canary doctor             is Canary actually protecting this repo? Runs the checks now;
-                            READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED (--run accepted,
-                            always on). NOT PROVEN = the plan passed but an authorized
-                            requirement has no sealed proof, or the checks cannot
-                            discriminate this change from the base — a green plan is not
-                            a proven task
+                            READY / NOT PROVEN / NEEDS ATTENTION / UNSUPPORTED
+  canary doctor --check ID  re-runs one sealed check for diagnosis (PARTIAL only;
+                            never a completion result). Run canary doctor for the full gate.
   canary uninstall          remove Canary's own changes, keep everything else
   canary claim "<text>"     the agent's account, stored as an UNTRUSTED hint — claims
                             are not evidence; only Canary's own runs decide verdicts
@@ -166,12 +170,12 @@ usage:
                             makes it STALE and the duties reopen. Objective
                             proofs are never acceptance-material; mixed tasks
                             need BOTH
-  canary version`);
-  // Lazy-Connect: a bare `canary` inside a repo is a question, not only a
-  // mistake — answer the state part read-only so the next step is obvious.
-  // (exit stays 3: no command was given; the note is a courtesy, not a verdict.)
-  cmdStatus([]); // same read-only recognition as the explicit status command
-  process.exit(3);
+  canary version [--verbose]                runtime, entry file and its SHA-256 for a bug report`);
+  if (exitCode !== 0) {
+    // Lazy-Connect: an unknown command also answers the state question read-only.
+    cmdStatus([]);
+  }
+  process.exit(exitCode);
 }
 
 function loadJson(p: string): unknown {
@@ -390,7 +394,22 @@ function cmdReport(evidencePath: string | undefined, outPath?: string): number {
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
-  if (cmd === 'version' || argv.includes('--version')) { console.log(`canary ${CANARY_VERSION}`); return 0; }
+  if (cmd === 'version' || argv.includes('--version')) {
+    console.log(`canary ${CANARY_VERSION}`);
+    if (argv.includes('--verbose')) {
+      console.log(`Node: ${process.version} (${process.platform}/${process.arch})`);
+      console.log(`Runtime: ${JSON.stringify(process.execPath)}`);
+      console.log(`CLI entry: ${JSON.stringify(CLI_ENTRY)}`);
+      console.log(`CLI entry SHA-256: ${createHash('sha256').update(fs.readFileSync(CLI_ENTRY)).digest('hex')}`);
+    }
+    return 0;
+  }
+  if (argv.length === 0) {
+    cmdStatus([], true);
+    console.log('usage: canary <command>. Verification result: canary result. All commands: canary --help.');
+    return 3; // Preserve the no-command exit contract; the state answer is read-only.
+  }
+  if (cmd === '--help' || cmd === '-h') return usage(0);
   if (cmd === 'run' && rest[0]) return cmdRun(rest[0]);
   if (cmd === 'prove' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), true);
   if (cmd === 'check' && rest[0]) return cmdProve(rest[0], rest[1] ?? defaultProofPath(rest[0]), false);
@@ -404,7 +423,7 @@ async function main(argv: string[]): Promise<number> {
   if (cmd === 'agents') return cmdAgents(rest); // 1.1 §18-21: which agents work here, and at what capability
   if (cmd === 'doctor') return cmdDoctor(rest);
   if (cmd === 'uninstall') return cmdUninstall(rest);
-  if (cmd === 'checkpoint') return cmdCheckpoint();
+  if (cmd === 'checkpoint') return rest.length === 1 && rest[0] === '--session-start' ? cmdSessionStart() : cmdCheckpoint();
   if (cmd === 'claim') return cmdClaim(rest);
   if (cmd === 'task') return cmdTask(rest);
   // 1.1 Update 5 — the OPERATOR's binding act: attach a stated requirement to a sealed check, so
@@ -451,6 +470,6 @@ main(process.argv.slice(2))
     console.error('Canary hit an internal error and stopped. That is a defect in Canary, not a statement about your project.');
     console.error(`  what happened: ${e instanceof Error ? e.message : String(e)}`);
     console.error('  what it means: this run verified NOTHING — do not read it as a pass, and not as a failure of your code either.');
-    console.error('  what to do: if the message above names a path you can fix (a FILE where Canary needs a directory, or a location this account cannot write), fix that first and re-run; otherwise re-run with CANARY_VERBOSE=1 for the full detail, then report it with `canary --version`, `canary status --json` and `canary doctor --json`.');
+    console.error('  what to do: if the message above names a path you can fix (a FILE where Canary needs a directory, or a location this account cannot write), fix that first and re-run; otherwise re-run with CANARY_VERBOSE=1 for the full detail, then report it with `canary --version --verbose`, `canary status --json` and `canary doctor --json`.');
     finish(3);
   });
