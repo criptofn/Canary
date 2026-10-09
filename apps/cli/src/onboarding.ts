@@ -4203,7 +4203,8 @@ export function cmdDoctor(rawArgs: string[]): number {
       checks: ran, hookResponse: 'not-applicable', next: unmet.map((x) => x.note).join('; '), evidencePath: evidenceDir ?? undefined, proof,
     });
     o.context({ problems: unmet.map((x) => x.note) });
-    o.verdict('NEEDS ATTENTION', `the sealed checks pass, but a proof obligation is objectively violated — ${unmet.map((x) => x.note).join('; ')}`, 'restore the deleted verification files with `git restore --source=HEAD --staged --worktree <path>` — or have a human review this deletion; then: canary doctor');
+    const restoreSource = cfg.baseline?.head ?? 'HEAD';
+    o.verdict('NEEDS ATTENTION', `the sealed checks pass, but a proof obligation is objectively violated — ${unmet.map((x) => x.note).join('; ')}`, `restore the deleted verification files with \`git restore --source=${restoreSource} --staged --worktree <path>\`; if the deletion was already committed, commit the restoration before rerunning doctor — or have a human review this deletion`);
     return 2;
   }
   /**
@@ -4450,10 +4451,11 @@ export async function cmdCheckpoint(): Promise<number> {
       writeCheckpoint(root, 'fail', ['obligation'], 'checkpoint', {
         checks: ran, hookResponse: 'blocked', next: why, evidencePath: evidenceDir ?? undefined, proof,
       });
-      // the advice must actually fix BOTH attributable shapes: `git checkout --`
-      // restores from the INDEX, which is exactly where a staged deletion lives
-      // (review #3) — restore from HEAD across index and worktree instead.
-      return emit({ decision: 'block', reason: `Canary blocked completion: ${why}. A green plan cannot certify checks that no longer exist. Restore them (git restore --source=HEAD --staged --worktree <path>) or have a HUMAN review this deletion — an agent claim cannot authorize it (claims are not evidence).` });
+      // The repair must cover staged, worktree and committed deletions. Restore
+      // from the sealed baseline, across both index and worktree; HEAD may
+      // already be missing the file when an agent committed its deletion.
+      const restoreSource = cfg.baseline?.head ?? 'HEAD';
+      return emit({ decision: 'block', reason: `Canary blocked completion: ${why}. A green plan cannot certify checks that no longer exist. Restore them (git restore --source=${restoreSource} --staged --worktree <path>); if the deletion was already committed, commit the restoration before retrying Canary. Or have a HUMAN review this deletion — an agent claim cannot authorize it (claims are not evidence).` });
     }
     if (unproven.length > 0) {
       // FAIL CLOSED on an OBJECTIVE obligation, as the product invariant requires: an objective

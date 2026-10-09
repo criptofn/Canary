@@ -123,7 +123,7 @@ try {
     assert.equal(d.status, 2);
     assert.match(d.stdout, /NEEDS ATTENTION/);
     assert.match(d.stdout, /objectively violated/i);
-    assert.match(d.stdout, /git restore --source=HEAD --staged --worktree <path>/);
+    assert.ok(d.stdout.includes(`git restore --source=${headAtInit} --staged --worktree <path>`), d.stdout);
     assert.doesNotMatch(d.stdout, /git checkout -- <path>/);
   });
 
@@ -144,18 +144,18 @@ try {
     git(root, 'rm', '-q', 'tests/unit.test.js'); // deletion lives in the INDEX only
     // a CLEAN stamp proves the index matched HEAD at setup — staged residue NOW is the agent's
     const out = cp(root);
-    assert.equal(out.decision, 'block');
-    assert.match(out.reason, /coverage removed by candidate/i);
-    assert.match(out.reason, /git restore --source=HEAD --staged --worktree/);
     const d = canary(['doctor', root]);
     // Repair before asserting so a deliberately red pre-fix run leaves the fixture
     // clean for the following scenarios.
-    git(root, 'restore', '--source=HEAD', '--staged', '--worktree', 'tests/unit.test.js');
+    git(root, 'restore', `--source=${headAtInit}`, '--staged', '--worktree', 'tests/unit.test.js');
     assert.equal(cp(root), null, 'the doctor repair must restore a passing checkpoint');
     assert.equal(canary(['doctor', root]).status, 0, 'the repaired tree must return to READY');
+    assert.equal(out.decision, 'block');
+    assert.match(out.reason, /coverage removed by candidate/i);
+    assert.ok(out.reason.includes(`git restore --source=${headAtInit} --staged --worktree`), out.reason);
     assert.equal(d.status, 2, d.stdout);
     assert.match(d.stdout, /NEEDS ATTENTION/);
-    assert.match(d.stdout, /git restore --source=HEAD --staged --worktree <path>/);
+    assert.ok(d.stdout.includes(`git restore --source=${headAtInit} --staged --worktree <path>`), d.stdout);
     assert.doesNotMatch(d.stdout, /git checkout -- <path>/);
   });
 
@@ -163,12 +163,21 @@ try {
     git(root, 'rm', '-q', 'tests/unit.test.js');
     git(root, 'commit', '-q', '-m', 'drop the test');
     const out = cp(root);
+    const d = canary(['doctor', root]);
+    git(root, 'restore', `--source=${headAtInit}`, '--staged', '--worktree', 'tests/unit.test.js');
+    const stillBlocked = cp(root);
+    assert.equal(stillBlocked.decision, 'block', 'a committed deletion stays blocked until its restoration reaches HEAD');
+    git(root, 'add', 'tests/unit.test.js');
+    git(root, 'commit', '-q', '-m', 'restore test coverage');
+    assert.equal(cp(root), null);
+    assert.equal(canary(['doctor', root]).status, 0, 'restoring from the sealed base must return doctor to READY');
     assert.equal(out.decision, 'block');
     assert.match(out.reason, /coverage removed by candidate/i);
-    git(root, 'checkout', 'HEAD~1', '--', 'tests/unit.test.js');
-    git(root, 'add', '-A');
-    git(root, 'commit', '-q', '-m', 'undrop the test');
-    assert.equal(cp(root), null);
+    assert.ok(out.reason.includes(`git restore --source=${headAtInit} --staged --worktree`), out.reason);
+    assert.match(out.reason, /if the deletion was already committed, commit the restoration/i);
+    assert.equal(d.status, 2, d.stdout);
+    assert.ok(d.stdout.includes(`git restore --source=${headAtInit} --staged --worktree <path>`), d.stdout);
+    assert.match(d.stdout, /if the deletion was already committed, commit the restoration/i);
   });
 
   check('renames on a clean baseline: out of test paths = coverage loss; staying a test = not (review #5)', () => {
