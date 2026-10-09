@@ -108,7 +108,7 @@ async function session(name, prompt, hooks, tools = false, options = {}) {
       ? 'Repair the requested source file using the available tools. Keep checks and Canary configuration unchanged. Do not delegate. Finish with a short factual summary.'
       : 'Reply with one short sentence. This is a local completion-hook control. No tools are available.'];
   if (tools) args.push('--permission-mode', 'acceptEdits', '--allowedTools',
-    'Read,Write,Edit,Glob,Grep,Bash,mcp__canary__canary_result,mcp__canary__canary_status,mcp__canary__canary_agents,mcp__canary__canary_doctor',
+    'Read,Write,Edit,Glob,Grep,Bash,mcp__canary__canary_result,mcp__canary__canary_status,mcp__canary__canary_agents,mcp__canary__canary_doctor,mcp__canary__canary_task',
     '--effort', 'low', '--max-turns', String(options.maxTurns ?? 50), '--disallowedTools',
     'Bash(*setup*),Bash(*bind*),Bash(*accept*),Edit(**/.canary/**),Write(**/.canary/**),Edit(**/.claude/**),Write(**/.claude/**),Edit(**/.mcp.json),Write(**/.mcp.json),Edit(**/package.json),Write(**/package.json),Edit(**/build.gradle.kts),Write(**/build.gradle.kts)');
   let stdout = '', stderr = '', timedOut = false;

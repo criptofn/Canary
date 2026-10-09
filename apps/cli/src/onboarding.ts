@@ -1967,7 +1967,10 @@ export function cmdSessionStart(): number {
       `Work in ${JSON.stringify(root)}.`,
       'Implement the requested change and regression assertions, then finish normally with a factual summary.',
       'For stated criteria, call Canary MCP canary_task before inspecting or editing; copy each verbatim, with no placeholders. It is AGENT_REPORTED input only and cannot bind or prove criteria.',
-      'If unbound, do not edit the plan or run setup/bind/accept. Continue authorized code work, but report NOT PROVEN. If canary_task is unavailable, tell the operator.',
+      'If unbound, do not edit the plan or run setup/bind/accept. Continue authorized code work, but report NOT PROVEN.',
+      cliPrefix === null
+        ? 'If canary_task is unavailable, tell the operator so they can register the exact criteria before you edit; no installed CLI path is safe to run from this hook.'
+        : `If canary_task is unavailable, register the same intent and every exact criterion before editing with ${cliPrefix} task "<intent>" --requirement "<criterion>" (repeat --requirement once per criterion; quote each value safely for this shell). This is still AGENT_REPORTED input only and cannot bind or prove criteria.`,
       'Use the project test runner\'s file or case filter for early feedback. The Stop hook runs the full sealed checks at completion; do not rerun the full suite just for a Canary verdict.',
       'If the hook reports a failure, repair that problem and recheck its exact id with canary_doctor(check). A focused result is PARTIAL.',
       cliPrefix === null
