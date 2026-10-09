@@ -4203,7 +4203,7 @@ export function cmdDoctor(rawArgs: string[]): number {
       checks: ran, hookResponse: 'not-applicable', next: unmet.map((x) => x.note).join('; '), evidencePath: evidenceDir ?? undefined, proof,
     });
     o.context({ problems: unmet.map((x) => x.note) });
-    o.verdict('NEEDS ATTENTION', `the sealed checks pass, but a proof obligation is objectively violated — ${unmet.map((x) => x.note).join('; ')}`, 'restore the deleted verification files (git checkout -- <path>) — or a human reviews this deletion; then: canary doctor');
+    o.verdict('NEEDS ATTENTION', `the sealed checks pass, but a proof obligation is objectively violated — ${unmet.map((x) => x.note).join('; ')}`, 'restore the deleted verification files with `git restore --source=HEAD --staged --worktree <path>` — or have a human review this deletion; then: canary doctor');
     return 2;
   }
   /**

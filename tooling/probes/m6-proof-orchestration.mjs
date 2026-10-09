@@ -123,6 +123,8 @@ try {
     assert.equal(d.status, 2);
     assert.match(d.stdout, /NEEDS ATTENTION/);
     assert.match(d.stdout, /objectively violated/i);
+    assert.match(d.stdout, /git restore --source=HEAD --staged --worktree <path>/);
+    assert.doesNotMatch(d.stdout, /git checkout -- <path>/);
   });
 
   check('loop guard holds for obligation blocks: one repair attempt, then honest stop (no re-block)', () => {
@@ -132,21 +134,29 @@ try {
     assert.match(out.systemMessage, /human should look/);
   });
 
-  check('git checkout restores the deleted test: silent verification returns (a gate, not a grudge)', () => {
-    git(root, 'checkout', '--', 'tests/unit.test.js');
+  check('git restore restores the deleted test: silent verification returns (a gate, not a grudge)', () => {
+    git(root, 'restore', '--source=HEAD', '--staged', '--worktree', 'tests/unit.test.js');
     assert.ok(fs.existsSync(path.join(root, 'tests', 'unit.test.js')));
     assert.equal(cp(root), null);
   });
 
   check('a STAGED (uncommitted) deletion on a CLEAN baseline blocks, and the printed advice really unmutes (review #3)', () => {
     git(root, 'rm', '-q', 'tests/unit.test.js'); // deletion lives in the INDEX only
+    // a CLEAN stamp proves the index matched HEAD at setup — staged residue NOW is the agent's
     const out = cp(root);
     assert.equal(out.decision, 'block');
     assert.match(out.reason, /coverage removed by candidate/i);
     assert.match(out.reason, /git restore --source=HEAD --staged --worktree/);
-    // a CLEAN stamp proves the index matched HEAD at setup — staged residue NOW is the agent's
+    const d = canary(['doctor', root]);
+    // Repair before asserting so a deliberately red pre-fix run leaves the fixture
+    // clean for the following scenarios.
     git(root, 'restore', '--source=HEAD', '--staged', '--worktree', 'tests/unit.test.js');
-    assert.equal(cp(root), null, 'the advice must actually unblock — a doomed repair loop is a defect');
+    assert.equal(cp(root), null, 'the doctor repair must restore a passing checkpoint');
+    assert.equal(canary(['doctor', root]).status, 0, 'the repaired tree must return to READY');
+    assert.equal(d.status, 2, d.stdout);
+    assert.match(d.stdout, /NEEDS ATTENTION/);
+    assert.match(d.stdout, /git restore --source=HEAD --staged --worktree <path>/);
+    assert.doesNotMatch(d.stdout, /git checkout -- <path>/);
   });
 
   check('a COMMITTED deletion blocks via the sealed baseline; a committed restore unblocks', () => {

@@ -22,6 +22,8 @@ changed*; the evidence ledgers record *what was observed*.
 - Canary's unproven-regression guidance now says that baseline comparison is automatic and tells
   agents to keep the current branch intact; the doctor tool also clarifies that `check` takes a
   sealed check id, not task or requirement text.
+- `canary doctor` now restores deleted verification files with a Git command that fixes both staged
+  and unstaged deletions; the completion hook already used this command.
 - Hook and doctor repair commands now name the installed CLI path, preventing a global Canary
   installation from being used for a focused recheck.
 - Hook setup now refuses CLI paths with shell expansion characters, and unsafe paths cannot fall
